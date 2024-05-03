@@ -19,7 +19,8 @@ path = './results'
 logpath = './logs'
 settingspath = './settings'
 
-logfile = f'{str(datetime.datetime.now()).replace(":","_")[:19]}.log' 
+logfile = f'{str(datetime.datetime.now()).replace(":","_")[:19]}.log'
+log_level = os.environ['log_level']
 # stdout = f'{str(datetime.datetime.now()).replace(":","_")[:19]}_stdout.txt' # 평시 문구
 # stderr = f'{str(datetime.datetime.now()).replace(":","_")[:19]}_stderr.txt' # 에러 문구
 
