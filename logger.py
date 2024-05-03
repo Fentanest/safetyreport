@@ -9,7 +9,7 @@ class LoggerFactory(object) :
     def create_logger() :
         # 루트 로거 생성
         LoggerFactory.logbot = logging.getLogger()
-        LoggerFactory.logbot.setLevel(f'logging.{settings.loglevel}')
+        LoggerFactory.logbot.setLevel(settings.log_level)
         
         # 로그 폴더 있는지 확인
         if os.path.exists(settings.logpath) == False:
