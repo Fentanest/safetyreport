@@ -20,9 +20,9 @@ ENV interval 60
 ENV max_retry 10
 ENV remotepath nonpath
 
-ENV exectime1 08:00
-ENV exectime2 10:00
-ENV exectime3 18:00
+ENV exectime1 10:00
+ENV exectime2 12:00
+ENV exectime3 19:00
 
 VOLUME /app/results
 VOLUME /app/auth
