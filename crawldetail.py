@@ -34,6 +34,14 @@ def Crawling_detail(driver, list):
         soup_text = soup.get_text()
 
         # 신고 기본 정보 획득
+        # 신고메뉴 확인
+        entry = re.search(r'신고-(.*) 메뉴', soup_text)
+
+        if entry:
+            entry_value = entry.group(1).strip()
+        else:
+            entry_value = ''
+
         # 차량번호는 제목이 짧을 경우 제목에 기입되기 때문에, 재수없으면 2개 이상이 걸리는 경우가 있어 findall사용
         car_number = re.findall(r'\*\s차량번호\s*:\s*(\w*)', soup_text) # 차량번호
 
@@ -123,6 +131,12 @@ def Crawling_detail(driver, list):
         else:
             response_date_text = ""
 
+        # 담배 투기(쓰레기, 폐기물)메뉴, 버스위반 메뉴는 담당자마다 답변 형식이 달라 일괄적으로 처리
+        if (entry_value == "버스전용차로 위반(일반도로)" or entry_value == "쓰레기, 폐기물") and processing_status_text == "수용":
+            fine_entry = "과태료"
+        else:
+            fine_entry = ""
+
         # "범칙금" 및 "벌점" // "과태료" 정보 추출
         penalty_matches = re.search(r'범칙금\s(\d*,\d*)원, 벌점\s(\d{0,4})점', soup_text)
         fine_matches = re.search(r'과태료\s(\d*,\d*)원', soup_text)
@@ -149,6 +163,13 @@ def Crawling_detail(driver, list):
             print(detaillist)
             df = pd.DataFrame([detaillist], columns=cols)
             yield df
+        elif fine_entry == "과태료":
+            detaillist = [
+                link, processing_status_text, car_number_value, violation_law_value, fine_entry, x, processing_agency_text, person_in_charge_text, response_date_text, occurrence_date_value, occurrence_time_value, violation_location_value, processing_finish_text
+                ]
+            print(detaillist)
+            df = pd.DataFrame([detaillist], columns=cols)
+            yield df
         else:
             detaillist = [
                 link, processing_status_text, car_number_value, violation_law_value, x, x, processing_agency_text, person_in_charge_text, response_date_text, occurrence_date_value, occurrence_time_value, violation_location_value, processing_finish_text
@@ -156,15 +177,3 @@ def Crawling_detail(driver, list):
             print(detaillist)
             df = pd.DataFrame([detaillist], columns=cols)
             yield df
-    driver.quit()
-
-# def to_sql():
-#     df = pd.DataFrame(detail_datas, columns=cols)
-
-#     with sqlite3.connect(os.path.join(settings.path, settings.db)) as conn:
-#         df.to_sql('mysafetydetail', conn, if_exists='append', index=False)
-
-
-#보완요청 번호 : https://www.safetyreport.go.kr/#mypage/mysafereport/31139337
-
-
