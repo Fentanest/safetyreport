@@ -153,6 +153,9 @@ postcrawling.drop_merge_temp(engine=engine, conn=conn)
 df = items.load_results(engine=engine, conn=conn)
 items.save_results(df=df)
 
+# 셀레니움 종료
+driver.quit()
+
 # 로그 닫기
 sys.stdout.close()
 sys.stderr.close()
