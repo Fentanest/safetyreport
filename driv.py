@@ -3,6 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import settings.settings as settings
+import logger
 
 def create_driver():
     options = webdriver.ChromeOptions()
@@ -27,8 +28,8 @@ def create_driver():
     except:
         pass
     
-    print("before:", user_agent.text)
+    logger.LoggerFactory.logbot.debug("before:", user_agent.text)
     user_agent = user_agent.text.replace("HeadlessChrome","Chrome")
-    print("after: ", user_agent)
+    logger.LoggerFactory.logbot.debug("after: ", user_agent)
     options.add_argument(f'user-agent={user_agent}')
     return(driver)

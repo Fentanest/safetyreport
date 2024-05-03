@@ -19,8 +19,9 @@ path = './results'
 logpath = './logs'
 settingspath = './settings'
 
-stdout = f'{str(datetime.datetime.now()).replace(":","_")[:19]}_stdout.txt' # 평시 문구
-stderr = f'{str(datetime.datetime.now()).replace(":","_")[:19]}_stderr.txt' # 에러 문구
+logfile = f'{str(datetime.datetime.now()).replace(":","_")[:19]}.log' 
+# stdout = f'{str(datetime.datetime.now()).replace(":","_")[:19]}_stdout.txt' # 평시 문구
+# stderr = f'{str(datetime.datetime.now()).replace(":","_")[:19]}_stderr.txt' # 에러 문구
 
 db = os.environ['dbfile']
 google_api_auth_file = './auth/gspread.json'
