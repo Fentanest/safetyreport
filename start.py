@@ -9,41 +9,40 @@ import crawltitle
 import crawldetail
 import postcrawling
 import items
+import logger
+
+logger.LoggerFactory.create_logger()
 
 # 설정 변수 리스트
 variables_to_check = [
-    ("username", "username 미지정"),
-    ("password", "password 미지정"),
-    ("google_sheet_key", "sheetkey 미지정"),
-    ("remotepath", "원격 셀레니움 미지정")
+    ("username", "ID가 올바르게 입력되지 않았습니다."),
+    ("password", "PW가 올바르게 입력되지 않았습니다."),
+    ("google_sheet_key", "Google Spreadsheet Key 확인이 필요합니다."),
+    ("remotepath", "Selenium Grid 주소 확인이 필요합니다.")
 ]
 
 # 설정 변수 확인
 for var_name, error_message in variables_to_check:
     if getattr(settings, var_name) in ["nousername", "nopassword", "nosheetkey", "nonpath"]:
-        print(error_message)
+        logger.LoggerFactory.logbot.critical(error_message)
         sys.exit(1)
     else:
-        print("변수 값 확인")
+        logger.LoggerFactory.logbot.debug("ID, PW, Sheet_KEY, Grid Path 확인")
         pass
 
-# 로그 폴더 있는지 확인
-if os.path.exists(settings.logpath) == False:
-    print("로그파일 저장폴더를 생성합니다.")
-    os.mkdir(settings.logpath)
-else:
-    print("로그파일 저장폴더 있음")
 
-# 로그 열기
-sys.stdout = open(os.path.join(settings.logpath, settings.stdout), 'w') # 평시 파일
-sys.stderr = open(os.path.join(settings.logpath, settings.stderr), 'w') # 에러 파일
+
+# # 로그 열기
+# sys.stdout = open(os.path.join(settings.logpath, settings.stdout), 'w') # 평시 파일
+# sys.stderr = open(os.path.join(settings.logpath, settings.stderr), 'w') # 에러 파일
 
 # 결과저장 폴더 있는지 확인
 if os.path.exists(settings.path) == False:
-    print("결과파일 저장폴더를 생성합니다.")
+    logger.LoggerFactory.logbot.warning("결과 저장 경로 없음")
+    logger.LoggerFactory.logbot.info("결과 저장 경로 생성")
     os.mkdir(settings.path) # 없으면 생성
 else:
-    print("결과파일 저장폴더 있음")
+    logger.LoggerFactory.logbot.info("결과 저장 경로 있음")
 
 # DB준비
 engine = create_engine(f'sqlite:///{os.path.join(settings.path, settings.db)}')
@@ -51,7 +50,7 @@ with engine.connect() as conn:
     check_query = text("SELECT name FROM sqlite_master WHERE type='table' AND name='STATUS'") # 초기생성자 확인
     result = conn.execute(check_query)
     table_exists = result.fetchone() is not None
-    print("초기생성자 여부: ", table_exists)
+    logger.LoggerFactory.logbot.debug("초기생성자 여부: ", table_exists)
     if table_exists == True: # 초기생성자 있으면 패스
         postcrawling.drop_title_temp(engine=engine, conn=conn)
         postcrawling.drop_detail_temp(engine=engine, conn=conn)
@@ -116,13 +115,13 @@ with engine.connect() as conn:
                 공개결과 TEXT
             );''')
         conn.execute(makecheck)
-        print("초기생성자 설정")
+        logger.LoggerFactory.logbot.debug("초기생성자 설정")
         conn.execute(droptitle)
         conn.execute(dropdetail)
         conn.execute(createtitle)
         conn.execute(createdetail)
         conn.execute(createopendata)
-        print("최초사용 설정 완료")
+        logger.LoggerFactory.logbot.info("최초사용 설정 완료")
         conn.commit() # 변경사항 반영
 
 # 크롬 열기
@@ -157,5 +156,5 @@ items.save_results(df=df)
 driver.quit()
 
 # 로그 닫기
-sys.stdout.close()
-sys.stderr.close()
+# sys.stdout.close()
+# sys.stderr.close()
