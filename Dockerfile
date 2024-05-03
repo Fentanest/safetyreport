@@ -11,7 +11,6 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 
 WORKDIR /app
 COPY . .
-RUN rm README.md
 
 ENV USERNAME nousername
 ENV PASSWORD nopassword
@@ -21,9 +20,9 @@ ENV interval 60
 ENV max_retry 10
 ENV remotepath nonpath
 
-ENV exectime1 10:00
-ENV exectime2 12:00
-ENV exectime3 20:00
+ENV exectime1 08:00
+ENV exectime2 10:00
+ENV exectime3 18:00
 
 VOLUME /app/results
 VOLUME /app/auth
