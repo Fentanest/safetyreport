@@ -6,6 +6,7 @@ import datetime
 from time import sleep
 import pandas as pd
 import settings.settings as settings
+import logger
 
 def Crawling_title(driver):
     attemps = 0
@@ -18,7 +19,7 @@ def Crawling_title(driver):
             # print(response_code)
             break
         except:
-            print("마이페이지 접속 불가")
+            logger.LoggerFactory.logbot.warning("마이페이지 접속 불가")
             sleep(int(settings.retry_interval))
             attemps += 1
 
@@ -28,6 +29,7 @@ def Crawling_title(driver):
         )
     pageselect = Select(page_size_select)
     pageselect.select_by_value("30")
+    logger.LoggerFactory.logbot.debug("30개씩 보기 선택 완료")
     sleep(3)
 
     ## 마지막 버튼 눌러 총 페이지 수 확인하기
@@ -35,6 +37,7 @@ def Crawling_title(driver):
         EC.presence_of_element_located((By.CSS_SELECTOR, 'li.footable-page-nav a[title="마지막"]'))
         ) # 마지막 페이지
     last_page_button.click()
+    logger.LoggerFactory.logbot.debug("마지막 페이지 버튼 클릭")
     driver.implicitly_wait(2)
     driver.refresh()
     driver.implicitly_wait(2)
@@ -45,10 +48,12 @@ def Crawling_title(driver):
         EC.presence_of_element_located((By.XPATH, last_page_xpath))
         )
     last_page_num = int(last_page.text)
+    logger.LoggerFactory.logbot.debug(f"마지막 페이지 번호{last_page_num}")
 
     ## 처음 페이지로 이동
     first_page_button = driver.find_element(By.CSS_SELECTOR, 'li.footable-page-nav a[title="처음"]') # 처음 페이지
     first_page_button.click()
+    logger.LoggerFactory.logbot.debug("처음 페이지로 복귀")
 
     ## 리스트 생성
     cols = ["ID", "상태", "신고번호", "신고명", "신고일"] # 컬럼명 생성
@@ -75,7 +80,7 @@ def Crawling_title(driver):
 
             # 리스트로 저장
             titlelist = [link, state, reportnumber, reporttitle, date]
-            print(titlelist)
+            logger.LoggerFactory.logbot.debug(titlelist)
             df = pd.DataFrame([titlelist], columns=cols)
             yield df 
             # linklist.append(link) # 개별 신고건 링크 개별 추출
