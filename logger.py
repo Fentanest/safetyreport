@@ -17,7 +17,7 @@ class LoggerFactory(object) :
             LoggerFactory.logbot.info("로그 저장 경로 생성")
             os.mkdir(settings.logpath)
         else:
-            print("로그 저장 경로 있음")
+            LoggerFactory.logbot.info("로그 저장 경로 있음")
         
         # 로그 포맷 생성
         formatter = logging.Formatter('[%(asctime)s][%(levelname)s|%(filename)s-%(funcName)s:%(lineno)s] >> %(message)s')    
