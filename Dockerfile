@@ -19,7 +19,7 @@ ENV sheet_key nosheetkey
 ENV interval 60
 ENV max_retry 10
 ENV remotepath nonpath
-ENV log_level DEBUG
+ENV log_level INFO
 
 ENV exectime1 10:00
 ENV exectime2 12:00
