@@ -6,13 +6,14 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import re
 import settings.settings as settings
+import logger
 
 def Crawling_detail(driver, list):
     # 개별 신고결과 페이지url 만들기
     attemps = 0
     for link in list:
         path = settings.mysafereporturl + '/' + str(link)
-        print(path)
+        logger.LoggerFactory.logbot.debug(path)
         # 만들어진 링크 접속
         driver.get(path)
         sleep(1)
@@ -25,7 +26,7 @@ def Crawling_detail(driver, list):
                     )
                 break
             except:
-                print("접속 불가")
+                logger.LoggerFactory.logbot.warning("개별 신고 페이지 접속 불가")
                 sleep(int(settings.retry_interval))
                 attemps += 1
 
@@ -152,7 +153,7 @@ def Crawling_detail(driver, list):
             detaillist = [
                 link, processing_status_text, car_number_value, violation_law_value, penalty_amount, penalty_points, processing_agency_text, person_in_charge_text, response_date_text, occurrence_date_value, occurrence_time_value, violation_location_value, processing_finish_text
                 ]
-            print(detaillist)
+            logger.LoggerFactory.logbot.debug(detaillist)
             df = pd.DataFrame([detaillist], columns=cols)
             yield df
         elif fine_matches:
@@ -160,20 +161,20 @@ def Crawling_detail(driver, list):
             detaillist = [
                 link, processing_status_text, car_number_value, violation_law_value, fine_amount, x, processing_agency_text, person_in_charge_text, response_date_text, occurrence_date_value, occurrence_time_value, violation_location_value, processing_finish_text
                 ]
-            print(detaillist)
+            logger.LoggerFactory.logbot.debug(detaillist)
             df = pd.DataFrame([detaillist], columns=cols)
             yield df
         elif fine_entry == "과태료":
             detaillist = [
                 link, processing_status_text, car_number_value, violation_law_value, fine_entry, x, processing_agency_text, person_in_charge_text, response_date_text, occurrence_date_value, occurrence_time_value, violation_location_value, processing_finish_text
                 ]
-            print(detaillist)
+            logger.LoggerFactory.logbot.debug(detaillist)
             df = pd.DataFrame([detaillist], columns=cols)
             yield df
         else:
             detaillist = [
                 link, processing_status_text, car_number_value, violation_law_value, x, x, processing_agency_text, person_in_charge_text, response_date_text, occurrence_date_value, occurrence_time_value, violation_location_value, processing_finish_text
                 ]
-            print(detaillist)
+            logger.LoggerFactory.logbot.debug(detaillist)
             df = pd.DataFrame([detaillist], columns=cols)
             yield df

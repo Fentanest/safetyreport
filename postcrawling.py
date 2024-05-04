@@ -1,5 +1,6 @@
 import settings.settings as settings
 from sqlalchemy import text
+import logger
 
 def merge_title(engine, conn):
     with engine.connect() as conn:
@@ -23,17 +24,18 @@ def merge_title(engine, conn):
                                 ''')
         
         conn.execute(update_old_query)
-        print("기존 title 신고 건 상태 업데이트")
+        logger.LoggerFactory.logbot.debug("기존 title 신고 건 상태 업데이트")
         conn.execute(insert_new_query)
-        print("기존 title에 신규 신고건 추가")
+        logger.LoggerFactory.logbot.debug("기존 title에 신규 신고건 추가")
         
         conn.commit()
+        logger.LoggerFactory.logbot.info("title_table 병합 완료")
 
 def drop_title_temp(engine, conn):
     with engine.connect() as conn:
         drop_temp_title_temp_query = text(f'DROP TABLE IF EXISTS {settings.table_title_temp};')
         conn.execute(drop_temp_title_temp_query)
-        print("임시 title 테이블 제거")
+        logger.LoggerFactory.logbot.debug("임시 title 테이블 제거")
         conn.commit()
 
 def merge_detail(engine, conn):
@@ -74,19 +76,20 @@ def merge_detail(engine, conn):
                                 ''')
         
         conn.execute(update_old_query)
-        print("기존 detail 테이블 신고건 상태 업데이트")
+        logger.LoggerFactory.logbot.debug("기존 detail 테이블 신고건 상태 업데이트")
         conn.execute(insert_new_query)
-        print("기존 detail 테이블에 신규 신고건 추가")
+        logger.LoggerFactory.logbot.debug("기존 detail 테이블에 신규 신고건 추가")
         conn.execute(update_withdrawl_query)
-        print("상태=취하 적용")
+        logger.LoggerFactory.logbot.debug("상태=취하 적용")
         
         conn.commit()
+        logger.LoggerFactory.logbot.info("detail_table 병합 완료")
 
 def drop_detail_temp(engine, conn):
     with engine.connect() as conn:
         drop_temp_detail_temp_query = text(f'DROP TABLE IF EXISTS {settings.table_detail_temp};')
         conn.execute(drop_temp_detail_temp_query)
-        print("임시 detail 테이블 제거")
+        logger.LoggerFactory.logbot.debug("임시 detail 테이블 제거")
         conn.commit()
 
 def merge_final(engine, conn):
@@ -124,15 +127,17 @@ def merge_final(engine, conn):
                                 WHERE 처리상태 = '불수용';
                                 ''')
         conn.execute(update_old_query)
-        print("기존 데이터 상태 업데이트")
+        logger.LoggerFactory.logbot.debug("기존 데이터 상태 업데이트")
 
         conn.execute(insert_new_query)
-        print("신규병합 데이터 추가")        
+        logger.LoggerFactory.logbot.debug("신규병합 데이터 추가")        
+        
         conn.commit()
+        logger.LoggerFactory.logbot.info("최종 데이터 병합 완료")
 
 def drop_merge_temp(engine, conn):
     with engine.connect() as conn:
         drop_temp_merge_temp_query = text(f'DROP TABLE IF EXISTS {settings.table_merge_temp};')
         conn.execute(drop_temp_merge_temp_query)
-        print("임시 병합 테이블 제거")
+        logger.LoggerFactory.logbot.debug("임시 병합 테이블 제거")
         conn.commit()

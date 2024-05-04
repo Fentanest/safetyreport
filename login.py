@@ -5,6 +5,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import datetime
 import settings.settings as settings
 from time import sleep
+import logger
 
 def login_mysafety(driver):
     attemps = 0
@@ -24,13 +25,14 @@ def login_mysafety(driver):
             pw_input.send_keys(settings.password)
 
             driver.execute_script("javascript:LoginUtil.login(1);")
+            logger.LoggerFactory.logbot.debug("로그인 자바스크립트 실행")
             # login_button=driver.find_element(By.XPATH, '//input[@onclick="javascript:LoginUtil.login(1);"][@type="button"]')
             # login_button.click()
             sleep(5)
             driver.save_screenshot(f'./logs/{str(datetime.datetime.now()).replace(":","_")[:19]}_.png')
-            print("로그인 성공")
+            # print("로그인 성공")
             break
         except:
-            print("로그인 창 접속 불가")
+            logger.LoggerFactory.logbot.warning("로그인 창 접속 불가")
             sleep(int(settings.retry_interval))
             attemps += 1
