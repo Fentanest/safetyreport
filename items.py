@@ -6,6 +6,7 @@ import gspread
 from gspread_dataframe import set_with_dataframe
 from gspread.exceptions import WorksheetNotFound
 import logger
+import alert_utils
 
 gc = gspread.service_account(settings.google_api_auth_file)  # 구글 스프레드에 연결
 spreadsheet = gc.open_by_key(settings.google_sheet_key)
@@ -143,3 +144,4 @@ def save_results(df):
                         include_index=False, include_column_header=True, 
                         resize=True, string_escaping='full')
     logger.LoggerFactory.logbot.info("구글 스프레드시트에 새로운 데이터를 성공적으로 입력하였습니다.")
+    alert_utils()

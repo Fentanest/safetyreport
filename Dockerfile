@@ -20,6 +20,8 @@ ENV interval 60
 ENV max_retry 10
 ENV remotepath nonpath
 ENV log_level INFO
+ENV telegram_token token
+ENV chat_id id
 
 ENV exectime1 10:00
 ENV exectime2 12:00
