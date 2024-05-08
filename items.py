@@ -144,4 +144,4 @@ def save_results(df):
                         include_index=False, include_column_header=True, 
                         resize=True, string_escaping='full')
     logger.LoggerFactory.logbot.info("구글 스프레드시트에 새로운 데이터를 성공적으로 입력하였습니다.")
-    alert_utils()
+    alert_utils.result()
