@@ -23,14 +23,12 @@ def main():
     except KeyboardInterrupt:
         return True
 
-async def result():
+async def result(letter):
     bot = telegram.Bot(token)
     msg = f'''{str(datetime.datetime.now())[:19]}\n
-                안전신문고 크롤링이 완료되었습니다.'''
+                {letter}'''
     async with bot:
         await bot.send_message(text=msg, chat_id=id)
 
-if __name__ == '__main__':
-    # main()
-    asyncio.run(result())
-
+# if __name__ == '__main__':
+    # main()  
