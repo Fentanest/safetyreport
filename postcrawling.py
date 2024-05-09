@@ -33,8 +33,8 @@ def merge_title(engine, conn):
 
 def drop_title_temp(engine, conn):
     with engine.connect() as conn:
-        drop_temp_title_temp_query = text(f'DROP TABLE IF EXISTS {settings.table_title_temp};')
-        conn.execute(drop_temp_title_temp_query)
+        drop_title_temp_query = text(f'DROP TABLE IF EXISTS {settings.table_title_temp};')
+        conn.execute(drop_title_temp_query)
         logger.LoggerFactory.logbot.debug("임시 title 테이블 제거")
         conn.commit()
 
@@ -87,8 +87,8 @@ def merge_detail(engine, conn):
 
 def drop_detail_temp(engine, conn):
     with engine.connect() as conn:
-        drop_temp_detail_temp_query = text(f'DROP TABLE IF EXISTS {settings.table_detail_temp};')
-        conn.execute(drop_temp_detail_temp_query)
+        drop_detail_temp_query = text(f'DROP TABLE IF EXISTS {settings.table_detail_temp};')
+        conn.execute(drop_detail_temp_query)
         logger.LoggerFactory.logbot.debug("임시 detail 테이블 제거")
         conn.commit()
 
