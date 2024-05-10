@@ -2,6 +2,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
 import datetime
 from time import sleep
 import pandas as pd
@@ -28,13 +29,24 @@ def Crawling_title(driver):
         EC.presence_of_element_located((By.ID, "C_FRM_DATE"))
         )
     start_date_path.clear() # 시작일 비우기
+    sleep(1)
+    start_date_path.send_keys(Keys.CONTROL + "a")  # 입력란의 내용을 선택합니다.
+    sleep(1)
+    start_date_path.send_keys(Keys.DELETE)  # 선택된 내용을 삭제합니다.
+    logger.LoggerFactory.logbot.debug("검색 시작일 비우기")
 
     end_date_path = WebDriverWait(driver, 60).until(
         EC.presence_of_element_located((By.ID, "C_TO_DATE"))
         )
     end_date_path.clear() # 종료일 비우기
+    sleep(1)
+    end_date_path.send_keys(Keys.CONTROL + "a")  # 입력란의 내용을 선택합니다.
+    sleep(1)
+    end_date_path.send_keys(Keys.DELETE)  # 선택된 내용을 삭제합니다.
+    logger.LoggerFactory.logbot.debug("검색 종료일 비우기")
 
     driver.execute_script("$$.fn_search()")
+    logger.LoggerFactory.logbot.debug("검색 버튼 클릭")
 
     ## 30개씩 보기
     page_size_select = WebDriverWait(driver, 60).until(
