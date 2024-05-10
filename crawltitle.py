@@ -45,7 +45,11 @@ def Crawling_title(driver):
     end_date_path.send_keys(Keys.DELETE)  # 선택된 내용을 삭제합니다.
     logger.LoggerFactory.logbot.debug("검색 종료일 비우기")
 
-    driver.execute_script("$$.fn_search()")
+    search_button = WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.XPATH, "//button[@class='button btnSearch']"))
+        )
+    sleep(1)
+    search_button.click()
     logger.LoggerFactory.logbot.debug("검색 버튼 클릭")
 
     ## 30개씩 보기
