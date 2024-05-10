@@ -28,8 +28,8 @@ def create_driver():
     except:
         pass
     
-    logger.LoggerFactory.logbot.debug("before:", user_agent.text)
+    logger.LoggerFactory.logbot.debug(f"before: {user_agent.text}")
     user_agent = user_agent.text.replace("HeadlessChrome","Chrome")
-    logger.LoggerFactory.logbot.debug("after: ", user_agent)
+    logger.LoggerFactory.logbot.debug(f"after: {user_agent}")
     options.add_argument(f'user-agent={user_agent}')
     return(driver)

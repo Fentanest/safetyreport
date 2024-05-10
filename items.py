@@ -33,7 +33,8 @@ def get_cNo(engine, conn):
             df_a = pd.read_sql_query(query_new, conn) # 게시판 리스트에서 긁어온 신규 건 추출
             df_b = pd.read_sql_query(query_notend, conn) # 기존 개별 신고 리스트 중 미종결된 건 추출
             df = pd.merge(df_a, df_b, how="outer")
-        df = df.values.tolist()
+        df_sorted = df.sort_values(by='ID', ascending=True)
+        df = df_sorted.values.tolist()        
         logger.LoggerFactory.logbot.debug("스캔대상 ID 리스트화 완료")
         
         detaillist = []
@@ -113,6 +114,7 @@ def merge_from_sql(engine, conn):
         
         df_middle = pd.DataFrame(pd.merge(df_title, df_detail, on="ID", how="left").sort_values(by="신고번호", ascending=False))
         df_final = pd.DataFrame(pd.merge(df_middle, df_opendata, on="ID", how="left").sort_values(by="신고번호", ascending=False))
+        df_final.fillna('', inplace=True)
         logger.LoggerFactory.logbot.debug("title_table, detail_table, opendata_table 병합 완료")
         logger.LoggerFactory.logbot.debug(df_final)        
         
