@@ -137,7 +137,7 @@ def merge_final(engine, conn):
 
 def drop_merge_temp(engine, conn):
     with engine.connect() as conn:
-        drop_temp_merge_temp_query = text(f'DROP TABLE IF EXISTS {settings.table_merge_temp};')
-        conn.execute(drop_temp_merge_temp_query)
+        drop_merge_temp_query = text(f'DROP TABLE IF EXISTS {settings.table_merge_temp};')
+        conn.execute(drop_merge_temp_query)
         logger.LoggerFactory.logbot.debug("임시 병합 테이블 제거")
         conn.commit()

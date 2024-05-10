@@ -10,6 +10,7 @@ import settings.settings as settings
 import logger
 
 def Crawling_title(driver):
+    today = datetime.datetime.now().strftime("%Y-%m-%d")
     attemps = 0
     while attemps <= int(settings.max_retry_attemps):
         try:
@@ -28,29 +29,39 @@ def Crawling_title(driver):
     start_date_path = WebDriverWait(driver, 60).until(
         EC.presence_of_element_located((By.ID, "C_FRM_DATE"))
         )
-    start_date_path.clear() # 시작일 비우기
+    start_date_path.click() # 시작일 비우기
     sleep(1)
     start_date_path.send_keys(Keys.CONTROL + "a")  # 입력란의 내용을 선택합니다.
     sleep(1)
     start_date_path.send_keys(Keys.DELETE)  # 선택된 내용을 삭제합니다.
-    logger.LoggerFactory.logbot.debug("검색 시작일 비우기")
+    sleep(1)
+    start_date_path.send_keys("2016-01-01")  # 입력란의 내용을 선택합니다.
+    sleep(1)
+    logger.LoggerFactory.logbot.debug("검색 시작일 설정")
 
     end_date_path = WebDriverWait(driver, 60).until(
         EC.presence_of_element_located((By.ID, "C_TO_DATE"))
         )
-    end_date_path.clear() # 종료일 비우기
+    end_date_path.click() # 종료일 비우기
     sleep(1)
     end_date_path.send_keys(Keys.CONTROL + "a")  # 입력란의 내용을 선택합니다.
     sleep(1)
     end_date_path.send_keys(Keys.DELETE)  # 선택된 내용을 삭제합니다.
-    logger.LoggerFactory.logbot.debug("검색 종료일 비우기")
+    sleep(1)
+    end_date_path.send_keys(today)  # 입력란의 내용을 선택합니다.
+    sleep(1)
+    logger.LoggerFactory.logbot.debug("검색 종료일 설정")
 
     search_button = WebDriverWait(driver, 60).until(
         EC.presence_of_element_located((By.XPATH, "//button[@class='button btnSearch']"))
         )
     sleep(1)
-    search_button.click()
+    search_button.send_keys(Keys.ENTER)
     logger.LoggerFactory.logbot.debug("검색 버튼 클릭")
+    driver.implicitly_wait(2)
+    driver.refresh()
+    driver.implicitly_wait(2)
+    sleep(5)
 
     ## 30개씩 보기
     page_size_select = WebDriverWait(driver, 60).until(

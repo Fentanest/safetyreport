@@ -44,19 +44,25 @@ if os.path.exists(settings.path) == False:
 else:
     logger.LoggerFactory.logbot.info("결과 저장 경로 있음")
 
+def db_check(tablename):
+    check_query = text(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{tablename}'") # DB상태 확인
+    result = conn.execute(check_query)
+    return result.fetchone() is not None
+
 # DB준비
 engine = create_engine(f'sqlite:///{os.path.join(settings.path, settings.db)}')
 with engine.connect() as conn:
-    check_query = text("SELECT name FROM sqlite_master WHERE type='table' AND name='STATUS'") # 초기생성자 확인
-    result = conn.execute(check_query)
-    table_exists = result.fetchone() is not None
-    logger.LoggerFactory.logbot.debug(f"초기생성자 여부: {table_exists}")
-    if table_exists == True: # 초기생성자 있으면 패스
-        postcrawling.drop_title_temp(engine=engine, conn=conn)
-        postcrawling.drop_detail_temp(engine=engine, conn=conn)
-        postcrawling.drop_merge_temp(engine=engine, conn=conn)
-    else:  # 초기생성자 없으면 테이블 초기화 시작
-        makecheck = text('CREATE TABLE STATUS (INITIALIZED);')
+    check_query_title = db_check(settings.table_title)
+    check_query_detail = db_check(settings.table_detail)
+    check_query_merge = db_check(settings.table_merge) # DB테이블 3개 확인 쿼리
+
+    table_exists = [check_query_title, check_query_detail, check_query_merge]
+    ## DB테이블 3개 중 한 개라도 없을 경우
+    if not all(table_exists):
+        missing_tables = [settings.table_title, settings.table_detail, settings.table_merge]
+        absent_tables = [table for table, exists in zip(missing_tables, table_exists) if not exists]
+        logger.LoggerFactory.logbot.info(f"{', '.join(absent_tables)} 테이블 없음, DB 테이블 설정 시작")
+
         droptitle = text(f'DROP TABLE IF EXISTS {settings.table_title};')
         dropdetail = text(f'DROP TABLE IF EXISTS {settings.table_detail};')
         createtitle = text(f'''    
@@ -114,15 +120,22 @@ with engine.connect() as conn:
                 신고번호 TEXT NOT NULL,
                 공개결과 TEXT NOT NULL
             );''')
-        conn.execute(makecheck)
-        logger.LoggerFactory.logbot.debug("초기생성자 설정")
+        logger.LoggerFactory.logbot.info("DB테이블 설정 시작")
         conn.execute(droptitle)
         conn.execute(dropdetail)
         conn.execute(createtitle)
         conn.execute(createdetail)
+        conn.execute(createmerge)
         conn.execute(createopendata)
-        logger.LoggerFactory.logbot.info("최초사용 설정 완료")
+        logger.LoggerFactory.logbot.info("DB테이블 설정 완료")
         conn.commit() # 변경사항 반영
+    ## DB 3개 다 있을 경우
+    else:
+        logger.LoggerFactory.logbot.info("DB 정상 확인")
+        postcrawling.drop_title_temp(engine=engine, conn=conn)
+        postcrawling.drop_detail_temp(engine=engine, conn=conn)
+        postcrawling.drop_merge_temp(engine=engine, conn=conn)
+        logger.LoggerFactory.logbot.info("임시 테이블 drop")
 
 # 크롬 열기
 driver = driv.create_driver()
