@@ -62,57 +62,57 @@ with engine.connect() as conn:
         createtitle = text(f'''    
             CREATE TABLE {settings.table_title}
             (
-                ID INT PRIMARY KEY,
-                상태 TEXT,
-                신고번호 TEXT,
-                신고명 TEXT,            
-                신고일 date
+                ID INT PRIMARY KEY NOT NULL,
+                상태 TEXT NOT NULL,
+                신고번호 TEXT NOT NULL
+                신고명 TEXT NOT NULL,            
+                신고일 date NOT NULL
             );''')
         createdetail = text(f'''
             CREATE TABLE {settings.table_detail}
             (
-                ID INT PRIMARY KEY,
-                처리상태 TEXT,
-                차량번호 TEXT,
-                위반법규 TEXT,
-                범칙금_과태료 TEXT,
-                벌점 TEXT,
-                처리기관 TEXT,
-                담당자 TEXT,
-                답변일 date,
-                발생일자 date,
-                발생시각 TIME,
-                위반장소 TEXT,
-                종결여부 TEXT
+                ID INT PRIMARY KEY NOT NULL,
+                처리상태 TEXT NOT NULL,
+                차량번호 TEXT NOT NULL,
+                위반법규 TEXT NOT NULL,
+                범칙금_과태료 TEXT NOT NULL,
+                벌점 TEXT NOT NULL,
+                처리기관 TEXT NOT NULL,
+                담당자 TEXT NOT NULL,
+                답변일 date NOT NULL,
+                발생일자 date NOT NULL,
+                발생시각 TIME NOT NULL,
+                위반장소 TEXT NOT NULL,
+                종결여부 TEXT NOT NULL
             );''')
         createmerge = text(f'''
             CREATE TABLE {settings.table_merge}
             (
-                ID INT PRIMARY KEY,
-                상태 TEXT,
-                신고번호 TEXT,
-                신고명 TEXT,            
-                신고일 date,
-                처리상태 TEXT,
-                차량번호 TEXT,
-                위반법규 TEXT,
-                범칙금_과태료 TEXT,
-                벌점 TEXT,
-                처리기관 TEXT,
-                담당자 TEXT,
-                답변일 date,
-                발생일자 date,
-                발생시각 TIME,
-                위반장소 TEXT,
-                종결여부 TEXT,
-                공개결과 TEXT
+                ID INT PRIMARY KEY NOT NULL,
+                상태 TEXT NOT NULL,
+                신고번호 TEXT NOT NULL,
+                신고명 TEXT NOT NULL,
+                신고일 date NOT NULL,
+                처리상태 TEXT NOT NULL,
+                차량번호 TEXT NOT NULL,
+                위반법규 TEXT NOT NULL,
+                범칙금_과태료 TEXT NOT NULL,
+                벌점 TEXT NOT NULL,
+                처리기관 TEXT NOT NULL,
+                담당자 TEXT NOT NULL,
+                답변일 date NOT NULL,
+                발생일자 date NOT NULL,
+                발생시각 TIME NOT NULL,
+                위반장소 TEXT NOT NULL,
+                종결여부 TEXT NOT NULL,
+                공개결과 TEXT NOT NULL
             );''')
         createopendata = text(f'''
             CREATE TABLE {settings.table_opendata}
             (
-                ID INT PRIMARY KEY,
-                신고번호 TEXT,
-                공개결과 TEXT
+                ID INT PRIMARY KEY NOT NULL,
+                신고번호 TEXT NOT NULL,
+                공개결과 TEXT NOT NULL
             );''')
         conn.execute(makecheck)
         logger.LoggerFactory.logbot.debug("초기생성자 설정")
