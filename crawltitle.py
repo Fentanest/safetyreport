@@ -23,8 +23,21 @@ def Crawling_title(driver):
             sleep(int(settings.retry_interval))
             attemps += 1
 
+    ## 기간 시작일, 종료일 비우기
+    start_date_path = WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.ID, "C_FRM_DATE"))
+        )
+    start_date_path.clear() # 시작일 비우기
+
+    end_date_path = WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.ID, "C_TO_DATE"))
+        )
+    end_date_path.clear() # 종료일 비우기
+
+    driver.execute_script("$$.fn_search()")
+
     ## 30개씩 보기
-    page_size_select = WebDriverWait(driver, 10).until(
+    page_size_select = WebDriverWait(driver, 60).until(
         EC.presence_of_element_located((By.ID, "pageSize"))
         )
     pageselect = Select(page_size_select)
@@ -33,7 +46,7 @@ def Crawling_title(driver):
     sleep(3)
 
     ## 마지막 버튼 눌러 총 페이지 수 확인하기
-    last_page_button = WebDriverWait(driver, 10).until(
+    last_page_button = WebDriverWait(driver, 60).until(
         EC.presence_of_element_located((By.CSS_SELECTOR, 'li.footable-page-nav a[title="마지막"]'))
         ) # 마지막 페이지
     last_page_button.click()
@@ -42,9 +55,9 @@ def Crawling_title(driver):
     driver.refresh()
     driver.implicitly_wait(2)
 
-    last_page_xpath = f'//*[@id="{settings.titletable}"]/tfoot/tr[@class="footable-paging"]/td[@colspan="3"]/ul[@class="pagination"]/li[@class="footable-page visible active"]/a[@class="footable-page-link"]' # 마지막 페이지
+    last_page_xpath = f'//*[@id="{settings.titletable}"]/tfoot/tr[@class="footable-paging"]/td/ul[@class="pagination"]/li[@class="footable-page visible active"]/a[@class="footable-page-link"]' # 마지막 페이지
 
-    last_page = WebDriverWait(driver, 10).until(
+    last_page = WebDriverWait(driver, 60).until(
         EC.presence_of_element_located((By.XPATH, last_page_xpath))
         )
     last_page_num = int(last_page.text)
