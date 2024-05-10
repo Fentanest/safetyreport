@@ -50,7 +50,7 @@ with engine.connect() as conn:
     check_query = text("SELECT name FROM sqlite_master WHERE type='table' AND name='STATUS'") # 초기생성자 확인
     result = conn.execute(check_query)
     table_exists = result.fetchone() is not None
-    logger.LoggerFactory.logbot.debug("초기생성자 여부: ", table_exists)
+    logger.LoggerFactory.logbot.debug(f"초기생성자 여부: {table_exists}")
     if table_exists == True: # 초기생성자 있으면 패스
         postcrawling.drop_title_temp(engine=engine, conn=conn)
         postcrawling.drop_detail_temp(engine=engine, conn=conn)
@@ -64,8 +64,8 @@ with engine.connect() as conn:
             (
                 ID INT PRIMARY KEY NOT NULL,
                 상태 TEXT NOT NULL,
-                신고번호 TEXT NOT NULL
-                신고명 TEXT NOT NULL,            
+                신고번호 TEXT NOT NULL,
+                신고명 TEXT NOT NULL,
                 신고일 date NOT NULL
             );''')
         createdetail = text(f'''
