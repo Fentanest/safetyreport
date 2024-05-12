@@ -25,8 +25,8 @@ def main():
 
 async def result(letter):
     bot = telegram.Bot(token)
-    msg = f'''{str(datetime.datetime.now())[:19]}\n
-                {letter}'''
+    msg = f'''{str(datetime.datetime.now())[:19]}
+            {letter}'''
     async with bot:
         await bot.send_message(text=msg, chat_id=id)
 
