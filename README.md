@@ -23,9 +23,9 @@ services:
     env_file:
       - .env
     volumes:
-      - ./data/logs:/app/logs
-      - ./data/results:/app/results
-      - ./data/auth:/app/auth
+      - ./logs:/app/logs
+      - ./results:/app/results
+      - ./auth:/app/auth
     restart: always
 ```
 
