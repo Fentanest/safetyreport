@@ -1,0 +1,19 @@
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Python
+__pycache__/
+venv/
+*.pyc
+
+# Logs
+*.log
+logs.txt
+
+# Documentation
+README.md
