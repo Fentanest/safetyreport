@@ -14,16 +14,26 @@ def _parse_details(report_soup, result_soup=None):
     # --- Parse Report Content Table (Mandatory) ---
     report_text = report_soup.get_text().translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
 
-    entry_match = re.search(r'신고-(.*) 메뉴', report_text)
+    # Find the '내용' (content) cell, which contains the key details, to avoid parsing incorrect data from other parts of the page.
+    content_th = report_soup.find('th', string='내용')
+    content_text = ""
+    if content_th:
+        content_td = content_th.find_next_sibling('td')
+        if content_td:
+            # Use get_text with a separator to handle <br> tags, which are common in this field.
+            content_text = content_td.get_text(separator='\n').translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
+
+    # Parse entry, car number, date, and time from the dedicated '내용' text.
+    entry_match = re.search(r'본 신고는 안전신문고 앱의 (.*?) 메뉴로 접수된 신고입니다', content_text)
     entry_value = entry_match.group(1).strip() if entry_match else ""
     
-    car_number_match = re.search(r'\*\s*차량번호\s*:\s*(\w+)', report_text)
+    car_number_match = re.search(r'차량번호\s*:\s*([^\s<\n]+)', content_text)
     car_number_value = car_number_match.group(1).strip() if car_number_match else ""
 
-    occurrence_date_match = re.search(r'\*\s*발생일자\s*:\s*(\d{4}.\d{1,2}.\d{1,2})', report_text)
+    occurrence_date_match = re.search(r'발생일자\s*:\s*(\d{4}.\d{1,2}.\d{1,2})', content_text)
     occurrence_date_value = occurrence_date_match.group(1).strip() if occurrence_date_match else ""
 
-    occurrence_time_match = re.search(r'\*\s*발생시각\s*:\s*(\d{2}:\d{2})', report_text)
+    occurrence_time_match = re.search(r'발생시각\s*:\s*(\d{2}:\d{2})', content_text)
     occurrence_time_value = occurrence_time_match.group(1).strip() if occurrence_time_match else ""
 
     violation_location_th = report_soup.find('th', string='신고발생지역')
