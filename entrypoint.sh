@@ -1,48 +1,42 @@
 #!/bin/bash
 
-# start.py를 실행하는 함수
-run_start_py() {
-    python /app/start.py
-}
+# Log file for cron jobs
+CRON_LOG="/var/log/cron.log"
+touch $CRON_LOG
 
-# 시간 유효성을 확인하는 함수
-validate_time() {
-    local time=$1
-    if [[ ! $time =~ ^[0-9]{2}:[0-9]{2}$ ]]; then
-        echo "$1 변수에 올바른 시간이 입력되지 않았습니다. (예: 08:00)"
-    fi
-}
+# Create a crontab file
+CRON_FILE="/etc/cron.d/crawler-cron"
+echo "" > $CRON_FILE # Clear the file
 
-# 모든 exectime 변수들을 순회하여 유효성을 확인
+# Read execution times from environment variables and build the crontab
 for i in {1..3}; do
-    var="exectime$i"
-    validate_time "${!var}" "$var"
-done
+    # Dynamically get the value of exectime1, exectime2, etc.
+    var_name="exectime$i"
+    execution_time=${!var_name}
 
-# 이전에 실행한 시간을 저장하는 변수
-last_execution=""
-
-while true; do
-    # 현재 시간을 가져옴
-    current_time=$(date +%H:%M)
-
-    # 실행될 시간을 도커 환경 변수에서 가져옴
-    for i in {1..3}; do
-        var="exectime$i"
-        execution_time="${!var}"
-
-        # 실행될 시간과 현재 시간이 동일한 경우에만 실행
-        if [ "$current_time" == "$execution_time" ]; then
-            # 이전에 실행한 시간과 현재 시간이 다른 경우에만 실행
-            if [ "$current_time" != "$last_execution" ]; then
-                run_start_py
-                last_execution="$current_time"
-            fi
+    # Check if the variable is set and not empty
+    if [ -n "$execution_time" ]; then
+        # Validate the time format (HH:MM)
+        if [[ $execution_time =~ ^([0-1][0-9]|2[0-3]):([0-5][0-9])$ ]]; then
+            hour=${execution_time:0:2}
+            minute=${execution_time:3:2}
+            
+            # Add a cron job entry. Redirect output to the log file.
+            echo "$minute $hour * * * root python /app/start.py >> $CRON_LOG 2>&1" >> $CRON_FILE
+            echo "Scheduled job at ${hour}:${minute}"
+        else
+            echo "Warning: Invalid time format for $var_name: '$execution_time'. Should be HH:MM. Skipping."
         fi
-    done
-
-    # 30초마다 확인
-    sleep 30
+    fi
 done
 
-/bin/bash
+# Give execution rights on the cron job file
+chmod 0644 $CRON_FILE
+
+# Start the cron daemon in the background
+cron
+
+echo "Cron daemon started. Starting Telegram bot..."
+
+# Execute the bot as the main process
+exec python /app/bot.py

@@ -74,7 +74,7 @@ def Crawling_title(driver):
 
     ## 마지막 버튼 눌러 총 페이지 수 확인하기
     last_page_button = WebDriverWait(driver, 60).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, 'li.footable-page-nav a[title="마지막"]'))
+        EC.presence_of_element_located((By.CSS_SELECTOR, 'li.footable-page-nav a[title="맨마지막으로 이동"]'))
         ) # 마지막 페이지
     last_page_button.click()
     logger.LoggerFactory.logbot.debug("마지막 페이지 버튼 클릭")
@@ -91,7 +91,7 @@ def Crawling_title(driver):
     logger.LoggerFactory.logbot.debug(f"마지막 페이지 번호{last_page_num}")
 
     ## 처음 페이지로 이동
-    first_page_button = driver.find_element(By.CSS_SELECTOR, 'li.footable-page-nav a[title="처음"]') # 처음 페이지
+    first_page_button = driver.find_element(By.CSS_SELECTOR, 'li.footable-page-nav a[title="맨처음으로 이동"]') # 처음 페이지
     first_page_button.click()
     logger.LoggerFactory.logbot.debug("처음 페이지로 복귀")
 
@@ -107,7 +107,7 @@ def Crawling_title(driver):
         tfoot = table.find_element(By.TAG_NAME, 'tfoot')
         rows = tbody.find_elements(By.TAG_NAME, 'tr')
         cNo = tbody.find_elements(By.CSS_SELECTOR, 'td.bbs_subject input[name="cNo"]')
-        next_button = tfoot.find_element(By.CSS_SELECTOR, 'li.footable-page-nav a[title="다음"]') # 다음 페이지 버튼
+        next_button = tfoot.find_element(By.CSS_SELECTOR, 'li.footable-page-nav a[title="다음으로 이동"]') # 다음 페이지 버튼
 
         for index, row in enumerate(rows):
             link = cNo[index].get_attribute('value').strip() # 각 신고건마다 가진 value값
