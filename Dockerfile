@@ -14,8 +14,7 @@ WORKDIR /app
 COPY . .
 RUN chmod +x /app/entrypoint.sh
 
-# Set non-sensitive environment variables with default values.
-# Sensitive variables (USERNAME, PASSWORD, sheet_key, etc.) should be injected at runtime.
+# 아이디, 비밀번호, 구글시트 고유주소는 기본값 없음
 ENV dbfile="data.db"
 ENV interval="60"
 ENV max_retry="10"
@@ -23,6 +22,7 @@ ENV log_level="INFO"
 ENV exectime1="10:00"
 ENV exectime2="12:00"
 ENV exectime3="19:00"
+ENV TZ="Asia/Seoul"
 
 VOLUME /app/results
 VOLUME /app/auth

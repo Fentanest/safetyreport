@@ -64,11 +64,11 @@ driver = driv.create_driver()
 # 로그인
 login.login_mysafety(driver=driver)
 
-# 게시판 리스트 크롤링, 개별 ID 확보 후 temp테이블과 병합
+# 게시판 리스트 크롤링, 개별 ID 확보 후 기록
 titlelist = list(crawltitle.Crawling_title(driver=driver))
 items.title_to_sql(dataframes=titlelist, engine=engine, conn=None) # conn is not used
 
-# 개별 신고 건 크롤링, 상태 저장 후 temp테이블과 병합
+# 개별 신고 건 크롤링, 상태 저장 후 기록
 detaillist = items.get_cNo(engine=engine, conn=None) # conn is not used
 detail_datas = list(crawldetail.Crawling_detail(driver=driver, list=detaillist))
 

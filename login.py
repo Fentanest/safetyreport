@@ -26,11 +26,8 @@ def login_mysafety(driver):
 
             driver.execute_script("javascript:LoginUtil.login(1);")
             logger.LoggerFactory.logbot.debug("로그인 자바스크립트 실행")
-            # login_button=driver.find_element(By.XPATH, '//input[@onclick="javascript:LoginUtil.login(1);"][@type="button"]')
-            # login_button.click()
             sleep(5)
             driver.save_screenshot(f'./logs/{str(datetime.datetime.now()).replace(":","_")[:19]}_.png')
-            # print("로그인 성공")
             break
         except:
             logger.LoggerFactory.logbot.warning("로그인 창 접속 불가")
