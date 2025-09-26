@@ -8,8 +8,12 @@ from gspread_dataframe import set_with_dataframe
 from gspread.exceptions import WorksheetNotFound
 import logger
 
-gc = gspread.service_account(settings.google_api_auth_file)  # 구글 스프레드에 연결
-spreadsheet = gc.open_by_key(settings.google_sheet_key)
+if settings.google_sheet_enabled:
+    gc = gspread.service_account(settings.google_api_auth_file)  # 구글 스프레드에 연결
+    spreadsheet = gc.open_by_key(settings.google_sheet_key)
+else:
+    gc = None
+    spreadsheet = None
 
 metadata = MetaData()
 
@@ -90,6 +94,9 @@ def get_cNo(engine, conn=None):
         return (detaillist)
 
 def opendata_from_gc(engine, conn=None):
+    if not settings.google_sheet_enabled:
+        logger.LoggerFactory.logbot.info("Google Sheet 기능이 비활성화되어 opendata_from_gc를 건너뜁니다.")
+        return
     try:
         worksheet = spreadsheet.worksheet("opendata")
         logger.LoggerFactory.logbot.debug("opendata시트를 선택합니다.")
@@ -188,6 +195,10 @@ def load_results(engine, conn=None):
 def save_results(df):
     df.to_excel(os.path.join(settings.path, settings.resultfile), index=False)
     logger.LoggerFactory.logbot.info(f"데이터 엑셀 저장 성공, 저장경로 : {os.path.join(settings.path, settings.resultfile)}")
+
+    if not settings.google_sheet_enabled:
+        logger.LoggerFactory.logbot.info("Google Sheet 기능이 비활성화되어 구글 시트 저장을 건너뜁니다.")
+        return
 
     try:
         worksheet = spreadsheet.worksheet("data")
