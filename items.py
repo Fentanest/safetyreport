@@ -1,53 +1,95 @@
 import settings.settings as settings
 import pandas as pd
-from sqlalchemy import text
+from sqlalchemy import text, Table, MetaData, Column, String, select, func, exists
+from sqlalchemy.dialects.sqlite import insert
 import os
 import gspread
 from gspread_dataframe import set_with_dataframe
 from gspread.exceptions import WorksheetNotFound
 import logger
-import alert_utils
-import asyncio
 
 gc = gspread.service_account(settings.google_api_auth_file)  # 구글 스프레드에 연결
 spreadsheet = gc.open_by_key(settings.google_sheet_key)
 
+metadata = MetaData()
+
+# Define table structures
+title_table = Table(settings.table_title, metadata,
+                    Column('ID', String, primary_key=True),
+                    Column('상태', String),
+                    Column('신고번호', String),
+                    Column('신고명', String),
+                    Column('신고일', String))
+
+detail_table = Table(settings.table_detail, metadata,
+                     Column('ID', String, primary_key=True),
+                     Column('처리상태', String),
+                     Column('차량번호', String),
+                     Column('위반법규', String),
+                     Column('범칙금_과태료', String),
+                     Column('벌점', String),
+                     Column('처리기관', String),
+                     Column('담당자', String),
+                     Column('답변일', String),
+                     Column('발생일자', String),
+                     Column('발생시각', String),
+                     Column('위반장소', String),
+                     Column('종결여부', String))
+
+opendata_table = Table(settings.table_opendata, metadata,
+                      Column('ID', String, primary_key=True),
+                      Column('신고번호', String),
+                      Column('공개결과', String))
+
+merge_table = Table(settings.table_merge, metadata,
+                    Column('ID', String, primary_key=True),
+                    Column('상태', String),
+                    Column('신고번호', String),
+                    Column('신고명', String),
+                    Column('신고일', String),
+                    Column('처리상태', String),
+                    Column('차량번호', String),
+                    Column('위반법규', String),
+                    Column('범칙금_과태료', String),
+                    Column('벌점', String),
+                    Column('처리기관', String),
+                    Column('담당자', String),
+                    Column('답변일', String),
+                    Column('발생일자', String),
+                    Column('발생시각', String),
+                    Column('위반장소', String),
+                    Column('종결여부', String),
+                    Column('공개결과', String))
+
+
 ## DB에서 링크번호 가져오기
-def get_cNo(engine, conn):
+def get_cNo(engine, conn=None):
     with engine.connect() as conn:
-        row_count_query = text(f"SELECT COUNT(*) FROM {settings.table_detail}")
-        row_count = conn.execute(row_count_query).fetchone()[0]
+        row_count_query = select(func.count()).select_from(detail_table)
+        row_count = conn.execute(row_count_query).scalar()
         if row_count == 0:
             logger.LoggerFactory.logbot.info("detail 테이블 비어 있어 전체 스캔 시작")
-            Query_String = f"SELECT ID FROM {settings.table_title} WHERE 상태 != '취하'"
-            df = pd.read_sql_query(Query_String, conn)
+            query = select(title_table.c.ID).where(title_table.c.상태 != '취하')
+            df = pd.read_sql_query(query, conn)
         else:
             logger.LoggerFactory.logbot.info("신규, 미종결 신고 건 스캔 시작")
-            query_new = text(f'''
-                            SELECT t.ID FROM {settings.table_title} t
-                            WHERE NOT EXISTS
-                            (SELECT 1 FROM {settings.table_detail} r
-                            WHERE t.ID = r.ID)
-                            ;''')
-            query_notend = f"SELECT ID FROM {settings.table_detail} WHERE 종결여부 != 'Y'"
-            df_a = pd.read_sql_query(query_new, conn) # 게시판 리스트에서 긁어온 신규 건 추출
-            df_b = pd.read_sql_query(query_notend, conn) # 기존 개별 신고 리스트 중 미종결된 건 추출
+            query_new = select(title_table.c.ID).where(
+                ~exists().where(title_table.c.ID == detail_table.c.ID)
+            )
+            query_notend = select(detail_table.c.ID).where(detail_table.c.종결여부 != 'Y')
+            df_a = pd.read_sql_query(query_new, conn)
+            df_b = pd.read_sql_query(query_notend, conn)
             df = pd.merge(df_a, df_b, how="outer")
         df_sorted = df.sort_values(by='ID', ascending=True)
-        df = df_sorted.values.tolist()        
+        detaillist = df_sorted['ID'].tolist()
         logger.LoggerFactory.logbot.debug("스캔대상 ID 리스트화 완료")
-        
-        detaillist = []
-        for ID in df:
-            ID = str(ID).replace("[","").replace("]","")
-            detaillist.append(ID)
+
         logger.LoggerFactory.logbot.debug("대상 ID 리스트 :")
         logger.LoggerFactory.logbot.debug(detaillist)
         logger.LoggerFactory.logbot.info(f"스캔대상 ID 총 {len(detaillist)}건")
-        return(detaillist)
+        return (detaillist)
 
-def opendata_from_gc(engine, conn):
-    # opendata 시트를 불러오고 실패 시 기본양식으로 생성
+def opendata_from_gc(engine, conn=None):
     try:
         worksheet = spreadsheet.worksheet("opendata")
         logger.LoggerFactory.logbot.debug("opendata시트를 선택합니다.")
@@ -58,75 +100,90 @@ def opendata_from_gc(engine, conn):
         worksheet.update('B1', "'신고번호")
         worksheet.update('C1', "'공개결과")
         logger.LoggerFactory.logbot.info("opendata시트를 생성합니다.")
-    
-    # 구글시트 opendata 전체 긁어오기
+
     values = worksheet.get_all_values()
     logger.LoggerFactory.logbot.debug("정보공개청구 결과 내용 복사 완료")
-    
-    # 헤더와 내용으로 구분
+
     header, rows = values[0], values[1:]
-    header = (header[0], header[1], header[2]) # 1행 헤더는 튜플로 만들어 바로 쿼리 삽입
-    rows = [str(tuple(row)) for row in rows] # 2행부터의 내용은 행별로 튜플로 만들어서 아래 쿼리로 삽입
-    
+    rows_to_insert = [dict(zip(header, row)) for row in rows]
+
     with engine.connect() as conn:
-        Query_String = text(f'''
-                            INSERT OR IGNORE INTO {settings.table_opendata} {header} VALUES
-                            {', '.join(rows)}
-                            ;''') # 튜플로 변환한 rows의 각 행을 원소로 ,join
-        conn.execute(Query_String)
-        logger.LoggerFactory.logbot.debug("정보공개청구 결과 입력 중")
-        conn.commit()
-        logger.LoggerFactory.logbot.info("정보공개청구 결과 테이블 입력 성공")
+        if rows_to_insert:
+            insert_stmt = insert(opendata_table).values(rows_to_insert)
+            upsert_query = insert_stmt.on_conflict_do_nothing(index_elements=['ID'])
+            conn.execute(upsert_query)
+            logger.LoggerFactory.logbot.debug("정보공개청구 결과 입력 중")
+            conn.commit()
+            logger.LoggerFactory.logbot.info("정보공개청구 결과 테이블 입력 성공")
 
 # 게시판 페이지마다 긁어온 리스트 받아서 db로 밀어넣기
-def title_to_sql(dataframes, engine, conn):
+def title_to_sql(dataframes, engine, conn=None):
     i = 0 # 카운트
     with engine.connect() as conn:
         for df in dataframes:
-            df.to_sql(settings.table_title_temp, conn, if_exists='append', index=False)
-            i += 1
-            logger.LoggerFactory.logbot.debug(f"{i}건 임시 리스트 테이블 밀어넣기 완료")
-    logger.LoggerFactory.logbot.info(f"총 {i}건 데이터 밀어넣기 완료")
-
-# 개별 신고건 긁어온 내용 건 별로 받아서 db로 밀어넣기
-def deatil_to_sql(dataframes, engine, conn):    
-    i = 0 # 카운트
-    with engine.connect() as conn:
-        for df in dataframes:
-            df.to_sql(settings.table_detail_temp, conn, if_exists='append', index=False)
-            i += 1
-            logger.LoggerFactory.logbot.debug(f"{i}건 개별 신고 결과 임시 테이블 밀어넣기 완료")
-    logger.LoggerFactory.logbot.info(f"총 {i}건 데이터 밀어넣기 완료")
-
-# title, detail 정리된 후 합치기
-def merge_from_sql(engine, conn):
-    with engine.connect() as conn:
-        Query_load_title = f'SELECT * FROM {settings.table_title}'
-        Query_load_detail = f'SELECT * FROM {settings.table_detail}'
-        Query_load_opendata = f'SELECT ID, 공개결과 FROM {settings.table_opendata}'
-        
-        df_title = pd.read_sql_query(Query_load_title, conn)
-        logger.LoggerFactory.logbot.debug("게시판 리스트 테이블 불러오기 성공")
-        df_detail = pd.read_sql_query(Query_load_detail, conn)
-        logger.LoggerFactory.logbot.debug("개별 신고 결과 테이블 불러오기 성공")
-        df_opendata = pd.read_sql_query(Query_load_opendata, conn)
-        logger.LoggerFactory.logbot.debug("정보공개청구 결과 테이블 불러오기 성공")
-        
-        df_middle = pd.DataFrame(pd.merge(df_title, df_detail, on="ID", how="left").sort_values(by="신고번호", ascending=False))
-        df_final = pd.DataFrame(pd.merge(df_middle, df_opendata, on="ID", how="left").sort_values(by="신고번호", ascending=False))
-        df_final.fillna('', inplace=True)
-        logger.LoggerFactory.logbot.debug("title_table, detail_table, opendata_table 병합 완료")
-        logger.LoggerFactory.logbot.debug(df_final)        
-        
-        df_final.to_sql(settings.table_merge_temp, conn, if_exists='replace', index=False)
+            records = df.to_dict('records')
+            if not records:
+                continue
+            
+            insert_stmt = insert(title_table).values(records)
+            
+            update_dict = {
+                '상태': insert_stmt.excluded.상태,
+                '신고번호': insert_stmt.excluded.신고번호,
+                '신고명': insert_stmt.excluded.신고명,
+                '신고일': insert_stmt.excluded.신고일
+            }
+            
+            upsert_query = insert_stmt.on_conflict_do_update(
+                index_elements=['ID'],
+                set_=update_dict
+            )
+            
+            conn.execute(upsert_query)
+            i += len(records)
         conn.commit()
-        logger.LoggerFactory.logbot.info("title, detail, opendata 병합 데이터 temp테이블 작성 성공")
+    logger.LoggerFactory.logbot.info(f"총 {i}건 title 테이블 upsert 완료")
 
-def load_results(engine, conn):
+def deatil_to_sql(dataframes, engine, conn=None):
+    i = 0 # 카운트
     with engine.connect() as conn:
-        Query_load_results = f'SELECT * FROM {settings.table_merge} ORDER BY ID DESC;'
-        df = pd.DataFrame(pd.read_sql_query(Query_load_results, conn))
-        return(df)
+        for df in dataframes:
+            records = df.to_dict('records')
+            if not records:
+                continue
+            
+            insert_stmt = insert(detail_table).values(records)
+            
+            update_dict = {
+                '처리상태': insert_stmt.excluded.처리상태,
+                '차량번호': insert_stmt.excluded.차량번호,
+                '위반법규': insert_stmt.excluded.위반법규,
+                '범칙금_과태료': insert_stmt.excluded.범칙금_과태료,
+                '벌점': insert_stmt.excluded.벌점,
+                '처리기관': insert_stmt.excluded.처리기관,
+                '담당자': insert_stmt.excluded.담당자,
+                '답변일': insert_stmt.excluded.답변일,
+                '발생일자': insert_stmt.excluded.발생일자,
+                '발생시각': insert_stmt.excluded.발생시각,
+                '위반장소': insert_stmt.excluded.위반장소,
+                '종결여부': insert_stmt.excluded.종결여부
+            }
+            
+            upsert_query = insert_stmt.on_conflict_do_update(
+                index_elements=['ID'],
+                set_=update_dict
+            )
+            
+            conn.execute(upsert_query)
+            i += len(records)
+        conn.commit()
+    logger.LoggerFactory.logbot.info(f"총 {i}건 detail 테이블 upsert 완료")
+
+def load_results(engine, conn=None):
+    with engine.connect() as conn:
+        query = select(merge_table).order_by(merge_table.c.ID.desc())
+        df = pd.DataFrame(pd.read_sql_query(query, conn))
+        return (df)
 
 def save_results(df):
     df.to_excel(os.path.join(settings.path, settings.resultfile), index=False)
@@ -139,12 +196,79 @@ def save_results(df):
         logger.LoggerFactory.logbot.warning("data시트가 확인되지 않습니다.")
         worksheet = spreadsheet.add_worksheet(title="data", rows="1000", cols="20")
         logger.LoggerFactory.logbot.info("data시트를 생성합니다.")
-    
+
     worksheet.clear()
     logger.LoggerFactory.logbot.debug("기존 구글 스프레드시트 데이터를 삭제합니다.")
-    
-    set_with_dataframe(worksheet=worksheet, dataframe=df, 
-                        include_index=False, include_column_header=True, 
-                        resize=True, string_escaping='full')
+
+    set_with_dataframe(worksheet=worksheet, dataframe=df,
+                       include_index=False, include_column_header=True,
+                       resize=True, string_escaping='full')
     logger.LoggerFactory.logbot.info("구글 스프레드시트에 새로운 데이터를 성공적으로 입력하였습니다.")
-    asyncio.run(alert_utils.result("안전신문고 크롤링 완료"))
+
+def search_by_car_number(engine, car_number: str):
+    """Searches for reports by car number in the merge_table."""
+    with engine.connect() as conn:
+        query = select(merge_table).where(merge_table.c.차량번호 == car_number)
+        result = conn.execute(query)
+        rows = result.fetchall()
+        if not rows:
+            return []
+        
+        # Convert rows to list of dictionaries
+        column_names = result.keys()
+        results_as_dict = [dict(zip(column_names, row)) for row in rows]
+        return results_as_dict
+
+def merge_final(engine, conn=None):
+    with engine.connect() as conn:
+        # --- 디버깅 코드 추가 ---
+        row_count_title = conn.execute(select(func.count()).select_from(title_table)).scalar()
+        row_count_detail = conn.execute(select(func.count()).select_from(detail_table)).scalar()
+        logger.LoggerFactory.logbot.info(f"merge_final 시작: title 테이블에 {row_count_title}개 행, detail 테이블에 {row_count_detail}개 행이 보입니다.")
+        # -------------------------
+
+        # First, clear the merge_table
+        conn.execute(merge_table.delete())
+
+        # Join title, detail, and opendata tables
+        j = title_table.join(detail_table, title_table.c.ID == detail_table.c.ID, isouter=True)\
+                         .join(opendata_table, title_table.c.ID == opendata_table.c.ID, isouter=True)
+
+        # Select all columns for the final merge
+        select_stmt = select(
+            title_table.c.ID,
+            title_table.c.상태,
+            title_table.c.신고번호,
+            title_table.c.신고명,
+            title_table.c.신고일,
+            func.coalesce(detail_table.c.처리상태, '').label('처리상태'),
+            func.coalesce(detail_table.c.차량번호, '').label('차량번호'),
+            func.coalesce(detail_table.c.위반법규, '').label('위반법규'),
+            func.coalesce(detail_table.c.범칙금_과태료, '').label('범칙금_과태료'),
+            func.coalesce(detail_table.c.벌점, '').label('벌점'),
+            func.coalesce(detail_table.c.처리기관, '').label('처리기관'),
+            func.coalesce(detail_table.c.담당자, '').label('담당자'),
+            func.coalesce(detail_table.c.답변일, '').label('답변일'),
+            func.coalesce(detail_table.c.발생일자, '').label('발생일자'),
+            func.coalesce(detail_table.c.발생시각, '').label('발생시각'),
+            func.coalesce(detail_table.c.위반장소, '').label('위반장소'),
+            func.coalesce(detail_table.c.종결여부, '').label('종결여부'),
+            func.coalesce(opendata_table.c.공개결과, '').label('공개결과')
+        ).select_from(j)
+
+        # Insert the result of the join into the merge_table
+        insert_stmt = merge_table.insert().from_select(
+            [c.name for c in merge_table.c],
+            select_stmt
+        )
+        conn.execute(insert_stmt)
+        logger.LoggerFactory.logbot.debug("신규병합 데이터 추가")
+
+        # Update regret
+        update_regret_query = merge_table.update().\
+            where(merge_table.c.처리상태 == '불수용').\
+            values(공개결과='불수용')
+        conn.execute(update_regret_query)
+
+        conn.commit()
+        logger.LoggerFactory.logbot.info("최종 데이터 병합 완료")
