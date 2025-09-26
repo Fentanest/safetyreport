@@ -16,9 +16,7 @@ def create_driver():
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     options.add_argument('--disable-blink-features=AutomationControlled')
-    # options.binary_location = '/usr/bin/google-chrome-stable'
     driver = webdriver.Remote(command_executor=settings.remotepath, options=options)
-    # driver.set_window_size(1920, 1080)
     driver.maximize_window()
     driver.get("https://www.whatismybrowser.com/detect/what-is-my-user-agent/")
     try:

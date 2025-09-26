@@ -17,8 +17,6 @@ def Crawling_title(driver):
             driver.get(settings.myreporturl)
             sleep(3)
             driver.save_screenshot(f'./logs/{str(datetime.datetime.now()).replace(":","_")[:19]}_.png')
-            # response_code = driver.execute_script("return document.readyState")
-            # print(response_code)
             break
         except:
             logger.LoggerFactory.logbot.warning("마이페이지 접속 불가")
