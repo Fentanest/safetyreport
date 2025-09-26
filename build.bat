@@ -2,7 +2,7 @@
 rem This script automates the versioning and building of the Docker image on Windows.
 
 rem --- Configuration ---
-set "IMAGE_NAME=fentanest/topheroes-applier"
+set "IMAGE_NAME=fentanest/safetyreport"
 set "VERSION_FILE=VERSION"
 
 rem --- Version Handling ---
