@@ -41,11 +41,6 @@ PASSWORD= # 비밀번호
 # Selenium Grid Hub 주소 (예시:"http://192.168.50.1:4444")
 remotepath= 
 
-# 자동 크롤링 실행 시간 (최대 3개, 아래는 기본값)
-exectime1=10:00
-exectime2=12:00
-exectime3=20:00
-
 # 크롤링 실패 시 재시도 설정
 interval=60       # 재시도 간격 (초)
 max_retry=3       # 최대 재시도 횟수
