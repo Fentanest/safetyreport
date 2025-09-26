@@ -13,11 +13,9 @@ username = os.environ['USERNAME']
 password = os.environ['PASSWORD']
 
 titletable = "table1"
-singotable = "table_bbs view singo tb_sty02"
 
 path = './results'
 logpath = './logs'
-settingspath = './settings'
 
 logfile = f'{str(datetime.datetime.now()).replace(":","_")[:19]}.log'
 log_level = os.environ['log_level']
@@ -34,13 +32,9 @@ if not google_sheet_enabled:
 resultfile = f'{str(datetime.datetime.now()).replace(":","_")[:19]}_results.xlsx'
 
 table_title = "mysafety"
-table_title_temp = "mysafety_temp"
 table_detail = "mysafetydetail"
-table_detail_temp = "mysafetydetail_temp"
 table_opendata = "opendata"
-table_opendata_temp = "opendata_temp"
 table_merge = "mysafetymerge"
-table_merge_temp = "mysafetymerge_temp"
 
 telegram_token = os.environ['telegram_token']
 chat_id = os.environ['chat_id']
