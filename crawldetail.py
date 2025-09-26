@@ -148,6 +148,7 @@ def Crawling_detail(driver, list):
         path = f"{settings.mysafereporturl}/{link}"
         logger.LoggerFactory.logbot.debug(path)
         driver.get(path)
+        sleep(2)
         
         try:
             logger.LoggerFactory.logbot.debug("Waiting for report content table to load...")
