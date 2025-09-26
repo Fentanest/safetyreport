@@ -24,7 +24,13 @@ log_level = os.environ['log_level']
 
 db = os.environ['dbfile']
 google_api_auth_file = './auth/gspread.json'
-google_sheet_key = os.environ['sheet_key']
+google_sheet_key = os.environ.get('sheet_key')
+google_sheet_enabled = os.path.exists(google_api_auth_file) and google_sheet_key is not None
+
+if not google_sheet_enabled:
+    google_api_auth_file = None
+    google_sheet_key = None
+    
 resultfile = f'{str(datetime.datetime.now()).replace(":","_")[:19]}_results.xlsx'
 
 table_title = "mysafety"

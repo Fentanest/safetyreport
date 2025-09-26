@@ -15,18 +15,25 @@ logger.LoggerFactory.create_logger()
 variables_to_check = [
     ("username", "ID가 올바르게 입력되지 않았습니다."),
     ("password", "PW가 올바르게 입력되지 않았습니다."),
-    ("google_sheet_key", "Google Spreadsheet Key 확인이 필요합니다."),
     ("remotepath", "Selenium Grid 주소 확인이 필요합니다.")
 ]
 
 # 설정 변수 확인
 for var_name, error_message in variables_to_check:
-    if getattr(settings, var_name) in ["nousername", "nopassword", "nosheetkey", "nonpath"]:
+    if getattr(settings, var_name) in ["nousername", "nopassword", "nonpath"]:
         logger.LoggerFactory.logbot.critical(error_message)
         sys.exit(1)
     else:
-        logger.LoggerFactory.logbot.debug("ID, PW, Sheet_KEY, Grid Path 확인")
-        pass
+        logger.LoggerFactory.logbot.debug(f"{var_name} 값 확인")
+
+if settings.google_sheet_enabled:
+    if settings.google_sheet_key in ["nosheetkey", None, ""]:
+        logger.LoggerFactory.logbot.critical("Google Spreadsheet Key 확인이 필요합니다.")
+        sys.exit(1)
+    else:
+        logger.LoggerFactory.logbot.debug("Sheet_KEY 값 확인")
+else:
+    logger.LoggerFactory.logbot.info("Google Sheet 기능이 비활성화되어 있습니다.")
 
 # 결과저장 폴더 있는지 확인
 if not os.path.exists(settings.path):
