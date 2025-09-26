@@ -7,7 +7,6 @@ COPY ./requirements.txt .
 RUN pip install -r requirements.txt webdriver_manager openpyxl
 
 FROM python:3.12.3-slim-bookworm
-RUN apt-get update && apt-get install -y cron
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 
 WORKDIR /app
@@ -19,9 +18,6 @@ ENV dbfile="data.db"
 ENV interval="60"
 ENV max_retry="10"
 ENV log_level="INFO"
-ENV exectime1="10:00"
-ENV exectime2="12:00"
-ENV exectime3="19:00"
 ENV TZ="Asia/Seoul"
 
 VOLUME /app/results
