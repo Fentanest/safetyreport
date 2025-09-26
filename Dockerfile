@@ -7,7 +7,7 @@ COPY ./requirements.txt .
 RUN pip install -r requirements.txt webdriver_manager openpyxl
 
 FROM python:3.12.3-slim-bookworm
-RUN apt-get update && apt-get install -y cron nano
+RUN apt-get update && apt-get install -y cron
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 
 WORKDIR /app
