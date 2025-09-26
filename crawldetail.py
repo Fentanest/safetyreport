@@ -27,7 +27,7 @@ def _parse_details(report_soup, result_soup=None):
     entry_match = re.search(r'본 신고는 안전신문고 앱의 (.*?) 메뉴로 접수된 신고입니다', content_text)
     entry_value = entry_match.group(1).strip() if entry_match else ""
     
-    car_number_match = re.search(r'차량번호\s*:\s*([^\s<\n]+)', content_text)
+    car_number_match = re.search(r'차량번호\s*:\s*(.*?)(?=\s*발생일자|\n)', content_text)
     car_number_value = car_number_match.group(1).strip() if car_number_match else ""
 
     occurrence_date_match = re.search(r'발생일자\s*:\s*(\d{4}.\d{1,2}.\d{1,2})', content_text)
