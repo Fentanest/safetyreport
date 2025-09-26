@@ -55,7 +55,7 @@ def _parse_details(report_soup, result_soup=None):
     if result_soup:
         result_text = result_soup.get_text().translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
 
-        violation_law_match = re.search(r'도로교통법\s*제\d+조', result_text)
+        violation_law_match = re.search(r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?', result_text)
         violation_law_value = violation_law_match.group(0).strip() if violation_law_match else ""
 
         processing_status_th = result_soup.find('th', string='처리상태')
