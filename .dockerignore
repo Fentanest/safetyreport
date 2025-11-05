@@ -13,7 +13,9 @@ venv/
 
 # Logs
 *.log
-logs.txt
+*.txt
 
 # Documentation
 README.md
+
+data/

@@ -12,6 +12,7 @@ if [ "$1" == "--dev" ]; then
     TAG="dev"
     # For dev builds, we don't need multi-platform or push
     echo "Building Docker image with tag: $IMAGE_NAME:$TAG (local build)"
+    pwd # Print current working directory for debugging
     docker build -t "$IMAGE_NAME:$TAG" .
 else
     # --- Version Handling ---
