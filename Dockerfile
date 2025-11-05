@@ -1,12 +1,13 @@
-FROM python:3.12.3-slim-bookworm AS builder
+FROM python:3.12 AS builder
 
 WORKDIR /app
-RUN apt-get update && apt-get install -y gcc
+RUN apt-get update && apt-get install -y gcc g++
 
 COPY ./requirements.txt .
+RUN python -m pip install --upgrade pip setuptools wheel cython
 RUN pip install -r requirements.txt webdriver_manager openpyxl
 
-FROM python:3.12.3-slim-bookworm
+FROM python:3.12
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 
 WORKDIR /app

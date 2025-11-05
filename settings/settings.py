@@ -33,7 +33,7 @@ resultfile = f'{str(datetime.datetime.now()).replace(":","_")[:19]}_results.xlsx
 
 table_title = "mysafety"
 table_detail = "mysafetydetail"
-table_opendata = "opendata"
+
 table_merge = "mysafetymerge"
 
 telegram_token = os.environ['telegram_token']
