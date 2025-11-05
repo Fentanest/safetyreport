@@ -14,15 +14,6 @@ WORKDIR /app
 COPY . .
 RUN chmod +x /app/entrypoint.sh
 
-# 아이디, 비밀번호, 구글시트 고유주소는 기본값 없음
-ENV dbfile="data.db"
-ENV interval="60"
-ENV max_retry="10"
-ENV log_level="INFO"
-ENV TZ="Asia/Seoul"
-
-VOLUME /app/results
-VOLUME /app/auth
-VOLUME /app/logs
+VOLUME /app/data
 
 ENTRYPOINT ["/app/entrypoint.sh"]

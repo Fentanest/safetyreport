@@ -173,9 +173,32 @@ def load_results(engine, conn=None):
         return (df)
 
 def save_results(df):
-    df.to_excel(os.path.join(settings.path, settings.resultfile), index=False)
-    logger.LoggerFactory.logbot.info(f"데이터 엑셀 저장 성공, 저장경로 : {os.path.join(settings.path, settings.resultfile)}")
+    # --- Unified Data Processing for Excel and Google Sheets ---
+    processed_df = df.copy()
 
+    # 1. Format map URL for Google Sheets formula
+    processed_df['지도'] = processed_df['지도'].apply(lambda url: f'=image("{url}")' if pd.notna(url) and url else '')
+
+    # 2. Split attachment URLs into separate columns
+    if not processed_df.empty and '첨부파일' in processed_df.columns:
+        attachments = processed_df['첨부파일'].str.split('\n', expand=True)
+        max_attachments = len(attachments.columns)
+
+        for i in range(max_attachments):
+            col_name = f'첨부파일{i+1}'
+            if i < len(attachments.columns):
+                processed_df[col_name] = attachments[i]
+            else:
+                processed_df[col_name] = None
+        
+        # Drop the original attachments column
+        processed_df = processed_df.drop(columns=['첨부파일'])
+    
+    # --- Excel Export ---
+    processed_df.to_excel(os.path.join(settings.resultpath, settings.resultfile), index=False)
+    logger.LoggerFactory.logbot.info(f"데이터 엑셀 저장 성공, 저장경로 : {os.path.join(settings.resultpath, settings.resultfile)}")
+
+    # --- Google Sheets Export ---
     if not settings.google_sheet_enabled:
         logger.LoggerFactory.logbot.info("Google Sheet 기능이 비활성화되어 구글 시트 저장을 건너뜁니다.")
         return
@@ -185,15 +208,23 @@ def save_results(df):
         logger.LoggerFactory.logbot.debug("data시트를 선택합니다.")
     except WorksheetNotFound:
         logger.LoggerFactory.logbot.warning("data시트가 확인되지 않습니다.")
-        worksheet = spreadsheet.add_worksheet(title="data", rows="1000", cols="20")
+        # Adjust column count based on the processed dataframe
+        worksheet = spreadsheet.add_worksheet(title="data", rows="1000", cols=len(processed_df.columns) + 1)
         logger.LoggerFactory.logbot.info("data시트를 생성합니다.")
 
     worksheet.clear()
     logger.LoggerFactory.logbot.debug("기존 구글 스프레드시트 데이터를 삭제합니다.")
 
-    set_with_dataframe(worksheet=worksheet, dataframe=df,
-                       include_index=False, include_column_header=True,
-                       resize=True, string_escaping='full')
+    # Convert dataframe to list of lists for gspread
+    # astype(str) is used to prevent issues with numpy types
+    data_to_upload = [processed_df.columns.values.tolist()] + processed_df.astype(str).values.tolist()
+
+    # Update the worksheet with USER_ENTERED option to interpret formulas
+    worksheet.update(data_to_upload, value_input_option='USER_ENTERED')
+    
+    # Resize columns for better readability (optional but good UX)
+    worksheet.resize(rows=len(data_to_upload))
+
     logger.LoggerFactory.logbot.info("구글 스프레드시트에 새로운 데이터를 성공적으로 입력하였습니다.")
 
 def search_by_car_number(engine, car_number: str):
