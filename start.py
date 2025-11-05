@@ -47,7 +47,7 @@ else:
 engine = create_engine(f'sqlite:///{os.path.join(settings.path, settings.db)}')
 inspector = inspect(engine)
 
-required_tables = [settings.table_title, settings.table_detail, settings.table_merge, settings.table_opendata]
+required_tables = [settings.table_title, settings.table_detail, settings.table_merge]
 existing_tables = inspector.get_table_names()
 
 if not all(table in existing_tables for table in required_tables):
@@ -74,8 +74,7 @@ detail_datas = list(crawldetail.Crawling_detail(driver=driver, list=detaillist))
 
 items.deatil_to_sql(dataframes=detail_datas, engine=engine, conn=None) # conn is not used
 
-# 스프레드시트의 정보공개청구 결과 긁어와서 최종 병합
-items.opendata_from_gc(engine=engine, conn=None) # conn is not used
+
 
 items.merge_final(engine=engine, conn=None) # conn is not used
 df = items.load_results(engine=engine, conn=None) # conn is not used

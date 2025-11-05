@@ -62,8 +62,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\nAn unexpected error occurred: {e}")
         if driver:
-            print("\n--- FULL PAGE SOURCE ON ERROR ---\
-")
+            print("\n--- FULL PAGE SOURCE ON ERROR ---")
             print(driver.page_source)
 
     finally:
