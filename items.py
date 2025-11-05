@@ -41,6 +41,7 @@ detail_table = Table(settings.table_detail, metadata,
                      Column('종결여부', String),
                      Column('신고내용', String),
                      Column('처리내용', String),
+                     Column('지도', String),
                      Column('첨부파일', String))
 
 
@@ -65,6 +66,7 @@ merge_table = Table(settings.table_merge, metadata,
                     Column('종결여부', String),
                     Column('신고내용', String),
                     Column('처리내용', String),
+                    Column('지도', String),
                     Column('첨부파일', String))
 
 
@@ -150,6 +152,7 @@ def deatil_to_sql(dataframes, engine, conn=None):
                 '종결여부': insert_stmt.excluded.종결여부,
                 '신고내용': insert_stmt.excluded.신고내용,
                 '처리내용': insert_stmt.excluded.처리내용,
+                '지도': insert_stmt.excluded.지도,
                 '첨부파일': insert_stmt.excluded.첨부파일
             }
             
@@ -242,6 +245,7 @@ def merge_final(engine, conn=None):
             func.coalesce(detail_table.c.종결여부, '').label('종결여부'),
             func.coalesce(detail_table.c.신고내용, '').label('신고내용'),
             func.coalesce(detail_table.c.처리내용, '').label('처리내용'),
+            func.coalesce(detail_table.c.지도, '').label('지도'),
             func.coalesce(detail_table.c.첨부파일, '').label('첨부파일')
         ).select_from(j)
 

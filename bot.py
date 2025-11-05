@@ -10,12 +10,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from sqlalchemy import create_engine
 import settings.settings as settings
 import items
-
-# Enable logging
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
-)
-logger = logging.getLogger(__name__)
+import logger
 
 # State definitions for conversation
 ASK_CAR_NUMBER = range(1)
@@ -49,7 +44,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링 및 모든 작업이 완료되었습니다.")
         else:
             error_message = stderr.decode('utf-8')
-            logger.error(f"Error running start.py: {error_message}")
+            logger.LoggerFactory.get_logger().error(f"Error running start.py: {error_message}")
             await context.bot.send_message(chat_id=query.message.chat_id, text=f"오류가 발생했습니다:\n{error_message}")
         return ConversationHandler.END
 
@@ -67,7 +62,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await context.bot.send_message(chat_id=query.message.chat_id, text=f"엑셀 저장 완료.\n\n{response}")
         else:
             error_message = stderr.decode('utf-8')
-            logger.error(f"Error running debug_save.py: {error_message}")
+            logger.LoggerFactory.get_logger().error(f"Error running debug_save.py: {error_message}")
             await context.bot.send_message(chat_id=query.message.chat_id, text=f"오류가 발생했습니다:\n{error_message}")
         return ConversationHandler.END
 
@@ -103,7 +98,7 @@ async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(response_message)
 
     except Exception as e:
-        logger.error(f"Error during car number search: {e}")
+        logger.LoggerFactory.get_logger().error(f"Error during car number search: {e}")
         await update.message.reply_text(f"차량번호 검색 중 오류가 발생했습니다: {e}")
 
     return ConversationHandler.END
@@ -115,10 +110,11 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 def main() -> None:
     """Run the bot."""
+    logger.LoggerFactory.create_logger()
     # Get the token from environment variable
     token = settings.telegram_token
     if not token:
-        logger.error("TELEGRAM_TOKEN 환경변수가 설정되지 않았습니다.")
+        logger.LoggerFactory.get_logger().error("TELEGRAM_TOKEN 환경변수가 설정되지 않았습니다.")
         return
 
     # Create the Application and pass it your bot's token.

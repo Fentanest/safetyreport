@@ -41,3 +41,4 @@ chat_id = os.environ['chat_id']
 
 retry_interval = os.environ['interval']
 max_retry_attemps = os.environ['max_retry']
+max_empty_pages = os.environ.get('max_empty_pages', 5)
