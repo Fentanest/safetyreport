@@ -38,12 +38,12 @@ detail_table = Table(settings.table_detail, metadata,
                      Column('발생일자', String),
                      Column('발생시각', String),
                      Column('위반장소', String),
-                     Column('종결여부', String))
+                     Column('종결여부', String),
+                     Column('신고내용', String),
+                     Column('처리내용', String),
+                     Column('첨부파일', String))
 
-opendata_table = Table(settings.table_opendata, metadata,
-                      Column('ID', String, primary_key=True),
-                      Column('신고번호', String),
-                      Column('공개결과', String))
+
 
 merge_table = Table(settings.table_merge, metadata,
                     Column('ID', String, primary_key=True),
@@ -63,7 +63,9 @@ merge_table = Table(settings.table_merge, metadata,
                     Column('발생시각', String),
                     Column('위반장소', String),
                     Column('종결여부', String),
-                    Column('공개결과', String))
+                    Column('신고내용', String),
+                    Column('처리내용', String),
+                    Column('첨부파일', String))
 
 
 ## DB에서 링크번호 가져오기
@@ -93,35 +95,7 @@ def get_cNo(engine, conn=None):
         logger.LoggerFactory.logbot.info(f"스캔대상 ID 총 {len(detaillist)}건")
         return (detaillist)
 
-def opendata_from_gc(engine, conn=None):
-    if not settings.google_sheet_enabled:
-        logger.LoggerFactory.logbot.info("Google Sheet 기능이 비활성화되어 opendata_from_gc를 건너뜁니다.")
-        return
-    try:
-        worksheet = spreadsheet.worksheet("opendata")
-        logger.LoggerFactory.logbot.debug("opendata시트를 선택합니다.")
-    except WorksheetNotFound:
-        logger.LoggerFactory.logbot.warning("opendata시트가 확인되지 않습니다.")
-        worksheet = spreadsheet.add_worksheet(title="opendata", rows="1000", cols="20")
-        worksheet.update('A1', "'ID")
-        worksheet.update('B1', "'신고번호")
-        worksheet.update('C1', "'공개결과")
-        logger.LoggerFactory.logbot.info("opendata시트를 생성합니다.")
 
-    values = worksheet.get_all_values()
-    logger.LoggerFactory.logbot.debug("정보공개청구 결과 내용 복사 완료")
-
-    header, rows = values[0], values[1:]
-    rows_to_insert = [dict(zip(header, row)) for row in rows]
-
-    with engine.connect() as conn:
-        if rows_to_insert:
-            insert_stmt = insert(opendata_table).values(rows_to_insert)
-            upsert_query = insert_stmt.on_conflict_do_nothing(index_elements=['ID'])
-            conn.execute(upsert_query)
-            logger.LoggerFactory.logbot.debug("정보공개청구 결과 입력 중")
-            conn.commit()
-            logger.LoggerFactory.logbot.info("정보공개청구 결과 테이블 입력 성공")
 
 # 게시판 페이지마다 긁어온 리스트 받아서 db로 밀어넣기
 def title_to_sql(dataframes, engine, conn=None):
@@ -173,7 +147,10 @@ def deatil_to_sql(dataframes, engine, conn=None):
                 '발생일자': insert_stmt.excluded.발생일자,
                 '발생시각': insert_stmt.excluded.발생시각,
                 '위반장소': insert_stmt.excluded.위반장소,
-                '종결여부': insert_stmt.excluded.종결여부
+                '종결여부': insert_stmt.excluded.종결여부,
+                '신고내용': insert_stmt.excluded.신고내용,
+                '처리내용': insert_stmt.excluded.처리내용,
+                '첨부파일': insert_stmt.excluded.첨부파일
             }
             
             upsert_query = insert_stmt.on_conflict_do_update(
@@ -241,9 +218,8 @@ def merge_final(engine, conn=None):
         # First, clear the merge_table
         conn.execute(merge_table.delete())
 
-        # Join title, detail, and opendata tables
-        j = title_table.join(detail_table, title_table.c.ID == detail_table.c.ID, isouter=True)\
-                         .join(opendata_table, title_table.c.ID == opendata_table.c.ID, isouter=True)
+        # Join title and detail tables
+        j = title_table.join(detail_table, title_table.c.ID == detail_table.c.ID, isouter=True)
 
         # Select all columns for the final merge
         select_stmt = select(
@@ -264,7 +240,9 @@ def merge_final(engine, conn=None):
             func.coalesce(detail_table.c.발생시각, '').label('발생시각'),
             func.coalesce(detail_table.c.위반장소, '').label('위반장소'),
             func.coalesce(detail_table.c.종결여부, '').label('종결여부'),
-            func.coalesce(opendata_table.c.공개결과, '').label('공개결과')
+            func.coalesce(detail_table.c.신고내용, '').label('신고내용'),
+            func.coalesce(detail_table.c.처리내용, '').label('처리내용'),
+            func.coalesce(detail_table.c.첨부파일, '').label('첨부파일')
         ).select_from(j)
 
         # Insert the result of the join into the merge_table
@@ -274,12 +252,6 @@ def merge_final(engine, conn=None):
         )
         conn.execute(insert_stmt)
         logger.LoggerFactory.logbot.debug("신규병합 데이터 추가")
-
-        # Update regret
-        update_regret_query = merge_table.update().\
-            where(merge_table.c.처리상태 == '불수용').\
-            values(공개결과='불수용')
-        conn.execute(update_regret_query)
 
         conn.commit()
         logger.LoggerFactory.logbot.info("최종 데이터 병합 완료")

@@ -55,6 +55,13 @@ def _parse_details(report_soup, result_soup=None):
     if result_soup:
         result_text = result_soup.get_text().translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
 
+        processing_content_th = result_soup.find('th', string='처리내용')
+        processing_content = ""
+        if processing_content_th:
+            processing_content_td = processing_content_th.find_next_sibling('td')
+            if processing_content_td:
+                processing_content = processing_content_td.get_text(separator='\n').strip()
+
         violation_law_match = re.search(r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?', result_text)
         violation_law_value = violation_law_match.group(0).strip() if violation_law_match else ""
 
@@ -119,12 +126,30 @@ def _parse_details(report_soup, result_soup=None):
         response_date_text = ""
         final_penalty = ""
         penalty_points = ""
+        processing_content = ""
 
     # --- Final determination of completion status ---
     if progress_status == "취하":
         processing_finish_text = "Y"
         if not processing_status_text or processing_status_text == "처리중":
             processing_status_text = "취하"
+
+    report_content = ""
+    if content_text:
+        # Split by "차량번호" and take the first part
+        parts = re.split(r'\*\s*차량번호', content_text, 1)
+        if parts:
+            report_content = parts[0].strip()
+
+    # Find the '첨부파일' (attachment) cell and parse the links
+    attachment_th = report_soup.find('th', string='첨부파일')
+    attachment_files = ""
+    if attachment_th:
+        attachment_td = attachment_th.find_next_sibling('td')
+        if attachment_td:
+            links = attachment_td.find_all('a', href=re.compile(r'/fileDown/singo'))
+            urls = [f"https://www.safetyreport.go.kr{link['href']}" for link in links]
+            attachment_files = "\n".join(urls)
 
     # Return a dictionary of parsed values
     return {
@@ -140,6 +165,9 @@ def _parse_details(report_soup, result_soup=None):
         "occurrence_time": occurrence_time_value,
         "violation_location": violation_location_value,
         "processing_finish": processing_finish_text,
+        "report_content": report_content,
+        "processing_content": processing_content,
+        "attachment_files": attachment_files,
     }
 
 def Crawling_detail(driver, list):
@@ -174,7 +202,7 @@ def Crawling_detail(driver, list):
             details = _parse_details(report_soup, result_soup)
 
             # Create DataFrame
-            cols = ["ID", "처리상태", "차량번호", "위반법규", "범칙금_과태료", "벌점", "처리기관", "담당자", "답변일", "발생일자", "발생시각", "위반장소", "종결여부"]
+            cols = ["ID", "처리상태", "차량번호", "위반법규", "범칙금_과태료", "벌점", "처리기관", "담당자", "답변일", "발생일자", "발생시각", "위반장소", "종결여부", "신고내용", "처리내용", "첨부파일"]
             
             detaillist = [
                 link,
@@ -190,6 +218,9 @@ def Crawling_detail(driver, list):
                 details["occurrence_time"],
                 details["violation_location"],
                 details["processing_finish"],
+                details["report_content"],
+                details["processing_content"],
+                details["attachment_files"],
             ]
             
             logger.LoggerFactory.logbot.debug(detaillist)
