@@ -98,6 +98,7 @@ def Crawling_title(driver):
     titlelist = [] # Dataframe 변환을 위한 리스트 생성
 
     ## 크롤링 시작
+    empty_page_count = 0
     for i in range(last_page_num):
         driver.refresh()
         table = driver.find_element(By.ID, settings.titletable)
@@ -107,11 +108,14 @@ def Crawling_title(driver):
         cNo = tbody.find_elements(By.CSS_SELECTOR, 'td.bbs_subject input[name="cNo"]')
         next_button = tfoot.find_element(By.CSS_SELECTOR, 'li.footable-page-nav a[title="다음으로 이동"]') # 다음 페이지 버튼
 
+        found_in_progress = False
         for index, row in enumerate(rows):
             link = cNo[index].get_attribute('value').strip() # 각 신고건마다 가진 value값
             property = row.find_elements(By.TAG_NAME, 'td') # 개별 행 데이터 리스트로 반환
             report = property[0].text.split(')') # 1열 데이터가 상태+번호+신고명 섞여있어 분리해야 함
             state = report[0].split('(')[0].strip() # 1열에서 상태 추출(진행, 답변완료 등)
+            if state == '진행':
+                found_in_progress = True
             reportnumber = report[0].split('(')[1].strip() # 1열에서 신고번호 추출(SPP-)
             reporttitle = report[1].strip() # 1열에서 신고명 추출(진로변경 위반, 끼어들기 금지 위반 등)
             date = property[1].text.strip() # 신고일 추출
@@ -123,6 +127,15 @@ def Crawling_title(driver):
             yield df 
             # linklist.append(link) # 개별 신고건 링크 개별 추출
         
+        if not found_in_progress:
+            empty_page_count += 1
+        else:
+            empty_page_count = 0
+
+        if empty_page_count >= int(settings.max_empty_pages):
+            logger.LoggerFactory.logbot.info(f"{settings.max_empty_pages} 페이지 동안 '진행' 상태의 신고가 없어 크롤링을 조기 종료합니다.")
+            break
+
         if i <= last_page_num:
             next_button.click()
         else:

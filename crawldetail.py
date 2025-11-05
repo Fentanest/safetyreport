@@ -116,6 +116,9 @@ def _parse_details(report_soup, result_soup=None):
         
         final_penalty = penalty_amount or fine_amount or fine_entry
 
+        if "교통질서 안내장" in processing_content:
+            final_penalty = '경고'
+
     # --- Set default values if result table is not found ---
     else:
         violation_law_value = ""
@@ -144,12 +147,33 @@ def _parse_details(report_soup, result_soup=None):
     # Find the '첨부파일' (attachment) cell and parse the links
     attachment_th = report_soup.find('th', string='첨부파일')
     attachment_files = ""
+    map_image = ""
     if attachment_th:
         attachment_td = attachment_th.find_next_sibling('td')
         if attachment_td:
-            links = attachment_td.find_all('a', href=re.compile(r'/fileDown/singo'))
-            urls = [f"https://www.safetyreport.go.kr{link['href']}" for link in links]
-            attachment_files = "\n".join(urls)
+            if "6개월 지난 신고건의 경우 첨부파일을 삭제하고 있습니다." in attachment_td.get_text():
+                attachment_files = ""
+            else:
+                urls = []
+                map_urls = []
+                links = attachment_td.find_all('a')
+                for link in links:
+                    href = link.get('href')
+                    data_title = link.get('data-title')
+                    url = None
+                    if href and href.startswith('/fileDown/singo'):
+                        url = f"https://www.safetyreport.go.kr{href}"
+                    elif data_title and data_title.startswith('/fileDown/singo'):
+                        url = f"https://www.safetyreport.go.kr{data_title}"
+                    
+                    if url:
+                        if "MAPIMG" in url:
+                            map_urls.append(url)
+                        else:
+                            urls.append(url)
+
+                attachment_files = "\n".join(urls)
+                map_image = "\n".join(map_urls)
 
     # Return a dictionary of parsed values
     return {
@@ -168,6 +192,7 @@ def _parse_details(report_soup, result_soup=None):
         "report_content": report_content,
         "processing_content": processing_content,
         "attachment_files": attachment_files,
+        "map_image": map_image,
     }
 
 def Crawling_detail(driver, list):
@@ -202,7 +227,7 @@ def Crawling_detail(driver, list):
             details = _parse_details(report_soup, result_soup)
 
             # Create DataFrame
-            cols = ["ID", "처리상태", "차량번호", "위반법규", "범칙금_과태료", "벌점", "처리기관", "담당자", "답변일", "발생일자", "발생시각", "위반장소", "종결여부", "신고내용", "처리내용", "첨부파일"]
+            cols = ["ID", "처리상태", "차량번호", "위반법규", "범칙금_과태료", "벌점", "처리기관", "담당자", "답변일", "발생일자", "발생시각", "위반장소", "종결여부", "신고내용", "처리내용", "지도", "첨부파일"]
             
             detaillist = [
                 link,
@@ -220,6 +245,7 @@ def Crawling_detail(driver, list):
                 details["processing_finish"],
                 details["report_content"],
                 details["processing_content"],
+                details["map_image"],
                 details["attachment_files"],
             ]
             
