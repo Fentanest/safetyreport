@@ -1,3 +1,5 @@
+import settings.settings as settings
+import os
 import sys
 import driv
 import login
@@ -55,15 +57,25 @@ if __name__ == "__main__":
         print("\n--- 파싱 결과 ---")
         details = crawldetail._parse_details(report_soup, result_soup)
         
-        # Print the results neatly
-        for key, value in details.items():
-            print(f"  - {key}: {value}")
+        # Define the output file path
+        output_file_path = os.path.join(settings.logpath, f"{report_id}.txt")
+
+        # Write the results to the file
+        with open(output_file_path, 'w', encoding='utf-8') as f:
+            for key, value in details.items():
+                f.write(f"{key}: {value}\n")
+        
+        print(f"결과가 다음 파일에 저장되었습니다: {output_file_path}")
 
     except Exception as e:
         print(f"\nAn unexpected error occurred: {e}")
         if driver:
             print("\n--- FULL PAGE SOURCE ON ERROR ---")
-            print(driver.page_source)
+            # Save the full page source to a file for debugging
+            error_file_path = os.path.join(settings.logpath, f"{report_id}_error.html")
+            with open(error_file_path, 'w', encoding='utf-8') as f:
+                f.write(driver.page_source)
+            print(f"오류 발생 시점의 전체 페이지 소스가 다음 파일에 저장되었습니다: {error_file_path}")
 
     finally:
         if driver:
