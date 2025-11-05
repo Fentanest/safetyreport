@@ -230,7 +230,8 @@ def save_results(df):
 def search_by_car_number(engine, car_number: str):
     """Searches for reports by car number in the merge_table."""
     with engine.connect() as conn:
-        query = select(merge_table).where(merge_table.c.차량번호 == car_number)
+        # Use the LIKE operator for a "contains" search
+        query = select(merge_table).where(merge_table.c.차량번호.like(f"%{car_number}%"))
         result = conn.execute(query)
         rows = result.fetchall()
         if not rows:

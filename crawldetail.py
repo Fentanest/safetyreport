@@ -28,10 +28,10 @@ def _parse_details(report_soup, result_soup=None):
     entry_value = entry_match.group(1).strip() if entry_match else ""
     
     car_number_match = re.search(r'차량번호\s*:\s*(.*?)(?=\s*발생일자|\n)', content_text)
-    car_number_value = car_number_match.group(1).strip() if car_number_match else ""
+    car_number_value = re.sub(r'\s+', '', car_number_match.group(1)) if car_number_match else ""
 
     occurrence_date_match = re.search(r'발생일자\s*:\s*(\d{4}.\d{1,2}.\d{1,2})', content_text)
-    occurrence_date_value = occurrence_date_match.group(1).strip() if occurrence_date_match else ""
+    occurrence_date_value = occurrence_date_match.group(1).strip().replace('.', '-') if occurrence_date_match else ""
 
     occurrence_time_match = re.search(r'발생시각\s*:\s*(\d{2}:\d{2})', content_text)
     occurrence_time_value = occurrence_time_match.group(1).strip() if occurrence_time_match else ""

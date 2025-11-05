@@ -1,3 +1,4 @@
+import re
 import logging
 import os
 import subprocess
@@ -73,11 +74,16 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await context.bot.send_message(chat_id=query.message.chat_id, text=f"오류가 발생했습니다:\n{error_message}")
         return ConversationHandler.END
 
+    elif query.data == "search_car":
+        await query.edit_message_text(text="검색할 차량번호를 입력하세요. 취소하려면 /cancel 을 입력하세요.")
+        return ASK_CAR_NUMBER
+
     return ConversationHandler.END
 
 async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives the car number, searches the DB, and returns the results."""
-    car_number = update.message.text
+    # Remove all whitespace from user input
+    car_number = re.sub(r'\s+', '', update.message.text)
     await update.message.reply_text(f"차량번호 '{car_number}'에 대한 신고 내역을 검색합니다...")
 
     try:
@@ -93,7 +99,7 @@ async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         response_parts = [f"총 {len(results)}건의 신고 내역을 찾았습니다.\n\n"]
         for i, row in enumerate(results):
-            part = f"""--- [결과 {i+1}] ---\n신고번호: {row.get('신고번호', 'N/A')}\n신고일: {row.get('신고일', 'N/A')}\n위반법규: {row.get('위반법규', 'N/A')}\n처리상태: {row.get('처리상태', 'N/A')}\n범칙금/과태료: {row.get('범칙금_과태료', 'N/A')}\n처리기관: {row.get('처리기관', 'N/A')}\n\n"""
+            part = f"""--- [결과 {i+1}] ---\n차량번호: {row.get('차량번호', 'N/A')}\n신고번호: {row.get('신고번호', 'N/A')}\n신고일: {row.get('신고일', 'N/A')}\n발생일: {row.get('발생일자', 'N/A')}\n위반법규: {row.get('위반법규', 'N/A')}\n처리상태: {row.get('처리상태', 'N/A')}\n범칙금/과태료: {row.get('범칙금_과태료', 'N/A')}\n처리기관: {row.get('처리기관', 'N/A')}\n담당자: {row.get('담당자', 'N/A')}\n\n"""
             response_parts.append(part)
         response_message = "".join(response_parts)
         
@@ -140,7 +146,6 @@ def main() -> None:
             ASK_CAR_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_car_number)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
-        per_message=True,  # Add this line to resolve the warning
     )
 
     application.add_handler(conv_handler)
