@@ -12,10 +12,10 @@ class LoggerFactory(object) :
         LoggerFactory.logbot.setLevel(settings.log_level)
         
         # 로그 폴더 있는지 확인
-        if os.path.exists(settings.logpath) == False:
+        if not os.path.exists(settings.logpath):
             LoggerFactory.logbot.warning("로그 저장 경로 없음")
             LoggerFactory.logbot.info("로그 저장 경로 생성")
-            os.mkdir(settings.logpath)
+            os.makedirs(settings.logpath, exist_ok=True)
         else:
             LoggerFactory.logbot.info("로그 저장 경로 있음")
         

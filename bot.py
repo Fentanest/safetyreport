@@ -24,8 +24,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Displays the main menu."""
     keyboard = [
         [InlineKeyboardButton("1. 크롤링 시작", callback_data="start_crawl")],
-        [InlineKeyboardButton("2. 차량검색", callback_data="search_car")],
-        [InlineKeyboardButton("3. 엑셀만 저장하기", callback_data="save_excel")],
+        [InlineKeyboardButton("2. 크롤링(min) 시작", callback_data="start_crawl_min")],
+        [InlineKeyboardButton("3. 차량검색", callback_data="search_car")],
+        [InlineKeyboardButton("4. 엑셀만 저장하기", callback_data="save_excel")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("원하시는 작업을 선택하세요:", reply_markup=reply_markup)
@@ -38,19 +39,25 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if query.data == "start_crawl":
         await query.edit_message_text(text="전체 크롤링 프로세스를 시작합니다. 완료되면 알려드리겠습니다...")
         # Run start.py as a subprocess
-        process = subprocess.Popen([sys.executable, "start.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = process.communicate()
+        process = subprocess.Popen([sys.executable, "start.py"])
+        process.wait() # Wait for the subprocess to finish
         if process.returncode == 0:
             await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링 및 모든 작업이 완료되었습니다.")
         else:
-            error_message = stderr.decode('utf-8')
-            logger.LoggerFactory.get_logger().error(f"Error running start.py: {error_message}")
-            await context.bot.send_message(chat_id=query.message.chat_id, text=f"오류가 발생했습니다:\n{error_message}")
+            logger.LoggerFactory.get_logger().error(f"Error running start.py. Exit code: {process.returncode}")
+            await context.bot.send_message(chat_id=query.message.chat_id, text=f"크롤링 중 오류가 발생했습니다. 자세한 내용은 로그를 확인해주세요.")
         return ConversationHandler.END
 
-    elif query.data == "search_car":
-        await query.edit_message_text(text="검색할 차량번호 전체를 입력해주세요:")
-        return ASK_CAR_NUMBER
+    elif query.data == "start_crawl_min":
+        await query.edit_message_text(text="크롤링(min) 프로세스를 시작합니다. 완료되면 알려드리겠습니다...")
+        process = subprocess.Popen([sys.executable, "start.py", "--min"])
+        process.wait() # Wait for the subprocess to finish
+        if process.returncode == 0:
+            await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링(min) 및 모든 작업이 완료되었습니다.")
+        else:
+            logger.LoggerFactory.get_logger().error(f"Error running start.py --min. Exit code: {process.returncode}")
+            await context.bot.send_message(chat_id=query.message.chat_id, text=f"크롤링(min) 중 오류가 발생했습니다. 자세한 내용은 로그를 확인해주세요.")
+        return ConversationHandler.END
 
     elif query.data == "save_excel":
         await query.edit_message_text(text="`debug_save.py`를 실행하여 엑셀 저장을 시작합니다...")
@@ -74,8 +81,10 @@ async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(f"차량번호 '{car_number}'에 대한 신고 내역을 검색합니다...")
 
     try:
-        db_path = os.path.join(settings.path, settings.db)
-        engine = create_engine(f'sqlite:///{db_path}')
+        engine = create_engine(
+            f'sqlite:///{settings.db_path}',
+            connect_args={'timeout': 15}
+        )
         results = items.search_by_car_number(engine, car_number)
 
         if not results:

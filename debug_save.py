@@ -11,7 +11,7 @@ if __name__ == "__main__":
     print("--- Save/Load Debug Script Started ---")
 
     # Check if db file exists
-    db_path = os.path.join(settings.path, settings.db)
+    db_path = settings.db_path
     if not os.path.exists(db_path):
         print(f"Database file not found at: {db_path}")
         print("Please run the main script and the merge debug script first.")

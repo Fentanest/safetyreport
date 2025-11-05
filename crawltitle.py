@@ -9,7 +9,7 @@ import pandas as pd
 import settings.settings as settings
 import logger
 
-def Crawling_title(driver):
+def Crawling_title(driver, use_minimal_crawl=False):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     attemps = 0
     while attemps <= int(settings.max_retry_attemps):
@@ -70,28 +70,36 @@ def Crawling_title(driver):
     logger.LoggerFactory.logbot.debug("30개씩 보기 선택 완료")
     sleep(3)
 
-    ## 마지막 버튼 눌러 총 페이지 수 확인하기
-    last_page_button = WebDriverWait(driver, 60).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, 'li.footable-page-nav a[title="맨마지막으로 이동"]'))
-        ) # 마지막 페이지
-    last_page_button.click()
-    logger.LoggerFactory.logbot.debug("마지막 페이지 버튼 클릭")
-    driver.implicitly_wait(2)
-    driver.refresh()
-    driver.implicitly_wait(2)
-
-    last_page_xpath = f'//*[@id="{settings.titletable}"]/tfoot/tr[@class="footable-paging"]/td/ul[@class="pagination"]/li[@class="footable-page visible active"]/a[@class="footable-page-link"]' # 마지막 페이지
-
-    last_page = WebDriverWait(driver, 60).until(
-        EC.presence_of_element_located((By.XPATH, last_page_xpath))
-        )
-    last_page_num = int(last_page.text)
+    # Get the last page number from the page info text
+    page_info_element = WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, 'p.bbs_info.fl_left'))
+    )
+    page_info_text = page_info_element.text
+    last_page_num = int(page_info_text.split('/')[1].replace('페이지', '').strip())
     logger.LoggerFactory.logbot.debug(f"마지막 페이지 번호{last_page_num}")
 
-    ## 처음 페이지로 이동
-    first_page_button = driver.find_element(By.CSS_SELECTOR, 'li.footable-page-nav a[title="맨처음으로 이동"]') # 처음 페이지
-    first_page_button.click()
-    logger.LoggerFactory.logbot.debug("처음 페이지로 복귀")
+    # ## 마지막 버튼 눌러 총 페이지 수 확인하기
+    # last_page_button = WebDriverWait(driver, 60).until(
+    #     EC.presence_of_element_located((By.CSS_SELECTOR, 'li.footable-page-nav a[title="맨마지막으로 이동"]'))
+    #     ) # 마지막 페이지
+    # last_page_button.click()
+    # logger.LoggerFactory.logbot.debug("마지막 페이지 버튼 클릭")
+    # driver.implicitly_wait(2)
+    # driver.refresh()
+    # driver.implicitly_wait(2)
+
+    # last_page_xpath = f'//*[@id="{settings.titletable}"]/tfoot/tr[@class="footable-paging"]/td/ul[@class="pagination"]/li[@class="footable-page visible active"]/a[@class="footable-page-link"]' # 마지막 페이지
+
+    # last_page = WebDriverWait(driver, 60).until(
+    #     EC.presence_of_element_located((By.XPATH, last_page_xpath))
+    #     )
+    # last_page_num = int(last_page.text)
+    # logger.LoggerFactory.logbot.debug(f"마지막 페이지 번호{last_page_num}")
+
+    # ## 처음 페이지로 이동
+    # first_page_button = driver.find_element(By.CSS_SELECTOR, 'li.footable-page-nav a[title="맨처음으로 이동"]') # 처음 페이지
+    # first_page_button.click()
+    # logger.LoggerFactory.logbot.debug("처음 페이지로 복귀")
 
     ## 리스트 생성
     cols = ["ID", "상태", "신고번호", "신고명", "신고일"] # 컬럼명 생성
@@ -127,14 +135,15 @@ def Crawling_title(driver):
             yield df 
             # linklist.append(link) # 개별 신고건 링크 개별 추출
         
-        if not found_in_progress:
-            empty_page_count += 1
-        else:
-            empty_page_count = 0
+        if use_minimal_crawl:
+            if not found_in_progress:
+                empty_page_count += 1
+            else:
+                empty_page_count = 0
 
-        if empty_page_count >= int(settings.max_empty_pages):
-            logger.LoggerFactory.logbot.info(f"{settings.max_empty_pages} 페이지 동안 '진행' 상태의 신고가 없어 크롤링을 조기 종료합니다.")
-            break
+            if empty_page_count >= int(settings.max_empty_pages):
+                logger.LoggerFactory.logbot.info(f"{settings.max_empty_pages} 페이지 동안 '진행' 상태의 신고가 없어 크롤링을 조기 종료합니다.")
+                break
 
         if i <= last_page_num:
             next_button.click()

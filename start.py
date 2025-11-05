@@ -36,15 +36,15 @@ else:
     logger.LoggerFactory.logbot.info("Google Sheet 기능이 비활성화되어 있습니다.")
 
 # 결과저장 폴더 있는지 확인
-if not os.path.exists(settings.path):
+if not settings.resultpath:
     logger.LoggerFactory.logbot.warning("결과 저장 경로 없음")
     logger.LoggerFactory.logbot.info("결과 저장 경로 생성")
-    os.mkdir(settings.path)
+    os.makedirs(settings.path, exist_ok=True)
 else:
     logger.LoggerFactory.logbot.info("결과 저장 경로 있음")
 
 # DB준비
-engine = create_engine(f'sqlite:///{os.path.join(settings.path, settings.db)}')
+engine = create_engine(f'sqlite:///{settings.db_path}')
 inspector = inspect(engine)
 
 required_tables = [settings.table_title, settings.table_detail, settings.table_merge]
@@ -65,7 +65,8 @@ driver = driv.create_driver()
 login.login_mysafety(driver=driver)
 
 # 게시판 리스트 크롤링, 개별 ID 확보 후 기록
-titlelist = list(crawltitle.Crawling_title(driver=driver))
+use_minimal_crawl = '--min' in sys.argv
+titlelist = list(crawltitle.Crawling_title(driver=driver, use_minimal_crawl=use_minimal_crawl))
 items.title_to_sql(dataframes=titlelist, engine=engine, conn=None) # conn is not used
 
 # 개별 신고 건 크롤링, 상태 저장 후 기록

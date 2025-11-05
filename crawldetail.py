@@ -201,7 +201,10 @@ def Crawling_detail(driver, list):
         path = f"{settings.mysafereporturl}/{link}"
         logger.LoggerFactory.logbot.debug(path)
         driver.get(path)
-        sleep(2)
+        driver.refresh()
+        WebDriverWait(driver, 20).until(
+            lambda d: d.execute_script('return document.readyState') == 'complete'
+        )
         
         try:
             logger.LoggerFactory.logbot.debug("Waiting for report content table to load...")
