@@ -1,7 +1,6 @@
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from time import sleep
 from bs4 import BeautifulSoup
 import pandas as pd
 import re
@@ -10,7 +9,6 @@ import logger
 
 def _parse_report_content_table(report_soup):
     """Helper function to parse details from the Report Content Table."""
-    report_text = report_soup.get_text().translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
 
     content_th = report_soup.find('th', string='내용')
     content_text = ""
@@ -254,7 +252,7 @@ def Crawling_detail(driver, list):
                     )
                     result_soup = BeautifulSoup(result_table_element.get_attribute('outerHTML'), 'html.parser')
                     logger.LoggerFactory.logbot.debug("Processing result table found.")
-                except:
+                except Exception:
                     logger.LoggerFactory.logbot.debug("Processing result table not found, but was expected.")
             else:
                 logger.LoggerFactory.logbot.debug(f"Skipping result table wait for status: {progress_status}")
