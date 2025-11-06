@@ -22,7 +22,7 @@ def _parse_report_content_table(report_soup):
     entry_match = re.search(r'본 신고는 안전신문고 앱의 (.*?) 메뉴로 접수된 신고입니다', content_text)
     entry_value = entry_match.group(1).strip() if entry_match else ""
 
-    car_number_match = re.search(r'차량번호\s*:\s*(.*?)(?=\s*발생일자|\n)', content_text)
+    car_number_match = re.search(r'차량번호\s*:\s*(.*?)(?=\n|\(위)', content_text)
     car_number_value = re.sub(r'\s+', '', car_number_match.group(1)) if car_number_match else ""
 
     occurrence_date_match = re.search(r'발생일자\s*:\s*(\d{4}.\d{1,2}.\d{1,2})', content_text)
@@ -53,14 +53,18 @@ def _parse_report_content_table(report_soup):
 
     attachment_th = report_soup.find('th', string='첨부파일')
     attachment_files = ""
+    attached_photos = ""
     map_image = ""
     if attachment_th:
         attachment_td = attachment_th.find_next_sibling('td')
         if attachment_td:
             if "6개월 지난 신고건의 경우 첨부파일을 삭제하고 있습니다." in attachment_td.get_text():
                 attachment_files = ""
+                attached_photos = ""
             else:
-                urls = []
+                image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp']
+                image_urls = []
+                other_urls = []
                 map_urls = []
                 links = attachment_td.find_all('a')
                 for link in links:
@@ -75,10 +79,13 @@ def _parse_report_content_table(report_soup):
                     if url:
                         if "MAPIMG" in url:
                             map_urls.append(url)
+                        elif any(url.lower().endswith(ext) for ext in image_extensions):
+                            image_urls.append(url)
                         else:
-                            urls.append(url)
+                            other_urls.append(url)
 
-                attachment_files = "\n".join(urls)
+                attachment_files = "\n".join(other_urls)
+                attached_photos = "\n".join(image_urls)
                 map_image = "\n".join(map_urls)
 
     return {
@@ -90,6 +97,7 @@ def _parse_report_content_table(report_soup):
         "progress_status": progress_status,
         "report_content": report_content,
         "attachment_files": attachment_files,
+        "attached_photos": attached_photos,
         "map_image": map_image,
     }
 
@@ -140,7 +148,7 @@ def _parse_processing_result_table(result_soup, entry_value):
             response_date_text = response_date_td.get_text(strip=True)
 
     fine_entry = ""
-    if (entry_value == "버스전용차로 위반(일반도로)" or entry_value == "쓰레기, 폐기물") and processing_status_text == "수용":
+    if ("버스전용차로 위반(일반도로)" in entry_value or "쓰레기, 폐기물" in entry_value) and processing_status_text == "수용":
         fine_entry = "과태료"
 
     penalty_matches = re.search(r'범칙금\s+([\d,]+)\s*원, 벌점\s+(\d{0,4})\s*점', result_text)
@@ -255,7 +263,7 @@ def Crawling_detail(driver, list):
             details = _parse_details(report_soup, result_soup)
 
             # Create DataFrame
-            cols = ["ID", "처리상태", "차량번호", "위반법규", "범칙금_과태료", "벌점", "처리기관", "담당자", "답변일", "발생일자", "발생시각", "위반장소", "종결여부", "신고내용", "처리내용", "지도", "첨부파일"]
+            cols = ["ID", "처리상태", "차량번호", "위반법규", "범칙금_과태료", "벌점", "처리기관", "담당자", "답변일", "발생일자", "발생시각", "위반장소", "종결여부", "신고내용", "처리내용", "지도", "첨부사진", "첨부파일"]
             
             detaillist = [
                 link,
@@ -274,6 +282,7 @@ def Crawling_detail(driver, list):
                 details["report_content"],
                 details["processing_content"],
                 details["map_image"],
+                details["attached_photos"],
                 details["attachment_files"],
             ]
             

@@ -42,6 +42,7 @@ detail_table = Table(settings.table_detail, metadata,
                      Column('신고내용', String),
                      Column('처리내용', String),
                      Column('지도', String),
+                     Column('첨부사진', String),
                      Column('첨부파일', String))
 
 
@@ -67,6 +68,7 @@ merge_table = Table(settings.table_merge, metadata,
                     Column('신고내용', String),
                     Column('처리내용', String),
                     Column('지도', String),
+                    Column('첨부사진', String),
                     Column('첨부파일', String))
 
 
@@ -153,6 +155,7 @@ def deatil_to_sql(dataframes, engine, conn=None):
                 '신고내용': insert_stmt.excluded.신고내용,
                 '처리내용': insert_stmt.excluded.처리내용,
                 '지도': insert_stmt.excluded.지도,
+                '첨부사진': insert_stmt.excluded.첨부사진,
                 '첨부파일': insert_stmt.excluded.첨부파일
             }
             
@@ -182,6 +185,12 @@ def save_results(df):
             df_excel[f'첨부파일{i+1}'] = attachments[i]
         df_excel = df_excel.drop(columns=['첨부파일'])
     
+    if not df_excel.empty and '첨부사진' in df_excel.columns:
+        photos = df_excel['첨부사진'].str.split('\n', expand=True)
+        for i in range(len(photos.columns)):
+            df_excel[f'첨부사진{i+1}'] = photos[i]
+        df_excel = df_excel.drop(columns=['첨부사진'])
+
     df_excel.to_excel(os.path.join(settings.resultpath, settings.resultfile), index=False)
     logger.LoggerFactory.logbot.info(f"데이터 엑셀 저장 성공, 저장경로 : {os.path.join(settings.resultpath, settings.resultfile)}")
 
@@ -194,12 +203,20 @@ def save_results(df):
     # 1. Format map URL for Google Sheets formula
     df_gsheet['지도'] = df_gsheet['지도'].apply(lambda url: f'=image("{url}")' if pd.notna(url) and url else '')
 
-    # 2. Split attachment URLs into separate columns for Google Sheets
+    # 2. Split attachment URLs (non-images)
     if not df_gsheet.empty and '첨부파일' in df_gsheet.columns:
         attachments = df_gsheet['첨부파일'].str.split('\n', expand=True)
         for i in range(len(attachments.columns)):
             df_gsheet[f'첨부파일{i+1}'] = attachments[i]
         df_gsheet = df_gsheet.drop(columns=['첨부파일'])
+
+    # 3. Split and format photo attachment URLs
+    if not df_gsheet.empty and '첨부사진' in df_gsheet.columns:
+        photos = df_gsheet['첨부사진'].str.split('\n', expand=True)
+        for i in range(len(photos.columns)):
+            col_name = f'첨부사진{i+1}'
+            df_gsheet[col_name] = photos[i].apply(lambda url: f'=image("{url}")' if pd.notna(url) and url else '')
+        df_gsheet = df_gsheet.drop(columns=['첨부사진'])
 
     try:
         worksheet = spreadsheet.worksheet("data")
@@ -272,6 +289,7 @@ def merge_final(engine, conn=None):
             func.coalesce(detail_table.c.신고내용, '').label('신고내용'),
             func.coalesce(detail_table.c.처리내용, '').label('처리내용'),
             func.coalesce(detail_table.c.지도, '').label('지도'),
+            func.coalesce(detail_table.c.첨부사진, '').label('첨부사진'),
             func.coalesce(detail_table.c.첨부파일, '').label('첨부파일')
         ).select_from(j)
 
