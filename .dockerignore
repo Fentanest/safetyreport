@@ -13,6 +13,7 @@ venv/
 
 # Logs
 *.log
+*.xlsx
 
 # Documentation
 README.md
