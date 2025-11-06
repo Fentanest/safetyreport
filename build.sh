@@ -13,10 +13,7 @@ if [ "$1" == "--dev" ]; then
     # For dev builds, we don't need multi-platform or push
     echo "Building Docker image with tag: $IMAGE_NAME:$TAG (local build)"
     pwd # Print current working directory for debugging
-    docker buildx build --platform linux/amd64,linux/arm64 \
-      -t "$IMAGE_NAME:$TAG" \
-      --push \
-      .
+    docker build -t "$IMAGE_NAME:$TAG" .
 else
     # --- Version Handling ---
     # Check if VERSION file exists, if not, create it with a default version
@@ -41,7 +38,7 @@ else
 
     # --- Docker Build for release ---
     echo "Building and pushing Docker image with tags: latest, $IMAGE_NAME:$TAG"
-    docker buildx build --platform linux/amd64,linux/arm64 \
+    docker buildx build --no-cache --platform linux/amd64,linux/arm64 \
       -t "$IMAGE_NAME:latest" \
       -t "$IMAGE_NAME:$TAG" \
       --push \

@@ -126,9 +126,15 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 def main() -> None:
     """Run the bot."""
     logger.LoggerFactory.create_logger()
+
+    # Check if Telegram is enabled
+    if not settings.telegram_enabled:
+        logger.LoggerFactory.get_logger().info("Telegram 기능이 비활성화되어 봇을 시작하지 않습니다.")
+        return
+
     # Get the token from environment variable
     token = settings.telegram_token
-    if not token:
+    if not token: # This check is somewhat redundant now but good for safety
         logger.LoggerFactory.get_logger().error("TELEGRAM_TOKEN 환경변수가 설정되지 않았습니다.")
         return
 

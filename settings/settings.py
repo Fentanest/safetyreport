@@ -45,6 +45,7 @@ db_path = os.path.join(datapath, 'data.db')
 google_sheet_key = os.getenv('sheet_key', config.get('GOOGLESHEET', 'sheet_key', fallback=None))
 
 google_sheet_enabled = os.path.exists(google_api_auth_file) and google_sheet_key is not None
+telegram_enabled = telegram_token is not None and chat_id is not None
 
 if not google_sheet_enabled:
     google_api_auth_file = None
