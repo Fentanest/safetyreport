@@ -8,25 +8,20 @@ import re
 import settings.settings as settings
 import logger
 
-def _parse_details(report_soup, result_soup=None):
-    """Helper function to parse details from soup objects."""
-    
-    # --- Parse Report Content Table (Mandatory) ---
+def _parse_report_content_table(report_soup):
+    """Helper function to parse details from the Report Content Table."""
     report_text = report_soup.get_text().translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
 
-    # Find the '내용' (content) cell, which contains the key details, to avoid parsing incorrect data from other parts of the page.
     content_th = report_soup.find('th', string='내용')
     content_text = ""
     if content_th:
         content_td = content_th.find_next_sibling('td')
         if content_td:
-            # Use get_text with a separator to handle <br> tags, which are common in this field.
             content_text = content_td.get_text(separator='\n').translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
 
-    # Parse entry, car number, date, and time from the dedicated '내용' text.
     entry_match = re.search(r'본 신고는 안전신문고 앱의 (.*?) 메뉴로 접수된 신고입니다', content_text)
     entry_value = entry_match.group(1).strip() if entry_match else ""
-    
+
     car_number_match = re.search(r'차량번호\s*:\s*(.*?)(?=\s*발생일자|\n)', content_text)
     car_number_value = re.sub(r'\s+', '', car_number_match.group(1)) if car_number_match else ""
 
@@ -43,7 +38,6 @@ def _parse_details(report_soup, result_soup=None):
         if violation_location_td and violation_location_td.find('p'):
             violation_location_value = violation_location_td.find('p').get_text(strip=True)
 
-    # Extract '진행상황' to check for '취하'
     progress_status_th = report_soup.find('th', string='진행상황')
     progress_status = ""
     if progress_status_th:
@@ -51,100 +45,12 @@ def _parse_details(report_soup, result_soup=None):
         if progress_status_td:
             progress_status = progress_status_td.get_text(strip=True)
 
-    # --- Parse Processing Result Table (Optional) ---
-    if result_soup:
-        result_text = result_soup.get_text().translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
-
-        processing_content_th = result_soup.find('th', string='처리내용')
-        processing_content = ""
-        if processing_content_th:
-            processing_content_td = processing_content_th.find_next_sibling('td')
-            if processing_content_td:
-                processing_content = processing_content_td.get_text(separator='\n').strip()
-
-        violation_law_match = re.search(r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?', result_text)
-        violation_law_value = violation_law_match.group(0).strip() if violation_law_match else ""
-
-        processing_status_th = result_soup.find('th', string='처리상태')
-        processing_status_text = ""
-        if processing_status_th:
-            processing_status_td = processing_status_th.find_next_sibling('td')
-            if processing_status_td:
-                processing_status_text = processing_status_td.get_text(strip=True)
-        
-        processing_finish_text = "N"
-        if processing_status_text in ["수용", "불수용", "일부수용", "기타"]:
-            processing_finish_text = "Y"
-
-        processing_agency_th = result_soup.find('th', string='처리기관')
-        processing_agency_text = ""
-        if processing_agency_th:
-            processing_agency_td = processing_agency_th.find_next_sibling('td')
-            if processing_agency_td:
-                processing_agency_text = processing_agency_td.get_text(strip=True)
-        
-        person_in_charge_th = result_soup.find('th', string='담당자')
-        person_in_charge_text = ""
-        if person_in_charge_th:
-            person_in_charge_td = person_in_charge_th.find_next_sibling('td')
-            if person_in_charge_td:
-                person_in_charge_text = person_in_charge_td.get_text(strip=True)
-
-        response_date_th = result_soup.find('th', string='답변일')
-        response_date_text = ""
-        if response_date_th:
-            response_date_td = response_date_th.find_next_sibling('td')
-            if response_date_td:
-                response_date_text = response_date_td.get_text(strip=True)
-
-        fine_entry = ""
-        if (entry_value == "버스전용차로 위반(일반도로)" or entry_value == "쓰레기, 폐기물") and processing_status_text == "수용":
-            fine_entry = "과태료"
-
-        penalty_matches = re.search(r'범칙금\s+([\d,]+)\s*원, 벌점\s+(\d{0,4})\s*점', result_text)
-        fine_matches = re.search(r'과태료\s+([\d,]+)\s*원', result_text)
-
-        penalty_amount = ""
-        penalty_points = ""
-        fine_amount = ""
-
-        if penalty_matches:
-            penalty_amount = "범칙금: " + penalty_matches.group(1) + "원"
-            penalty_points = "벌점: " + penalty_matches.group(2) + "점"
-        elif fine_matches:
-            fine_amount = "과태료: " + fine_matches.group(1) + "원"
-        
-        final_penalty = penalty_amount or fine_amount or fine_entry
-
-        if "교통질서 안내장" in processing_content:
-            final_penalty = '경고'
-
-    # --- Set default values if result table is not found ---
-    else:
-        violation_law_value = ""
-        processing_status_text = "처리중"
-        processing_finish_text = "N"
-        processing_agency_text = ""
-        person_in_charge_text = ""
-        response_date_text = ""
-        final_penalty = ""
-        penalty_points = ""
-        processing_content = ""
-
-    # --- Final determination of completion status ---
-    if progress_status == "취하":
-        processing_finish_text = "Y"
-        if not processing_status_text or processing_status_text == "처리중":
-            processing_status_text = "취하"
-
     report_content = ""
     if content_text:
-        # Split by "차량번호" and take the first part
         parts = re.split(r'\*\s*차량번호', content_text, 1)
         if parts:
             report_content = parts[0].strip()
 
-    # Find the '첨부파일' (attachment) cell and parse the links
     attachment_th = report_soup.find('th', string='첨부파일')
     attachment_files = ""
     map_image = ""
@@ -175,26 +81,134 @@ def _parse_details(report_soup, result_soup=None):
                 attachment_files = "\n".join(urls)
                 map_image = "\n".join(map_urls)
 
-    # Return a dictionary of parsed values
+    return {
+        "entry_value": entry_value,
+        "car_number": car_number_value,
+        "occurrence_date": occurrence_date_value,
+        "occurrence_time": occurrence_time_value,
+        "violation_location": violation_location_value,
+        "progress_status": progress_status,
+        "report_content": report_content,
+        "attachment_files": attachment_files,
+        "map_image": map_image,
+    }
+
+def _parse_processing_result_table(result_soup, entry_value):
+    """Helper function to parse details from the Processing Result Table."""
+    result_text = result_soup.get_text().translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
+
+    processing_content_th = result_soup.find('th', string='처리내용')
+    processing_content = ""
+    if processing_content_th:
+        processing_content_td = processing_content_th.find_next_sibling('td')
+        if processing_content_td:
+            processing_content = processing_content_td.get_text(separator='\n').strip()
+
+    violation_law_match = re.search(r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?', result_text)
+    violation_law_value = violation_law_match.group(0).strip() if violation_law_match else ""
+
+    processing_status_th = result_soup.find('th', string='처리상태')
+    processing_status_text = ""
+    if processing_status_th:
+        processing_status_td = processing_status_th.find_next_sibling('td')
+        if processing_status_td:
+            processing_status_text = processing_status_td.get_text(strip=True)
+    
+    processing_finish_text = "N"
+    if processing_status_text in ["수용", "불수용", "일부수용", "기타"]:
+        processing_finish_text = "Y"
+
+    processing_agency_th = result_soup.find('th', string='처리기관')
+    processing_agency_text = ""
+    if processing_agency_th:
+        processing_agency_td = processing_agency_th.find_next_sibling('td')
+        if processing_agency_td:
+            processing_agency_text = processing_agency_td.get_text(strip=True)
+    
+    person_in_charge_th = result_soup.find('th', string='담당자')
+    person_in_charge_text = ""
+    if person_in_charge_th:
+        person_in_charge_td = person_in_charge_th.find_next_sibling('td')
+        if person_in_charge_td:
+            person_in_charge_text = person_in_charge_td.get_text(strip=True)
+
+    response_date_th = result_soup.find('th', string='답변일')
+    response_date_text = ""
+    if response_date_th:
+        response_date_td = response_date_th.find_next_sibling('td')
+        if response_date_td:
+            response_date_text = response_date_td.get_text(strip=True)
+
+    fine_entry = ""
+    if (entry_value == "버스전용차로 위반(일반도로)" or entry_value == "쓰레기, 폐기물") and processing_status_text == "수용":
+        fine_entry = "과태료"
+
+    penalty_matches = re.search(r'범칙금\s+([\d,]+)\s*원, 벌점\s+(\d{0,4})\s*점', result_text)
+    fine_matches = re.search(r'과태료\s+([\d,]+)\s*원', result_text)
+
+    penalty_amount = ""
+    penalty_points = ""
+    fine_amount = ""
+
+    if penalty_matches:
+        penalty_amount = "범칙금: " + penalty_matches.group(1) + "원"
+        penalty_points = "벌점: " + penalty_matches.group(2) + "점"
+    elif fine_matches:
+        fine_amount = "과태료: " + fine_matches.group(1) + "원"
+    
+    final_penalty = penalty_amount or fine_amount or fine_entry
+
+    if "교통질서 안내장" in processing_content:
+        final_penalty = '경고'
+
     return {
         "processing_status": processing_status_text,
-        "car_number": car_number_value,
         "violation_law": violation_law_value,
         "penalty_amount": final_penalty,
         "penalty_points": penalty_points,
         "processing_agency": processing_agency_text,
         "person_in_charge": person_in_charge_text,
         "response_date": response_date_text,
-        "occurrence_date": occurrence_date_value,
-        "occurrence_time": occurrence_time_value,
-        "violation_location": violation_location_value,
-        "processing_finish": processing_finish_text,
-        "report_content": report_content,
         "processing_content": processing_content,
-        "attachment_files": attachment_files,
-        "map_image": map_image,
+        "processing_finish": processing_finish_text,
     }
 
+def _parse_details(report_soup, result_soup=None):
+    """Helper function to parse details from soup objects."""
+    
+    report_details = _parse_report_content_table(report_soup)
+    
+    processing_details = {}
+    if result_soup:
+        processing_details = _parse_processing_result_table(result_soup, report_details["entry_value"])
+    else:
+        # Set default values if result table is not found
+        processing_details = {
+            "processing_status": "처리중",
+            "violation_law": "",
+            "penalty_amount": "",
+            "penalty_points": "",
+            "processing_agency": "",
+            "person_in_charge": "",
+            "response_date": "",
+            "processing_content": "",
+            "processing_finish": "N",
+        }
+
+    # Final determination of completion status
+    if report_details["progress_status"] == "취하":
+        processing_details["processing_finish"] = "Y"
+        if not processing_details["processing_status"] or processing_details["processing_status"] == "처리중":
+            processing_details["processing_status"] = "취하"
+
+    # Merge all details
+    all_details = {**report_details, **processing_details}
+    
+    # Remove entry_value as it's an intermediate value
+    all_details.pop("entry_value", None)
+    all_details.pop("progress_status", None) # progress_status is now handled internally
+
+    return all_details
 def Crawling_detail(driver, list):
     """Crawls the detail page for each report link."""
     for link in list:
@@ -214,17 +228,28 @@ def Crawling_detail(driver, list):
             )
             report_soup = BeautifulSoup(report_table_element.get_attribute('outerHTML'), 'html.parser')
 
-            # Try to find the result table, but don't fail if it's not there
+            # --- Optimization: Check progress status early ---
+            progress_status_th = report_soup.find('th', string='진행상황')
+            progress_status = ""
+            if progress_status_th:
+                progress_status_td = progress_status_th.find_next_sibling('td')
+                if progress_status_td:
+                    progress_status = progress_status_td.get_text(strip=True)
+
             result_soup = None
-            try:
-                result_table_xpath = "//div[contains(@class, 'singo') and .//th[text()='처리내용']]"
-                result_table_element = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, result_table_xpath))
-                )
-                result_soup = BeautifulSoup(result_table_element.get_attribute('outerHTML'), 'html.parser')
-                logger.LoggerFactory.logbot.debug("Processing result table found.")
-            except:
-                logger.LoggerFactory.logbot.debug("Processing result table not found. Assuming report is in progress.")
+            # If the report is not in progress or withdrawn, wait for the result table
+            if progress_status not in ['진행', '취하']:
+                try:
+                    result_table_xpath = "//div[contains(@class, 'singo') and .//th[text()='처리내용']]"
+                    result_table_element = WebDriverWait(driver, 5).until(
+                        EC.presence_of_element_located((By.XPATH, result_table_xpath))
+                    )
+                    result_soup = BeautifulSoup(result_table_element.get_attribute('outerHTML'), 'html.parser')
+                    logger.LoggerFactory.logbot.debug("Processing result table found.")
+                except:
+                    logger.LoggerFactory.logbot.debug("Processing result table not found, but was expected.")
+            else:
+                logger.LoggerFactory.logbot.debug(f"Skipping result table wait for status: {progress_status}")
 
             # Parse all details using the helper function
             details = _parse_details(report_soup, result_soup)
