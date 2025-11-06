@@ -1,10 +1,9 @@
 import settings.settings as settings
 import pandas as pd
-from sqlalchemy import text, Table, MetaData, Column, String, select, func, exists
+from sqlalchemy import Table, MetaData, Column, String, select, func, exists
 from sqlalchemy.dialects.sqlite import insert
 import os
 import gspread
-from gspread_dataframe import set_with_dataframe
 from gspread.exceptions import WorksheetNotFound
 import logger
 
@@ -73,31 +72,36 @@ merge_table = Table(settings.table_merge, metadata,
 
 
 ## DB에서 링크번호 가져오기
-def get_cNo(engine, conn=None):
+def get_cNo(engine, force=False):
     with engine.connect() as conn:
-        row_count_query = select(func.count()).select_from(detail_table)
-        row_count = conn.execute(row_count_query).scalar()
-        if row_count == 0:
-            logger.LoggerFactory.logbot.info("detail 테이블 비어 있어 전체 스캔 시작")
-            query = select(title_table.c.ID).where(title_table.c.상태 != '취하')
+        if force:
+            logger.LoggerFactory.logbot.info("--force 옵션 사용: 전체 신고 건을 다시 스캔합니다.")
+            query = select(title_table.c.ID)
             df = pd.read_sql_query(query, conn)
         else:
-            logger.LoggerFactory.logbot.info("신규, 미종결 신고 건 스캔 시작")
-            query_new = select(title_table.c.ID).where(
-                ~exists().where(title_table.c.ID == detail_table.c.ID)
-            )
-            query_notend = select(detail_table.c.ID).where(detail_table.c.종결여부 != 'Y')
-            df_a = pd.read_sql_query(query_new, conn)
-            df_b = pd.read_sql_query(query_notend, conn)
-            df = pd.merge(df_a, df_b, how="outer")
+            row_count_query = select(func.count()).select_from(detail_table)
+            row_count = conn.execute(row_count_query).scalar()
+            if row_count == 0:
+                logger.LoggerFactory.logbot.info("detail 테이블 비어 있어 전체 스캔 시작")
+                query = select(title_table.c.ID).where(title_table.c.상태 != '취하')
+                df = pd.read_sql_query(query, conn)
+            else:
+                logger.LoggerFactory.logbot.info("신규, 미종결 신고 건 스캔 시작")
+                query_new = select(title_table.c.ID).where(
+                    ~exists().where(title_table.c.ID == detail_table.c.ID)
+                )
+                query_notend = select(detail_table.c.ID).where(detail_table.c.종결여부 != 'Y')
+                df_a = pd.read_sql_query(query_new, conn)
+                df_b = pd.read_sql_query(query_notend, conn)
+                df = pd.merge(df_a, df_b, how="outer")
+        
         df_sorted = df.sort_values(by='ID', ascending=True)
         detaillist = df_sorted['ID'].tolist()
         logger.LoggerFactory.logbot.debug("스캔대상 ID 리스트화 완료")
 
-        logger.LoggerFactory.logbot.debug("대상 ID 리스트 :")
-        logger.LoggerFactory.logbot.debug(detaillist)
+        logger.LoggerFactory.logbot.debug("대상 ID 리스트 : %s", detaillist)
         logger.LoggerFactory.logbot.info(f"스캔대상 ID 총 {len(detaillist)}건")
-        return (detaillist)
+        return detaillist
 
 
 
@@ -176,21 +180,64 @@ def load_results(engine, conn=None):
         return (df)
 
 def save_results(df):
-    # --- Excel Export Processing ---
-    df_excel = df.copy()
-    # Split attachment URLs into separate columns for Excel
-    if not df_excel.empty and '첨부파일' in df_excel.columns:
-        attachments = df_excel['첨부파일'].str.split('\n', expand=True)
-        for i in range(len(attachments.columns)):
-            df_excel[f'첨부파일{i+1}'] = attachments[i]
-        df_excel = df_excel.drop(columns=['첨부파일'])
-    
-    if not df_excel.empty and '첨부사진' in df_excel.columns:
-        photos = df_excel['첨부사진'].str.split('\n', expand=True)
-        for i in range(len(photos.columns)):
-            df_excel[f'첨부사진{i+1}'] = photos[i]
-        df_excel = df_excel.drop(columns=['첨부사진'])
+    # --- Common Column Processing ---
+    df_processed = df.copy()
 
+    # Define a lambda for conditional image formula for Google Sheets
+    image_formula = lambda url: f'=image("{url}")' if pd.notna(url) and url and url != "6개월 초과" else url
+
+    # Prepare lists for new attachment columns
+    photo_cols = []
+    attachment_cols = []
+
+    # Clean and split photo attachment URLs
+    if '첨부사진' in df_processed.columns:
+        # Strip whitespace and replace empty strings with NaN so they are not split
+        df_processed['첨부사진'] = df_processed['첨부사진'].str.strip()
+        df_processed['첨부사진'].replace('', pd.NA, inplace=True)
+        
+        if df_processed['첨부사진'].notna().any():
+            photos = df_processed['첨부사진'].str.split('\n', expand=True)
+            for i in range(photos.shape[1]):
+                col_name = f'첨부사진{i+1}'
+                df_processed[col_name] = photos[i]
+                photo_cols.append(col_name)
+        df_processed = df_processed.drop(columns=['첨부사진'])
+
+    # Clean and split file attachment URLs
+    if '첨부파일' in df_processed.columns:
+        # Strip whitespace and replace empty strings with NaN
+        df_processed['첨부파일'] = df_processed['첨부파일'].str.strip()
+        df_processed['첨부파일'].replace('', pd.NA, inplace=True)
+
+        if df_processed['첨부파일'].notna().any():
+            attachments = df_processed['첨부파일'].str.split('\n', expand=True)
+            for i in range(attachments.shape[1]):
+                col_name = f'첨부파일{i+1}'
+                df_processed[col_name] = attachments[i]
+                attachment_cols.append(col_name)
+        df_processed = df_processed.drop(columns=['첨부파일'])
+
+    # --- Reorder columns ---
+    original_cols = df.columns.tolist()
+    # Remove the original attachment columns that were dropped
+    if '첨부파일' in original_cols:
+        original_cols.remove('첨부파일')
+    if '첨부사진' in original_cols:
+        original_cols.remove('첨부사진')
+    if '지도' in original_cols:
+        original_cols.remove('지도')
+
+    # Define the new order: 지도 -> 첨부사진 -> 첨부파일
+    new_order = original_cols + ['지도'] + photo_cols + attachment_cols
+    
+    # Filter out any columns that might not exist in the final DataFrame
+    new_order = [col for col in new_order if col in df_processed.columns]
+    
+    df_processed = df_processed[new_order]
+
+    # --- Excel Export Processing ---
+    df_excel = df_processed.copy()
     df_excel.to_excel(os.path.join(settings.resultpath, settings.resultfile), index=False)
     logger.LoggerFactory.logbot.info(f"데이터 엑셀 저장 성공, 저장경로 : {os.path.join(settings.resultpath, settings.resultfile)}")
 
@@ -199,28 +246,12 @@ def save_results(df):
         logger.LoggerFactory.logbot.info("Google Sheet 기능이 비활성화되어 구글 시트 저장을 건너뜁니다.")
         return
 
-    df_gsheet = df.copy()
+    df_gsheet = df_processed.copy()
     
-    # Define a lambda for conditional image formula
-    image_formula = lambda url: f'=image("{url}")' if pd.notna(url) and url and url != "6개월 초과" else url
-
-    # 1. Format map URL for Google Sheets formula
+    # Apply image formulas for Google Sheets
     df_gsheet['지도'] = df_gsheet['지도'].apply(image_formula)
-
-    # 2. Split attachment URLs (non-images)
-    if not df_gsheet.empty and '첨부파일' in df_gsheet.columns:
-        attachments = df_gsheet['첨부파일'].str.split('\n', expand=True)
-        for i in range(len(attachments.columns)):
-            df_gsheet[f'첨부파일{i+1}'] = attachments[i]
-        df_gsheet = df_gsheet.drop(columns=['첨부파일'])
-
-    # 3. Split and format photo attachment URLs
-    if not df_gsheet.empty and '첨부사진' in df_gsheet.columns:
-        photos = df_gsheet['첨부사진'].str.split('\n', expand=True)
-        for i in range(len(photos.columns)):
-            col_name = f'첨부사진{i+1}'
-            df_gsheet[col_name] = photos[i].apply(image_formula)
-        df_gsheet = df_gsheet.drop(columns=['첨부사진'])
+    for col in photo_cols:
+        df_gsheet[col] = df_gsheet[col].apply(image_formula)
 
     try:
         worksheet = spreadsheet.worksheet("data")
@@ -241,7 +272,28 @@ def save_results(df):
     
     # Resize columns and rows for better readability
     worksheet.resize(rows=len(data_to_upload), cols=len(data_to_upload[0]))
-    worksheet.format(f"2:{len(data_to_upload)}", {"rowHeight": 300})
+    
+    # Set row height using batch_update for robustness
+    if len(data_to_upload) > 1:
+        requests = {
+            "requests": [
+                {
+                    "updateDimensionProperties": {
+                        "range": {
+                            "sheetId": worksheet.id,
+                            "dimension": "ROWS",
+                            "startIndex": 1,  # Start from the second row (index 1)
+                            "endIndex": len(data_to_upload)
+                        },
+                        "properties": {
+                            "pixelSize": 300
+                        },
+                        "fields": "pixelSize"
+                    }
+                }
+            ]
+        }
+        spreadsheet.batch_update(requests)
 
     logger.LoggerFactory.logbot.info("구글 스프레드시트에 새로운 데이터를 성공적으로 입력하였습니다.")
 

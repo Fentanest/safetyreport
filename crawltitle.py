@@ -9,133 +9,102 @@ import pandas as pd
 import settings.settings as settings
 import logger
 
-def Crawling_title(driver, use_minimal_crawl=False):
+def Crawling_title(driver, use_minimal_crawl=False, page_range=None):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     attemps = 0
     while attemps <= int(settings.max_retry_attemps):
         try:
             driver.get(settings.myreporturl)
             sleep(3)
-            driver.save_screenshot(f'./logs/{str(datetime.datetime.now()).replace(":","_")[:19]}_.png')
             break
-        except:
-            logger.LoggerFactory.logbot.warning("마이페이지 접속 불가")
+        except Exception as e:
+            logger.LoggerFactory.logbot.warning(f"마이페이지 접속 불가: {e}")
             sleep(int(settings.retry_interval))
             attemps += 1
 
-    ## 기간 시작일, 종료일 비우기
-    start_date_path = WebDriverWait(driver, 60).until(
-        EC.presence_of_element_located((By.ID, "C_FRM_DATE"))
-        )
-    start_date_path.click() # 시작일 비우기
-    sleep(1)
-    start_date_path.send_keys(Keys.CONTROL + "a")  # 입력란의 내용을 선택합니다.
-    sleep(1)
-    start_date_path.send_keys(Keys.DELETE)  # 선택된 내용을 삭제합니다.
-    sleep(1)
-    start_date_path.send_keys("2016-01-01")  # 입력란의 내용을 선택합니다.
-    sleep(1)
+    # 기간 설정 및 검색
+    start_date_path = WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.ID, "C_FRM_DATE")))
+    start_date_path.clear()
+    start_date_path.send_keys("2016-01-01")
     logger.LoggerFactory.logbot.debug("검색 시작일 설정")
 
-    end_date_path = WebDriverWait(driver, 60).until(
-        EC.presence_of_element_located((By.ID, "C_TO_DATE"))
-        )
-    end_date_path.click() # 종료일 비우기
-    sleep(1)
-    end_date_path.send_keys(Keys.CONTROL + "a")  # 입력란의 내용을 선택합니다.
-    sleep(1)
-    end_date_path.send_keys(Keys.DELETE)  # 선택된 내용을 삭제합니다.
-    sleep(1)
-    end_date_path.send_keys(today)  # 입력란의 내용을 선택합니다.
-    sleep(1)
+    end_date_path = WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.ID, "C_TO_DATE")))
+    end_date_path.clear()
+    end_date_path.send_keys(today)
     logger.LoggerFactory.logbot.debug("검색 종료일 설정")
 
-    search_button = WebDriverWait(driver, 60).until(
-        EC.presence_of_element_located((By.XPATH, "//button[@class='button btnSearch']"))
-        )
-    sleep(1)
+    search_button = WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.XPATH, "//button[@class='button btnSearch']")))
     search_button.send_keys(Keys.ENTER)
     logger.LoggerFactory.logbot.debug("검색 버튼 클릭")
-    driver.implicitly_wait(2)
-    driver.refresh()
-    driver.implicitly_wait(2)
     sleep(5)
 
-    ## 30개씩 보기
-    page_size_select = WebDriverWait(driver, 60).until(
-        EC.presence_of_element_located((By.ID, "pageSize"))
-        )
-    pageselect = Select(page_size_select)
-    pageselect.select_by_value("30")
+    # 30개씩 보기
+    page_size_select = WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.ID, "pageSize")))
+    Select(page_size_select).select_by_value("30")
     logger.LoggerFactory.logbot.debug("30개씩 보기 선택 완료")
     sleep(3)
 
-    # Get the last page number from the page info text
-    page_info_element = WebDriverWait(driver, 60).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, 'p.bbs_info.fl_left'))
-    )
-    page_info_text = page_info_element.text
-    last_page_num = int(page_info_text.split('/')[1].replace('페이지', '').strip())
-    logger.LoggerFactory.logbot.debug(f"마지막 페이지 번호{last_page_num}")
+    # 페이지 정보 가져오기
+    page_info_element = WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'p.bbs_info.fl_left')))
+    last_page_num = int(page_info_element.text.split('/')[1].replace('페이지', '').strip())
+    logger.LoggerFactory.logbot.debug(f"마지막 페이지 번호: {last_page_num}")
 
-    # ## 마지막 버튼 눌러 총 페이지 수 확인하기
-    # last_page_button = WebDriverWait(driver, 60).until(
-    #     EC.presence_of_element_located((By.CSS_SELECTOR, 'li.footable-page-nav a[title="맨마지막으로 이동"]'))
-    #     ) # 마지막 페이지
-    # last_page_button.click()
-    # logger.LoggerFactory.logbot.debug("마지막 페이지 버튼 클릭")
-    # driver.implicitly_wait(2)
-    # driver.refresh()
-    # driver.implicitly_wait(2)
+    # 크롤링할 페이지 목록 결정
+    pages_to_crawl = page_range if page_range else range(1, last_page_num + 1)
 
-    # last_page_xpath = f'//*[@id="{settings.titletable}"]/tfoot/tr[@class="footable-paging"]/td/ul[@class="pagination"]/li[@class="footable-page visible active"]/a[@class="footable-page-link"]' # 마지막 페이지
-
-    # last_page = WebDriverWait(driver, 60).until(
-    #     EC.presence_of_element_located((By.XPATH, last_page_xpath))
-    #     )
-    # last_page_num = int(last_page.text)
-    # logger.LoggerFactory.logbot.debug(f"마지막 페이지 번호{last_page_num}")
-
-    # ## 처음 페이지로 이동
-    # first_page_button = driver.find_element(By.CSS_SELECTOR, 'li.footable-page-nav a[title="맨처음으로 이동"]') # 처음 페이지
-    # first_page_button.click()
-    # logger.LoggerFactory.logbot.debug("처음 페이지로 복귀")
-
-    ## 리스트 생성
-    cols = ["ID", "상태", "신고번호", "신고명", "신고일"] # 컬럼명 생성
-    titlelist = [] # Dataframe 변환을 위한 리스트 생성
-
-    ## 크롤링 시작
+    cols = ["ID", "상태", "신고번호", "신고명", "신고일"]
     empty_page_count = 0
-    for i in range(last_page_num):
-        driver.refresh()
+    current_page = 1
+
+    for page_num in pages_to_crawl:
+        if current_page != page_num:
+            try:
+                logger.LoggerFactory.logbot.debug(f"{page_num} 페이지로 이동합니다...")
+                page_link = driver.find_element(By.XPATH, f'//a[text()="{page_num}"]')
+                page_link.click()
+                sleep(3) # 페이지 로딩 대기
+                current_page = page_num
+            except Exception as e:
+                logger.LoggerFactory.logbot.error(f"{page_num} 페이지로 이동 중 오류 발생: {e}")
+                continue # 다음 페이지로
+
         table = driver.find_element(By.ID, settings.titletable)
         tbody = table.find_element(By.TAG_NAME, 'tbody')
-        tfoot = table.find_element(By.TAG_NAME, 'tfoot')
         rows = tbody.find_elements(By.TAG_NAME, 'tr')
-        cNo = tbody.find_elements(By.CSS_SELECTOR, 'td.bbs_subject input[name="cNo"]')
-        next_button = tfoot.find_element(By.CSS_SELECTOR, 'li.footable-page-nav a[title="다음으로 이동"]') # 다음 페이지 버튼
-
-        found_in_progress = False
-        for index, row in enumerate(rows):
-            link = cNo[index].get_attribute('value').strip() # 각 신고건마다 가진 value값
-            property = row.find_elements(By.TAG_NAME, 'td') # 개별 행 데이터 리스트로 반환
-            report = property[0].text.split(')') # 1열 데이터가 상태+번호+신고명 섞여있어 분리해야 함
-            state = report[0].split('(')[0].strip() # 1열에서 상태 추출(진행, 답변완료 등)
-            if state == '진행':
-                found_in_progress = True
-            reportnumber = report[0].split('(')[1].strip() # 1열에서 신고번호 추출(SPP-)
-            reporttitle = report[1].strip() # 1열에서 신고명 추출(진로변경 위반, 끼어들기 금지 위반 등)
-            date = property[1].text.strip() # 신고일 추출
-
-            # 리스트로 저장
-            titlelist = [link, state, reportnumber, reporttitle, date]
-            logger.LoggerFactory.logbot.debug(titlelist)
-            df = pd.DataFrame([titlelist], columns=cols)
-            yield df 
-            # linklist.append(link) # 개별 신고건 링크 개별 추출
         
-        if use_minimal_crawl:
+        if not rows or (len(rows) == 1 and "데이터가 없습니다" in rows[0].text):
+            logger.LoggerFactory.logbot.warning(f"{page_num} 페이지에 데이터가 없습니다.")
+            if use_minimal_crawl and not page_range:
+                empty_page_count += 1
+            continue
+
+        cNo_elements = tbody.find_elements(By.CSS_SELECTOR, 'td.bbs_subject input[name="cNo"]')
+        found_in_progress = False
+
+        for index, row in enumerate(rows):
+            try:
+                link = cNo_elements[index].get_attribute('value').strip()
+                property_cells = row.find_elements(By.TAG_NAME, 'td')
+                report_text = property_cells[0].text
+                date = property_cells[1].text.strip()
+
+                state_part, title_part = report_text.split(')', 1)
+                state = state_part.split('(')[0].strip()
+                reportnumber = state_part.split('(')[1].strip()
+                reporttitle = title_part.strip()
+
+                if state == '진행':
+                    found_in_progress = True
+
+                titlelist = [link, state, reportnumber, reporttitle, date]
+                df = pd.DataFrame([titlelist], columns=cols)
+                yield df
+            except IndexError:
+                logger.LoggerFactory.logbot.warning(f"{page_num} 페이지의 {index+1}번째 행 파싱 중 오류가 발생했습니다. (cNo 또는 다른 요소 불일치)")
+                continue
+
+        # --min 옵션 및 페이지 범위가 지정되지 않은 경우에만 조기 종료 로직 적용
+        if use_minimal_crawl and not page_range:
             if not found_in_progress:
                 empty_page_count += 1
             else:
@@ -144,8 +113,3 @@ def Crawling_title(driver, use_minimal_crawl=False):
             if empty_page_count >= int(settings.max_empty_pages):
                 logger.LoggerFactory.logbot.info(f"{settings.max_empty_pages} 페이지 동안 '진행' 상태의 신고가 없어 크롤링을 조기 종료합니다.")
                 break
-
-        if i <= last_page_num:
-            next_button.click()
-        else:
-            break

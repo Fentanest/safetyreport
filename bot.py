@@ -1,6 +1,4 @@
 import re
-import logging
-import os
 import subprocess
 import sys
 
@@ -46,7 +44,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링 및 모든 작업이 완료되었습니다.")
         else:
             logger.LoggerFactory.get_logger().error(f"Error running start.py. Exit code: {process.returncode}")
-            await context.bot.send_message(chat_id=query.message.chat_id, text=f"크롤링 중 오류가 발생했습니다. 자세한 내용은 로그를 확인해주세요.")
+            await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링 중 오류가 발생했습니다. 자세한 내용은 로그를 확인해주세요.")
         return ConversationHandler.END
 
     elif query.data == "start_crawl_min":
@@ -57,7 +55,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링(min) 및 모든 작업이 완료되었습니다.")
         else:
             logger.LoggerFactory.get_logger().error(f"Error running start.py --min. Exit code: {process.returncode}")
-            await context.bot.send_message(chat_id=query.message.chat_id, text=f"크롤링(min) 중 오류가 발생했습니다. 자세한 내용은 로그를 확인해주세요.")
+            await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링(min) 중 오류가 발생했습니다. 자세한 내용은 로그를 확인해주세요.")
         return ConversationHandler.END
 
     elif query.data == "save_excel":
@@ -99,7 +97,7 @@ async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         response_parts = [f"총 {len(results)}건의 신고 내역을 찾았습니다.\n\n"]
         for i, row in enumerate(results):
-            part = f"""--- [결과 {i+1}] ---\n차량번호: {row.get('차량번호', 'N/A')}\n신고번호: {row.get('신고번호', 'N/A')}\n신고일: {row.get('신고일', 'N/A')}\n발생일: {row.get('발생일자', 'N/A')}\n위반법규: {row.get('위반법규', 'N/A')}\n처리상태: {row.get('처리상태', 'N/A')}\n범칙금/과태료: {row.get('범칙금_과태료', 'N/A')}\n처리기관: {row.get('처리기관', 'N/A')}\n담당자: {row.get('담당자', 'N/A')}\n\n"""
+            part = f"""--- [결과 {i+1}] ---\n차량번호: {row.get('차량번호', 'N/A')}\n신고번호: {row.get('신고번호', 'N/A')}\n신고일: {row.get('신고일', 'N/A')}\n발생일: {row.get('발생일자', 'N/A')}\n답변일: {row.get('답변일', 'N/A')}\n위반법규: {row.get('위반법규', 'N/A')}\n처리상태: {row.get('처리상태', 'N/A')}\n범칙금/과태료: {row.get('범칙금_과태료', 'N/A')}\n처리기관: {row.get('처리기관', 'N/A')}\n담당자: {row.get('담당자', 'N/A')}\n\n"""
             response_parts.append(part)
         response_message = "".join(response_parts)
         
