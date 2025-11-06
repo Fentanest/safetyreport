@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
 import os
 import sys
 import settings.settings as settings
@@ -36,27 +36,35 @@ else:
     logger.LoggerFactory.logbot.info("Google Sheet 기능이 비활성화되어 있습니다.")
 
 # 결과저장 폴더 있는지 확인
-if not settings.resultpath:
+if not os.path.exists(settings.resultpath):
     logger.LoggerFactory.logbot.warning("결과 저장 경로 없음")
     logger.LoggerFactory.logbot.info("결과 저장 경로 생성")
-    os.makedirs(settings.path, exist_ok=True)
+    os.makedirs(settings.resultpath, exist_ok=True)
 else:
     logger.LoggerFactory.logbot.info("결과 저장 경로 있음")
 
-# DB준비
+# DB준비 및 마이그레이션
 engine = create_engine(f'sqlite:///{settings.db_path}')
 inspector = inspect(engine)
 
-required_tables = [settings.table_title, settings.table_detail, settings.table_merge]
-existing_tables = inspector.get_table_names()
-
-if not all(table in existing_tables for table in required_tables):
-    logger.LoggerFactory.logbot.info("DB 테이블 설정 시작")
-    items.metadata.drop_all(engine)
-    items.metadata.create_all(engine)
-    logger.LoggerFactory.logbot.info("DB 테이블 설정 완료")
-else:
-    logger.LoggerFactory.logbot.info("DB 정상 확인")
+with engine.connect() as connection:
+    existing_tables = inspector.get_table_names()
+    for table in items.metadata.sorted_tables:
+        table_name = table.name
+        if table_name not in existing_tables:
+            logger.LoggerFactory.logbot.info(f"테이블 '{table_name}'이(가) 존재하지 않아 새로 생성합니다.")
+            table.create(connection)
+        else:
+            logger.LoggerFactory.logbot.info(f"테이블 '{table_name}'의 구조를 확인 및 업데이트합니다.")
+            existing_columns = [col['name'] for col in inspector.get_columns(table_name)]
+            for column in table.columns:
+                if column.name not in existing_columns:
+                    logger.LoggerFactory.logbot.warning(f"'{table_name}' 테이블에 '{column.name}' 열이 없어 추가합니다.")
+                    column_type = column.type.compile(engine.dialect)
+                    alter_query = text(f'ALTER TABLE {table_name} ADD COLUMN {column.name} {column_type}')
+                    connection.execute(alter_query)
+    connection.commit()
+logger.LoggerFactory.logbot.info("DB 테이블 구조 확인 및 업데이트 완료.")
 
 # 크롬 열기
 driver = driv.create_driver()
