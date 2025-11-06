@@ -200,8 +200,12 @@ def save_results(df):
         return
 
     df_gsheet = df.copy()
+    
+    # Define a lambda for conditional image formula
+    image_formula = lambda url: f'=image("{url}")' if pd.notna(url) and url and url != "6개월 초과" else url
+
     # 1. Format map URL for Google Sheets formula
-    df_gsheet['지도'] = df_gsheet['지도'].apply(lambda url: f'=image("{url}")' if pd.notna(url) and url else '')
+    df_gsheet['지도'] = df_gsheet['지도'].apply(image_formula)
 
     # 2. Split attachment URLs (non-images)
     if not df_gsheet.empty and '첨부파일' in df_gsheet.columns:
@@ -215,7 +219,7 @@ def save_results(df):
         photos = df_gsheet['첨부사진'].str.split('\n', expand=True)
         for i in range(len(photos.columns)):
             col_name = f'첨부사진{i+1}'
-            df_gsheet[col_name] = photos[i].apply(lambda url: f'=image("{url}")' if pd.notna(url) and url else '')
+            df_gsheet[col_name] = photos[i].apply(image_formula)
         df_gsheet = df_gsheet.drop(columns=['첨부사진'])
 
     try:
@@ -235,7 +239,10 @@ def save_results(df):
     # Update the worksheet with USER_ENTERED option to interpret formulas
     worksheet.update(data_to_upload, value_input_option='USER_ENTERED')
     
-    worksheet.resize(rows=len(data_to_upload))
+    # Resize columns and rows for better readability
+    worksheet.resize(rows=len(data_to_upload), cols=len(data_to_upload[0]))
+    worksheet.format(f"2:{len(data_to_upload)}", {"rowHeight": 300})
+
     logger.LoggerFactory.logbot.info("구글 스프레드시트에 새로운 데이터를 성공적으로 입력하였습니다.")
 
 def search_by_car_number(engine, car_number: str):
@@ -303,3 +310,27 @@ def merge_final(engine, conn=None):
 
         conn.commit()
         logger.LoggerFactory.logbot.info("최종 데이터 병합 완료")
+
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
+from sqlalchemy import update
+
+def clear_old_attachments(engine):
+    """Clears attachment links for reports older than 6 months."""
+    six_months_ago = datetime.now() - relativedelta(months=6)
+    six_months_ago_str = six_months_ago.strftime('%Y-%m-%d')
+
+    stmt = (
+        update(merge_table)
+        .where(merge_table.c.신고일 < six_months_ago_str)
+        .values(
+            지도="6개월 초과",
+            첨부사진="6개월 초과",
+            첨부파일="6개월 초과"
+        )
+    )
+
+    with engine.connect() as conn:
+        result = conn.execute(stmt)
+        conn.commit()
+        logger.LoggerFactory.logbot.info(f"6개월 초과된 신고 {result.rowcount}건의 첨부파일 링크를 정리했습니다.")

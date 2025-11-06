@@ -89,6 +89,9 @@ items.merge_final(engine=engine, conn=None) # conn is not used
 df = items.load_results(engine=engine, conn=None) # conn is not used
 items.save_results(df=df)
 
+# 6개월 초과 신고 건의 첨부파일 링크 정리
+items.clear_old_attachments(engine=engine)
+
 import subprocess
 
 # 셀레니움 종료
