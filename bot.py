@@ -8,7 +8,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 # DB and settings imports
 from sqlalchemy import create_engine
 import settings.settings as settings
-import items
+import database
 import logger
 
 # State definitions for conversation
@@ -89,7 +89,7 @@ async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
             f'sqlite:///{settings.db_path}',
             connect_args={'timeout': 15}
         )
-        results = items.search_by_car_number(engine, car_number)
+        results = database.search_by_car_number(engine, car_number)
 
         if not results:
             await update.message.reply_text("해당 차량번호에 대한 신고 내역을 찾을 수 없습니다.")

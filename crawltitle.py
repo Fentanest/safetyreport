@@ -2,6 +2,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.common.keys import Keys
 import datetime
 from time import sleep
@@ -9,7 +10,7 @@ import pandas as pd
 import settings.settings as settings
 import logger
 
-def Crawling_title(driver, use_minimal_crawl=False, page_range=None):
+def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     attemps = 0
     while attemps <= int(settings.max_retry_attemps):
@@ -52,11 +53,14 @@ def Crawling_title(driver, use_minimal_crawl=False, page_range=None):
     # 크롤링할 페이지 목록 결정
     pages_to_crawl = page_range if page_range else range(1, last_page_num + 1)
 
+    title_dfs = []
     cols = ["ID", "상태", "신고번호", "신고명", "신고일"]
     empty_page_count = 0
     current_page = 1
+    last_crawled_page = 0
 
     for page_num in pages_to_crawl:
+        last_crawled_page = page_num
         if current_page != page_num:
             try:
                 logger.LoggerFactory.logbot.debug(f"{page_num} 페이지로 이동합니다...")
@@ -64,9 +68,13 @@ def Crawling_title(driver, use_minimal_crawl=False, page_range=None):
                 page_link.click()
                 sleep(3) # 페이지 로딩 대기
                 current_page = page_num
+            except NoSuchElementException:
+                logger.LoggerFactory.logbot.info(f"페이지 링크 '{page_num}'을(를) 찾을 수 없어 크롤링을 종료합니다. 마지막 페이지에 도달한 것으로 보입니다.")
+                last_crawled_page -= 1 # We didn't actually crawl this page
+                break
             except Exception as e:
-                logger.LoggerFactory.logbot.error(f"{page_num} 페이지로 이동 중 오류 발생: {e}")
-                continue # 다음 페이지로
+                logger.LoggerFactory.logbot.error(f"{page_num} 페이지로 이동 중 예상치 못한 오류 발생: {e}")
+                continue
 
         table = driver.find_element(By.ID, settings.titletable)
         tbody = table.find_element(By.TAG_NAME, 'tbody')
@@ -98,12 +106,11 @@ def Crawling_title(driver, use_minimal_crawl=False, page_range=None):
 
                 titlelist = [link, state, reportnumber, reporttitle, date]
                 df = pd.DataFrame([titlelist], columns=cols)
-                yield df
+                title_dfs.append(df)
             except IndexError:
                 logger.LoggerFactory.logbot.warning(f"{page_num} 페이지의 {index+1}번째 행 파싱 중 오류가 발생했습니다. (cNo 또는 다른 요소 불일치)")
                 continue
 
-        # --min 옵션 및 페이지 범위가 지정되지 않은 경우에만 조기 종료 로직 적용
         if use_minimal_crawl and not page_range:
             if not found_in_progress:
                 empty_page_count += 1
@@ -113,3 +120,5 @@ def Crawling_title(driver, use_minimal_crawl=False, page_range=None):
             if empty_page_count >= int(settings.max_empty_pages):
                 logger.LoggerFactory.logbot.info(f"{settings.max_empty_pages} 페이지 동안 '진행' 상태의 신고가 없어 크롤링을 조기 종료합니다.")
                 break
+    
+    return title_dfs, last_crawled_page
