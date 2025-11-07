@@ -1,8 +1,8 @@
 beautifulsoup4==4.12.3
-gspread==6.1.0
+gspread==6.2.1
 gspread-dataframe==3.3.1
 pandas==2.3.3
-python-telegram-bot==22.5
-selenium==4.20.0
-SQLAlchemy==2.0.44
-openpyxl
+python-telegram-bot==22.6.1
+selenium==4.21.0
+SQLAlchemy==2.0.48
+openpyxl==3.1.5
