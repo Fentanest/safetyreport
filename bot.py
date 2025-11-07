@@ -12,7 +12,7 @@ import database
 import logger
 
 # State definitions for conversation
-ASK_CAR_NUMBER = range(1)
+ASK_CAR_NUMBER, ASK_REPORT_NUMBER = range(2)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -25,7 +25,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         [InlineKeyboardButton("1. 크롤링 시작", callback_data="start_crawl")],
         [InlineKeyboardButton("2. 크롤링(min) 시작", callback_data="start_crawl_min")],
         [InlineKeyboardButton("3. 차량검색", callback_data="search_car")],
-        [InlineKeyboardButton("4. 엑셀만 저장하기", callback_data="save_excel")],
+        [InlineKeyboardButton("4. 신고번호 검색", callback_data="search_report_number")],
+        [InlineKeyboardButton("5. 엑셀만 저장하기", callback_data="save_excel")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("원하시는 작업을 선택하세요:", reply_markup=reply_markup)
@@ -76,6 +77,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         await query.edit_message_text(text="검색할 차량번호를 입력하세요. 취소하려면 /cancel 을 입력하세요.")
         return ASK_CAR_NUMBER
 
+    elif query.data == "search_report_number":
+        await query.edit_message_text(text="검색할 신고번호를 입력하세요. 취소하려면 /cancel 을 입력하세요.")
+        return ASK_REPORT_NUMBER
+
     return ConversationHandler.END
 
 async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -116,6 +121,44 @@ async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     return ConversationHandler.END
 
+async def receive_report_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Receives the report number, searches the DB, and returns the results."""
+    # Remove all whitespace from user input
+    report_number = re.sub(r'\s+', '', update.message.text)
+    await update.message.reply_text(f"신고번호 '{report_number}'에 대한 신고 내역을 검색합니다...")
+
+    try:
+        engine = create_engine(
+            f'sqlite:///{settings.db_path}',
+            connect_args={'timeout': 15}
+        )
+        results = database.search_by_report_number(engine, report_number)
+
+        if not results:
+            await update.message.reply_text("해당 신고번호에 대한 신고 내역을 찾을 수 없습니다.")
+            return ConversationHandler.END
+
+        response_parts = [f"총 {len(results)}건의 신고 내역을 찾았습니다.\n\n"]
+        for i, row in enumerate(results):
+            part = f"""--- [결과 {i+1}] ---\n차량번호: {row.get('차량번호', 'N/A')}\n신고번호: {row.get('신고번호', 'N/A')}\n신고일: {row.get('신고일', 'N/A')}\n발생일: {row.get('발생일자', 'N/A')}\n답변일: {row.get('답변일', 'N/A')}\n위반법규: {row.get('위반법규', 'N/A')}\n처리상태: {row.get('처리상태', 'N/A')}\n범칙금/과태료: {row.get('범칙금_과태료', 'N/A')}\n처리기관: {row.get('처리기관', 'N/A')}\n담당자: {row.get('담당자', 'N/A')}\n\n"""
+            response_parts.append(part)
+        response_message = "".join(response_parts)
+        
+        # Telegram message length limit is 4096 characters
+        if len(response_message) > 4096:
+            await update.message.reply_text("결과가 너무 길어 일부만 표시합니다.")
+            # Split message into chunks
+            for i in range(0, len(response_message), 4096):
+                await update.message.reply_text(response_message[i:i+4096])
+        else:
+            await update.message.reply_text(response_message)
+
+    except Exception as e:
+        logger.LoggerFactory.get_logger().error(f"Error during report number search: {e}")
+        await update.message.reply_text(f"신고번호 검색 중 오류가 발생했습니다: {e}")
+
+    return ConversationHandler.END
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
     await update.message.reply_text("작업을 취소했습니다.")
@@ -148,6 +191,7 @@ def main() -> None:
         entry_points=[CallbackQueryHandler(button)],
         states={
             ASK_CAR_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_car_number)],
+            ASK_REPORT_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_report_number)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
