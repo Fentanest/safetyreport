@@ -2,7 +2,7 @@ import os
 import sys
 from sqlalchemy import create_engine
 import settings.settings as settings
-import items
+import database, export
 import logger
 
 if __name__ == "__main__":
@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     try:
         print("Calling items.load_results()...")
-        df = items.load_results(engine=engine)
+        df = database.load_results(engine=engine)
         print("items.load_results() executed.")
 
         print("\n--- Loaded DataFrame for Saving ---")
@@ -35,7 +35,7 @@ if __name__ == "__main__":
             print("DataFrame is empty. Skipping save_results() to avoid clearing the sheet.")
         else:
             print("DataFrame is not empty. Calling items.save_results()...")
-            items.save_results(df=df)
+            export.save_results(df=df)
             print("items.save_results() executed successfully.")
 
     except Exception as e:

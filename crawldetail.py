@@ -215,7 +215,7 @@ def _parse_details(report_soup, result_soup=None):
     all_details.pop("progress_status", None) # progress_status is now handled internally
 
     return all_details
-def Crawling_detail(driver, list):
+def crawl_details(driver, list):
     """Crawls the detail page for each report link."""
     for link in list:
         path = f"{settings.mysafereporturl}/{link}"

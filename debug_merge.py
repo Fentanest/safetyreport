@@ -2,7 +2,7 @@ import os
 import sys
 from sqlalchemy import create_engine, select, func
 import settings.settings as settings
-import items
+import database
 import logger
 
 if __name__ == "__main__":
@@ -22,12 +22,12 @@ if __name__ == "__main__":
 
     try:
         print("Calling items.merge_final()...")
-        items.merge_final(engine=engine)
+        database.merge_final(engine=engine)
         print("items.merge_final() executed successfully.")
 
         # Verify if merge_table has data now
         with engine.connect() as conn:
-            row_count_merge = conn.execute(select(func.count()).select_from(items.merge_table)).scalar()
+            row_count_merge = conn.execute(select(func.count()).select_from(database.merge_table)).scalar()
             print(f"Verification: The final merge_table now contains {row_count_merge} rows.")
 
     except Exception as e:
