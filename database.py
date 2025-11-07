@@ -203,6 +203,21 @@ def search_by_car_number(engine, car_number: str):
         results_as_dict = [dict(zip(column_names, row)) for row in rows]
         return results_as_dict
 
+def search_by_report_number(engine, report_number: str):
+    """Searches for reports by report number in the merge_table."""
+    with engine.connect() as conn:
+        # Use the LIKE operator for a "contains" search
+        query = select(merge_table).where(merge_table.c.신고번호.like(f"%{report_number}%"))
+        result = conn.execute(query)
+        rows = result.fetchall()
+        if not rows:
+            return []
+        
+        # Convert rows to list of dictionaries
+        column_names = result.keys()
+        results_as_dict = [dict(zip(column_names, row)) for row in rows]
+        return results_as_dict
+
 def merge_final(engine, conn=None):
     with engine.connect() as conn:
         # --- 디버깅 코드 추가 ---
