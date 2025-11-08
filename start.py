@@ -7,7 +7,7 @@ import driv
 import login
 import crawltitle
 import crawldetail
-import database, export
+import database, export, message_formatter
 import logger
 
 def _parse_args():
@@ -88,9 +88,11 @@ def _run_crawling_process(driver, engine, args):
         logger.LoggerFactory.logbot.info("전체 신고 목록 업데이트를 시작합니다.")
         titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"])
 
-    database.title_to_sql(dataframes=titlelist, engine=engine)
+    new_report_numbers = database.title_to_sql(dataframes=titlelist, engine=engine)
     if settings.telegram_enabled:
         message = f"1/5. 신고 목록(title) 크롤링(총 {last_page} 페이지) 및 DB 저장을 완료했습니다."
+        if new_report_numbers:
+            message += f"\n\n[신규 추가된 신고번호]\n" + "\n".join(new_report_numbers)
         subprocess.run([sys.executable, "notifier.py", message])
 
     if args["page_range"]:
@@ -106,9 +108,21 @@ def _run_crawling_process(driver, engine, args):
         logger.LoggerFactory.logbot.info("새로 크롤링할 상세 신고 내역이 없습니다.")
     else:
         detail_datas = list(crawldetail.crawl_details(driver=driver, list=detaillist))
-        database.deatil_to_sql(dataframes=detail_datas, engine=engine)
+        changed_items = database.deatil_to_sql(dataframes=detail_datas, engine=engine)
+        
         if settings.telegram_enabled:
-            subprocess.run([sys.executable, "notifier.py", f"2/5. 신고 상세(detail) 크롤링 {len(detaillist)}건 및 DB 저장을 완료했습니다."])
+            # Send the primary summary notification
+            simple_message = f"2/5. 신고 상세(detail) 크롤링 {len(detaillist)}건 및 DB 저장을 완료했습니다."
+            if changed_items:
+                simple_message += f" (내용 변경/신규 처리: {len(changed_items)}건)"
+            subprocess.run([sys.executable, "notifier.py", simple_message])
+
+            # If there are changed items, format and send the detailed list
+            if changed_items:
+                title = f"[내용 변경/신규 처리된 신고 목록]"
+                full_message = message_formatter.format_report_list(changed_items, title)
+                if full_message:
+                    subprocess.run([sys.executable, "notifier.py", full_message])
 
 def _process_and_save_results(engine):
     """Merges, cleans, and saves the final results."""
