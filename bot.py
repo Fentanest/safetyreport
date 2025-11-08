@@ -10,6 +10,7 @@ from sqlalchemy import create_engine
 import settings.settings as settings
 import database
 import logger
+import message_formatter
 
 # State definitions for conversation
 ASK_CAR_NUMBER, ASK_REPORT_NUMBER = range(2)
@@ -85,35 +86,21 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives the car number, searches the DB, and returns the results."""
-    # Remove all whitespace from user input
     car_number = re.sub(r'\s+', '', update.message.text)
     await update.message.reply_text(f"차량번호 '{car_number}'에 대한 신고 내역을 검색합니다...")
 
     try:
-        engine = create_engine(
-            f'sqlite:///{settings.db_path}',
-            connect_args={'timeout': 15}
-        )
+        engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={'timeout': 15})
         results = database.search_by_car_number(engine, car_number)
 
         if not results:
             await update.message.reply_text("해당 차량번호에 대한 신고 내역을 찾을 수 없습니다.")
             return ConversationHandler.END
 
-        response_parts = [f"총 {len(results)}건의 신고 내역을 찾았습니다.\n\n"]
-        for i, row in enumerate(results):
-            part = f"""--- [결과 {i+1}] ---\n차량번호: {row.get('차량번호', 'N/A')}\n신고번호: {row.get('신고번호', 'N/A')}\n신고일: {row.get('신고일', 'N/A')}\n발생일: {row.get('발생일자', 'N/A')}\n답변일: {row.get('답변일', 'N/A')}\n위반법규: {row.get('위반법규', 'N/A')}\n처리상태: {row.get('처리상태', 'N/A')}\n범칙금/과태료: {row.get('범칙금_과태료', 'N/A')}\n처리기관: {row.get('처리기관', 'N/A')}\n담당자: {row.get('담당자', 'N/A')}\n\n"""
-            response_parts.append(part)
-        response_message = "".join(response_parts)
+        title = f"총 {len(results)}건의 신고 내역을 찾았습니다."
+        response_message = message_formatter.format_report_list(results, title)
         
-        # Telegram message length limit is 4096 characters
-        if len(response_message) > 4096:
-            await update.message.reply_text("결과가 너무 길어 일부만 표시합니다.")
-            # Split message into chunks
-            for i in range(0, len(response_message), 4096):
-                await update.message.reply_text(response_message[i:i+4096])
-        else:
-            await update.message.reply_text(response_message)
+        await message_formatter.send_message_in_chunks(context.bot, update.message.chat_id, response_message)
 
     except Exception as e:
         logger.LoggerFactory.get_logger().error(f"Error during car number search: {e}")
@@ -123,35 +110,21 @@ async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def receive_report_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives the report number, searches the DB, and returns the results."""
-    # Remove all whitespace from user input
     report_number = re.sub(r'\s+', '', update.message.text)
     await update.message.reply_text(f"신고번호 '{report_number}'에 대한 신고 내역을 검색합니다...")
 
     try:
-        engine = create_engine(
-            f'sqlite:///{settings.db_path}',
-            connect_args={'timeout': 15}
-        )
+        engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={'timeout': 15})
         results = database.search_by_report_number(engine, report_number)
 
         if not results:
             await update.message.reply_text("해당 신고번호에 대한 신고 내역을 찾을 수 없습니다.")
             return ConversationHandler.END
 
-        response_parts = [f"총 {len(results)}건의 신고 내역을 찾았습니다.\n\n"]
-        for i, row in enumerate(results):
-            part = f"""--- [결과 {i+1}] ---\n차량번호: {row.get('차량번호', 'N/A')}\n신고번호: {row.get('신고번호', 'N/A')}\n신고일: {row.get('신고일', 'N/A')}\n발생일: {row.get('발생일자', 'N/A')}\n답변일: {row.get('답변일', 'N/A')}\n위반법규: {row.get('위반법규', 'N/A')}\n처리상태: {row.get('처리상태', 'N/A')}\n범칙금/과태료: {row.get('범칙금_과태료', 'N/A')}\n처리기관: {row.get('처리기관', 'N/A')}\n담당자: {row.get('담당자', 'N/A')}\n\n"""
-            response_parts.append(part)
-        response_message = "".join(response_parts)
-        
-        # Telegram message length limit is 4096 characters
-        if len(response_message) > 4096:
-            await update.message.reply_text("결과가 너무 길어 일부만 표시합니다.")
-            # Split message into chunks
-            for i in range(0, len(response_message), 4096):
-                await update.message.reply_text(response_message[i:i+4096])
-        else:
-            await update.message.reply_text(response_message)
+        title = f"총 {len(results)}건의 신고 내역을 찾았습니다."
+        response_message = message_formatter.format_report_list(results, title)
+
+        await message_formatter.send_message_in_chunks(context.bot, update.message.chat_id, response_message)
 
     except Exception as e:
         logger.LoggerFactory.get_logger().error(f"Error during report number search: {e}")

@@ -114,73 +114,94 @@ def get_cNo(engine, force=False):
         return detaillist
 
 
-# 게시판 페이지마다 긁어온 리스트 받아서 db로 밀어넣기
 def title_to_sql(dataframes, engine, conn=None):
-    i = 0 # 카운트
+    if not dataframes:
+        return []
+
+    # Combine all dataframes into one for easier processing
+    combined_df = pd.concat(dataframes, ignore_index=True)
+    if combined_df.empty:
+        return []
+
+    incoming_ids = combined_df['ID'].tolist()
+    new_report_numbers = []
+
     with engine.connect() as conn:
-        for df in dataframes:
-            records = df.to_dict('records')
-            if not records:
-                continue
-            
-            insert_stmt = insert(title_table).values(records)
-            
-            update_dict = {
-                '상태': insert_stmt.excluded.상태,
-                '신고번호': insert_stmt.excluded.신고번호,
-                '신고명': insert_stmt.excluded.신고명,
-                '신고일': insert_stmt.excluded.신고일
-            }
-            
-            upsert_query = insert_stmt.on_conflict_do_update(
-                index_elements=['ID'],
-                set_=update_dict
-            )
-            
-            conn.execute(upsert_query)
-            i += len(records)
+        # Find which IDs already exist in the database
+        existing_ids_query = select(title_table.c.ID).where(title_table.c.ID.in_(incoming_ids))
+        existing_ids = set(pd.read_sql(existing_ids_query, conn)['ID'])
+
+        # Determine new items
+        new_df = combined_df[~combined_df['ID'].isin(existing_ids)]
+        if not new_df.empty:
+            new_report_numbers = new_df['신고번호'].tolist()
+
+        # Upsert all records
+        records = combined_df.to_dict('records')
+        insert_stmt = insert(title_table).values(records)
+        update_dict = {
+            '상태': insert_stmt.excluded.상태,
+            '신고번호': insert_stmt.excluded.신고번호,
+            '신고명': insert_stmt.excluded.신고명,
+            '신고일': insert_stmt.excluded.신고일
+        }
+        upsert_query = insert_stmt.on_conflict_do_update(
+            index_elements=['ID'],
+            set_=update_dict
+        )
+        conn.execute(upsert_query)
         conn.commit()
-    logger.LoggerFactory.logbot.info(f"총 {i}건 title 테이블 upsert 완료")
+
+    logger.LoggerFactory.logbot.info(f"총 {len(combined_df)}건 title 테이블 upsert 완료. (신규: {len(new_report_numbers)}건)")
+    return new_report_numbers
 
 def deatil_to_sql(dataframes, engine, conn=None):
-    i = 0 # 카운트
+    if not dataframes:
+        return []
+
+    changed_items = []
+    total_records = 0
+
     with engine.connect() as conn:
         for df in dataframes:
             records = df.to_dict('records')
             if not records:
                 continue
             
-            insert_stmt = insert(detail_table).values(records)
+            new_record = records[0]
+            record_id = new_record['ID']
+            total_records += 1
+
+            # Check for changes before upserting
+            select_stmt = select(detail_table).where(detail_table.c.ID == record_id)
+            existing_record_proxy = conn.execute(select_stmt).first()
+
+            if existing_record_proxy:
+                existing_record = dict(existing_record_proxy._mapping)
+                # Compare relevant fields, converting to string to handle type differences
+                is_changed = False
+                for key, new_value in new_record.items():
+                    if key in existing_record and str(existing_record[key]) != str(new_value):
+                        is_changed = True
+                        break
+                
+                if is_changed:
+                    changed_items.append(new_record)
             
-            update_dict = {
-                '처리상태': insert_stmt.excluded.처리상태,
-                '차량번호': insert_stmt.excluded.차량번호,
-                '위반법규': insert_stmt.excluded.위반법규,
-                '범칙금_과태료': insert_stmt.excluded.범칙금_과태료,
-                '벌점': insert_stmt.excluded.벌점,
-                '처리기관': insert_stmt.excluded.처리기관,
-                '담당자': insert_stmt.excluded.담당자,
-                '답변일': insert_stmt.excluded.답변일,
-                '발생일자': insert_stmt.excluded.발생일자,
-                '발생시각': insert_stmt.excluded.발생시각,
-                '위반장소': insert_stmt.excluded.위반장소,
-                '종결여부': insert_stmt.excluded.종결여부,
-                '신고내용': insert_stmt.excluded.신고내용,
-                '처리내용': insert_stmt.excluded.처리내용,
-                '지도': insert_stmt.excluded.지도,
-                '첨부사진': insert_stmt.excluded.첨부사진,
-                '첨부파일': insert_stmt.excluded.첨부파일
-            }
+            # Perform the upsert
+            insert_stmt = insert(detail_table).values(new_record)
+            update_dict = {col.name: getattr(insert_stmt.excluded, col.name) for col in detail_table.c if col.name != 'ID'}
             
             upsert_query = insert_stmt.on_conflict_do_update(
                 index_elements=['ID'],
                 set_=update_dict
             )
-            
             conn.execute(upsert_query)
-            i += len(records)
+        
         conn.commit()
-    logger.LoggerFactory.logbot.info(f"총 {i}건 detail 테이블 upsert 완료")
+
+    logger.LoggerFactory.logbot.info(f"총 {total_records}건 detail 테이블 upsert 완료. (내용 변경: {len(changed_items)}건)")
+    return changed_items
 
 def load_results(engine, conn=None):
     with engine.connect() as conn:
