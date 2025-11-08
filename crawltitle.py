@@ -2,7 +2,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.common.keys import Keys
 import datetime
 from time import sleep
@@ -131,11 +131,18 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
         
         try:
             logger.LoggerFactory.logbot.debug(f"{page_num} 페이지로 이동합니다 (다음 버튼 클릭)...")
-            next_button = driver.find_element(By.XPATH, '//a[@title="다음으로 이동"]')
+            # Wait for the loading overlay to disappear
+            WebDriverWait(driver, 20).until(
+                EC.invisibility_of_element_located((By.CSS_SELECTOR, "div.loading-backdrop"))
+            )
+            # Wait for the "Next" button to be clickable and then click it
+            next_button = WebDriverWait(driver, 20).until(
+                EC.element_to_be_clickable((By.XPATH, '//a[@title="다음으로 이동"]'))
+            )
             next_button.click()
-            sleep(3)
-        except NoSuchElementException:
-            logger.LoggerFactory.logbot.info("'다음' 버튼을 찾을 수 없어 크롤링을 종료합니다.")
+            sleep(2) # Allow a brief moment for JS to potentially render
+        except (NoSuchElementException, TimeoutException):
+            logger.LoggerFactory.logbot.info("'다음' 버튼을 찾거나 클릭할 수 없어 크롤링을 종료합니다.")
             break
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"{page_num} 페이지로 이동 중 예상치 못한 오류 발생: {e}")
