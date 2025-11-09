@@ -159,7 +159,7 @@ def deatil_to_sql(dataframes, engine, conn=None):
     if not dataframes:
         return []
 
-    changed_items = []
+    changed_item_ids = []
     total_records = 0
 
     with engine.connect() as conn:
@@ -176,17 +176,19 @@ def deatil_to_sql(dataframes, engine, conn=None):
             select_stmt = select(detail_table).where(detail_table.c.ID == record_id)
             existing_record_proxy = conn.execute(select_stmt).first()
 
-            if existing_record_proxy:
+            is_new = existing_record_proxy is None
+            is_changed = False
+
+            if not is_new:
                 existing_record = dict(existing_record_proxy._mapping)
                 # Compare relevant fields, converting to string to handle type differences
-                is_changed = False
                 for key, new_value in new_record.items():
                     if key in existing_record and str(existing_record[key]) != str(new_value):
                         is_changed = True
                         break
                 
                 if is_changed:
-                    changed_items.append(new_record)
+                    changed_item_ids.append(record_id) # Append ID only
             
             # Perform the upsert
             insert_stmt = insert(detail_table).values(new_record)
@@ -200,8 +202,8 @@ def deatil_to_sql(dataframes, engine, conn=None):
         
         conn.commit()
 
-    logger.LoggerFactory.logbot.info(f"총 {total_records}건 detail 테이블 upsert 완료. (내용 변경: {len(changed_items)}건)")
-    return changed_items
+    logger.LoggerFactory.logbot.info(f"총 {total_records}건 detail 테이블 upsert 완료. (내용 변경/신규 처리 ID: {len(changed_item_ids)}건)")
+    return changed_item_ids
 
 def load_results(engine, conn=None):
     with engine.connect() as conn:
