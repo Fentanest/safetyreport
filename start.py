@@ -106,30 +106,38 @@ def _run_crawling_process(driver, engine, args):
 
     if not detaillist:
         logger.LoggerFactory.logbot.info("새로 크롤링할 상세 신고 내역이 없습니다.")
+        return [] # Return empty list if no details were processed
     else:
         detail_datas = list(crawldetail.crawl_details(driver=driver, list=detaillist))
-        changed_items = database.deatil_to_sql(dataframes=detail_datas, engine=engine)
+        changed_item_ids = database.deatil_to_sql(dataframes=detail_datas, engine=engine)
         
         if settings.telegram_enabled:
-            # Send the primary summary notification
             simple_message = f"2/5. 신고 상세(detail) 크롤링 {len(detaillist)}건 및 DB 저장을 완료했습니다."
-            if changed_items:
-                simple_message += f" (내용 변경/신규 처리: {len(changed_items)}건)"
+            if changed_item_ids:
+                simple_message += f" (내용 변경/신규 처리: {len(changed_item_ids)}건)"
             subprocess.run([sys.executable, "notifier.py", simple_message])
+        
+        return changed_item_ids
 
-            # If there are changed items, format and send the detailed list
-            if changed_items:
-                title = f"[내용 변경/신규 처리된 신고 목록]"
-                full_message = message_formatter.format_report_list(changed_items, title)
-                if full_message:
-                    subprocess.run([sys.executable, "notifier.py", full_message])
-
-def _process_and_save_results(engine):
+def _process_and_save_results(engine, changed_item_ids):
     """Merges, cleans, and saves the final results."""
     logger.LoggerFactory.logbot.info("최종 데이터 병합 및 저장을 시작합니다.")
     database.merge_final(engine=engine)
     if settings.telegram_enabled:
         subprocess.run([sys.executable, "notifier.py", "3/5. 최종 데이터 병합 및 DB 저장을 완료했습니다."])
+    
+    # Send notification for changed items after merge
+    if changed_item_ids and settings.telegram_enabled:
+        with engine.connect() as conn:
+            # Query merge_table for the full records of changed items
+            query = select(database.merge_table).where(database.merge_table.c.ID.in_(changed_item_ids))
+            changed_records = pd.read_sql_query(query, conn).to_dict('records')
+        
+        if changed_records:
+            title = f"[내용 변경/신규 처리된 신고 목록 (병합 후)]"
+            full_message = message_formatter.format_report_list(changed_records, title)
+            if full_message:
+                subprocess.run([sys.executable, "notifier.py", full_message])
     database.clear_old_attachments(engine=engine)
     df = database.load_results(engine=engine)
     export.save_results(df=df)
@@ -152,13 +160,13 @@ def main():
     try:
         driver = driv.create_driver()
         login.login_mysafety(driver=driver)
-        _run_crawling_process(driver, engine, args)
+        changed_item_ids = _run_crawling_process(driver, engine, args)
     finally:
         if driver:
             driver.quit()
 
     # --- Post-processing and Saving ---
-    _process_and_save_results(engine)
+    _process_and_save_results(engine, changed_item_ids)
 
 
 

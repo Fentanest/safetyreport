@@ -157,7 +157,7 @@ def main() -> None:
 
     # Add command handlers
     application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("h", help_command))
 
     # Add conversation handler for menu buttons and car search
     conv_handler = ConversationHandler(
