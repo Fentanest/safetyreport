@@ -7,10 +7,9 @@ import driv
 import login
 import crawltitle
 import crawldetail
-import database, export, message_formatter
 import logger
-
 logger.LoggerFactory.create_logger()
+import database, export, message_formatter
 
 def _parse_args():
     args = {
