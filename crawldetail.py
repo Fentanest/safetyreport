@@ -284,7 +284,7 @@ def crawl_details(driver, list):
                 details["attachment_files"],
             ]
             
-            logger.LoggerFactory.logbot.debug(detaillist)
+            logger.LoggerFactory.logbot.info(detaillist)
             df = pd.DataFrame([detaillist], columns=cols)
             yield df
 
