@@ -35,7 +35,7 @@ def _process_dataframe(df):
     # Clean and split photo attachment URLs
     if '첨부사진' in df_processed.columns:
         df_processed['첨부사진'] = df_processed['첨부사진'].str.strip()
-        df_processed['첨부사진'].replace('', pd.NA, inplace=True)
+        df_processed['첨부사진'] = df_processed['첨부사진'].replace('', pd.NA)
         if df_processed['첨부사진'].notna().any():
             photos = df_processed['첨부사진'].str.split('\n', expand=True)
             for i in range(photos.shape[1]):
@@ -47,7 +47,7 @@ def _process_dataframe(df):
     # Clean and split file attachment URLs
     if '첨부파일' in df_processed.columns:
         df_processed['첨부파일'] = df_processed['첨부파일'].str.strip()
-        df_processed['첨부파일'].replace('', pd.NA, inplace=True)
+        df_processed['첨부파일'] = df_processed['첨부파일'].replace('', pd.NA)
         if df_processed['첨부파일'].notna().any():
             attachments = df_processed['첨부파일'].str.split('\n', expand=True)
             for i in range(attachments.shape[1]):
