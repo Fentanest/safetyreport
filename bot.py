@@ -141,6 +141,10 @@ def main() -> None:
     """Run the bot."""
     logger.LoggerFactory.create_logger()
 
+    # Set logging level for httpx to WARNING to suppress verbose INFO logs
+    import logging
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
     # Check if Telegram is enabled
     if not settings.telegram_enabled:
         logger.LoggerFactory.get_logger().info("Telegram 기능이 비활성화되어 봇을 시작하지 않습니다.")
