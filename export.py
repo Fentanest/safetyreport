@@ -2,7 +2,7 @@ import settings.settings as settings
 import pandas as pd
 import os
 import gspread
-from gspread.exceptions import WorksheetNotFound
+from gspread.exceptions import WorksheetNotFound, SpreadsheetNotFound
 import logger
 import sys
 import subprocess
