@@ -18,20 +18,22 @@ def _parse_args():
         "min": '--min' in sys.argv,
         "page_range": None
     }
-    for arg in sys.argv:
-        if arg.startswith('--p:'):
-            try:
-                range_str = arg.split(':')[1]
-                if ',' in range_str:
-                    args["page_range"] = list(map(int, range_str.split(',')))
-                elif '-' in range_str:
-                    start, end = map(int, range_str.split('-'))
-                    args["page_range"] = list(range(start, end + 1))
-                else:
-                    args["page_range"] = [int(range_str)]
-            except (ValueError, IndexError):
-                logger.LoggerFactory.logbot.error(f"페이지 범위 인수 형식이 잘못되었습니다: {arg}. '--p:5' 또는 '--p:5-7' 형식으로 사용하세요.")
-                sys.exit(1)
+    if '--p' in sys.argv:
+        try:
+            # Find the index of '--p' and get the next element
+            p_index = sys.argv.index('--p')
+            range_str = sys.argv[p_index + 1]
+            
+            if ',' in range_str:
+                args["page_range"] = list(map(int, range_str.split(',')))
+            elif '-' in range_str:
+                start, end = map(int, range_str.split('-'))
+                args["page_range"] = list(range(start, end + 1))
+            else:
+                args["page_range"] = [int(range_str)]
+        except (ValueError, IndexError):
+            logger.LoggerFactory.logbot.error(f"페이지 범위 인수 형식이 잘못되었습니다. '--p' 다음에 값을 입력하세요. 예: '--p 5' 또는 '--p 5-7'")
+            sys.exit(1)
     return args
 
 def _validate_settings():
