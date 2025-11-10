@@ -49,6 +49,8 @@ UI에서 아이디와 비밀번호를 입력하고 `크롤링 시작`을 클릭�
 
 텔레그램 봇을 통해 크롤링 지시, 누적된 데이터를 통한 차량검색 기능 등을 사용할 수 있습니다.
 
+텔레그램 봇은 `/h`로 호출합니다.
+
 ---
 
 ## 설정 및 실행 (도커)
@@ -84,7 +86,7 @@ sheet_key = your_sheet_key
 - **Google Sheets 연동**: `sheet_key` 값을 채우고, `data/auth/gspread.json` 위치에 구글 서비스 계정 인증 파일을 위치시켜야 기능이 활성화됩니다.
 [JSON파일 및 스프레드시트 권한설정 방법](https://sseozytank.tistory.com/74)
 - `sheet_key`값은 스프레드시트의 주소를 예로 들어 `https://docs.google.com/spreadsheets/d/abcdefghijklmnopqrstuvwxyz/` 일 경우 `abcdefghijklmnopqrstuvwxyz`를 사용하면 됩니다.
-- **Telegram 연동**: `telegram_token`과 `chat_id` 값을 모두 채워야 기능이 활성화됩니다.
+- **Telegram 연동**: `telegram_token`과 `chat_id` 값을 모두 채워야 기능이 활성화됩니다. 활성화 후 대화창에 `/h`를 입력하면 메뉴가 나타납니다.
 - `max_empty_pages`는 나의 신고내역 페이지에서 '진행'상태 신고건이 더 이상 없는 페이지를 n번째 도달할 경우 더 이상 새로운 신고내역을 찾지 않기 위한 설정값입니다.
 
 ### 2. Docker Compose 실행
