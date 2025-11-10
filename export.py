@@ -8,8 +8,19 @@ import sys
 import subprocess
 
 if settings.google_sheet_enabled:
-    gc = gspread.service_account(settings.google_api_auth_file)
-    spreadsheet = gc.open_by_key(settings.google_sheet_key)
+    try:
+        gc = gspread.service_account(settings.google_api_auth_file)
+        spreadsheet = gc.open_by_key(settings.google_sheet_key)
+    except SpreadsheetNotFound:
+        logger.LoggerFactory.logbot.warning("Google Sheet를 찾을 수 없어 비활성화합니다. 시트 키를 확인하세요.")
+        settings.google_sheet_enabled = False
+        gc = None
+        spreadsheet = None
+    except Exception as e:
+        logger.LoggerFactory.logbot.error(f"Google Sheet 인증 중 알 수 없는 오류가 발생했습니다: {e}")
+        settings.google_sheet_enabled = False
+        gc = None
+        spreadsheet = None
 else:
     gc = None
     spreadsheet = None
