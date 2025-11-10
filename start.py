@@ -10,6 +10,8 @@ import crawldetail
 import database, export, message_formatter
 import logger
 
+logger.LoggerFactory.create_logger()
+
 def _parse_args():
     args = {
         "force": '--force' in sys.argv,
@@ -145,7 +147,6 @@ def _process_and_save_results(engine, changed_item_ids):
 def main():
     """Main function to run the crawling process."""
     # --- Initialization ---
-    logger.LoggerFactory.create_logger()
     args = _parse_args()
 
     # --- Settings Validation ---
