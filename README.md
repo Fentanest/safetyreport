@@ -99,6 +99,14 @@ services:
   - 예시: `python start.py --p 5,7,9` (5, 7, 9 페이지를 크롤링)
 - 모든 페이지는 `30개씩 보기` 상태에서 계산됩니다.
 
+### Crontab 사용법
+crontab에 `/usr/bin/docker exec safetyreport python /app/start.py`를 입력하면 됩니다.
+
+(예시)
+```crontab
+0 9,12,18 * * * /usr/bin/docker exec safetyreport python /app/start.py
+```
+
 ## 개발
 
 ### 디버깅 스크립트
