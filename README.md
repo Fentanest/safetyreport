@@ -27,29 +27,8 @@
 
 ## 설정 및 실행 (윈도우)
 
-### 1. 실행 파일 다운로드
 
-Github에서 단일 실행파일을 다운로드 받아 실행합니다.
-
-### 2. ID/PW입력
-
-UI에서 아이디와 비밀번호를 입력하고 `크롤링 시작`을 클릭합니다.
-
-### 3. 부가기능 사용
-
-`Alt+O`를 이용하여 옵션창을 연 뒤 구글 스프레드 시트와 텔레그램 봇 기능을 설정합니다.
-
-구글 스프레드시트를 사용하기 위해선, 스프레드시트 API인증을 위한 JSON파일과 권한이 설정된 스프레드시트의 주소값이 필요합니다.
-
-[JSON파일 및 스프레드시트 권한설정 방법](https://sseozytank.tistory.com/74)
-
-스프레드시트의 주소는 `https://docs.google.com/spreadsheets/d/abcdefghijklmnopqrstuvwxyz/` 일 경우 `abcdefghijklmnopqrstuvwxyz`를 사용하면 됩니다.
-
-텔레그램 봇을 설정하고 프로그램이 실행되어 있다면,
-
-텔레그램 봇을 통해 크롤링 지시, 누적된 데이터를 통한 차량검색 기능 등을 사용할 수 있습니다.
-
-텔레그램 봇은 `/h`로 호출합니다.
+[윈도우용 Repo](https://github.com/Fentanest/safetyreport-win)
 
 ---
 
