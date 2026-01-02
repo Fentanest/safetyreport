@@ -27,7 +27,6 @@ table_title = "mysafety"
 table_detail = "mysafetydetail"
 table_merge = "mysafetymerge"
 
-use_telegram_bot = config.getboolean('TELEGRAM', 'use_telegram_bot', fallback=False)
 telegram_token = os.getenv('telegram_token', config.get('TELEGRAM', 'telegram_token', fallback=None))
 chat_id = os.getenv('chat_id', config.get('TELEGRAM', 'chat_id', fallback=None))
 
@@ -47,7 +46,6 @@ google_sheet_key = os.getenv('sheet_key', config.get('GOOGLESHEET', 'sheet_key',
 
 google_sheet_enabled = os.path.exists(google_api_auth_file) and google_sheet_key is not None
 telegram_enabled = (
-    use_telegram_bot and
     telegram_token and telegram_token not in [None, 'your_token'] and
     chat_id and chat_id not in [None, 'your_chat_id']
 )
