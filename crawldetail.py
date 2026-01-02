@@ -17,7 +17,7 @@ def _parse_report_content_table(report_soup):
         if content_td:
             content_text = content_td.get_text(separator='\n').translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
 
-    entry_match = re.search(r'본 신고는 안전신문고 앱의 (.*?) 메뉴로 접수된 신고입니다', content_text)
+    entry_match = re.search(r'본 신고는 안전신문고 (?:앱의|포털의) (.*?) 메뉴로 접수된 신고입니다', content_text)
     entry_value = entry_match.group(1).strip() if entry_match else ""
 
     car_number_match = re.search(r'차량번호\s*:\s*(.*?)(?=\n|\(위)', content_text)
@@ -146,7 +146,7 @@ def _parse_processing_result_table(result_soup, entry_value):
             response_date_text = response_date_td.get_text(strip=True)
 
     fine_entry = ""
-    if ("버스전용차로 위반(일반도로)" in entry_value or "쓰레기, 폐기물" in entry_value) and processing_status_text == "수용":
+    if ("버스전용차로 위반" in entry_value or "쓰레기, 폐기물" in entry_value or "불법주정차신고" in entry_value) and processing_status_text == "수용":
         fine_entry = "과태료"
 
     penalty_matches = re.search(r'범칙금\s+([\d,]+)\s*원, 벌점\s+(\d{0,4})\s*점', result_text)
