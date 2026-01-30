@@ -2,10 +2,11 @@ import settings.settings as settings
 import pandas as pd
 import os
 import gspread
-from gspread.exceptions import WorksheetNotFound, SpreadsheetNotFound
+from gspread.exceptions import WorksheetNotFound, SpreadsheetNotFound, APIError
 import logger
 import sys
 import subprocess
+import time
 
 if settings.google_sheet_enabled:
     try:
@@ -75,7 +76,7 @@ def save_to_excel(df):
         subprocess.run([sys.executable, "notifier.py", "4/5. 엑셀 파일 생성을 완료했습니다."])
 
 def save_to_google_sheet(df, photo_cols):
-    """Saves the DataFrame to a Google Sheet."""
+    """Saves the DataFrame to a Google Sheet with retry and chunking."""
     if not settings.google_sheet_enabled:
         logger.LoggerFactory.logbot.info("Google Sheet 기능이 비활성화되어 구글 시트 저장을 건너뜁니다.")
         return
@@ -101,32 +102,62 @@ def save_to_google_sheet(df, photo_cols):
     logger.LoggerFactory.logbot.debug("기존 구글 스프레드시트 데이터를 삭제합니다.")
 
     data_to_upload = [df_gsheet.columns.values.tolist()] + df_gsheet.astype(str).values.tolist()
-    worksheet.update(data_to_upload, value_input_option='USER_ENTERED')
     
-    worksheet.resize(rows=len(data_to_upload), cols=len(data_to_upload[0]))
-    
-    if len(data_to_upload) > 1:
-        requests = {
-            "requests": [
-                {
-                    "updateDimensionProperties": {
-                        "range": {
-                            "sheetId": worksheet.id,
-                            "dimension": "ROWS",
-                            "startIndex": 1,
-                            "endIndex": len(data_to_upload)
-                        },
-                        "properties": {"pixelSize": 300},
-                        "fields": "pixelSize"
-                    }
-                }
-            ]
-        }
-        spreadsheet.batch_update(requests)
+    # Retry and chunking logic
+    max_retries = 3
+    retry_delay = 5  # seconds
+    chunk_size = 500  # rows per chunk
 
-    logger.LoggerFactory.logbot.info("구글 스프레드시트에 새로운 데이터를 성공적으로 입력하였습니다.")
-    if settings.telegram_enabled:
-        subprocess.run([sys.executable, "notifier.py", "5/5. 구글 시트 업로드를 완료했습니다."])
+    for attempt in range(max_retries):
+        try:
+            logger.LoggerFactory.logbot.info(f"구글 시트 업로드를 시작합니다. (시도 {attempt + 1}/{max_retries})")
+            
+            # Upload in chunks
+            for i in range(0, len(data_to_upload), chunk_size):
+                chunk = data_to_upload[i:i + chunk_size]
+                start_range = f'A{i + 1}'
+                worksheet.update(chunk, range_name=start_range, value_input_option='USER_ENTERED')
+                logger.LoggerFactory.logbot.debug(f"{i + len(chunk) -1}번째 행까지 업로드 완료...")
+                time.sleep(1) # Add a small delay between chunks to avoid rate limiting
+
+            logger.LoggerFactory.logbot.info("구글 스프레드시트에 새로운 데이터를 성공적으로 입력하였습니다.")
+            
+            worksheet.resize(rows=len(data_to_upload), cols=len(data_to_upload[0]))
+            
+            if len(data_to_upload) > 1:
+                requests = {
+                    "requests": [
+                        {
+                            "updateDimensionProperties": {
+                                "range": {
+                                    "sheetId": worksheet.id,
+                                    "dimension": "ROWS",
+                                    "startIndex": 1,
+                                    "endIndex": len(data_to_upload)
+                                },
+                                "properties": {"pixelSize": 300},
+                                "fields": "pixelSize"
+                            }
+                        }
+                    ]
+                }
+                spreadsheet.batch_update(requests)
+
+            if settings.telegram_enabled:
+                subprocess.run([sys.executable, "notifier.py", "5/5. 구글 시트 업로드를 완료했습니다."])
+            
+            return  # Success, exit the function
+
+        except APIError as e:
+            logger.LoggerFactory.logbot.error(f"구글 시트 업로드 중 API 오류 발생 (시도 {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                logger.LoggerFactory.logbot.info(f"{retry_delay}초 후 재시도합니다.")
+                time.sleep(retry_delay)
+            else:
+                logger.LoggerFactory.logbot.error("최대 재시도 횟수를 초과했습니다. 구글 시트 업로드에 실패했습니다.")
+                if settings.telegram_enabled:
+                    subprocess.run([sys.executable, "notifier.py", "오류: 구글 시트 업로드에 실패했습니다."])
+                break # Exit loop after final failure
 
 def save_results(df):
     """Processes a DataFrame and saves it to both Excel and Google Sheets."""
