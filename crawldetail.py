@@ -68,13 +68,20 @@ def _parse_report_content_table(report_soup):
                 for link in links:
                     href = link.get('href')
                     data_title = link.get('data-title')
-                    url = None
-                    if href and href.startswith('/fileDown/singo'):
-                        url = f"https://www.safetyreport.go.kr{href}"
-                    elif data_title and data_title.startswith('/fileDown/singo'):
-                        url = f"https://www.safetyreport.go.kr{data_title}"
+                    onclick = link.get('onclick')
+                    url_path = None
                     
-                    if url:
+                    if href and href.startswith('/fileDown/singo'):
+                        url_path = href
+                    elif data_title and data_title.startswith('/fileDown/singo'):
+                        url_path = data_title
+                    elif onclick and "goViewer('" in onclick:
+                        match = re.search(r"goViewer\('([^']+)'\)", onclick)
+                        if match:
+                            url_path = match.group(1)
+                    
+                    if url_path:
+                        url = f"https://www.safetyreport.go.kr{url_path}"
                         if "MAPIMG" in url:
                             map_urls.append(url)
                         elif any(url.lower().endswith(ext) for ext in image_extensions):
