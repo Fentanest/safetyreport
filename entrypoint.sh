@@ -1,8 +1,12 @@
 #!/bin/bash
 
-# If arguments are passed to the script, execute them. Otherwise, run the default bot.
+# Ensure database directory exists
+mkdir -p /app/data/logs
+mkdir -p /app/data/auth
+
 if [ "$#" -gt 0 ]; then
     exec "$@"
 else
-    exec /usr/local/bin/python /app/bot.py
+    # Run the FastAPI server via Uvicorn explicitly
+    exec /usr/local/bin/python -m uvicorn main:app --host 0.0.0.0 --port 6819
 fi

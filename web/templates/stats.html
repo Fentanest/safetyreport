@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card card-custom">
+    <div class="card-header bg-white fw-bold">
+        기관별 / 담당자별 처리 통계
+    </div>
+    <div class="card-body">
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> 행을 클릭하면 해당 부서 및 담당자의 데이터 조회 페이지로 이동합니다.
+        </div>
+        
+        <form method="get" action="/stats" class="row g-3 mb-4 p-3 bg-light border rounded">
+            <h6 class="fw-bold"><i class="fas fa-filter"></i> 상세 조건 검색</h6>
+            
+            <div class="col-md-4">
+                <label class="form-label">신고명</label>
+                <input type="text" class="form-control" name="reportName" value="{{ f.reportName or '' }}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">위반법규명</label>
+                <input type="text" class="form-control" name="law" value="{{ f.law or '' }}">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">위반장소</label>
+                <input type="text" class="form-control" name="location" value="{{ f.location or '' }}">
+            </div>
+            
+            <div class="col-md-3">
+                <label class="form-label text-primary">신고일 (기한)</label>
+                <div class="input-group">
+                    <input type="date" class="form-control" name="reportDateStart" value="{{ f.reportDateStart or '' }}">
+                    <span class="input-group-text">~</span>
+                    <input type="date" class="form-control" name="reportDateEnd" value="{{ f.reportDateEnd or '' }}">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label text-success">발생일 (기한)</label>
+                <div class="input-group">
+                    <input type="date" class="form-control" name="occurDateStart" value="{{ f.occurDateStart or '' }}">
+                    <span class="input-group-text">~</span>
+                    <input type="date" class="form-control" name="occurDateEnd" value="{{ f.occurDateEnd or '' }}">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label text-warning">답변일 (기한)</label>
+                <div class="input-group">
+                    <input type="date" class="form-control" name="responseDateStart" value="{{ f.responseDateStart or '' }}">
+                    <span class="input-group-text">~</span>
+                    <input type="date" class="form-control" name="responseDateEnd" value="{{ f.responseDateEnd or '' }}">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label text-secondary">발생시간 (기한)</label>
+                <div class="input-group">
+                    <input type="time" class="form-control" name="occurTimeStart" value="{{ f.occurTimeStart or '' }}">
+                    <span class="input-group-text">~</span>
+                    <input type="time" class="form-control" name="occurTimeEnd" value="{{ f.occurTimeEnd or '' }}">
+                </div>
+            </div>
+            
+            <div class="col-12 mt-3">
+                <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> 통계 재산출</button>
+                <a href="/stats" class="btn btn-secondary">초기화</a>
+            </div>
+        </form>
+        
+        <!-- Nav tabs -->
+        <ul class="nav nav-tabs mb-3" id="statsTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active fw-bold text-primary" id="traffic-tab" data-bs-toggle="tab" data-bs-target="#traffic" type="button" role="tab" aria-controls="traffic" aria-selected="true"><i class="fas fa-car me-1"></i> 교통위반</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link fw-bold text-success" id="other-tab" data-bs-toggle="tab" data-bs-target="#other" type="button" role="tab" aria-controls="other" aria-selected="false"><i class="fas fa-exclamation-triangle me-1"></i> 기타위반</button>
+            </li>
+        </ul>
+
+        <!-- Tab panes -->
+        <div class="tab-content" id="statsTabsContent">
+            <!-- Traffic Tab -->
+            <div class="tab-pane fade show active" id="traffic" role="tabpanel" aria-labelledby="traffic-tab">
+                <table id="statsTableTraffic" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
+                    <thead>
+                        <tr>
+                            <th>처리기관</th>
+                            <th>담당자</th>
+                            <th>총 처리건수</th>
+                            <th>미답변 (처리중)</th>
+                            <th>과태료/범칙금 부여</th>
+                            <th>경고장 발부</th>
+                            <th>불수용율</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in records_traffic %}
+                        <tr style="cursor: pointer;" onclick="window.location.href='/data/traffic?agency={{ r.agency }}&person={{ r.person }}'">
+                            <td>{{ r.agency }}</td>
+                            <td>{{ r.person }}</td>
+                            <td><b>{{ r.total }}</b>건</td>
+                            <td>{{ r.unanswered }}건 ({{ r.unanswered_pct }}%)</td>
+                            <td><span class="text-danger fw-bold">{{ r.fines }}건</span> ({{ r.fines_pct }}%)</td>
+                            <td>{{ r.warnings }}건 ({{ r.warnings_pct }}%)</td>
+                            <td>{{ r.rejects }}건 ({{ r.rejects_pct }}%)</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Other Tab -->
+            <div class="tab-pane fade" id="other" role="tabpanel" aria-labelledby="other-tab">
+                <table id="statsTableOther" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
+                    <thead>
+                        <tr>
+                            <th>처리기관</th>
+                            <th>담당자</th>
+                            <th>총 처리건수</th>
+                            <th>미답변 (처리중)</th>
+                            <th>과태료/범칙금 부여</th>
+                            <th>경고장 발부</th>
+                            <th>불수용율</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in records_other %}
+                        <tr style="cursor: pointer;" onclick="window.location.href='/data/other?agency={{ r.agency }}&person={{ r.person }}'">
+                            <td>{{ r.agency }}</td>
+                            <td>{{ r.person }}</td>
+                            <td><b>{{ r.total }}</b>건</td>
+                            <td>{{ r.unanswered }}건 ({{ r.unanswered_pct }}%)</td>
+                            <td><span class="text-danger fw-bold">{{ r.fines }}건</span> ({{ r.fines_pct }}%)</td>
+                            <td>{{ r.warnings }}건 ({{ r.warnings_pct }}%)</td>
+                            <td>{{ r.rejects }}건 ({{ r.rejects_pct }}%)</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    var dtOptions = {
+        "order": [[ 2, "desc" ]], // Sort by total descending
+        "pageLength": 50,
+        "language": {
+            "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json"
+        }
+    };
+    $('#statsTableTraffic').DataTable(dtOptions);
+    $('#statsTableOther').DataTable(dtOptions);
+    
+    // Refresh column sizing when switching tabs
+    $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
+        $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust();
+    });
+});
+</script>
+{% endblock %}

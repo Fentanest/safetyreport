@@ -1,21 +1,30 @@
-# Git
+# Git & Docker Meta
 .git
 .gitignore
-
-# Docker
+.github
 Dockerfile
 .dockerignore
 
-# Python
+# Python Cache
 __pycache__/
 venv/
 *.pyc
 
-# Logs
-*.log
-*.xlsx
-
-# Documentation
-README.md
-
+# Personal / Sensitive (EXCLUDE FROM IMAGE)
 data/
+auth/
+logs/
+*.xlsx
+*.log
+config.ini
+.env
+*.json
+
+# Build & Documentation
+build_exe.py
+build.sh
+README.md
+GEMINI.md
+build/
+dist/
+*.spec

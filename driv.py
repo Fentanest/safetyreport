@@ -4,6 +4,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import settings.settings as settings
 import logger
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 
 def create_driver():
     options = webdriver.ChromeOptions()
@@ -16,7 +18,27 @@ def create_driver():
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     options.add_argument('--disable-blink-features=AutomationControlled')
-    driver = webdriver.Remote(command_executor=settings.remotepath, options=options)
+    
+    mode = getattr(settings, 'chrome_mode', 'hub')
+    if mode == 'desktop':
+        logger.LoggerFactory.logbot.info("데스크톱 크롬을 사용합니다.")
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+    elif mode == 'remote':
+        remote_val = str(settings.remote_debug_port).strip()
+        if ':' in remote_val:
+            debug_addr = remote_val
+        else:
+            debug_addr = f"127.0.0.1:{remote_val}"
+            
+        logger.LoggerFactory.logbot.info(f"원격 디버깅 모드 통신 (주소: {debug_addr})")
+        options.add_experimental_option("debuggerAddress", debug_addr)
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+    else: # hub
+        logger.LoggerFactory.logbot.info(f"Selenium Hub를 사용합니다: {settings.remotepath}")
+        driver = webdriver.Remote(command_executor=settings.remotepath, options=options)
+        
     driver.maximize_window()
     driver.get("https://www.whatismybrowser.com/detect/what-is-my-user-agent/")
     

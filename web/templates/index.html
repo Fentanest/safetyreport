@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-3">
+    <div class="col-12 d-flex justify-content-end">
+        <span class="text-muted"><i class="fas fa-clock me-1"></i>최근 크롤링: <strong>{{ last_crawl_time }}</strong></span>
+    </div>
+</div>
+<div class="row mb-1">
+    <div class="col-md-3 mb-3">
+        <div class="card card-custom bg-primary text-white h-100 shadow-sm border-0">
+            <div class="card-body text-center">
+                <h6 class="card-title fw-bold">총 신고</h6>
+                <h3 class="card-text fw-bold">{{ total }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #6c757d;"> <!-- Secondary for processing -->
+            <div class="card-body text-center">
+                <h6 class="card-title fw-bold">처리 중</h6>
+                <h3 class="card-text fw-bold">{{ processingCount }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #0dcaf0;"> <!-- Info for completed -->
+            <div class="card-body text-center">
+                <h6 class="card-title fw-bold">답변 완료</h6>
+                <h3 class="card-text fw-bold">{{ completedCount }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3 mb-3">
+        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #adb5bd;"> <!-- Gray for withdrawn -->
+            <div class="card-body text-center">
+                <h6 class="card-title fw-bold">취하</h6>
+                <h3 class="card-text fw-bold">{{ withdrawCount }}</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-1">
+    <div class="col-md-4 mb-3">
+        <div class="card card-custom bg-success text-white h-100 shadow-sm border-0">
+            <div class="card-body text-center">
+                <h6 class="card-title fw-bold">수용</h6>
+                <h3 class="card-text fw-bold">{{ acceptCount }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card card-custom bg-warning text-dark h-100 shadow-sm border-0">
+            <div class="card-body text-center">
+                <h6 class="card-title fw-bold">일부수용/기타</h6>
+                <h3 class="card-text fw-bold">{{ partialCount }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4 mb-3">
+        <div class="card card-custom bg-danger text-white h-100 shadow-sm border-0">
+            <div class="card-body text-center">
+                <h6 class="card-title fw-bold">불수용</h6>
+                <h3 class="card-text fw-bold">{{ rejectCount }}</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-3">
+    <div class="col-md-6 mb-3">
+        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #e83e8c;"> <!-- Pink for fines -->
+            <div class="card-body text-center">
+                <h6 class="card-title fw-bold">과태료 부과</h6>
+                <h3 class="card-text fw-bold">{{ fineCount }}</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6 mb-3">
+        <div class="card card-custom bg-secondary text-white h-100 shadow-sm border-0">
+            <div class="card-body text-center">
+                <h6 class="card-title fw-bold">경고장/범칙금 발부</h6>
+                <h3 class="card-text fw-bold">{{ penaltyCount }}</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12">
+        {% set accept_pct = (acceptCount / total * 100)|round(1) if total > 0 else 0 %}
+        {% set partial_pct = (partialCount / total * 100)|round(1) if total > 0 else 0 %}
+        {% set reject_pct = (rejectCount / total * 100)|round(1) if total > 0 else 0 %}
+        {% set processing_pct = (processingCount / total * 100)|round(1) if total > 0 else 0 %}
+        <div class="progress shadow-sm" style="height: 35px; border-radius: 17px; font-size: 1.05em; font-weight: bold;">
+            <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ accept_pct }}%">
+                수용율 {{ accept_pct }}%
+            </div>
+            <div class="progress-bar bg-danger progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ reject_pct }}%">
+                불수용 {{ reject_pct }}%
+            </div>
+            <div class="progress-bar bg-warning text-dark progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ partial_pct }}%">
+                일부/기타 {{ partial_pct }}%
+            </div>
+            <div class="progress-bar bg-light text-dark progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ processing_pct }}%">
+                처리중 {{ processing_pct }}%
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card card-custom">
+            <div class="card-header bg-white fw-bold">Watchlist (감시 목록)</div>
+            <div class="card-body">
+                    <table class="table table-hover table-sm text-center mb-0 align-middle" style="font-size: 0.9rem;">
+                        <thead class="table-light">
+                            <tr>
+                                <th>신고번호</th>
+                                <th>신고명</th>
+                                <th>신고일</th>
+                                <th>답변일</th>
+                                <th>처리기관</th>
+                                <th>담당자</th>
+                                <th>상태</th>
+                                <th>과태료</th>
+                            </tr>
+                        </thead>
+                        <tbody id="watchlistBody">
+                            {% for item in watchlist %}
+                            <tr>
+                                <td><a href="https://www.safetyreport.go.kr/#mypage/mysafereport/{{ item.신고번호.split('-')[2] if item.신고번호 else '' }}" target="_blank">{{ item.신고번호 }}</a></td>
+                                <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{ item.신고명 }}</td>
+                                <td>{{ item.신고일 }}</td>
+                                <td>{{ item.답변일 }}</td>
+                                <td>{{ item.처리기관 }}</td>
+                            <td>{{ item.담당자 }}</td>
+                            <td>
+                                {% if item.상태 == '수용' %}
+                                    <span class="badge bg-success">{{ item.상태 }}</span>
+                                {% elif item.상태 in ['불수용', '기타'] %}
+                                    <span class="badge bg-danger">{{ item.상태 }}</span>
+                                {% elif item.상태 == '취하' %}
+                                    <span class="badge bg-secondary text-white">{{ item.상태 }}</span>
+                                {% elif item.상태 == '일부수용' %}
+                                    <span class="badge bg-warning text-dark">{{ item.상태 }}</span>
+                                {% elif item.상태 == '처리중' %}
+                                    <span class="badge bg-primary">{{ item.상태 }}</span>
+                                {% else %}
+                                    <span class="badge bg-light text-dark border">{{ item.상태 }}</span>
+                                {% endif %}
+                                </td>
+                                <td class="text-danger fw-bold">{{ item.범칙금_과태료 }}</td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="8" class="text-center text-muted py-4">감시 중인 항목이 없습니다.</td></tr>
+                            {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card card-custom">
+            <div class="card-header bg-white fw-bold">최근 3일 내 답변 완료된 건</div>
+            <div class="card-body">
+                    <table class="table table-hover table-sm text-center mb-0 align-middle" style="font-size: 0.9rem;">
+                        <thead class="table-light">
+                            <tr>
+                                <th>신고번호</th>
+                                <th>신고명</th>
+                                <th>신고일</th>
+                                <th>답변일</th>
+                                <th>처리기관</th>
+                                <th>담당자</th>
+                                <th>상태</th>
+                                <th>과태료</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentAnswersBody">
+                            {% for item in recent_answers %}
+                            <tr>
+                                <td><a href="https://www.safetyreport.go.kr/#mypage/mysafereport/{{ item.신고번호.split('-')[2] if item.신고번호 else '' }}" target="_blank">{{ item.신고번호 }}</a></td>
+                                <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{ item.신고명 }}</td>
+                                <td>{{ item.신고일 }}</td>
+                                <td>{{ item.답변일 }}</td>
+                                <td>{{ item.처리기관 }}</td>
+                            <td>{{ item.담당자 }}</td>
+                            <td>
+                                {% if item.결과 == '수용' %}
+                                    <span class="badge bg-success">{{ item.결과 }}</span>
+                                {% elif item.결과 in ['불수용', '기타'] %}
+                                    <span class="badge bg-danger">{{ item.결과 }}</span>
+                                {% elif item.결과 == '취하' %}
+                                    <span class="badge bg-secondary text-white">{{ item.결과 }}</span>
+                                {% elif item.결과 == '일부수용' %}
+                                    <span class="badge bg-warning text-dark">{{ item.결과 }}</span>
+                                {% elif item.결과 == '처리중' %}
+                                    <span class="badge bg-primary">{{ item.결과 }}</span>
+                                {% else %}
+                                    <span class="badge bg-light text-dark border">{{ item.결과 }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-danger fw-bold">{{ item.범칙금_과태료 }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="8" class="text-center text-muted py-4">최근 완료된 데이터가 없습니다.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    setTimeout(function() {
+        $('.progress-bar').each(function() {
+            var tw = $(this).attr('data-width');
+            if (tw) {
+                $(this).css('width', tw);
+            }
+        });
+    }, 150);
+});
+</script>
+{% endblock %}

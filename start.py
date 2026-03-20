@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import sys
 import subprocess
+import time
 import settings.settings as settings
 import driv
 import login
@@ -17,14 +18,22 @@ def _parse_args():
         "force": '--force' in sys.argv,
         "reset": '--reset' in sys.argv,
         "min": '--min' in sys.argv,
+        "nonmember": '--nonmember' in sys.argv,
+        "queue_file": None,
         "page_range": None
     }
+    
+    if '--queue' in sys.argv:
+        try:
+            q_index = sys.argv.index('--queue')
+            args["queue_file"] = sys.argv[q_index + 1]
+        except (ValueError, IndexError):
+            pass
+
     if '--p' in sys.argv:
         try:
-            # Find the index of '--p' and get the next element
             p_index = sys.argv.index('--p')
             range_str = sys.argv[p_index + 1]
-            
             if ',' in range_str:
                 args["page_range"] = list(map(int, range_str.split(',')))
             elif '-' in range_str:
@@ -33,145 +42,124 @@ def _parse_args():
             else:
                 args["page_range"] = [int(range_str)]
         except (ValueError, IndexError):
-            logger.LoggerFactory.logbot.error(f"페이지 범위 인수 형식이 잘못되었습니다. '--p' 다음에 값을 입력하세요. 예: '--p 5' 또는 '--p 5-7'")
-            sys.exit(1)
+            pass
     return args
 
 def _validate_settings():
-    """Validates necessary settings."""
-    variables_to_check = [
-        ("username", "ID가 올바르게 입력되지 않았습니다."),
-        ("password", "PW가 올바르게 입력되지 않았습니다."),
-        ("remotepath", "Selenium Grid 주소 확인이 필요합니다.")
-    ]
-    for var_name, error_message in variables_to_check:
-        if getattr(settings, var_name) in ["nousername", "nopassword", "nonpath", None, ""]:
-            logger.LoggerFactory.logbot.critical(error_message)
-            sys.exit(1)
-    
-    if settings.google_sheet_enabled and settings.google_sheet_key in ["nosheetkey", None, ""]:
-        logger.LoggerFactory.logbot.critical("Google Spreadsheet Key 확인이 필요합니다.")
-        sys.exit(1)
-
     if not os.path.exists(settings.resultpath):
         os.makedirs(settings.resultpath, exist_ok=True)
 
 def _prepare_database(engine, reset=False):
-    """Initializes and migrates the database schema."""
     if reset:
         logger.LoggerFactory.logbot.warning("--reset 옵션이 사용되어 DB를 초기화합니다.")
         database.metadata.drop_all(engine)
+    database.upgrade_schema(engine)
 
-    inspector = inspect(engine)
-    with engine.connect() as connection:
-        existing_tables = inspector.get_table_names()
-        for table in database.metadata.sorted_tables:
-            if table.name not in existing_tables:
-                logger.LoggerFactory.logbot.info(f"테이블 '{table.name}'이(가) 존재하지 않아 새로 생성합니다.")
-                table.create(connection)
+def extract_ids_from_queue(engine, queuelist):
+    resolved_ids = []
+    with engine.connect() as conn:
+        for item in queuelist:
+            item = item.strip()
+            if not item: continue
+            if item.startswith('SPP-') or '-' in item:
+                query = select(database.title_table.c.ID).where(database.title_table.c.신고번호.like(f"%{item}%"))
+                res = conn.execute(query).scalar()
+                if res:
+                    resolved_ids.append(res)
+                else:
+                    logger.LoggerFactory.logbot.warning(f"큐 신고번호 {item}의 ID를 찾을 수 없습니다.")
             else:
-                logger.LoggerFactory.logbot.info(f"테이블 '{table.name}'의 구조를 확인 및 업데이트합니다.")
-                existing_columns = [col['name'] for col in inspector.get_columns(table.name)]
-                for column in table.columns:
-                    if column.name not in existing_columns:
-                        logger.LoggerFactory.logbot.warning(f"'{table.name}' 테이블에 '{column.name}' 열이 없어 추가합니다.")
-                        column_type = column.type.compile(engine.dialect)
-                        alter_query = text(f'ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}')
-                        connection.execute(alter_query)
-        connection.commit()
-    logger.LoggerFactory.logbot.info("DB 테이블 구조 확인 및 업데이트 완료.")
+                resolved_ids.append(item)
+    return resolved_ids
 
 def _run_crawling_process(driver, engine, args):
-    """Runs the main crawling and data insertion process."""
-    
     last_page = 0
-    if args["page_range"]:
-        logger.LoggerFactory.logbot.info(f"페이지 {args['page_range']}에 대한 크롤링을 시작합니다.")
-        titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"], page_range=args["page_range"])
+    titlelist = []
+    
+    if args.get("queue_file"):
+        logger.LoggerFactory.logbot.info("큐 지정 크롤링 모드입니다. 전체 목록 갱신을 건너뜁니다.")
     else:
-        logger.LoggerFactory.logbot.info("전체 신고 목록 업데이트를 시작합니다.")
-        titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"])
+        if args["page_range"]:
+            logger.LoggerFactory.logbot.info(f"페이지 {args['page_range']} 크롤링 시작.")
+            titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"], page_range=args["page_range"])
+        else:
+            logger.LoggerFactory.logbot.info("전체 신고 목록 크롤링 시작.")
+            titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"])
 
-    new_report_numbers = database.title_to_sql(dataframes=titlelist, engine=engine)
-    if settings.telegram_enabled:
-        message = f"1/5. 신고 목록(title) 크롤링(총 {last_page} 페이지) 및 DB 저장을 완료했습니다."
-        if new_report_numbers:
-            message += f"\n\n[신규 추가된 신고번호]\n" + "\n".join(new_report_numbers)
-        subprocess.run([sys.executable, "notifier.py", message])
+        new_report_numbers = database.title_to_sql(dataframes=titlelist, engine=engine)
 
-    if args["page_range"]:
+    # Prepare detail list
+    if args.get("queue_file"):
+        with open(args["queue_file"], 'r', encoding='utf-8') as f:
+            q_items = f.readlines()
+        detaillist = extract_ids_from_queue(engine, q_items)
+        logger.LoggerFactory.logbot.info(f"큐 파일에서 {len(detaillist)}개의 아이템 크롤링 시작.")
+    elif args["page_range"]:
         detaillist = []
         for df in titlelist:
             detaillist.extend(df['ID'].tolist())
-        logger.LoggerFactory.logbot.info(f"페이지 지정 크롤링 대상 ID {len(detaillist)}건을 수집했습니다.")
     else:
-        logger.LoggerFactory.logbot.info("크롤링 대상 ID를 DB에서 가져옵니다.")
         detaillist = database.get_cNo(engine=engine, force=args["force"])
 
     if not detaillist:
-        logger.LoggerFactory.logbot.info("새로 크롤링할 상세 신고 내역이 없습니다.")
-        return [] # Return empty list if no details were processed
-    else:
-        detail_datas = list(crawldetail.crawl_details(driver=driver, list=detaillist))
-        changed_item_ids = database.deatil_to_sql(dataframes=detail_datas, engine=engine)
+        logger.LoggerFactory.logbot.info("크롤링할 상세 내역 없음.")
+        return []
+
+    logger.LoggerFactory.logbot.info(f"상세 크롤링 대상 ID: {len(detaillist)} 건 (순차 처리)")
+    
+    # 공격적인 멀티쓰레딩 대신 안정적인 단일 브라우저 순차 크롤링으로 복구
+    detail_datas = list(crawldetail.crawl_details(driver=driver, list=detaillist))
         
-        if settings.telegram_enabled:
-            simple_message = f"2/5. 신고 상세(detail) 크롤링 {len(detaillist)}건 및 DB 저장을 완료했습니다."
-            if changed_item_ids:
-                simple_message += f" (내용 변경/신규 처리: {len(changed_item_ids)}건)"
-            subprocess.run([sys.executable, "notifier.py", simple_message])
-        
-        return changed_item_ids
+    changed_item_ids = database.deatil_to_sql(dataframes_with_category=detail_datas, engine=engine)
+    
+    return changed_item_ids
 
 def _process_and_save_results(engine, changed_item_ids):
-    """Merges, cleans, and saves the final results."""
-    logger.LoggerFactory.logbot.info("최종 데이터 병합 및 저장을 시작합니다.")
+    logger.LoggerFactory.logbot.info("최종 데이터 병합 및 저장 시작")
     database.merge_final(engine=engine)
-    if settings.telegram_enabled:
-        subprocess.run([sys.executable, "notifier.py", "3/5. 최종 데이터 병합 및 DB 저장을 완료했습니다."])
-    
-    # Send notification for changed items after merge
-    if changed_item_ids and settings.telegram_enabled:
-        with engine.connect() as conn:
-            # Query merge_table for the full records of changed items
-            query = select(database.merge_table).where(database.merge_table.c.ID.in_(changed_item_ids))
-            changed_records = pd.read_sql_query(query, conn).to_dict('records')
-        
-        if changed_records:
-            title = f"[내용 변경/신규 처리된 신고 목록 (병합 후)]"
-            full_message = message_formatter.format_report_list(changed_records, title)
-            if full_message:
-                subprocess.run([sys.executable, "notifier.py", full_message])
     database.clear_old_attachments(engine=engine)
     df = database.load_results(engine=engine)
     export.save_results(df=df)
 
+def wait_for_resume_signal():
+    logger.LoggerFactory.logbot.info("비회원 모드 대기 중... 브라우저에서 로그인 후 웹 UI의 '크롤링 재개'를 클릭하세요.")
+    sig_file = os.path.join(settings.datapath, 'resume.sig')
+    if os.path.exists(sig_file):
+        os.remove(sig_file)
+    while not os.path.exists(sig_file):
+        time.sleep(2)
+    os.remove(sig_file)
+    logger.LoggerFactory.logbot.info("'크롤링 재개' 신호 수신됨. 작업을 계속합니다.")
+
 def main():
-    """Main function to run the crawling process."""
-    # --- Initialization ---
     args = _parse_args()
-
-    # --- Settings Validation ---
     _validate_settings()
-
-    # --- DB Preparation ---
     engine = create_engine(f'sqlite:///{settings.db_path}')
     _prepare_database(engine, reset=args["reset"])
 
-    # --- Crawling ---
     driver = None
     try:
         driver = driv.create_driver()
-        login.login_mysafety(driver=driver)
+        driver.get(settings.loginurl)
+        
+        if args["nonmember"]:
+            wait_for_resume_signal()
+        else:
+            login.login_mysafety(driver=driver)
+
         changed_item_ids = _run_crawling_process(driver, engine, args)
+    except Exception as e:
+        logger.LoggerFactory.logbot.error(f"실행 중 치명적 오류 발생: {e}")
+        changed_item_ids = []
     finally:
         if driver:
             driver.quit()
 
-    # --- Post-processing and Saving ---
-    _process_and_save_results(engine, changed_item_ids)
-
-
+    try:
+        _process_and_save_results(engine, changed_item_ids)
+        logger.LoggerFactory.logbot.info("====== 크롤링 작업 완료 ======")
+    except Exception as e:
+        logger.LoggerFactory.logbot.error(f"저장 중 오류 발생: {e}")
 
 if __name__ == "__main__":
     main()
