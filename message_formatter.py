@@ -3,11 +3,41 @@ def format_report_list(results, title: str):
     if not results:
         return None
 
+    def _format_links(raw: str, label: str) -> str:
+        """Helper: parse newline-separated URLs and return a formatted string."""
+        if not raw or str(raw).strip() in ('', 'nan', 'None'):
+            return ""
+        urls = [u.strip() for u in str(raw).split('\n') if u.strip()]
+        if not urls:
+            return ""
+        lines = [f"{label}:"]
+        for i, url in enumerate(urls, 1):
+            lines.append(f"  {i}. {url}")
+        return "\n".join(lines) + "\n"
+
     response_parts = [f"{title}\n\n"]
     for i, row in enumerate(results):
-        part = f"""--- [결과 {i+1}] ---\n차량번호: {row.get('차량번호', 'N/A')}\n신고번호: {row.get('신고번호', 'N/A')}\n신고일: {row.get('신고일', 'N/A')}\n발생일: {row.get('발생일자', 'N/A')}\n답변일: {row.get('답변일', 'N/A')}\n위반법규: {row.get('위반법규', 'N/A')}\n처리상태: {row.get('처리상태', 'N/A')}\n범칙금/과태료: {row.get('범칙금_과태료', 'N/A')}\n처리기관: {row.get('처리기관', 'N/A')}\n담당자: {row.get('담당자', 'N/A')}\n\n"""
+        photos_str = _format_links(row.get('첨부사진', ''), '📷 첨부사진')
+        files_str  = _format_links(row.get('첨부파일', ''), '📎 첨부파일')
+        attachments = photos_str + files_str
+
+        part = (
+            f"--- [결과 {i+1}] ---\n"
+            f"차량번호: {row.get('차량번호', 'N/A')}\n"
+            f"신고번호: {row.get('신고번호', 'N/A')}\n"
+            f"신고일: {row.get('신고일', 'N/A')}\n"
+            f"발생일: {row.get('발생일자', 'N/A')}\n"
+            f"답변일: {row.get('답변일', 'N/A')}\n"
+            f"위반법규: {row.get('위반법규', 'N/A')}\n"
+            f"처리상태: {row.get('처리상태', 'N/A')}\n"
+            f"범칙금/과태료: {row.get('범칙금_과태료', 'N/A')}\n"
+            f"처리기관: {row.get('처리기관', 'N/A')}\n"
+            f"담당자: {row.get('담당자', 'N/A')}\n"
+            + (attachments if attachments else "")
+            + "\n"
+        )
         response_parts.append(part)
-    
+
     return "".join(response_parts)
 
 async def send_message_in_chunks(bot, chat_id, text: str):

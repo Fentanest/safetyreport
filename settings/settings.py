@@ -2,54 +2,86 @@ import datetime
 import os
 import configparser
 
-# Initialize config parser
-config = configparser.ConfigParser()
-# The path to config.ini should be relative to the project root, 
-# but since settings.py is in a subdirectory, we construct the path carefully.
-config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'config.ini')
-config.read(config_path)
+class AppSettings:
+    def __init__(self):
+        self.config = configparser.ConfigParser()
+        self.config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'config.ini')
+        self.datapath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
+        os.makedirs(self.datapath, exist_ok=True)
+        
+        self.table_title = "mysafety"
+        self.table_detail_traffic = "mysafetydetail_traffic"
+        self.table_detail_other = "mysafetydetail_other"
+        self.table_merge_traffic = "mysafetymerge_traffic"
+        self.table_merge_other = "mysafetymerge_other"
+        
+        self.loginurl = "https://www.safetyreport.go.kr/#/main/login/login"
+        self.myreporturl = "https://www.safetyreport.go.kr/#/mypage/mysafereport"
+        self.mysafereporturl = "https://www.safetyreport.go.kr/#mypage/mysafereport"
+        self.titletable = 'table1'
+        
+        self.load()
 
-# Selenium Grid
-remotepath = os.getenv('remotepath', config.get('SELENIUM', 'remotepath', fallback=None))
+    def load(self):
+        self.config.read(self.config_path)
+        
+        self.remotepath = self.config.get('SELENIUM', 'remotepath', fallback="http://10.20.10.205:4444/wd/hub")
+        self.chrome_mode = self.config.get('SELENIUM', 'chrome_mode', fallback='hub')
+        self.remote_debug_port = self.config.get('SELENIUM', 'remote_debug_port', fallback='9222')
+        self.headless = self.config.getboolean('SELENIUM', 'headless', fallback=False)
 
-# 접속 주소
-loginurl = "https://www.safetyreport.go.kr/#/main/login/login" # 로그인 URL
-myreporturl = "https://www.safetyreport.go.kr/#/mypage/mysafereport" # 마이페이지 URL (신고 전체 건 파악에 필요)
-mysafereporturl = "https://www.safetyreport.go.kr/#mypage/mysafereport" # 개별 신고건 접속에 필요
-titletable = 'table1'
+        self.username = self.config.get('LOGIN', 'username', fallback=None)
+        self.password = self.config.get('LOGIN', 'password', fallback=None)
 
-username = os.getenv('USERNAME', config.get('LOGIN', 'username', fallback=None))
-password = os.getenv('PASSWORD', config.get('LOGIN', 'password', fallback=None))
+        self.telegram_token = self.config.get('TELEGRAM', 'telegram_token', fallback=None)
+        self.chat_id = self.config.get('TELEGRAM', 'chat_id', fallback=None)
 
-datapath = '/app/data'
+        self.scheduler_enabled = self.config.getboolean('SCHEDULER', 'enabled', fallback=False)
+        self.scheduler_mode = self.config.get('SCHEDULER', 'mode', fallback='interval')
+        self.scheduler_interval_hours = int(self.config.get('SCHEDULER', 'interval_hours', fallback=24))
+        self.scheduler_cron_times = self.config.get('SCHEDULER', 'cron_times', fallback='09:00')
 
-table_title = "mysafety"
-table_detail = "mysafetydetail"
-table_merge = "mysafetymerge"
+        self.phone_number = self.config.get('RATING', 'phone_number', fallback='')
 
-telegram_token = os.getenv('telegram_token', config.get('TELEGRAM', 'telegram_token', fallback=None))
-chat_id = os.getenv('chat_id', config.get('TELEGRAM', 'chat_id', fallback=None))
+        self.normalize_police = self.config.getboolean('SETTINGS', 'normalize_police', fallback=False)
+        self.exclude_withdraw = self.config.getboolean('SETTINGS', 'exclude_withdraw', fallback=False)
+        self.retry_interval = int(self.config.get('SETTINGS', 'retry_interval', fallback=60))
+        self.max_retry_attemps = int(self.config.get('SETTINGS', 'max_retry_attemps', fallback=10))
+        self.max_empty_pages = int(self.config.get('SETTINGS', 'max_empty_pages', fallback=3))
+        self.log_level = self.config.get('SETTINGS', 'log_level', fallback="INFO")
+        self.TZ = self.config.get('SETTINGS', 'TZ', fallback="Asia/Seoul")
 
-retry_interval = os.getenv('interval', config.get('SETTINGS', 'interval', fallback=60))
-max_retry_attemps = os.getenv('max_retry', config.get('SETTINGS', 'max_retry', fallback=10))
-max_empty_pages = os.getenv('max_empty_pages', config.get('SETTINGS', 'max_empty_pages', fallback=3))
-log_level = os.getenv('log_level', config.get('SETTINGS', 'log_level', fallback="INFO"))
-TZ = os.getenv('TZ', config.get('SETTINGS', 'TZ', fallback="Asia/Seoul"))
+        now_str = str(datetime.datetime.now()).replace(":","_")[:19]
+        self.resultfile = f'{now_str}_results.xlsx'
+        self.resultpath = os.path.join(self.datapath, 'results')
+        self.logfile = f'{now_str}.log'
+        self.logpath = os.path.join(self.datapath, 'logs')
+        self.google_api_auth_file = os.path.join(self.datapath, 'auth/gspread.json')
+        self.db_path = os.path.join(self.datapath, 'data.db')
+        self.google_sheet_key = self.config.get('GOOGLESHEET', 'sheet_key', fallback=None)
 
-resultfile = f'{str(datetime.datetime.now()).replace(":","_")[:19]}_results.xlsx'
-resultpath = os.path.join(datapath, 'results')
-logfile = f'{str(datetime.datetime.now()).replace(":","_")[:19]}.log'
-logpath = os.path.join(datapath, 'logs')
-google_api_auth_file = os.path.join(datapath, 'auth/gspread.json')
-db_path = os.path.join(datapath, 'data.db')
-google_sheet_key = os.getenv('sheet_key', config.get('GOOGLESHEET', 'sheet_key', fallback=None))
+        self.google_sheet_enabled = os.path.exists(self.google_api_auth_file) and self.google_sheet_key is not None
+        self.telegram_enabled = (
+            self.telegram_token and self.telegram_token not in [None, 'your_token'] and
+            self.chat_id and self.chat_id not in [None, 'your_chat_id']
+        )
 
-google_sheet_enabled = os.path.exists(google_api_auth_file) and google_sheet_key is not None
-telegram_enabled = (
-    telegram_token and telegram_token not in [None, 'your_token'] and
-    chat_id and chat_id not in [None, 'your_chat_id']
-)
+        if not self.google_sheet_enabled:
+            self.google_api_auth_file = None
+            self.google_sheet_key = None
 
-if not google_sheet_enabled:
-    google_api_auth_file = None
-    google_sheet_key = None
+    def update_config(self, section, key, value):
+        if not self.config.has_section(section):
+            self.config.add_section(section)
+        self.config.set(section, key, str(value))
+        
+    def save(self):
+        os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+        with open(self.config_path, 'w') as configfile:
+            self.config.write(configfile)
+        self.load()
+
+_instance = AppSettings()
+
+def __getattr__(name):
+    return getattr(_instance, name)

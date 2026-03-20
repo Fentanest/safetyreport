@@ -12,7 +12,6 @@ def login_mysafety(driver):
     while attemps <= int(settings.max_retry_attemps):
         try:
             driver.get(settings.loginurl)
-            driver.save_screenshot(f'./logs/{str(datetime.datetime.now()).replace(":","_")[:19]}_.png')
             ## 로그인
             id_input = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.NAME, 'username'))
@@ -27,8 +26,7 @@ def login_mysafety(driver):
             driver.execute_script("javascript:LoginUtil.login(1);")
             logger.LoggerFactory.logbot.debug("로그인 자바스크립트 실행")
             sleep(5)
-            driver.save_screenshot(f'./logs/{str(datetime.datetime.now()).replace(":","_")[:19]}_.png')
-            break
+            return True
         except:
             logger.LoggerFactory.logbot.warning("로그인 창 접속 불가")
             sleep(int(settings.retry_interval))

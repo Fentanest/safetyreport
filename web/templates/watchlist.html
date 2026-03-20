@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-md-12">
+        <div class="card card-custom">
+            <div class="card-header bg-white fw-bold"><i class="fas fa-eye"></i> 감시목록 (Watchlist) 관리</div>
+            <div class="card-body">
+                <form id="watchlistForm" class="row align-items-center">
+                    <div class="col-md-8 mb-3">
+                        <label class="form-label text-primary fw-bold">수동으로 감시목록에 추가할 신고번호 입력</label>
+                        <p class="text-muted small mb-2">신고번호를 여러 줄로 입력하세요. (이미 처리 완료된 DB 내역 중에서 대상만 작동합니다)</p>
+                        <textarea class="form-control" id="addWatchlistIds" rows="4" placeholder="SPP-2601-2204318..."></textarea>
+                    </div>
+                    <div class="col-md-4 mb-3 d-flex flex-column align-items-end justify-content-end" style="height: 100%;">
+                        <button type="submit" class="btn btn-primary w-100" id="btnAddManual" style="height: 60px; font-weight: bold; font-size: 1.1em;">
+                            <i class="fas fa-plus me-2"></i> 입력된 번호 추가
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card card-custom">
+    <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-list"></i> 현재 관리 중인 감시목록 항목</span>
+        <button type="button" class="btn btn-sm btn-danger" id="btnRemoveWatchlist"><i class="fas fa-trash"></i> 선택 항목 감시목록에서 제거</button>
+    </div>
+    <div class="card-body">
+        <table id="watchlistTable" class="table table-striped table-bordered nowrap" style="width:100%">
+            <thead>
+                <tr>
+                    <th class="text-center" style="width: 40px;"><input type="checkbox" id="selectAll"></th>
+                    <th>신고번호</th>
+                    <th>신고명</th>
+                    <th>신고일</th>
+                    <th>답변일</th>
+                    <th>처리기관</th>
+                    <th>담당자</th>
+                    <th>처리상태</th>
+                    <th>과태료/벌점</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in records %}
+                <tr>
+                    <td class="text-center"><input type="checkbox" class="row-checkbox" value="{{ r.신고번호 }}"></td>
+                    <td><a href="https://www.safetyreport.go.kr/#mypage/mysafereport/{{ r.신고번호.split('-')[2] if r.신고번호 else '' }}" target="_blank">{{ r.신고번호 }}</a></td>
+                    <td>{{ r.신고명 }}</td>
+                    <td>{{ r.신고일 }}</td>
+                    <td>{{ r.답변일 }}</td>
+                    <td>{{ r.처리기관 }}</td>
+                    <td>{{ r.담당자 }}</td>
+                    <td>
+                        {% if r.처리상태 == '수용' %}
+                            <span class="badge bg-success">{{ r.처리상태 }}</span>
+                        {% elif r.처리상태 in ['불수용', '기타'] %}
+                            <span class="badge bg-danger">{{ r.처리상태 }}</span>
+                        {% elif r.처리상태 == '취하' %}
+                            <span class="badge bg-secondary text-white">{{ r.처리상태 }}</span>
+                        {% elif r.처리상태 == '일부수용' %}
+                            <span class="badge bg-warning text-dark">{{ r.처리상태 }}</span>
+                        {% elif r.처리상태 == '처리중' %}
+                            <span class="badge bg-primary">{{ r.처리상태 }}</span>
+                        {% else %}
+                            <span class="badge bg-light text-dark border">{{ r.처리상태 }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ r.범칙금_과태료 }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    var table = $('#watchlistTable').DataTable({
+        scrollX: true,
+        pageLength: 50,
+        order: [[ 3, "desc" ]],
+        language: { url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json' }
+    });
+
+    $('#selectAll').on('change', function() {
+        var isChecked = $(this).prop('checked');
+        $('.row-checkbox').prop('checked', isChecked);
+    });
+
+    $('#watchlistForm').on('submit', function(e) {
+        e.preventDefault();
+        var idsText = $('#addWatchlistIds').val().trim();
+        if(!idsText) {
+            alert('추가할 신고번호를 입력하세요.');
+            return;
+        }
+        var rnums = idsText.split('\n').map(s => s.trim()).filter(s => s);
+        
+        $.ajax({
+            url: '/watchlist/add',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ rnums: rnums }),
+            success: function(res) {
+                alert(res.message);
+                location.reload();
+            },
+            error: function() {
+                alert('요청 처리 중 오류가 발생했습니다.');
+            }
+        });
+    });
+
+    $('#btnRemoveWatchlist').on('click', function() {
+        var selected = [];
+        $('.row-checkbox:checked').each(function() {
+            var val = $(this).val();
+            if(val) selected.push(val);
+        });
+        
+        if(selected.length === 0) {
+            alert('제거할 항목을 선택해주세요.');
+            return;
+        }
+        
+        if(confirm(selected.length + '건을 감시목록에서 제거하시겠습니까?')) {
+            $.ajax({
+                url: '/watchlist/remove',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ rnums: selected }),
+                success: function(res) {
+                    alert(res.message);
+                    location.reload();
+                },
+                error: function() {
+                    alert('요청 처리 중 오류가 발생했습니다.');
+                }
+            });
+        }
+    });
+});
+</script>
+{% endblock %}

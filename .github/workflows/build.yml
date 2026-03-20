@@ -1,0 +1,278 @@
+name: Build & Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  # ────────────────────────────────────────────────────────────────
+  # 1. Windows 실행 파일 빌드 (Git-Windows 셀프호스트 러너)
+  # ────────────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: [self-hosted, Git-Windows]
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Read version from VERSION file
+      id: get_version
+      shell: powershell
+      run: |
+        $versionString = (Get-Content VERSION -Raw).Trim()
+        if (-not $versionString) {
+          Write-Error "VERSION 파일에서 버전을 읽을 수 없습니다."
+          exit 1
+        }
+        echo "version=$versionString" >> $env:GITHUB_OUTPUT
+        echo "tag=v$versionString" >> $env:GITHUB_OUTPUT
+        Write-Output "Detected version: $versionString, tag: v$versionString"
+
+    - name: Check if tag already exists
+      id: check_tag
+      shell: powershell
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ steps.get_version.outputs.tag }}
+      run: |
+        $url = "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$env:TAG"
+        try {
+          Invoke-RestMethod -Uri $url -Headers @{ "Authorization" = "Bearer $env:GITHUB_TOKEN" }
+          echo "tag_exists=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Output "Tag $env:TAG already exists. Skipping build."
+        } catch {
+          if ($_.Exception.Response.StatusCode -eq 404) {
+            echo "tag_exists=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Output "Tag $env:TAG does not exist. Proceeding with build."
+          } else {
+            Write-Error "API call failed: $($_.Exception.Response.StatusCode)"
+            exit 1
+          }
+        }
+
+    - name: Clean previous build artifacts
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      shell: powershell
+      run: Remove-Item -Path "venv","build","dist" -Recurse -Force -ErrorAction SilentlyContinue
+
+    - name: Set up Python 3.14
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.14'
+
+    - name: Create virtual environment and install dependencies
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      shell: powershell
+      run: |
+        python -m venv venv
+        .\venv\Scripts\python.exe -m pip install --no-cache-dir --upgrade pip
+        .\venv\Scripts\pip.exe install --no-cache-dir -r requirements.txt
+        .\venv\Scripts\pip.exe install --no-cache-dir pyinstaller
+
+    - name: Setup UPX 5.1.1
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      id: setup_upx
+      shell: powershell
+      run: |
+        $version = "5.1.1"
+        $upxExtractDir = "${env:TEMP}\upx"
+        $upxDir = Join-Path $upxExtractDir "upx-${version}-win64"
+        $upxPath = Join-Path $upxDir "upx.exe"
+        $zipPath = "${env:TEMP}\upx-${version}-win64.zip"
+        $downloadUrl = "https://github.com/upx/upx/releases/download/v${version}/upx-${version}-win64.zip"
+
+        if (-not (Test-Path $upxPath)) {
+          if (Test-Path $upxExtractDir) { Remove-Item -Recurse -Force $upxExtractDir }
+          Write-Output "Downloading UPX $version from $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath $upxExtractDir -Force
+        }
+        if (-not (Test-Path $upxPath)) {
+          Write-Error "UPX executable not found at $upxPath."
+          exit 1
+        }
+        Write-Output "Found UPX at: $upxPath"
+        echo "upx_path=$upxPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+    - name: Build Windows executable with PyInstaller
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      shell: powershell
+      run: .\venv\Scripts\python.exe build_exe.py
+
+    - name: Compress executable with UPX
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      shell: powershell
+      run: |
+        & "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/MySafetyReport/MySafetyReport.exe
+
+    - name: Upload Windows artifact
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: actions/upload-artifact@v4
+      with:
+        name: MySafetyReport-Windows-${{ steps.get_version.outputs.version }}
+        path: dist/MySafetyReport/
+
+    - name: Create GitHub Release with Windows asset
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.get_version.outputs.tag }}
+        name: "나만의 안전신문고 v${{ steps.get_version.outputs.version }}"
+        body: |
+          **나만의 안전신문고** v${{ steps.get_version.outputs.version }} 자동 릴리즈
+          Commit: ${{ github.sha }}
+        files: dist/MySafetyReport/**
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+
+  # ────────────────────────────────────────────────────────────────
+  # 2. Linux 실행 파일 + Docker 멀티아키 이미지 빌드 (Git-Debian 셀프호스트 러너)
+  # ────────────────────────────────────────────────────────────────
+  build-linux-and-docker:
+    runs-on: [self-hosted, Git-Debian]
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Read version from VERSION file
+      id: get_version
+      run: |
+        versionString=$(cat VERSION | tr -d '[:space:]')
+        if [ -z "$versionString" ]; then
+          echo "::error::VERSION 파일에서 버전을 읽을 수 없습니다."
+          exit 1
+        fi
+        echo "version=$versionString" >> "$GITHUB_OUTPUT"
+        echo "tag=v$versionString" >> "$GITHUB_OUTPUT"
+        echo "Detected version: $versionString, tag: v$versionString"
+
+    - name: Check if tag already exists
+      id: check_tag
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ steps.get_version.outputs.tag }}
+      run: |
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          -H "Authorization: Bearer $GITHUB_TOKEN" \
+          "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG")
+        if [ "$HTTP_STATUS" -eq 200 ]; then
+          echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          echo "Tag $TAG already exists. Skipping build."
+        elif [ "$HTTP_STATUS" -eq 404 ]; then
+          echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+          echo "Tag $TAG does not exist. Proceeding with build."
+        else
+          echo "::error::API call failed with status: $HTTP_STATUS"
+          exit 1
+        fi
+
+    # ── Linux 실행 파일 빌드 ──────────────────────────────────────
+    - name: Clean previous build artifacts
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: rm -rf venv build dist
+
+    - name: Set up Python 3.14
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.14'
+
+    - name: Create virtual environment and install dependencies
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: |
+        python3 -m venv venv
+        ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
+        ./venv/bin/pip install --no-cache-dir -r requirements.txt
+        ./venv/bin/pip install --no-cache-dir pyinstaller
+
+    - name: Setup UPX 5.1.1
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      id: setup_upx
+      run: |
+        VERSION="5.1.1"
+        UPX_DIR="/tmp/upx-${VERSION}-amd64_linux"
+        UPX_PATH="${UPX_DIR}/upx"
+        TAR_PATH="/tmp/upx.tar.xz"
+        DOWNLOAD_URL="https://github.com/upx/upx/releases/download/v${VERSION}/upx-${VERSION}-amd64_linux.tar.xz"
+
+        if [ ! -f "$UPX_PATH" ]; then
+          rm -rf "$UPX_DIR"
+          echo "Downloading UPX $VERSION from $DOWNLOAD_URL"
+          wget -q -O "$TAR_PATH" "$DOWNLOAD_URL"
+          mkdir -p "$UPX_DIR"
+          tar -xf "$TAR_PATH" -C "$UPX_DIR" --strip-components=1
+        fi
+        if [ ! -f "$UPX_PATH" ]; then
+          echo "::error::UPX executable not found at $UPX_PATH."
+          exit 1
+        fi
+        echo "Found UPX at: $UPX_PATH"
+        echo "upx_path=$UPX_PATH" >> "$GITHUB_OUTPUT"
+
+    - name: Build Linux executable with PyInstaller
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: ./venv/bin/python build_exe.py
+
+    - name: Compress Linux executable with UPX
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: |
+        "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/MySafetyReport/MySafetyReport
+
+    - name: Upload Linux artifact
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: actions/upload-artifact@v4
+      with:
+        name: MySafetyReport-Linux-${{ steps.get_version.outputs.version }}
+        path: dist/MySafetyReport/
+
+    - name: Update GitHub Release with Linux asset
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.get_version.outputs.tag }}
+        files: dist/MySafetyReport/**
+
+    # ── Docker 멀티아키텍처 이미지 빌드 (amd64 + arm64) ───────────
+    - name: Set up Docker Buildx
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: docker/setup-buildx-action@v3
+      with:
+        driver: docker-container
+        use: true
+
+    - name: Log in to GitHub Container Registry (GHCR)
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push Docker image (amd64 + arm64)
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: |
+          ghcr.io/${{ github.repository }}:${{ steps.get_version.outputs.version }}
+          ghcr.io/${{ github.repository }}:latest
+        labels: |
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          org.opencontainers.image.version=${{ steps.get_version.outputs.version }}
+          org.opencontainers.image.revision=${{ github.sha }}

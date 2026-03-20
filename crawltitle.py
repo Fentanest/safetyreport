@@ -14,7 +14,7 @@ def _scrape_current_page(driver):
     """Scrapes the data from the currently loaded page."""
     page_dfs = []
     found_in_progress = False
-    cols = ["ID", "상태", "신고번호", "신고명", "신고일"]
+    cols = ["ID", "상태", "신고번호", "신고명", "신고일", "만족도조사여부", "감시목록"]
 
     try:
         table = driver.find_element(By.ID, settings.titletable)
@@ -39,10 +39,28 @@ def _scrape_current_page(driver):
                 reportnumber = state_part.split('(')[1].strip()
                 reporttitle = title_part.strip()
 
-                if state == '진행':
+                if state not in ['답변완료', '수용불가', '일부수용', '불수용', '취하', '수용']:
                     found_in_progress = True
 
-                titlelist = [link, state, reportnumber, reporttitle, date]
+                poll_status = ""
+                try:
+                    poll_btn = row.find_element(By.CSS_SELECTOR, 'a[class*="btn_poll"]')
+                    btn_classes = poll_btn.get_attribute('class')
+                    logger.LoggerFactory.logbot.debug(f"[poll] ID={link} | class='{btn_classes}'")
+                    if 'btn_poll_disable' in btn_classes:
+                        poll_status = "답변 대기"  # 만족도 조사 대기 (진행 중)
+                    elif 'btn_poll_comp' in btn_classes:
+                        poll_status = "참여 완료"  # 만족도 조사 완료
+                    elif 'btn_poll' in btn_classes:
+                        poll_status = "참여 가능"  # 만족도 조사 참여 가능 (답변 완료)
+                except NoSuchElementException:
+                    logger.LoggerFactory.logbot.debug(f"[poll] ID={link} | btn_poll 링크 없음 (진행 중 또는 취하)")
+
+                # 취하된 건은 만족도 조사 참여 불가로 분류
+                if not poll_status and state == '취하':
+                    poll_status = '참여 불가'
+
+                titlelist = [link, state, reportnumber, reporttitle, date, poll_status, "N"]
                 df = pd.DataFrame([titlelist], columns=cols)
                 page_dfs.append(df)
             except IndexError:
