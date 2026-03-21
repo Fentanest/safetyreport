@@ -27,17 +27,17 @@
                         </select>
                     </div>
 
-                    <div class="mb-3" id="hubUrlDiv" style="display:{% if chrome_mode == 'hub' %}block{% else %}none{% endif %};">
+                    <div class="mb-3 {% if chrome_mode != 'hub' %}d-none{% endif %}" id="hubUrlDiv">
                         <label class="form-label">Selenium Hub 원격 주소</label>
-                        <input type="text" class="form-control" name="remotepath" value="{{ remotepath }}" placeholder="http://10.20.10.205:4444/wd/hub">
+                        <input type="text" class="form-control" name="remotepath" value="{{ remotepath }}" placeholder="http://localhost:4444/wd/hub">
                     </div>
 
-                    <div class="mb-3 form-check form-switch" id="headlessDiv" style="display:{% if chrome_mode == 'desktop' %}block{% else %}none{% endif %};">
+                    <div class="mb-3 form-check form-switch {% if chrome_mode != 'desktop' %}d-none{% endif %}" id="headlessDiv">
                         <input class="form-check-input" type="checkbox" role="switch" id="headlessSwitch" name="headless" value="true" {% if headless %}checked{% endif %}>
                         <label class="form-check-label" for="headlessSwitch">크롬 창 숨기기 (Headless 모드)</label>
                     </div>
 
-                    <div class="mb-4" id="debugPortDiv" style="display:{% if chrome_mode == 'remote' %}block{% else %}none{% endif %}">
+                    <div class="mb-4 {% if chrome_mode != 'remote' %}d-none{% endif %}" id="debugPortDiv">
                         <label class="form-label">원격 디버깅 IP:포트 번호</label>
                         <input type="text" class="form-control" name="remote_debug_port" value="{{ remote_debug_port }}" placeholder="예: 127.0.0.1:9222">
                         <div class="form-text">크롬을 <code>--remote-debugging-port=9222</code> 옵션으로 실행 후 여기에 IP:포트를 입력하세요.</div>
@@ -116,7 +116,7 @@
                     <label class="form-check-label fw-bold" for="schedulerSwitch">스케줄러 활성화</label>
                 </div>
                 
-                <div id="schedulerOptions" style="display:{% if scheduler_enabled %}block{% else %}none{% endif %}; background:#f8f9fa; padding:15px; border-radius:5px;" class="mb-2">
+                <div id="schedulerOptions" class="mb-2 {% if not scheduler_enabled %}d-none{% endif %}" style="background:#f8f9fa; padding:15px; border-radius:5px;">
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="radio" name="scheduler_mode" id="schedInterval" value="interval" {% if scheduler_mode == 'interval' %}checked{% endif %}>
                         <label class="form-check-label" for="schedInterval">주기적 반복 (Interval)</label>
@@ -126,7 +126,7 @@
                         <label class="form-check-label" for="schedCron">특정 시각 지정 (최대 10개)</label>
                     </div>
 
-                    <div id="intervalInput" class="mb-2" style="display:{% if scheduler_mode == 'interval' %}block{% else %}none{% endif %};">
+                    <div id="intervalInput" class="mb-2 {% if scheduler_mode != 'interval' %}d-none{% endif %}">
                         <div class="input-group input-group-sm">
                             <span class="input-group-text">매</span>
                             <input type="number" class="form-control" name="scheduler_interval_hours" value="{{ scheduler_interval_hours }}" min="1">
@@ -134,7 +134,7 @@
                         </div>
                     </div>
                     
-                    <div id="cronInput" class="mb-2" style="display:{% if scheduler_mode != 'interval' %}block{% else %}none{% endif %};">
+                    <div id="cronInput" class="mb-2 {% if scheduler_mode == 'interval' %}d-none{% endif %}">
                         <label class="form-label" style="font-size:0.85em;">실행할 시각 (예: 09:00, 15:30. 콤마 구별)</label>
                         <input type="text" class="form-control form-control-sm" name="scheduler_cron_times" value="{{ scheduler_cron_times }}" placeholder="09:00, 15:30">
                     </div>
@@ -146,7 +146,14 @@
         </form>
 
         <div class="card card-custom border-warning border-opacity-50">
-            <div class="card-header bg-warning text-dark fw-bold">3. 구글 연동 인증 파일 (JSON) 업로드</div>
+            <div class="card-header bg-warning text-dark fw-bold d-flex justify-content-between align-items-center">
+                <span>3. 구글 연동 인증 파일 (JSON) 업로드</span>
+                {% if google_json_exists %}
+                <span class="badge bg-success"><i class="fas fa-check-circle me-1"></i>인증 파일 있음</span>
+                {% else %}
+                <span class="badge bg-danger"><i class="fas fa-exclamation-circle me-1"></i>인증 파일 없음</span>
+                {% endif %}
+            </div>
             <div class="card-body">
                 <form action="/settings/upload_json" method="post" enctype="multipart/form-data">
                     <div class="mb-3">
@@ -162,23 +169,29 @@
 
 <script>
     document.getElementById('chromeModeSelect').addEventListener('change', function() {
-        document.getElementById('hubUrlDiv').style.display = 'none';
-        document.getElementById('headlessDiv').style.display = 'none';
-        document.getElementById('debugPortDiv').style.display = 'none';
+        document.getElementById('hubUrlDiv').classList.add('d-none');
+        document.getElementById('headlessDiv').classList.add('d-none');
+        document.getElementById('debugPortDiv').classList.add('d-none');
         
-        if (this.value === 'remote') document.getElementById('debugPortDiv').style.display = 'block';
-        if (this.value === 'hub') document.getElementById('hubUrlDiv').style.display = 'block';
-        if (this.value === 'desktop') document.getElementById('headlessDiv').style.display = 'block';
+        if (this.value === 'remote') document.getElementById('debugPortDiv').classList.remove('d-none');
+        if (this.value === 'hub') document.getElementById('hubUrlDiv').classList.remove('d-none');
+        if (this.value === 'desktop') document.getElementById('headlessDiv').classList.remove('d-none');
     });
 
     document.getElementById('schedulerSwitch').addEventListener('change', function() {
-        document.getElementById('schedulerOptions').style.display = this.checked ? 'block' : 'none';
+        if (this.checked) document.getElementById('schedulerOptions').classList.remove('d-none');
+        else document.getElementById('schedulerOptions').classList.add('d-none');
     });
     
     document.getElementsByName('scheduler_mode').forEach(function(radio) {
         radio.addEventListener('change', function() {
-            document.getElementById('intervalInput').style.display = this.value === 'interval' ? 'block' : 'none';
-            document.getElementById('cronInput').style.display = this.value === 'cron' ? 'block' : 'none';
+            if (this.value === 'interval') {
+                document.getElementById('intervalInput').classList.remove('d-none');
+                document.getElementById('cronInput').classList.add('d-none');
+            } else {
+                document.getElementById('intervalInput').classList.add('d-none');
+                document.getElementById('cronInput').classList.remove('d-none');
+            }
         });
     });
 

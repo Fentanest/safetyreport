@@ -109,7 +109,7 @@ def _parse_processing_result_table(result_soup, entry_value):
 
     violation_law_match = re.search(r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?', result_text)
     if violation_law_match:
-        violation_law_value = re.sub(r'\s+', '', violation_law_match.group(0))
+        violation_law_value = re.sub(r'\s+', '', violation_law_match.group(0)).replace('법제', '법 제')
     else:
         violation_law_value = ""
 
@@ -121,7 +121,7 @@ def _parse_processing_result_table(result_soup, entry_value):
             processing_status_text = processing_status_td.get_text(strip=True)
     
     processing_finish_text = "N"
-    if processing_status_text in ["수용", "불수용", "일부수용", "기타"]:
+    if processing_status_text in ["수용", "불수용", "일부수용", "기타", "검토중"]:
         processing_finish_text = "Y"
 
     processing_agency_th = result_soup.find('th', string='처리기관')
@@ -150,7 +150,7 @@ def _parse_processing_result_table(result_soup, entry_value):
         fine_entry = "과태료"
 
     penalty_matches = re.search(r'범칙금\s+([\d,]+)\s*원, 벌점\s+(\d{0,4})\s*점', result_text)
-    fine_matches = re.search(r'과태료\s+([\d,]+)\s*원', result_text)
+    fine_matches = re.search(r'과태료\s*([\d,]+)\s*원', result_text)
 
     penalty_amount = ""
     penalty_points = ""
@@ -167,11 +167,13 @@ def _parse_processing_result_table(result_soup, entry_value):
     reject_keywords = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
     is_rejected = any(kw in processing_content or kw in result_text for kw in reject_keywords)
     
+    warning_keywords = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
+    
     if is_rejected:
         processing_status_text = "불수용"
         processing_finish_text = "Y"
         final_penalty = ""
-    elif "교통질서 안내장" in processing_content:
+    elif not final_penalty and any(kw in processing_content or kw in result_text for kw in warning_keywords):
         final_penalty = '경고'
 
     return {

@@ -11,6 +11,10 @@ import settings.settings as settings
 import database
 import logger
 import message_formatter
+import warnings
+
+# 무시할 PTB 경고: ConversationHandler에서 per_message=False와 CallbackQueryHandler 조합 시 발생하는 경고
+warnings.filterwarnings("ignore", message="If 'per_message=False', 'CallbackQueryHandler' will not be tracked for every message.*")
 
 # State definitions for conversation
 ASK_CAR_NUMBER, ASK_REPORT_NUMBER = range(2)
@@ -18,7 +22,7 @@ ASK_CAR_NUMBER, ASK_REPORT_NUMBER = range(2)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends a message when the command /start is issued."""
-    await update.message.reply_text("안녕하세요! 안전신문고 크롤러 봇입니다. /help 를 입력하여 메뉴를 확인하세요.")
+    await update.message.reply_text("안녕하세요! 안전신문고 크롤러 봇입니다. /ㅇ 를 입력하여 메뉴를 확인하세요.")
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Displays the main menu."""
@@ -37,11 +41,18 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
 
+    import asyncio
+    
     if query.data == "start_crawl":
         await query.edit_message_text(text="전체 크롤링 프로세스를 시작합니다. 완료되면 알려드리겠습니다...")
-        # Run start.py as a subprocess
-        process = subprocess.Popen([sys.executable, "start.py"])
-        process.wait() # Wait for the subprocess to finish
+        # Run start.py as a subprocess asynchronously
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, "start.py",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, _ = await process.communicate()
+        
         if process.returncode == 0:
             await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링 및 모든 작업이 완료되었습니다.")
         else:
@@ -51,8 +62,13 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     elif query.data == "start_crawl_min":
         await query.edit_message_text(text="크롤링(min) 프로세스를 시작합니다. 완료되면 알려드리겠습니다...")
-        process = subprocess.Popen([sys.executable, "start.py", "--min"])
-        process.wait() # Wait for the subprocess to finish
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, "start.py", "--min",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, _ = await process.communicate()
+        
         if process.returncode == 0:
             await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링(min) 및 모든 작업이 완료되었습니다.")
         else:
@@ -62,9 +78,13 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     elif query.data == "save_excel":
         await query.edit_message_text(text="`debug_save.py`를 실행하여 엑셀 저장을 시작합니다...")
-        # Run debug_save.py as a subprocess
-        process = subprocess.Popen([sys.executable, "debug_save.py"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = process.communicate()
+        process = await asyncio.create_subprocess_exec(
+            sys.executable, "debug_save.py",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        
         if process.returncode == 0:
             response = stdout.decode('utf-8')
             await context.bot.send_message(chat_id=query.message.chat_id, text=f"엑셀 저장 완료.\n\n{response}")
@@ -162,6 +182,9 @@ def main() -> None:
     # Add command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("h", help_command))
+    
+    # 한글 명령어 'ㅇ'는 CommandHandler에서 지원하지 않으므로 MessageHandler로 처리
+    application.add_handler(MessageHandler(filters.Regex(r'^/?[ㅇ]$'), help_command))
 
     # Add conversation handler for menu buttons and car search
     conv_handler = ConversationHandler(
@@ -171,6 +194,7 @@ def main() -> None:
             ASK_REPORT_NUMBER: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_report_number)],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
+        per_message=False, # 메세지 단위가 아닌 채팅 단위로 상태 관리 (경고 해결)
     )
 
     application.add_handler(conv_handler)

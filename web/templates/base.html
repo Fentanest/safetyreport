@@ -55,6 +55,7 @@
                 <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-white fw-bold">
                   <span>기타</span>
                 </h6>
+                <a href="/file-browser" class="{% if request.url.path.startswith('/file-browser') %}active{% endif %}"><i class="fas fa-folder-open me-2"></i>파일 브라우저</a>
                 <a href="/settings" class="{% if request.url.path.startswith('/settings') %}active{% endif %}"><i class="fas fa-cog me-2"></i>설정</a>
             </div>
         </nav>

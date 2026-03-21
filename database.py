@@ -22,6 +22,19 @@ def upgrade_schema(engine):
             if table.name not in existing_tables:
                 logger.LoggerFactory.logbot.info(f"테이블 '{table.name}' 생성 중...")
                 table.create(connection)
+                if table.name == 'mysafety_watchlist':
+                    if settings.table_merge_traffic in existing_tables and settings.table_merge_other in existing_tables:
+                        try:
+                            migrate_query = text(f"""
+                                INSERT OR IGNORE INTO mysafety_watchlist (신고번호)
+                                SELECT 신고번호 FROM {settings.table_merge_traffic} WHERE 감시목록 = 'Y'
+                                UNION
+                                SELECT 신고번호 FROM {settings.table_merge_other} WHERE 감시목록 = 'Y'
+                            """)
+                            connection.execute(migrate_query)
+                            logger.LoggerFactory.logbot.info("기존 감시목록 데이터를 완벽하게 이관했습니다.")
+                        except Exception as e:
+                            logger.LoggerFactory.logbot.error(f"감시목록 데이터 이관 중 오류 발생: {e}")
             else:
                 existing_columns = [col['name'] for col in inspector.get_columns(table.name)]
                 for column in table.columns:
@@ -56,11 +69,17 @@ def _get_new_and_incomplete_ids(conn):
     # items where state has changed between title and detail
     query_changed_traffic = select(title_table.c.ID).select_from(
         title_table.join(detail_traffic_table, title_table.c.ID == detail_traffic_table.c.ID)
-    ).where(title_table.c.상태 != detail_traffic_table.c.처리상태)
+    ).where(
+        (title_table.c.상태 != detail_traffic_table.c.처리상태) &
+        (detail_traffic_table.c.종결여부 != 'Y')
+    )
 
     query_changed_other = select(title_table.c.ID).select_from(
         title_table.join(detail_other_table, title_table.c.ID == detail_other_table.c.ID)
-    ).where(title_table.c.상태 != detail_other_table.c.처리상태)
+    ).where(
+        (title_table.c.상태 != detail_other_table.c.처리상태) &
+        (detail_other_table.c.종결여부 != 'Y')
+    )
     
     df_new = pd.read_sql_query(query_new, conn)
     df_changed_t = pd.read_sql_query(query_changed_traffic, conn)
@@ -258,6 +277,11 @@ def load_results(engine, conn=None):
         df = pd.concat([df_t, df_o]) if not df_t.empty or not df_o.empty else pd.DataFrame()
         
         if not df.empty:
+            # 엑셀/구글 시트 내보내기 시에도 감시목록 '★' 여부를 정확히 렌더링하기 위한 조인 복구
+            df_watch = pd.read_sql_query(select(watchlist_table.c.신고번호), conn)
+            watch_ids = set(df_watch['신고번호'].tolist())
+            df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
+            
             if settings.exclude_withdraw:
                 df = df[df['처리상태'] != '취하']
             
@@ -270,6 +294,20 @@ def load_results(engine, conn=None):
                 df['처리기관'] = df['처리기관'].apply(norm_police)
             
         return df
+
+def get_merged_records_by_ids(engine, id_list):
+    if not id_list:
+        return []
+    res = []
+    with engine.connect() as conn:
+        for t in [merge_traffic_table, merge_other_table]:
+            query = select(t).where(t.c.ID.in_(id_list))
+            result = conn.execute(query)
+            rows = result.fetchall()
+            if rows:
+                col_names = result.keys()
+                res.extend([dict(zip(col_names, row)) for row in rows])
+    return res
 
 def search_by_car_number(engine, car_number: str):
     res = []
@@ -294,3 +332,17 @@ def search_by_report_number(engine, report_number: str):
                 col_names = result.keys()
                 res.extend([dict(zip(col_names, row)) for row in rows])
     return res
+
+def sync_rating_status(engine, report_id, status_str="참여 완료"):
+    with engine.begin() as conn:
+        conn.execute(update(title_table)
+                     .where(title_table.c.신고번호 == report_id)
+                     .values(만족도조사여부=status_str))
+        
+        conn.execute(update(merge_traffic_table)
+                     .where(merge_traffic_table.c.신고번호 == report_id)
+                     .values(만족도조사여부=status_str))
+                     
+        conn.execute(update(merge_other_table)
+                     .where(merge_other_table.c.신고번호 == report_id)
+                     .values(만족도조사여부=status_str))

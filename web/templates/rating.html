@@ -33,6 +33,23 @@
     </div>
 </div>
 
+<!-- Live Logs Card -->
+<div class="row mb-4" id="rowLogs">
+    <div class="col-md-12">
+        <div class="card card-custom h-100">
+            <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-terminal me-2"></i> 별점 처리 실시간 진행 모니터링</span>
+                <span id="ratingStatus" class="badge bg-secondary">대기 중</span>
+            </div>
+            <div class="card-body p-0 d-flex flex-column" style="background-color: #1e1e1e; height: 350px;">
+                <div id="ratingLogConsole"
+                    style="flex-grow: 1; overflow-y: auto; padding: 15px; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.9em; white-space: pre-wrap;">
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="card card-custom">
     <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
         <span><i class="fas fa-list"></i> 만족도조사 미참여 대상 </span>
@@ -53,7 +70,7 @@
                 <input type="text" class="form-control form-control-sm" id="sStatus">
             </div>
             <div class="col-md-3">
-                <label class="form-label">범칙금_과태료</label>
+                <label class="form-label">과태료/범칙금</label>
                 <input type="text" class="form-control form-control-sm" id="sFine">
             </div>
             <div class="col-12 text-end">
@@ -72,7 +89,7 @@
                     <th>처리기관</th>
                     <th>담당자</th>
                     <th>처리상태</th>
-                    <th>과태료/벌점</th>
+                    <th>과태료/범칙금</th>
                 </tr>
             </thead>
             <tbody>
@@ -114,9 +131,32 @@ $(document).ready(function() {
     var table = $('#ratingTable').DataTable({
         scrollX: true,
         pageLength: 50,
-        order: [[ 3, "desc" ]],
+        order: [[ 1, "desc" ]],
         language: { url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json' }
     });
+
+    const logConsole = document.getElementById('ratingLogConsole');
+    let ws = null;
+
+    function connectRatingWs() {
+        if (ws && ws.readyState !== WebSocket.CLOSED) { return; }
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${protocol}//${window.location.host}/rating/ws/rating_logs`);
+
+        ws.onmessage = function (event) {
+            logConsole.textContent += event.data;
+            logConsole.scrollTop = logConsole.scrollHeight;
+            
+            if (event.data.includes("처리가 종료되었습니다")) {
+                $('#ratingStatus').removeClass('bg-success').addClass('bg-secondary').text('대기 중/종료됨');
+            } else if (event.data.includes("작업 로그 시작") || event.data.includes("처리 중")) {
+                $('#ratingStatus').removeClass('bg-secondary').addClass('bg-success').text('진행 중');
+            }
+        };
+    }
+
+    // Initial connection
+    connectRatingWs();
 
     $('#btnRatingSearch').on('click', function() {
         table.column(4).search($('#sAgency').val()); // 처리기관
@@ -166,9 +206,14 @@ $(document).ready(function() {
         
         if(confirm(`선택하신 건들에 무조건 ${score}점으로 평가를 제출합니다.\n크롤링이 진행 중이지 않을 때만 계속 진행하십시오.\n계속하시겠습니까?`)) {
             $('#btnStartRating').prop('disabled', true);
+            logConsole.textContent = ""; // Clear for new job
+            $('#ratingStatus').removeClass('bg-secondary').addClass('bg-success').text('요청 중...');
+            
             $.post('/rating/start', {ids: ids, score: parseInt(score)}, function(response) {
                 alert(response.message);
                 $('#btnStartRating').prop('disabled', false);
+                // WebSocket is already connected or will reconnect
+                if (!ws || ws.readyState === WebSocket.CLOSED) connectRatingWs();
             }).fail(function() {
                 alert("요청 중 오류 발생. 백그라운드 스레드 및 웹소켓 로그를 확인하세요.");
                 $('#btnStartRating').prop('disabled', false);
@@ -182,7 +227,7 @@ $(document).ready(function() {
         var data = table.row(this).data();
         if(data) {
             var rnum = $(data[1]).text() || data[1]; // Parse out the HTML link if applicable
-            var current_val = $('#ratingIds').val();
+            var current_val = $('#ratingIds').val().trim();
             if(current_val.indexOf(rnum) === -1) {
                 if(current_val.length > 0) $('#ratingIds').val(current_val + '\n' + rnum);
                 else $('#ratingIds').val(rnum);

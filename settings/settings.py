@@ -45,13 +45,14 @@ class AppSettings:
 
         self.normalize_police = self.config.getboolean('SETTINGS', 'normalize_police', fallback=False)
         self.exclude_withdraw = self.config.getboolean('SETTINGS', 'exclude_withdraw', fallback=False)
-        self.retry_interval = int(self.config.get('SETTINGS', 'retry_interval', fallback=60))
-        self.max_retry_attemps = int(self.config.get('SETTINGS', 'max_retry_attemps', fallback=10))
+        self.retry_interval = int(self.config.get('SETTINGS', 'retry_interval', fallback=5))
+        self.max_retry_attemps = int(self.config.get('SETTINGS', 'max_retry_attemps', fallback=2))
         self.max_empty_pages = int(self.config.get('SETTINGS', 'max_empty_pages', fallback=3))
         self.log_level = self.config.get('SETTINGS', 'log_level', fallback="INFO")
         self.TZ = self.config.get('SETTINGS', 'TZ', fallback="Asia/Seoul")
-
+        
         now_str = str(datetime.datetime.now()).replace(":","_")[:19]
+        
         self.resultfile = f'{now_str}_results.xlsx'
         self.resultpath = os.path.join(self.datapath, 'results')
         self.logfile = f'{now_str}.log'

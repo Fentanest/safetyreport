@@ -5,11 +5,10 @@ import asyncio
 import sys
 import subprocess
 import os
+from services.crawl_manager import crawl_manager
 
 router = APIRouter(prefix="/crawl")
 templates = Jinja2Templates(directory="web/templates")
-
-active_process = None
 
 @router.get("/")
 async def crawl_dashboard(request: Request):
@@ -18,7 +17,7 @@ async def crawl_dashboard(request: Request):
     return templates.TemplateResponse("crawl.html", {
         "request": request, 
         "title": "크롤링 제어 및 모니터링",
-        "is_running": active_process is not None and active_process.poll() is None,
+        "is_running": crawl_manager.is_crawling(),
         "max_empty_pages": app_settings.config.get('SETTINGS', 'max_empty_pages', fallback=3)
     })
 
@@ -29,15 +28,9 @@ async def start_crawl(
     crawl_mode: str = Form("full"),
     max_empty_pages: int = Form(3)
 ):
-    global active_process
-    
     import settings.settings as app_settings
     app_settings._instance.update_config('SETTINGS', 'max_empty_pages', max_empty_pages)
     app_settings._instance.save()
-
-    # Check if already running
-    if active_process is not None and active_process.poll() is None:
-        return JSONResponse({"status": "error", "message": "크롤링이 이미 실행 중입니다."})
 
     work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     log_dir = os.path.join(work_dir, 'data', 'logs')
@@ -45,7 +38,7 @@ async def start_crawl(
     log_file = os.path.join(log_dir, 'current_crawl.log')
     
     with open(log_file, 'w', encoding='utf-8') as f:
-        f.write("=== 크롤링 작업 대기 ===\n")
+        f.write("=== 크롤링 작업 시작 ===\n")
 
     cmd = [sys.executable, "-u", "start.py"]
     if login_mode == "nonmember":
@@ -56,24 +49,21 @@ async def start_crawl(
         cmd.append("--reset")
         
     if queue_list.strip():
-        # Store queue list to a temp file for start.py to read
         queue_file = os.path.join(work_dir, 'data', 'queue.txt')
         with open(queue_file, 'w', encoding='utf-8') as qf:
             qf.write(queue_list)
         cmd.append("--queue")
         cmd.append(queue_file)
 
-    # Spawn process
-    active_process = subprocess.Popen(
-        cmd, 
-        cwd=work_dir,
-        stdout=open(log_file, 'a', encoding='utf-8'), 
-        stderr=subprocess.STDOUT, 
-        text=True
-    )
-    
+    if not crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
+        return JSONResponse({"status": "error", "message": "크롤링이 이미 실행 중입니다. (수동 또는 스케줄러)."})
+
+    proc = crawl_manager.get_process()
+
     def wait_and_rotate_log(p, lpath):
-        p.wait()
+        if p:
+            p.wait()
+        crawl_manager.clear_process()
         import time, shutil, datetime
         time.sleep(1)
         if os.path.exists(lpath):
@@ -81,15 +71,16 @@ async def start_crawl(
             dst = os.path.join(os.path.dirname(lpath), f"crawl_{now_str}.log")
             try:
                 shutil.copy2(lpath, dst)
-                with open(lpath, 'w', encoding='utf-8') as f:
-                    f.write(f"\n[시스템] 크롤링 작업이 성공적으로 종료되었습니다.\n전체 상세 로그는 {os.path.basename(dst)} 파일로 백업 보관되었습니다.\n")
+                with open(lpath, 'a', encoding='utf-8') as f:
+                    f.write(f"\n[\uc2dc\uc2a4\ud15c] \ud06c\ub864\ub9c1 \uc791\uc5c5\uc774 \uc131\uacf5\uc801\uc73c\ub85c \uc885\ub8cc\ub418\uc5c8\uc2b5\ub2c8\ub2e4.\n\uc804\uccb4 \uc0c1\uc138 \ub85c\uadf8\ub294 {os.path.basename(dst)} \ud30c\uc77c\ub85c \ubc31\uc5c5 \ubcf4\uad00\ub418\uc5c8\uc2b5\ub2c8\ub2e4.\n")
             except Exception:
                 pass
 
     import threading
-    threading.Thread(target=wait_and_rotate_log, args=(active_process, log_file), daemon=True).start()
+    if proc:
+        threading.Thread(target=wait_and_rotate_log, args=(proc, log_file), daemon=True).start()
     
-    return JSONResponse({"status": "success", "message": "크롤링이 시작되었습니다."})
+    return JSONResponse({"status": "success", "message": "크롤링이 \uc2dc\uc791\ub418\uc5c8\uc2b5\ub2c8\ub2e4."})
 
 @router.post("/resume")
 async def resume_crawl():
@@ -102,27 +93,18 @@ async def resume_crawl():
 
 @router.post("/kill")
 async def kill_crawl():
-    global active_process
-    if active_process is not None and active_process.poll() is None:
-        active_process.terminate()
-        active_process = None
-        
+    if not crawl_manager.is_crawling():
+        return JSONResponse({"status": "error", "message": "현재 실행 중인 크롤링 프로세스가 없습니다."})
+
     try:
-        if active_process is not None and active_process.poll() is None:
-            active_process.terminate()
-            active_process = None
-            
-            work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-            log_file = os.path.join(work_dir, 'data', 'logs', 'current_crawl.log')
-            with open(log_file, 'a', encoding='utf-8') as f:
-                f.write("\n[시스템] 사용자 요청으로 크롤링 프로세스가 강제 종료되었습니다.\n")
-                
-            return JSONResponse({"status": "success", "message": "크롤링 프로세스가 강제로 종료되었습니다. (진행 중이던 데이터는 저장되지 않습니다)"})
-        else:
-            return JSONResponse({"status": "error", "message": "현재 실행 중인 크롤링 프로세스가 없습니다."})
+        crawl_manager.stop_crawl()
+        work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+        log_file = os.path.join(work_dir, 'data', 'logs', 'current_crawl.log')
+        with open(log_file, 'a', encoding='utf-8') as f:
+            f.write("\n[시스템] 사용자 요청으로 크롤링 프로세스가 강제 종료되었습니다.\n")
+        return JSONResponse({"status": "success", "message": "크롤링 프로세스가 강제로 종료되었습니다."})
     except Exception as e:
-        logger.LoggerFactory.logbot.error(f"강제 종료 실패: {e}")
-        return {"status": "error", "message": f"오류: {e}"}
+        return JSONResponse({"status": "error", "message": f"오류: {e}"})
 
 @router.post("/export/excel")
 async def export_excel():

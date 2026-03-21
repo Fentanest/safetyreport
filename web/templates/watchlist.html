@@ -40,7 +40,7 @@
                     <th>처리기관</th>
                     <th>담당자</th>
                     <th>처리상태</th>
-                    <th>과태료/벌점</th>
+                    <th>과태료/범칙금</th>
                 </tr>
             </thead>
             <tbody>
@@ -83,7 +83,7 @@ $(document).ready(function() {
     var table = $('#watchlistTable').DataTable({
         scrollX: true,
         pageLength: 50,
-        order: [[ 3, "desc" ]],
+        order: [[ 1, "desc" ]],
         language: { url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json' }
     });
 

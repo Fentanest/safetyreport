@@ -25,6 +25,7 @@ async def view_settings(request: Request):
     else:
         default_chrome_mode = raw_chrome_mode
 
+    auth_path = os.path.join(app_settings._instance.datapath, 'auth', 'gspread.json')
     return templates.TemplateResponse("settings.html", {
         "request": request, "title": "설정",
         "username": app_settings.config.get('LOGIN', 'username', fallback=""),
@@ -45,7 +46,8 @@ async def view_settings(request: Request):
         "scheduler_interval_hours": int(app_settings.config.get('SCHEDULER', 'interval_hours', fallback=24)),
         "scheduler_cron_times": app_settings.config.get('SCHEDULER', 'cron_times', fallback='09:00'),
         "phone_number": app_settings.config.get('RATING', 'phone_number', fallback=''),
-        "remotepath": app_settings.config.get('SELENIUM', 'remotepath', fallback="http://10.20.10.205:4444/wd/hub")
+        "remotepath": app_settings.config.get('SELENIUM', 'remotepath', fallback="http://10.20.10.205:4444/wd/hub"),
+        "google_json_exists": os.path.isfile(auth_path),
     })
 
 @router.post("/save")
@@ -115,9 +117,18 @@ async def save_settings(
 
 @router.post("/upload_json")
 async def upload_json(file: UploadFile = File(...)):
-    if file.filename.endswith('.json'):
-        contents = await file.read()
-        os.makedirs(os.path.dirname(app_settings.google_api_auth_file), exist_ok=True)
-        with open(app_settings.google_api_auth_file, "wb") as f:
-            f.write(contents)
-    return RedirectResponse(url="/settings", status_code=303)
+    if not file.filename.endswith('.json'):
+        return RedirectResponse(url="/settings?error=invalid_file", status_code=303)
+
+    # google_api_auth_file이 None일 수 있으므로 datapath 기준으로 직접 경로 계산
+    auth_path = os.path.join(app_settings._instance.datapath, 'auth', 'gspread.json')
+    os.makedirs(os.path.dirname(auth_path), exist_ok=True)
+
+    contents = await file.read()
+    with open(auth_path, "wb") as f:
+        f.write(contents)
+
+    # 설정 인스턴스 리로드하여 google_sheet_enabled 등 갱신
+    app_settings._instance.load()
+
+    return RedirectResponse(url="/settings?saved=true", status_code=303)

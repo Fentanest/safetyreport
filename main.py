@@ -9,8 +9,11 @@ import time
 import os
 import signal
 
-from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route
+from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route
+import subprocess
+import sys
 
+bot_process = None
 app = FastAPI(title="나만의 안전신문고")
 
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
@@ -32,26 +35,38 @@ import scheduler
 engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_same_thread": False})
 database.upgrade_schema(engine)
 
-scheduler.init_scheduler()
-
-def _checkpoint_wal():
-    """SQLite WAL 파일을 체크포인트하여 정리합니다."""
-    try:
-        with engine.connect() as conn:
-            conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE);"))
-        logger.LoggerFactory.logbot.info("SQLite WAL 체크포인트 완료.")
-    except Exception as e:
-        logger.LoggerFactory.logbot.warning(f"WAL 체크포인트 실패: {e}")
+@app.on_event("startup")
+async def on_startup():
+    global bot_process
+    # 스케줄러 시작
+    scheduler.init_scheduler()
+    
+    if settings.telegram_enabled:
+        try:
+            logger.LoggerFactory.logbot.info("텔레그램 봇 프로세스를 시작합니다.")
+            bot_process = subprocess.Popen([sys.executable, "bot.py"])
+        except Exception as e:
+            logger.LoggerFactory.logbot.error(f"봇 프로세스 시작 실패: {e}")
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    global bot_process
+    if bot_process:
+        logger.LoggerFactory.logbot.info("텔레그램 봇 프로세스를 종료합니다.")
+        bot_process.terminate()
+        try:
+            bot_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            bot_process.kill()
     _checkpoint_wal()
 
 def _signal_handler(signum, frame):
-    import sys
     logger.LoggerFactory.logbot.info(f"종료 신호({signum}) 수신 - WAL 정리 후 종료합니다.")
     _checkpoint_wal()
-    sys.exit(0)
+    # sys.exit()는 asyncio 루프 내에서 CancelledError를 일으키므로
+    # 기본 핸들러로 복원한 뒤 다시 시그널을 보내 uvicorn이 안전하게 종료하게 한다.
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
 
 # SIGINT (Ctrl+C): Windows & Linux 공통
 signal.signal(signal.SIGINT, _signal_handler)
@@ -66,6 +81,7 @@ app.include_router(crawl.router)
 app.include_router(stats.router)
 app.include_router(rating_route.router)
 app.include_router(watchlist_route.router)
+app.include_router(file_browser_route.router)
 
 try:
     with open("VERSION", "r", encoding="utf-8") as f:

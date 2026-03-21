@@ -35,6 +35,6 @@ async def view_duplicates(request: Request):
     records = data_service.get_duplicate_records(engine)
     return templates.TemplateResponse("data_table.html", {
         "request": request, "title": "중복 차량 (2건 이상) 보기", 
-        "records": records, "table_id": "duplicatesTable",
+        "records": records, "table_id": "duplicateTable",
         "order_col": '[ 6, "asc" ]'
     })

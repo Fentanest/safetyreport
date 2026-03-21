@@ -24,6 +24,9 @@ async def view_stats(
     responseDateEnd: str = None,
     occurTimeStart: str = None,
     occurTimeEnd: str = None,
+    agency: str = None,
+    excludePolice: bool = False,
+    onlyPolice: bool = False,
 ):
     filters = {
         'reportName': reportName,
@@ -37,13 +40,18 @@ async def view_stats(
         'responseDateEnd': responseDateEnd,
         'occurTimeStart': occurTimeStart,
         'occurTimeEnd': occurTimeEnd,
+        'agency': agency,
+        'excludePolice': excludePolice,
+        'onlyPolice': onlyPolice,
     }
     records = data_service.get_agency_stats(engine, filters)
         
     return templates.TemplateResponse("stats.html", {
         "request": request,
         "title": "부서 통계",
-        "records_traffic": records["traffic"],
-        "records_other": records["other"],
+        "records_traffic_person": records["traffic"]["by_person"],
+        "records_traffic_agency": records["traffic"]["by_agency"],
+        "records_other_person": records["other"]["by_person"],
+        "records_other_agency": records["other"]["by_agency"],
         "f": filters
     })
