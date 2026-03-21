@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="card card-custom">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <span class="fw-bold">파일 브라우저 (logs / results)</span>
+        <div class="d-flex gap-2">
+            <button id="btnDownloadSelected" class="btn btn-primary btn-sm">
+                <i class="fas fa-file-archive me-1"></i> 선택 다운로드
+            </button>
+            <button id="btnDeleteSelected" class="btn btn-danger btn-sm">
+                <i class="fas fa-trash-alt me-1"></i> 선택 삭제
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-light border mb-3">
+            <i class="bi bi-info-circle me-1"></i> 시스템 로그(`logs/`) 및 크롤링 결과 파일(`results/`)을 관리합니다.
+        </div>
+
+        <!-- Nav tabs -->
+        <ul class="nav nav-tabs mb-3" id="fileTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active fw-bold text-success" id="results-tab" data-bs-toggle="tab" data-bs-target="#results-pane" type="button" role="tab" aria-controls="results-pane" aria-selected="true">
+                    <i class="fas fa-file-excel me-1"></i> 결과 파일 (results)
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link fw-bold text-primary" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs-pane" type="button" role="tab" aria-controls="logs-pane" aria-selected="false">
+                    <i class="fas fa-terminal me-1"></i> 로그 파일 (logs)
+                </button>
+            </li>
+        </ul>
+
+        <!-- Tab panes -->
+        <div class="tab-content" id="fileTabsContent">
+            <!-- Results Tab (Moved to first and active) -->
+            <div class="tab-pane fade show active" id="results-pane" role="tabpanel" aria-labelledby="results-tab">
+                <div class="d-flex justify-content-end mb-2">
+                    <button class="btn btn-outline-danger btn-sm btn-delete-all" data-target="results">
+                        <i class="fas fa-eraser me-1"></i> 결과 파일 일괄 삭제
+                    </button>
+                </div>
+                <table id="resultTable" class="table table-hover table-bordered nowrap" style="width:100%">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 30px;" class="text-center"><input type="checkbox" class="select-all" data-target=".log-checkbox"></th>
+                            <th>파일명</th>
+                            <th>크기</th>
+                            <th>수정일시</th>
+                            <th class="text-center">작업</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for f in files.results %}
+                        <tr>
+                            <td class="text-center">
+                                <input type="checkbox" class="file-checkbox log-checkbox" value="{{ f.path }}">
+                            </td>
+                            <td class="fw-bold text-success">{{ f.name }}</td>
+                            <td data-order="{{ f.size }}">
+                                {% if f.size < 1024 %}
+                                    {{ f.size }} B
+                                {% elif f.size < 1024 * 1024 %}
+                                    {{ (f.size / 1024) | round(1) }} KB
+                                {% else %}
+                                    {{ (f.size / (1024 * 1024)) | round(1) }} MB
+                                {% endif %}
+                            </td>
+                            <td>{{ f.mtime }}</td>
+                            <td class="text-center">
+                                <a href="/file-browser/download?path={{ f.path }}" class="btn btn-outline-success btn-sm" title="다운로드">
+                                    <i class="fas fa-download"></i>
+                                </a>
+                                <button class="btn btn-outline-danger btn-sm btn-delete-file" data-path="{{ f.path }}" title="삭제">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Logs Tab -->
+            <div class="tab-pane fade" id="logs-pane" role="tabpanel" aria-labelledby="logs-tab">
+                <div class="d-flex justify-content-end mb-2">
+                    <button class="btn btn-outline-danger btn-sm btn-delete-all" data-target="logs">
+                        <i class="fas fa-eraser me-1"></i> 로그 파일 일괄 삭제
+                    </button>
+                </div>
+                <table id="logTable" class="table table-hover table-bordered nowrap" style="width:100%">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 30px;" class="text-center"><input type="checkbox" class="select-all" data-target=".log-checkbox"></th>
+                            <th>파일명</th>
+                            <th>크기</th>
+                            <th>수정일시</th>
+                            <th class="text-center">작업</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for f in files.logs %}
+                        <tr>
+                            <td class="text-center">
+                                <input type="checkbox" class="file-checkbox log-checkbox" value="{{ f.path }}">
+                            </td>
+                            <td class="fw-bold text-primary">{{ f.name }}</td>
+                            <td data-order="{{ f.size }}">
+                                {% if f.size < 1024 %}
+                                    {{ f.size }} B
+                                {% elif f.size < 1024 * 1024 %}
+                                    {{ (f.size / 1024) | round(1) }} KB
+                                {% else %}
+                                    {{ (f.size / (1024 * 1024)) | round(1) }} MB
+                                {% endif %}
+                            </td>
+                            <td>{{ f.mtime }}</td>
+                            <td class="text-center">
+                                <a href="/file-browser/download?path={{ f.path }}" class="btn btn-outline-primary btn-sm" title="다운로드">
+                                    <i class="fas fa-download"></i>
+                                </a>
+                                <button class="btn btn-outline-danger btn-sm btn-delete-file" data-path="{{ f.path }}" title="삭제">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    var dtOptions = {
+        "order": [[ 3, "desc" ]],
+        "pageLength": 50,
+        "columnDefs": [
+            { "orderable": false, "targets": [0, 4] }
+        ],
+        "language": {
+            "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json"
+        }
+    };
+
+    var logTable = $('#logTable').DataTable(dtOptions);
+    var resultTable = $('#resultTable').DataTable(dtOptions);
+
+    // Refresh sizing on tab change & Save active tab to localStorage
+    $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
+        localStorage.setItem('activeFileTab', $(e.target).attr('id'));
+        $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust();
+    });
+
+    // Restore active tab from localStorage
+    var savedTabId = localStorage.getItem('activeFileTab');
+    if (savedTabId && $('#' + savedTabId).length) {
+        var tabTrigger = new bootstrap.Tab(document.getElementById(savedTabId));
+        tabTrigger.show();
+    }
+
+    // Select All (Individual for each table)
+    $('.select-all').on('change', function() {
+        var isChecked = $(this).prop('checked');
+        var targetClass = $(this).attr('data-target');
+        $(targetClass).prop('checked', isChecked);
+    });
+
+    // Multi-download (ZIP) - Collects from ALL tabs
+    $('#btnDownloadSelected').on('click', function() {
+        var selected = [];
+        $('.file-checkbox:checked').each(function() {
+            selected.push($(this).val());
+        });
+
+        if (selected.length === 0) {
+            alert('다운로드할 파일을 선택해주세요.');
+            return;
+        }
+
+        if (selected.length === 1) {
+            window.location.href = '/file-browser/download?path=' + encodeURIComponent(selected[0]);
+            return;
+        }
+
+        const btn = $(this);
+        const originalText = btn.html();
+        btn.html('<span class="spinner-border spinner-border-sm me-1"></span> 압축 중...').prop('disabled', true);
+
+        fetch('/file-browser/download-multi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paths: selected })
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('Download failed');
+            return response.blob();
+        })
+        .then(blob => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const timestamp = new Date().toISOString().replace(/[-:T]/g, '').split('.')[0];
+            a.download = `safetyreport_files_${timestamp}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+        })
+        .catch(error => {
+            console.error(error);
+            alert('다운로드 중 오류가 발생했습니다.');
+        })
+        .finally(() => {
+            btn.html(originalText).prop('disabled', false);
+        });
+    });
+
+    // 개별 삭제
+    $(document).on('click', '.btn-delete-file', function() {
+        const path = $(this).data('path');
+        const filename = path.split(/[\\/]/).pop();
+        
+        if(!confirm(`'${filename}' 파일을 정말 삭제하시겠습니까?`)) return;
+        
+        const btn = $(this);
+        btn.prop('disabled', true);
+        
+        fetch(`/file-browser/delete?path=${encodeURIComponent(path)}`, {
+            method: 'DELETE'
+        })
+        .then(response => response.json())
+        .then(data => {
+            if(data.status === 'success') {
+                location.reload();
+            } else {
+                alert(data.detail || '삭제에 실패했습니다.');
+                btn.prop('disabled', false);
+            }
+        })
+        .catch(err => {
+            alert('오류가 발생했습니다.');
+            btn.prop('disabled', false);
+        });
+    });
+
+    // 선택 삭제
+    $('#btnDeleteSelected').on('click', function() {
+        var selected = [];
+        $('.file-checkbox:checked').each(function() {
+            selected.push($(this).val());
+        });
+
+        if (selected.length === 0) {
+            alert('삭제할 파일을 선택해주세요.');
+            return;
+        }
+
+        if(!confirm(`${selected.length}개의 파일을 정말 삭제하시겠습니까?`)) return;
+
+        const btn = $(this);
+        btn.prop('disabled', true);
+
+        fetch('/file-browser/delete-multi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paths: selected })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if(data.status === 'success' || data.status === 'partial_success') {
+                let msg = `${data.deleted_count}개의 파일이 삭제되었습니다.`;
+                if(data.errors && data.errors.length > 0) {
+                    msg += '\n\n[오류 내역]\n' + data.errors.join('\n');
+                }
+                alert(msg);
+                location.reload();
+            } else {
+                alert(data.detail || '삭제에 실패했습니다.');
+                btn.prop('disabled', false);
+            }
+        })
+        .catch(err => {
+            alert('오류가 발생했습니다.');
+            btn.prop('disabled', false);
+        });
+    });
+
+    // 일괄 삭제
+    $('.btn-delete-all').on('click', function() {
+        const target = $(this).data('target');
+        const label = target === 'logs' ? '로그' : '결과';
+        
+        if(!confirm(`${label} 폴더 내의 모든 파일을 정말 삭제하시겠습니까?\n(현재 사용 중인 로그 파일은 보호됩니다)`)) return;
+        
+        const btn = $(this);
+        btn.prop('disabled', true);
+        
+        fetch('/file-browser/delete-all', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ target: target })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if(data.status === 'success') {
+                alert(`${data.deleted_count}개의 파일이 삭제되었습니다.`);
+                location.reload();
+            } else {
+                alert(data.detail || '삭제에 실패했습니다.');
+                btn.prop('disabled', false);
+            }
+        })
+        .catch(err => {
+            alert('오류가 발생했습니다.');
+            btn.prop('disabled', false);
+        });
+    });
+});
+</script>
+{% endblock %}

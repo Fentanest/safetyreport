@@ -1,5 +1,43 @@
 {% extends "base.html" %}
 
+{% block extra_css %}
+<style>
+    /* 테이블 레이아웃 고정: 브라우저가 데이터와 상관없이 헤더 너비를 즉시 강제함 */
+    .table-fixed {
+        table-layout: fixed !important;
+        width: 100% !important;
+    }
+    /* 긴 텍스트 셀 공통 스타일: 로딩 즉시 너비 제한 및 생략 처리 */
+    .ellipsis-cell {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    /* DataTables 스크롤 영역 설정 */
+    .dataTables_scrollBody {
+        border-bottom: 1px solid #dee2e6;
+    }
+    /* 상단 더미 스크롤바 스타일 */
+    .top-scrollbar-wrapper {
+        overflow-x: auto;
+        overflow-y: hidden;
+        width: 100%;
+        margin-bottom: 0px;
+        border: none;
+    }
+    .top-scrollbar-dummy {
+        height: 1px;
+        border: none;
+    }
+    /* 헤더 텍스트 중앙 정렬 및 여백 조정 */
+    th {
+        vertical-align: middle !important;
+        text-align: center !important;
+        white-space: nowrap;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="card card-custom mb-4">
     <div class="card-header bg-white fw-bold">상세 검색</div>
@@ -34,42 +72,64 @@
                 <label class="form-label">처리기관</label>
                 <input type="text" class="form-control" id="searchAgency">
             </div>
+            <div class="col-md-2 d-flex flex-column justify-content-center">
+                <div class="form-check">
+                    <input class="form-check-input filter-police" type="checkbox" id="excludePolice">
+                    <label class="form-check-label" for="excludePolice">경찰기관 제외</label>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input filter-police" type="checkbox" id="onlyPolice">
+                    <label class="form-check-label" for="onlyPolice">경찰기관만 포함</label>
+                </div>
+            </div>
             <div class="col-md-2">
                 <label class="form-label">처리상태</label>
                 <input type="text" class="form-control" id="searchStatus">
             </div>
+            <div class="col-md-2">
+                <label class="form-label">과태료</label>
+                <input type="text" class="form-control" id="searchFine">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">신고내용</label>
+                <input type="text" class="form-control" id="searchReportContent">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">처리내용</label>
+                <input type="text" class="form-control" id="searchProcessContent">
+            </div>
 
             <!-- Date Range Searches -->
             <div class="col-md-3">
-                <label class="form-label text-primary">신고일 (기한)</label>
+                <label class="form-label text-primary">신고일</label>
                 <div class="input-group">
-                    <input type="date" class="form-control" id="searchReportDateStart">
+                    <input type="date" class="form-control" id="searchReportDateStart" max="2099-12-31">
                     <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" id="searchReportDateEnd">
+                    <input type="date" class="form-control" id="searchReportDateEnd" max="2099-12-31">
                 </div>
             </div>
             <div class="col-md-3">
-                <label class="form-label text-success">발생일 (기한)</label>
+                <label class="form-label text-success">발생일</label>
                 <div class="input-group">
-                    <input type="date" class="form-control" id="searchOccurDateStart">
+                    <input type="date" class="form-control" id="searchOccurDateStart" max="2099-12-31">
                     <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" id="searchOccurDateEnd">
+                    <input type="date" class="form-control" id="searchOccurDateEnd" max="2099-12-31">
                 </div>
             </div>
             <div class="col-md-3">
-                <label class="form-label text-warning">답변일 (기한)</label>
+                <label class="form-label text-warning">답변일</label>
                 <div class="input-group">
-                    <input type="date" class="form-control" id="searchResponseDateStart">
+                    <input type="date" class="form-control" id="searchResponseDateStart" max="2099-12-31">
                     <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" id="searchResponseDateEnd">
+                    <input type="date" class="form-control" id="searchResponseDateEnd" max="2099-12-31">
                 </div>
             </div>
             <div class="col-md-3">
-                <label class="form-label text-secondary">발생시간 (기한)</label>
+                <label class="form-label text-secondary">발생시간</label>
                 <div class="input-group">
-                    <input type="time" class="form-control" id="searchOccurTimeStart">
+                    <input type="text" class="form-control" id="searchOccurTimeStart" placeholder="14:30">
                     <span class="input-group-text">~</span>
-                    <input type="time" class="form-control" id="searchOccurTimeEnd">
+                    <input type="text" class="form-control" id="searchOccurTimeEnd" placeholder="15:00">
                 </div>
             </div>
             <div class="col-12 mt-3 d-flex gap-2">
@@ -78,6 +138,7 @@
                 <div class="ms-auto" style="border-left: 2px solid #ccc; padding-left: 15px;">
                     <button type="button" class="btn btn-warning shadow-sm me-2" id="btnAddWatchlist"><i class="fas fa-eye"></i> 감시목록 추가</button>
                     <button type="button" class="btn btn-success ms-2" id="btnExportExcel"><i class="fas fa-file-excel"></i> 현재 표 엑셀로 다운로드</button>
+                    <button type="button" class="btn btn-secondary text-white shadow-sm ms-2 me-2" id="btnCopySelectedIds"><i class="fas fa-clipboard-check"></i> 선택된 신고번호 전체 복사</button>
                     <button type="button" class="btn btn-info text-white shadow-sm" id="btnCopyIds"><i class="fas fa-copy"></i> 화면의 신고번호 전체 복사</button>
                 </div>
             </div>
@@ -87,34 +148,41 @@
 
 <div class="card card-custom">
     <div class="card-body">
-        <table id="{{ table_id }}" class="table table-striped table-bordered nowrap" style="width:100%">
+        <!-- 상단 가로 스크롤바용 더미 레이어 -->
+        <div class="top-scrollbar-wrapper" id="topScrollWrapper">
+            <div class="top-scrollbar-dummy" id="topScrollDummy"></div>
+        </div>
+        <table id="{{ table_id }}" class="table table-striped table-bordered table-fixed nowrap">
             <thead>
                 <tr>
-                    <th class="text-center" style="width: 40px;"><input type="checkbox" id="selectAll"></th>
-                    <th>ID</th>
-                    <th>상태</th>
-                    <th>신고번호</th>
-                    <th>신고명</th>
-                    <th>신고일</th>
-                    <th>처리상태</th>
-                    <th>차량번호</th>
-                    <th>위반법규</th>
-                    <th>과태료/벌점</th>
-                    <th>벌점</th>
-                    <th>처리기관</th>
-                    <th>담당자</th>
-                    <th>답변일</th>
-                    <th>발생일자</th>
-                    <th>발생시각</th>
-                    <th>위반장소</th>
-                    <th>종결여부</th>
-                    <th>신고내용(요약)</th>
-                    <th>처리내용(요약)</th>
-                    <th>지도</th>
-                    <th>첨부사진</th>
-                    <th>첨부파일</th>
-                    <th>만족도조사</th>
-                    <th>감시목록</th>
+                    <th class="text-center" style="width: 13px;"><input type="checkbox" id="selectAll"></th>
+                    <th style="width: 53.05px;">ID</th>
+                    <th style="width: 40.89px;">상태</th>
+                    <th style="width: 120.61px;">신고번호</th>
+                    <th style="width: 225.19px;">신고명</th>
+                    <th style="width: 64.19px;">신고일</th>
+                    <th style="width: 58.89px;">처리상태</th>
+                    <th style="width: 89.45px;">차량번호</th>
+                    {% if table_id == "duplicateTable" %}
+                    <th style="width: 100px;">중복횟수</th>
+                    {% endif %}
+                    <th style="width: 141.13px;">위반법규</th>
+                    <th style="width: 98.7px;">과태료/범칙금</th>
+                    <th style="width: 29.45px;">벌점</th>
+                    <th style="width: 270.64px;">처리기관</th>
+                    <th style="width: 44.17px;">담당자</th>
+                    <th style="width: 64.19px;">답변일</th>
+                    <th style="width: 64.19px;">발생일자</th>
+                    <th style="width: 58.89px;">발생시각</th>
+                    <th style="width: 310.45px;">위반장소</th>
+                    <th style="width: 58.89px;">종결여부</th>
+                    <th style="width: 182px;">신고내용</th>
+                    <th style="width: 182px;">처리내용</th>
+                    <th style="width: 50.89px;">지도</th>
+                    <th style="width: 71.63px;">첨부사진</th>
+                    <th style="width: 71.63px;">첨부파일</th>
+                    <th style="width: 73.61px;">만족도</th>
+                    <th style="width: 58.89px;">감시</th>
                 </tr>
             </thead>
             <tbody>
@@ -122,11 +190,11 @@
                 <tr>
                     <td class="text-center"><input type="checkbox" class="row-checkbox" value="{{ r.신고번호 }}"></td>
                     <td>{{ r.ID }}</td>
-                    <td>{{ r.상태 }}</td>
-                    <td><a href="https://www.safetyreport.go.kr/#mypage/mysafereport/{{ r.ID }}" target="_blank">{{ r.신고번호 }}</a></td>
-                    <td>{{ r.신고명 }}</td>
+                    <td class="text-center">{{ r.상태 }}</td>
+                    <td class="text-center"><a href="https://www.safetyreport.go.kr/#mypage/mysafereport/{{ r.ID }}" target="_blank">{{ r.신고번호 }}</a></td>
+                    <td class="ellipsis-cell" style="width: 225px;" title="{{ r.신고명 }}">{{ r.신고명 }}</td>
                     <td>{{ r.신고일 }}</td>
-                    <td>
+                    <td class="text-center">
                         {% if r.처리상태 == '수용' %}
                             <span class="badge bg-success">{{ r.처리상태 }}</span>
                         {% elif r.처리상태 in ['불수용', '기타'] %}
@@ -141,7 +209,13 @@
                             <span class="badge bg-light text-dark border">{{ r.처리상태 }}</span>
                         {% endif %}
                     </td>
-                    <td>{{ r.차량번호 }}</td>
+                    <td class="text-center">{{ r.차량번호 }}</td>
+                    {% if table_id == "duplicateTable" %}
+                    <td data-order="{{ r.valid_count }}">
+                        <span class="badge bg-info text-dark" title="취하 제외">유효 {{ r.valid_count }}</span>
+                        <span class="badge bg-secondary" title="취하 포함">전체 {{ r.total_count }}</span>
+                    </td>
+                    {% endif %}
                     <td>{{ r.위반법규 }}</td>
                     <td>{{ r.범칙금_과태료 }}</td>
                     <td>{{ r.벌점 }}</td>
@@ -149,11 +223,11 @@
                     <td>{{ r.담당자 }}</td>
                     <td>{{ r.답변일 }}</td>
                     <td>{{ r.발생일자 }}</td>
-                    <td>{{ r.발생시각 }}</td>
-                    <td>{{ r.위반장소 }}</td>
-                    <td>{{ r.종결여부 }}</td>
-                    <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ r.신고내용 }}">{{ r.신고내용 }}</td>
-                    <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{ r.처리내용 }}">{{ r.처리내용 }}</td>
+                    <td class="text-center">{{ r.발생시각 }}</td>
+                    <td class="ellipsis-cell" style="width: 310.45px;" title="{{ r.위반장소 }}">{{ r.위반장소 }}</td>
+                    <td class="text-center">{{ r.종결여부 }}</td>
+                    <td class="ellipsis-cell" style="width: 182px;" title="{{ r.신고내용 }}">{{ r.신고내용 }}</td>
+                    <td class="ellipsis-cell" style="width: 182px;" title="{{ r.처리내용 }}">{{ r.처리내용 }}</td>
                     <td>
                         {% if r.지도 and r.지도 != '6개월 초과' %}
                             <a href="{{ r.지도.split('\n')[0] }}" target="_blank">지도보기</a>
@@ -197,16 +271,82 @@ $(document).ready(function() {
     if (qAgency) $('#searchAgency').val(qAgency);
     if (qPerson) $('#searchPerson').val(qPerson);
 
+    const offset = {{ 1 if table_id == 'duplicateTable' else 0 }};
     var table = $('#{{ table_id }}').DataTable({
         keys: true,       // Keyboard navigation
         autoFill: true,   // Excel-like dragging
         select: true,     // Selectable rows/cells
         scrollX: true,
+        autoWidth: false, // Disable automatic column width calculation
         pageLength: 50,
         order: [],
+        columnDefs: [
+            { targets: 0, width: '13px' },
+            { targets: 1, width: '53.05px' },
+            { targets: 2, width: '40.89px' },
+            { targets: 3, width: '120.61px' },
+            { targets: 4, width: '225.19px' },
+            { targets: 5, width: '64.19px' },
+            { targets: 6, width: '58.89px', className: 'text-center' },
+            { targets: 7, width: '89.45px', className: 'text-center' },
+            ...(offset === 1 ? [{ targets: 8, width: '100px' }] : []),
+            { targets: 8 + offset, width: '141.13px' },
+            { targets: 9 + offset, width: '98.7px' },
+            { targets: 10 + offset, width: '29.45px' },
+            { targets: 11 + offset, width: '270.64px' },
+            { targets: 12 + offset, width: '44.17px' },
+            { targets: 13 + offset, width: '64.19px' },
+            { targets: 14 + offset, width: '64.19px' },
+            { targets: 15 + offset, width: '58.89px' },
+            { targets: 16 + offset, width: '310.45px' },
+            { targets: 17 + offset, width: '58.89px' },
+            { targets: 18 + offset, width: '182px' },
+            { targets: 19 + offset, width: '182px' },
+            { targets: 20 + offset, width: '40.89px' },
+            { targets: 21 + offset, width: '71.63px' },
+            { targets: 22 + offset, width: '71.63px' },
+            { targets: 23 + offset, width: '73.61px' },
+            { targets: 24 + offset, width: '58.89px' }
+        ],
         language: {
             url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json'
         }
+    });
+
+    // 경찰기관 필터 상호 배타적 선택
+    $('.filter-police').on('change', function() {
+        if ($(this).is(':checked')) {
+            $('.filter-police').not(this).prop('checked', false);
+        }
+    });
+
+    // 상단/하단 스크롤 동기화 로직
+    const $scrollBody = $('.dataTables_scrollBody');
+    const $topScroll = $('#topScrollWrapper');
+    const $topDummy = $('#topScrollDummy');
+
+    function syncScroll() {
+        // 실제 테이블의 가로 길이(scrollWidth)를 더미 레이어에 적용
+        const tableWidth = $('.dataTables_scrollBody table').outerWidth();
+        $topDummy.width(tableWidth);
+        
+        // 동기화 이벤트
+        $topScroll.on('scroll', function() {
+            $scrollBody.scrollLeft($topScroll.scrollLeft());
+        });
+        $scrollBody.on('scroll', function() {
+            $topScroll.scrollLeft($scrollBody.scrollLeft());
+        });
+    }
+
+    // 초기 로딩 및 테이블 다시 그릴 때마다 동기화 갱신
+    setTimeout(function() {
+        table.columns.adjust().draw(false);
+        syncScroll();
+    }, 100);
+
+    table.on('draw', function() {
+        syncScroll();
     });
 
     $.fn.dataTable.ext.search.push(
@@ -225,9 +365,20 @@ $(document).ready(function() {
             }
 
             var reportDateOk = checkDateRange('#searchReportDateStart', '#searchReportDateEnd', 5);
-            var occurDateOk = checkDateRange('#searchOccurDateStart', '#searchOccurDateEnd', 14);
-            var responseDateOk = checkDateRange('#searchResponseDateStart', '#searchResponseDateEnd', 13);
-            var occurTimeOk = checkDateRange('#searchOccurTimeStart', '#searchOccurTimeEnd', 15);
+            var responseDateOk = checkDateRange('#searchResponseDateStart', '#searchResponseDateEnd', 13 + offset);
+            var occurDateOk = checkDateRange('#searchOccurDateStart', '#searchOccurDateEnd', 14 + offset);
+            var occurTimeOk = checkDateRange('#searchOccurTimeStart', '#searchOccurTimeEnd', 15 + offset);
+            
+            // 경찰기관 제외 필터
+            if ($('#excludePolice').is(':checked')) {
+                var agencyText = data[11 + offset] || "";
+                if (agencyText.includes("경찰")) return false;
+            }
+            // 경찰기관만 포함 필터
+            if ($('#onlyPolice').is(':checked')) {
+                var agencyText = data[11 + offset] || "";
+                if (!agencyText.includes("경찰")) return false;
+            }
             
             return reportDateOk && occurDateOk && responseDateOk && occurTimeOk;
         }
@@ -259,11 +410,14 @@ $(document).ready(function() {
         table.column(7).search(orSearch($('#searchCar').val()), true, false); // 차량번호
         table.column(3).search(orSearch($('#searchReport').val()), true, false); // 신고번호
         table.column(4).search(orSearch($('#searchReportName').val()), true, false); // 신고명
-        table.column(8).search(boundedOrSearch($('#searchLaw').val()), true, false); // 위반법규명 (단어 경계)
-        table.column(11).search(orSearch($('#searchAgency').val()), true, false); // 처리기관
-        table.column(12).search(orSearch($('#searchPerson').val()), true, false); // 담당자
-        table.column(16).search(orSearch($('#searchLocation').val()), true, false); // 위반장소
+        table.column(8 + offset).search(boundedOrSearch($('#searchLaw').val()), true, false); // 위반법규명 (단어 경계)
+        table.column(11 + offset).search(orSearch($('#searchAgency').val()), true, false); // 처리기관
+        table.column(12 + offset).search(orSearch($('#searchPerson').val()), true, false); // 담당자
+        table.column(16 + offset).search(orSearch($('#searchLocation').val()), true, false); // 위반장소
         table.column(6).search(exactOrSearch($('#searchStatus').val()), true, false); // 처리상태 (정확히 일치)
+        table.column(9 + offset).search(orSearch($('#searchFine').val()), true, false); // 과태료
+        table.column(18 + offset).search(orSearch($('#searchReportContent').val()), true, false); // 신고내용
+        table.column(19 + offset).search(orSearch($('#searchProcessContent').val()), true, false); // 처리내용
         table.draw();
     });
 
@@ -271,13 +425,27 @@ $(document).ready(function() {
         var startElem = $(startId)[0];
         var endElem = $(endId)[0];
         
-        if(startElem && startElem.validity && startElem.validity.badInput) {
-            alert(label + " 시작 시점: 유효하지 않은 날짜/시간 포맷이 입력되었습니다.");
-            $(startId).val(''); return;
-        }
-        if(endElem && endElem.validity && endElem.validity.badInput) {
-            alert(label + " 종료 시점: 유효하지 않은 날짜/시간 포맷이 입력되었습니다.");
-            $(endId).val(''); return;
+        if (label === '발생시간') {
+            const timeRegex = /^([01]\d|2[0-3]):?([0-5]\d)$/;
+            [startId, endId].forEach(id => {
+                let val = $(id).val().trim();
+                if (val && !timeRegex.test(val)) {
+                    alert("발생시간 형식이 올바르지 않습니다. (예: 14:30)");
+                    $(id).val('');
+                } else if (val && val.length === 4 && !val.includes(':')) {
+                    // Auto-insert colon if 4 digits entered
+                    $(id).val(val.slice(0, 2) + ':' + val.slice(2));
+                }
+            });
+        } else {
+            if(startElem && startElem.validity && startElem.validity.badInput) {
+                alert(label + " 시작 시점: 유효하지 않은 날짜/시간 포맷이 입력되었습니다.");
+                $(startId).val(''); return;
+            }
+            if(endElem && endElem.validity && endElem.validity.badInput) {
+                alert(label + " 종료 시점: 유효하지 않은 날짜/시간 포맷이 입력되었습니다.");
+                $(endId).val(''); return;
+            }
         }
 
         var s = $(startId).val();
@@ -292,6 +460,16 @@ $(document).ready(function() {
     $('#searchOccurDateEnd, #searchOccurDateStart').on('change', () => validateAndWarn('#searchOccurDateStart', '#searchOccurDateEnd', '발생일'));
     $('#searchResponseDateEnd, #searchResponseDateStart').on('change', () => validateAndWarn('#searchResponseDateStart', '#searchResponseDateEnd', '답변일'));
     $('#searchOccurTimeEnd, #searchOccurTimeStart').on('change', () => validateAndWarn('#searchOccurTimeStart', '#searchOccurTimeEnd', '발생시간'));
+
+    // 연도 4자리 제한 로직
+    $('input[type="date"]').on('input', function() {
+        if (this.value) {
+            let year = this.value.split('-')[0];
+            if (year.length > 4) {
+                this.value = '2099' + this.value.slice(year.length);
+            }
+        }
+    });
 
     $('#advSearchForm input').on('keypress', function(e) {
         if(e.which === 13) {
@@ -323,18 +501,95 @@ $(document).ready(function() {
 
     // 엑셀 다운로드 (BOM 포함 CSV)
     $('#btnExportExcel').on('click', function() {
+        let resultData = [];
+        let maxLinksLength = { "첨부사진": 0, "첨부파일": 0 };
+        let photoIdx = -1, fileIdx = -1;
+
+        table.columns().every(function() {
+            let title = $(this.header()).text().trim();
+            if (title === "첨부사진") photoIdx = this.index();
+            else if (title === "첨부파일") fileIdx = this.index();
+        });
+
+        table.rows({search:'applied'}).data().each(function(row) {
+            let rowObj = { raw: row, photos: [], files: [] };
+            
+            if (photoIdx !== -1) {
+                let cellHtml = row[photoIdx];
+                let match = cellHtml.match(/data-links="([^"]+)"/);
+                if (match) {
+                    rowObj.photos = match[1].split(',').filter(x => x.trim() !== '');
+                } else if (cellHtml.includes('만료')) {
+                    rowObj.photos = ['만료'];
+                }
+                if (rowObj.photos.length > maxLinksLength["첨부사진"]) {
+                    maxLinksLength["첨부사진"] = rowObj.photos.length;
+                }
+            }
+
+            if (fileIdx !== -1) {
+                let cellHtml = row[fileIdx];
+                let match = cellHtml.match(/data-links="([^"]+)"/);
+                if (match) {
+                    rowObj.files = match[1].split(',').filter(x => x.trim() !== '');
+                } else if (cellHtml.includes('만료')) {
+                    rowObj.files = ['만료'];
+                }
+                if (rowObj.files.length > maxLinksLength["첨부파일"]) {
+                    maxLinksLength["첨부파일"] = rowObj.files.length;
+                }
+            }
+            resultData.push(rowObj);
+        });
+
         let csvContent = "\uFEFF"; // 한글 깨짐 방지 BOM
         let headers = [];
         table.columns().every(function() {
-            headers.push('"' + this.header().innerHTML.replace(/"/g, '""') + '"');
+            if (this.index() !== 0) { 
+                let title = $(this.header()).text().trim();
+                if (title === "첨부사진" || title === "첨부파일") {
+                    let maxCount = maxLinksLength[title];
+                    if (maxCount === 0) {
+                        headers.push('"' + title + '"');
+                    } else {
+                        for (let i = 1; i <= maxCount; i++) {
+                            headers.push('"' + title + i + '"');
+                        }
+                    }
+                } else {
+                    headers.push('"' + title.replace(/"/g, '""') + '"');
+                }
+            }
         });
         csvContent += headers.join(',') + '\r\n';
 
-        table.rows({search:'applied'}).data().each(function(row) {
+        resultData.forEach(function(rowObj) {
             let rowArray = [];
-            row.forEach(cell => {
-                let cellText = $('<div>').html(cell).text().trim();
-                rowArray.push('"' + cellText.replace(/"/g, '""') + '"');
+            table.columns().every(function() {
+                let idx = this.index();
+                if (idx !== 0) {
+                    let title = $(this.header()).text().trim();
+                    if (title === "첨부사진" || title === "첨부파일") {
+                        let links = title === "첨부사진" ? rowObj.photos : rowObj.files;
+                        let maxCount = maxLinksLength[title];
+                        if (maxCount === 0) {
+                            rowArray.push('""');
+                        } else {
+                            for (let i = 0; i < maxCount; i++) {
+                                let linkStr = i < links.length ? links[i].trim() : '';
+                                rowArray.push('"' + linkStr.replace(/"/g, '""') + '"');
+                            }
+                        }
+                    } else {
+                        let cellText = $('<div>').html(rowObj.raw[idx]).text().trim();
+                        // 엑셀에서 긴 숫자가 지수표기법으로 바뀌거나 잘리는 것을 방지
+                        if (title === "신고번호" || title === "차량번호" || title === "연락처") {
+                            rowArray.push('="' + cellText.replace(/"/g, '""') + '"');
+                        } else {
+                            rowArray.push('"' + cellText.replace(/"/g, '""') + '"');
+                        }
+                    }
+                }
             });
             csvContent += rowArray.join(',') + '\r\n';
         });
@@ -349,7 +604,46 @@ $(document).ready(function() {
         document.body.removeChild(link);
     });
 
-    // 신고번호 일괄 클립보드 복사
+    // 선택된 신고번호 클립보드 복사
+    $('#btnCopySelectedIds').on('click', function() {
+        let text = [];
+        $('.row-checkbox:checked').each(function() {
+            let val = $(this).val();
+            if(val) text.push(val);
+        });
+        
+        if(text.length === 0) {
+             alert('먼저 복사할 신고번호를 체크박스로 선택해주세요.');
+             return;
+        }
+        
+        let resultString = text.join('\n');
+        
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(resultString).then(function() {
+                alert(text.length + "개의 선택된 신고번호가 클립보드에 복사되었습니다!");
+            }).catch(function(err) {
+                alert("복사 실패: " + err);
+            });
+        } else {
+            let textArea = document.createElement("textarea");
+            textArea.value = resultString;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                alert(text.length + "개의 선택된 신고번호가 클립보드에 복사되었습니다!");
+            } catch (err) {
+                alert("복사 실패: " + err);
+            }
+            document.body.removeChild(textArea);
+        }
+    });
+
+    // 화면의 신고번호 일괄 클립보드 복사
     $('#btnCopyIds').on('click', function() {
         let text = [];
         table.rows({search:'applied'}).data().each(function(row) {
@@ -364,11 +658,31 @@ $(document).ready(function() {
              return;
         }
         
-        navigator.clipboard.writeText(text.join('\n')).then(function() {
-            alert(text.length + "개의 신고번호가 클립보드에 복사되었습니다!");
-        }).catch(function(err) {
-            alert("복사 실패: " + err);
-        });
+        let resultString = text.join('\n');
+        
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(resultString).then(function() {
+                alert(text.length + "개의 신고번호가 클립보드에 복사되었습니다!");
+            }).catch(function(err) {
+                alert("복사 실패: " + err);
+            });
+        } else {
+            // HTTP 등 비보안 컨텍스트에서 Fallback 동작
+            let textArea = document.createElement("textarea");
+            textArea.value = resultString;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                alert(text.length + "개의 신고번호가 안전하게 클립보드에 복사되었습니다!");
+            } catch (err) {
+                alert("복사 실패: " + err);
+            }
+            document.body.removeChild(textArea);
+        }
     });
 
     // 긴 텍스트 모달 팝업 추가
@@ -392,8 +706,8 @@ $(document).ready(function() {
         var cellIdx = table.cell(this).index();
         if(!cellIdx) return;
         var colIdx = cellIdx.column;
-        // 신고명(4), 신고내용(18), 처리내용(19)
-        if(colIdx === 4 || colIdx === 18 || colIdx === 19) {
+        // 신고명(4), 신고내용(18+offset), 처리내용(19+offset)
+        if(colIdx === 4 || colIdx === (18 + offset) || colIdx === (19 + offset)) {
             var text = $('<div>').html(table.cell(this).data()).text();
             $('#textModalContent').text(text);
             var textModal = new bootstrap.Modal(document.getElementById('textModal'));

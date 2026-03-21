@@ -67,3 +67,6 @@ def get_merge_columns():
 
 merge_traffic_table = Table(settings.table_merge_traffic, metadata, *get_merge_columns())
 merge_other_table = Table(settings.table_merge_other, metadata, *get_merge_columns())
+
+watchlist_table = Table('mysafety_watchlist', metadata,
+                        Column('신고번호', String, primary_key=True))

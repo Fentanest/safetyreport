@@ -91,9 +91,9 @@
                     {% if is_running %}실행 중{% else %}대기 중{% endif %}
                 </span>
             </div>
-            <div class="card-body p-0" style="background-color: #1e1e1e;">
+            <div class="card-body p-0 d-flex flex-column" style="background-color: #1e1e1e; height: 500px;">
                 <div id="logConsole"
-                    style="height: 600px; overflow-y: auto; padding: 15px; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.9em; white-space: pre-wrap;">
+                    style="flex-grow: 1; overflow-y: auto; padding: 15px; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.9em; white-space: pre-wrap;">
                 </div>
             </div>
         </div>

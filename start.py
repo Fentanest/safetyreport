@@ -87,6 +87,13 @@ def _run_crawling_process(driver, engine, args):
             titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"])
 
         new_report_numbers = database.title_to_sql(dataframes=titlelist, engine=engine)
+        if settings.telegram_enabled:
+            msg = f"1/5. 신고 목록(Title) 수집 및 DB 저장을 완료했습니다. (총 {last_page} 페이지)\n"
+            if new_report_numbers:
+                msg += "\n[신규 추가된 신고번호]\n" + "\n".join(new_report_numbers[:30])
+                if len(new_report_numbers) > 30:
+                    msg += f"\n... 외 {len(new_report_numbers)-30}건"
+            subprocess.run([sys.executable, "notifier.py", msg])
 
     # Prepare detail list
     if args.get("queue_file"):
@@ -111,6 +118,9 @@ def _run_crawling_process(driver, engine, args):
     detail_datas = list(crawldetail.crawl_details(driver=driver, list=detaillist))
         
     changed_item_ids = database.deatil_to_sql(dataframes_with_category=detail_datas, engine=engine)
+    if settings.telegram_enabled:
+        msg = f"2/5. 상세 정보(Detail) 크롤링 {len(detaillist)}건 및 DB 저장을 완료했습니다. (내용 변경/신규 처리: {len(changed_item_ids)}건)"
+        subprocess.run([sys.executable, "notifier.py", msg])
     
     return changed_item_ids
 
@@ -118,6 +128,16 @@ def _process_and_save_results(engine, changed_item_ids):
     logger.LoggerFactory.logbot.info("최종 데이터 병합 및 저장 시작")
     database.merge_final(engine=engine)
     database.clear_old_attachments(engine=engine)
+    
+    if settings.telegram_enabled:
+        msg = "3/5. 최종 데이터 병합 및 DB 저장을 완료했습니다."
+        if changed_item_ids:
+            changed_records = database.get_merged_records_by_ids(engine, changed_item_ids)
+            detail_msg = message_formatter.format_report_list(changed_records, "[내용 변경/신규 처리된 신고 목록 (병합 후)]")
+            if detail_msg:
+                msg += "\n\n" + detail_msg
+        subprocess.run([sys.executable, "notifier.py", msg])
+
     df = database.load_results(engine=engine)
     export.save_results(df=df)
 
@@ -146,6 +166,8 @@ def main():
             wait_for_resume_signal()
         else:
             login.login_mysafety(driver=driver)
+            if settings.telegram_enabled:
+                subprocess.run([sys.executable, "notifier.py", "안전신문고 로그인에 성공했습니다."])
 
         changed_item_ids = _run_crawling_process(driver, engine, args)
     except Exception as e:

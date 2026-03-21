@@ -70,8 +70,8 @@ def _process_dataframe(df):
     
     df_processed = df_processed[new_order]
     
-    if '신고일' in df_processed.columns:
-        df_processed = df_processed.sort_values(by='신고일', ascending=False)
+    if '신고번호' in df_processed.columns:
+        df_processed = df_processed.sort_values(by='신고번호', ascending=False)
         
     return df_processed, photo_cols
 
@@ -108,6 +108,8 @@ def save_to_google_sheet(df, photo_cols):
     worksheet.clear()
     logger.LoggerFactory.logbot.debug("기존 구글 스프레드시트 데이터를 삭제합니다.")
 
+    # Convert all NaN/None to empty strings before list conversion to avoid JSON "nan" issues
+    df_gsheet = df_gsheet.fillna('')
     data_to_upload = [df_gsheet.columns.values.tolist()] + df_gsheet.astype(str).values.tolist()
     
     # Retry and chunking logic
