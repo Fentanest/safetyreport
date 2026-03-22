@@ -1,15 +1,14 @@
-from fastapi import APIRouter, Request, Form
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 from services import data_service
 import settings.settings as settings
 from sqlalchemy import create_engine
+from core.utils.templating import templates
 
 engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_same_thread": False})
 
 router = APIRouter(prefix="/watchlist")
-templates = Jinja2Templates(directory="web/templates")
 
 class WatchlistReq(BaseModel):
     rnums: list[str]

@@ -104,20 +104,25 @@ jobs:
     - name: Build Windows executable with PyInstaller
       if: steps.check_tag.outputs.tag_exists == 'false'
       shell: powershell
-      run: .\venv\Scripts\python.exe build_exe.py
+      run: .\venv\Scripts\python.exe scripts/build/build_exe.py
 
     - name: Compress executable with UPX
       if: steps.check_tag.outputs.tag_exists == 'false'
       shell: powershell
       run: |
-        & "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/MySafetyReport/MySafetyReport.exe
+        & "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/mysafetyreport/mysafetyreport.exe
+
+    - name: Package Windows into Zip
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      shell: powershell
+      run: Compress-Archive -Path ./dist/mysafetyreport/* -DestinationPath mysafetyreport-win.zip
 
     - name: Upload Windows artifact
       if: steps.check_tag.outputs.tag_exists == 'false'
       uses: actions/upload-artifact@v4
       with:
-        name: MySafetyReport-Windows-${{ steps.get_version.outputs.version }}
-        path: dist/MySafetyReport/
+        name: mysafetyreport-win-${{ steps.get_version.outputs.version }}
+        path: mysafetyreport-win.zip
 
     - name: Create GitHub Release with Windows asset
       if: steps.check_tag.outputs.tag_exists == 'false'
@@ -128,7 +133,7 @@ jobs:
         body: |
           **나만의 안전신문고** v${{ steps.get_version.outputs.version }} 자동 릴리즈
           Commit: ${{ github.sha }}
-        files: dist/MySafetyReport/**
+        files: mysafetyreport-win.zip
         draft: false
         prerelease: false
         generate_release_notes: true
@@ -225,26 +230,32 @@ jobs:
 
     - name: Build Linux executable with PyInstaller
       if: steps.check_tag.outputs.tag_exists == 'false'
-      run: ./venv/bin/python build_exe.py
+      run: ./venv/bin/python scripts/build/build_exe.py
 
     - name: Compress Linux executable with UPX
       if: steps.check_tag.outputs.tag_exists == 'false'
       run: |
-        "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/MySafetyReport/MySafetyReport
+        "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/mysafetyreport/mysafetyreport
+
+    - name: Package Linux into Zip
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: |
+        cd dist/mysafetyreport
+        zip -r ../../mysafetyreport-linux.zip .
 
     - name: Upload Linux artifact
       if: steps.check_tag.outputs.tag_exists == 'false'
       uses: actions/upload-artifact@v4
       with:
-        name: MySafetyReport-Linux-${{ steps.get_version.outputs.version }}
-        path: dist/MySafetyReport/
+        name: mysafetyreport-linux-${{ steps.get_version.outputs.version }}
+        path: mysafetyreport-linux.zip
 
     - name: Update GitHub Release with Linux asset
       if: steps.check_tag.outputs.tag_exists == 'false'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_version.outputs.tag }}
-        files: dist/MySafetyReport/**
+        files: mysafetyreport-linux.zip
 
     # ── Docker 멀티아키텍처 이미지 빌드 (amd64 + arm64) ───────────
     - name: Set up Docker Buildx

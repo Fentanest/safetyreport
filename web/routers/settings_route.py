@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Request, Form, File, UploadFile
-from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, RedirectResponse
 import settings.settings as app_settings
 import os
 import re
 
+from core.utils.templating import templates
+
 router = APIRouter(prefix="/settings")
-templates = Jinja2Templates(directory="web/templates")
 
 @router.get("/")
 async def view_settings(request: Request):
@@ -45,8 +45,9 @@ async def view_settings(request: Request):
         "scheduler_mode": app_settings.config.get('SCHEDULER', 'mode', fallback='interval'),
         "scheduler_interval_hours": int(app_settings.config.get('SCHEDULER', 'interval_hours', fallback=24)),
         "scheduler_cron_times": app_settings.config.get('SCHEDULER', 'cron_times', fallback='09:00'),
+        "scheduler_interval_start": app_settings.config.get('SCHEDULER', 'interval_start', fallback='00:00'),
         "phone_number": app_settings.config.get('RATING', 'phone_number', fallback=''),
-        "remotepath": app_settings.config.get('SELENIUM', 'remotepath', fallback="http://10.20.10.205:4444/wd/hub"),
+        "remotepath": app_settings.config.get('SELENIUM', 'remotepath', fallback="http://localhost:4444/wd/hub"),
         "google_json_exists": os.path.isfile(auth_path),
     })
 
@@ -70,8 +71,9 @@ async def save_settings(
     scheduler_mode: str = Form("interval"),
     scheduler_interval_hours: int = Form(24),
     scheduler_cron_times: str = Form("09:00"),
+    scheduler_interval_start: str = Form("00:00"),
     phone_number: str = Form(""),
-    remotepath: str = Form("http://10.20.10.205:4444/wd/hub")
+    remotepath: str = Form("http://localhost:4444/wd/hub")
 ):
     # Regex to extract Google Spreadsheet ID from full URL
     match = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_key)
@@ -95,6 +97,7 @@ async def save_settings(
     app_settings._instance.update_config('SCHEDULER', 'mode', scheduler_mode)
     app_settings._instance.update_config('SCHEDULER', 'interval_hours', scheduler_interval_hours)
     app_settings._instance.update_config('SCHEDULER', 'cron_times', scheduler_cron_times)
+    app_settings._instance.update_config('SCHEDULER', 'interval_start', scheduler_interval_start)
 
     app_settings._instance.update_config('RATING', 'phone_number', re.sub(r'[^0-9]', '', phone_number))
 
@@ -107,10 +110,10 @@ async def save_settings(
     app_settings._instance.save()
 
     try:
-        import scheduler
+        from core.utils import scheduler
         scheduler.update_jobs()
     except Exception as e:
-        import logger
+        from core.utils import logger
         logger.LoggerFactory.logbot.error(f"스케줄러 업데이트 실패: {e}")
 
     return RedirectResponse(url="/settings?saved=true", status_code=303)

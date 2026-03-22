@@ -4,9 +4,17 @@ import configparser
 
 class AppSettings:
     def __init__(self):
+        import sys
         self.config = configparser.ConfigParser()
-        self.config_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'config.ini')
-        self.datapath = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data'))
+        
+        if getattr(sys, 'frozen', False):
+            # When frozen, use the executable's directory as the root for persistent data
+            project_root = os.path.dirname(sys.executable)
+        else:
+            project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            
+        self.datapath = os.path.join(project_root, 'data')
+        self.config_path = os.path.join(self.datapath, 'config.ini')
         os.makedirs(self.datapath, exist_ok=True)
         
         self.table_title = "mysafety"
@@ -25,7 +33,7 @@ class AppSettings:
     def load(self):
         self.config.read(self.config_path)
         
-        self.remotepath = self.config.get('SELENIUM', 'remotepath', fallback="http://10.20.10.205:4444/wd/hub")
+        self.remotepath = self.config.get('SELENIUM', 'remotepath', fallback="http://localhost:4444/wd/hub")
         self.chrome_mode = self.config.get('SELENIUM', 'chrome_mode', fallback='hub')
         self.remote_debug_port = self.config.get('SELENIUM', 'remote_debug_port', fallback='9222')
         self.headless = self.config.getboolean('SELENIUM', 'headless', fallback=False)
@@ -40,13 +48,14 @@ class AppSettings:
         self.scheduler_mode = self.config.get('SCHEDULER', 'mode', fallback='interval')
         self.scheduler_interval_hours = int(self.config.get('SCHEDULER', 'interval_hours', fallback=24))
         self.scheduler_cron_times = self.config.get('SCHEDULER', 'cron_times', fallback='09:00')
+        self.scheduler_interval_start = self.config.get('SCHEDULER', 'interval_start', fallback='00:00')
 
         self.phone_number = self.config.get('RATING', 'phone_number', fallback='')
 
-        self.normalize_police = self.config.getboolean('SETTINGS', 'normalize_police', fallback=False)
-        self.exclude_withdraw = self.config.getboolean('SETTINGS', 'exclude_withdraw', fallback=False)
-        self.retry_interval = int(self.config.get('SETTINGS', 'retry_interval', fallback=5))
-        self.max_retry_attemps = int(self.config.get('SETTINGS', 'max_retry_attemps', fallback=2))
+        self.normalize_police = self.config.getboolean('SETTINGS', 'normalize_police', fallback=True)
+        self.exclude_withdraw = self.config.getboolean('SETTINGS', 'exclude_withdraw', fallback=True)
+        self.retry_interval = int(self.config.get('SETTINGS', 'retry_interval', fallback=10))
+        self.max_retry_attemps = int(self.config.get('SETTINGS', 'max_retry_attemps', fallback=3))
         self.max_empty_pages = int(self.config.get('SETTINGS', 'max_empty_pages', fallback=3))
         self.log_level = self.config.get('SETTINGS', 'log_level', fallback="INFO")
         self.TZ = self.config.get('SETTINGS', 'TZ', fallback="Asia/Seoul")

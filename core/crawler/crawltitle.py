@@ -8,7 +8,7 @@ import datetime
 from time import sleep
 import pandas as pd
 import settings.settings as settings
-import logger
+from core.utils import logger
 
 def _scrape_current_page(driver):
     """Scrapes the data from the currently loaded page."""

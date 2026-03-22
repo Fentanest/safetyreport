@@ -1,14 +1,15 @@
 from fastapi import APIRouter, Request, Form, WebSocket, WebSocketDisconnect
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import JSONResponse
 import asyncio
 import sys
 import subprocess
 import os
 from services.crawl_manager import crawl_manager
+from core.utils.templating import templates
+from sqlalchemy import create_engine
+import settings.settings as settings
 
 router = APIRouter(prefix="/crawl")
-templates = Jinja2Templates(directory="web/templates")
 
 @router.get("/")
 async def crawl_dashboard(request: Request):
@@ -32,29 +33,34 @@ async def start_crawl(
     app_settings._instance.update_config('SETTINGS', 'max_empty_pages', max_empty_pages)
     app_settings._instance.save()
 
-    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    log_dir = os.path.join(work_dir, 'data', 'logs')
+    log_dir = os.path.join(settings.datapath, 'logs')
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, 'current_crawl.log')
-    
+
     with open(log_file, 'w', encoding='utf-8') as f:
         f.write("=== 크롤링 작업 시작 ===\n")
 
-    cmd = [sys.executable, "-u", "start.py"]
+    is_frozen = getattr(sys, 'frozen', False)
+    if is_frozen:
+        cmd = [sys.executable, "--mode", "crawl"]
+    else:
+        cmd = [sys.executable, "-u", "start.py"]
+
     if login_mode == "nonmember":
         cmd.append("--nonmember")
     if crawl_mode == "min":
         cmd.append("--min")
     elif crawl_mode == "reset":
         cmd.append("--reset")
-        
+
     if queue_list.strip():
-        queue_file = os.path.join(work_dir, 'data', 'queue.txt')
+        queue_file = os.path.join(settings.datapath, 'queue.txt')
         with open(queue_file, 'w', encoding='utf-8') as qf:
             qf.write(queue_list)
         cmd.append("--queue")
         cmd.append(queue_file)
 
+    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     if not crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
         return JSONResponse({"status": "error", "message": "크롤링이 이미 실행 중입니다. (수동 또는 스케줄러)."})
 
@@ -70,9 +76,9 @@ async def start_crawl(
             now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
             dst = os.path.join(os.path.dirname(lpath), f"crawl_{now_str}.log")
             try:
-                shutil.copy2(lpath, dst)
                 with open(lpath, 'a', encoding='utf-8') as f:
-                    f.write(f"\n[\uc2dc\uc2a4\ud15c] \ud06c\ub864\ub9c1 \uc791\uc5c5\uc774 \uc131\uacf5\uc801\uc73c\ub85c \uc885\ub8cc\ub418\uc5c8\uc2b5\ub2c8\ub2e4.\n\uc804\uccb4 \uc0c1\uc138 \ub85c\uadf8\ub294 {os.path.basename(dst)} \ud30c\uc77c\ub85c \ubc31\uc5c5 \ubcf4\uad00\ub418\uc5c8\uc2b5\ub2c8\ub2e4.\n")
+                    f.write(f"\n[시스템] 크롤링 작업이 성공적으로 종료되었습니다.\n전체 상세 로그는 {os.path.basename(dst)} 파일로 백업 보관되었습니다.\n")
+                shutil.copy2(lpath, dst)
             except Exception:
                 pass
 
@@ -85,8 +91,7 @@ async def start_crawl(
 @router.post("/resume")
 async def resume_crawl():
     # Signal start.py to resume if it is waiting for manual login
-    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    signal_file = os.path.join(work_dir, 'data', 'resume.sig')
+    signal_file = os.path.join(settings.datapath, 'resume.sig')
     with open(signal_file, 'w', encoding='utf-8') as f:
         f.write("RESUME")
     return JSONResponse({"status": "success", "message": "크롤링 재개 신호가 전송되었습니다."})
@@ -98,8 +103,7 @@ async def kill_crawl():
 
     try:
         crawl_manager.stop_crawl()
-        work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-        log_file = os.path.join(work_dir, 'data', 'logs', 'current_crawl.log')
+        log_file = os.path.join(settings.datapath, 'logs', 'current_crawl.log')
         with open(log_file, 'a', encoding='utf-8') as f:
             f.write("\n[시스템] 사용자 요청으로 크롤링 프로세스가 강제 종료되었습니다.\n")
         return JSONResponse({"status": "success", "message": "크롤링 프로세스가 강제로 종료되었습니다."})
@@ -108,7 +112,8 @@ async def kill_crawl():
 
 @router.post("/export/excel")
 async def export_excel():
-    import database, export
+    from core.database import database
+    from core.utils import export
     from sqlalchemy import create_engine
     import settings.settings as app_settings
     engine = create_engine(f'sqlite:///{app_settings.db_path}', connect_args={"check_same_thread": False})
@@ -120,7 +125,8 @@ async def export_excel():
 
 @router.post("/export/sheet")
 async def export_sheet():
-    import database, export
+    from core.database import database
+    from core.utils import export
     from sqlalchemy import create_engine
     import settings.settings as app_settings
     if not app_settings.google_sheet_enabled:
@@ -138,8 +144,7 @@ async def export_sheet():
 @router.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
     await websocket.accept()
-    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    log_file = os.path.join(work_dir, 'data', 'logs', 'current_crawl.log')
+    log_file = os.path.join(settings.datapath, 'logs', 'current_crawl.log')
     
     try:
         if not os.path.exists(log_file):
@@ -149,7 +154,7 @@ async def websocket_logs(websocket: WebSocket):
                 
         # Initial read
         if os.path.exists(log_file):
-            with open(log_file, 'r', encoding='utf-8') as f:
+            with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
                 data = f.read()
                 if data:
                     await websocket.send_text(data)
@@ -164,7 +169,7 @@ async def websocket_logs(websocket: WebSocket):
                 
             current_size = os.path.getsize(log_file)
             if current_size > last_size:
-                with open(log_file, 'r', encoding='utf-8') as f:
+                with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
                     f.seek(last_size)
                     new_data = f.read()
                     if new_data:

@@ -1,20 +1,19 @@
 from fastapi import APIRouter, Request, Form, WebSocket, WebSocketDisconnect
-from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
 import pandas as pd
 from sqlalchemy import select, desc, create_engine
-import database
+from core.database import database
 import threading
-import logger
+from core.utils import logger
 import settings.settings as app_settings
 import os
 import time
 import asyncio
 from services import data_service
+from core.utils.templating import templates
 
 engine = create_engine(f'sqlite:///{app_settings.db_path}', connect_args={"check_same_thread": False})
 router = APIRouter(prefix="/rating")
-templates = Jinja2Templates(directory="web/templates")
 
 @router.get("/")
 async def view_rating_page(request: Request):
@@ -37,8 +36,7 @@ async def start_batch_rating(request: Request, ids: str = Form(""), score: int =
     if not final_ids:
         return JSONResponse({"status": "error", "message": "유효한 신고 건을 찾을 수 없습니다."})
 
-    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    log_dir = os.path.join(work_dir, 'data', 'logs')
+    log_dir = os.path.join(app_settings.datapath, 'logs')
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, 'current_rating.log')
     
@@ -57,7 +55,7 @@ async def start_batch_rating(request: Request, ids: str = Form(""), score: int =
         f.write("=== 별점 작업 로그 시작 ===\n")
 
     def _do_rating():
-        import star_rating
+        from services import star_rating_service as star_rating
         star_rating.run_batch_rating(final_ids, score=score, log_file=log_file)
 
     # ==============================================================================
@@ -87,8 +85,7 @@ async def start_batch_rating(request: Request, ids: str = Form(""), score: int =
 @router.websocket("/ws/rating_logs")
 async def websocket_rating_logs(websocket: WebSocket):
     await websocket.accept()
-    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    log_file = os.path.join(work_dir, 'data', 'logs', 'current_rating.log')
+    log_file = os.path.join(app_settings.datapath, 'logs', 'current_rating.log')
     
     try:
         if not os.path.exists(log_file):
@@ -98,7 +95,7 @@ async def websocket_rating_logs(websocket: WebSocket):
                 
         # Initial read
         if os.path.exists(log_file):
-            with open(log_file, 'r', encoding='utf-8') as f:
+            with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
                 data = f.read()
                 if data:
                     await websocket.send_text(data)
@@ -112,7 +109,7 @@ async def websocket_rating_logs(websocket: WebSocket):
                 
             current_size = os.path.getsize(log_file)
             if current_size > last_size:
-                with open(log_file, 'r', encoding='utf-8') as f:
+                with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
                     f.seek(last_size)
                     new_data = f.read()
                     if new_data:

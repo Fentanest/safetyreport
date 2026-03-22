@@ -1,13 +1,11 @@
 from fastapi import APIRouter, Request
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import create_engine
 import settings.settings as app_settings
 import pandas as pd
-import database
 from services import data_service
+from core.utils.templating import templates
 
 router = APIRouter()
-templates = Jinja2Templates(directory="web/templates")
 engine = create_engine(f'sqlite:///{app_settings.db_path}', connect_args={"check_same_thread": False})
 
 @router.get("/stats")

@@ -3,7 +3,7 @@ import settings.settings as app_settings
 import subprocess
 import sys
 import os
-import logger
+from core.utils import logger
 from services.crawl_manager import crawl_manager
 
 # 시스템 로컬 타임존 사용
@@ -20,8 +20,12 @@ def run_crawler():
     with open(log_file, 'w', encoding='utf-8') as f:
         f.write("=== 자동 스케줄러 크롤링 작업 시작 ===\n")
 
-    cmd = [sys.executable, "-u", "start.py"]
-    base_dir = os.path.abspath(os.path.dirname(__file__))
+    is_frozen = getattr(sys, 'frozen', False)
+    if is_frozen:
+        cmd = [sys.executable, "--mode", "crawl"]
+    else:
+        cmd = [sys.executable, "-u", "start.py"]
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     
     if not crawl_manager.start_crawl(cmd, cwd=base_dir, log_file=log_file):
         logger.LoggerFactory.logbot.warning("스케줄러: 시작 직전 다른 프로세스 진입 발견됨. 건너뜁니다.")
@@ -40,9 +44,9 @@ def run_crawler():
             now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
             dst = os.path.join(os.path.dirname(lpath), f"crawl_{now_str}.log")
             try:
-                shutil.copy2(lpath, dst)
                 with open(lpath, 'a', encoding='utf-8') as f:
                     f.write(f"\n[시스템] 자동 크롤링 작업이 성공적으로 종료되었습니다.\n전체 상세 로그는 {os.path.basename(dst)} 파일로 백업 보관되었습니다.\n")
+                shutil.copy2(lpath, dst)
             except Exception:
                 pass
 
@@ -54,10 +58,9 @@ def run_crawler():
 def update_jobs():
     from apscheduler.triggers.cron import CronTrigger
     
-    # 기존 모든 작업 제거
-    all_jobs = scheduler.get_jobs()
-    for job in all_jobs:
-        scheduler.remove_job(job.id)
+    # 기존 모든 작업 제거 (guaranteed clean slate)
+    scheduler.remove_all_jobs()
+    logger.LoggerFactory.logbot.info("스케줄러: 모든 기존 작업을 제거하고 설정을 초기화했습니다.")
     
     # 설정 파일 직접 다시 읽기
     import configparser
@@ -74,9 +77,34 @@ def update_jobs():
     
     if mode == 'interval':
         hours = config.getint('SCHEDULER', 'interval_hours', fallback=24)
+        start_time_str = config.get('SCHEDULER', 'interval_start', fallback='00:00')
+        
         if hours > 0:
-            scheduler.add_job(run_crawler, 'interval', hours=hours, id='crawl_job_interval')
-            logger.LoggerFactory.logbot.info(f"스케줄러: {hours}시간 간격으로 실행 예약됨.")
+            import datetime
+            try:
+                h_str, m_str = start_time_str.split(':')
+                h, m = int(h_str), int(m_str)
+                
+                # 오늘 혹은 내일의 지정된 시각으로 시작 시각 설정
+                now = datetime.datetime.now()
+                start_dt = now.replace(hour=h, minute=m, second=0, microsecond=0)
+                
+                # 이미 지난 시각이면 APScheduler가 자동으로 처리하거나, 명시적으로 다음 실행 시각을 조정할 수 있음
+                # 여기서는 start_date를 그대로 전달 (이미 지났으면 즉시 혹은 다음 주기에 실행됨)
+                
+                scheduler.add_job(
+                    run_crawler, 
+                    'interval', 
+                    hours=hours, 
+                    id='crawl_job_interval', 
+                    start_date=start_dt
+                )
+                logger.LoggerFactory.logbot.info(f"스케줄러: {hours}시간 간격으로 실행 예약됨. (시작 기준 시각: {start_time_str})")
+            except Exception as e:
+                logger.LoggerFactory.logbot.error(f"간격 시작 시각 파싱 실패 ({start_time_str}): {e}")
+                # 파싱 실패 시 기본 동작 (즉시 시작)
+                scheduler.add_job(run_crawler, 'interval', hours=hours, id='crawl_job_interval')
+                logger.LoggerFactory.logbot.info(f"스케줄러: {hours}시간 간격으로 즉시 실행 예약됨 (시작 시각 파싱 실패).")
     elif mode == 'cron':
         import re
         times_str = config.get('SCHEDULER', 'cron_times', fallback='')
@@ -96,14 +124,15 @@ def update_jobs():
                     
                     if 0 <= h < 24 and 0 <= m < 60:
                         # 별도 타임존 지정 없이 시스템 로컬 시각을 따름
+                        job_id = f'cron_{h:02d}_{m:02d}'
                         trigger = CronTrigger(hour=h, minute=m)
                         scheduler.add_job(
                             run_crawler, 
                             trigger=trigger,
-                            id=f'crawl_job_cron_{valid_count}',
+                            id=job_id,
                             misfire_grace_time=3600
                         )
-                        logger.LoggerFactory.logbot.info(f"스케줄러 등록: 매일 {h:02d}:{m:02d} (시스템 시각 기준)")
+                        logger.LoggerFactory.logbot.info(f"스케줄러 등록: 매일 {h:02d}:{m:02d} (ID: {job_id}, 시스템 시각 기준)")
                         valid_count += 1
             except Exception as e:
                 logger.LoggerFactory.logbot.error(f"시간 파싱 실패 ({t}): {e}")

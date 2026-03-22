@@ -1,6 +1,6 @@
 import pandas as pd
 from sqlalchemy import select, desc
-import database
+from core.database import database
 import settings.settings as app_settings
 from datetime import datetime, timedelta
 import os
@@ -206,7 +206,7 @@ def get_agency_stats(engine, filters=None):
 
     def calc_stats(df):
         if df.empty:
-            return []
+            return {"by_person": [], "by_agency": []}
 
         if filters:
             if filters.get('reportName') and '신고명' in df.columns:
@@ -353,8 +353,8 @@ def get_unrated_records(engine):
                 continue
             # 이미 참여 완료 또는 참여 불가(취하)인 항목 제외
             df = df[~df['만족도조사여부'].isin(['참여 완료', '참여 불가'])]
-            # 처리상태가 취하인 항목도 제외 (만족도 조사 불가)
-            df = df[df['처리상태'] != '취하']
+            # 처리상태가 취하 또는 답변 대기인 항목도 제외 (만족도 조사 불가/미대상)
+            df = df[~df['처리상태'].isin(['취하', '답변 대기'])]
             results.append(df)
         if not results:
             return []

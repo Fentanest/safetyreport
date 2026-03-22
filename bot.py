@@ -8,10 +8,13 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 # DB and settings imports
 from sqlalchemy import create_engine
 import settings.settings as settings
-import database
-import logger
-import message_formatter
+from core.database import database
+from core.utils import logger
+from core.utils import message_formatter
 import warnings
+import os
+
+is_frozen = getattr(sys, 'frozen', False)
 
 # 무시할 PTB 경고: ConversationHandler에서 per_message=False와 CallbackQueryHandler 조합 시 발생하는 경고
 warnings.filterwarnings("ignore", message="If 'per_message=False', 'CallbackQueryHandler' will not be tracked for every message.*")
@@ -46,8 +49,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if query.data == "start_crawl":
         await query.edit_message_text(text="전체 크롤링 프로세스를 시작합니다. 완료되면 알려드리겠습니다...")
         # Run start.py as a subprocess asynchronously
+        cmd = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "start.py"]
         process = await asyncio.create_subprocess_exec(
-            sys.executable, "start.py",
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -62,8 +66,9 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     elif query.data == "start_crawl_min":
         await query.edit_message_text(text="크롤링(min) 프로세스를 시작합니다. 완료되면 알려드리겠습니다...")
+        cmd = [sys.executable, "--mode", "crawl", "--min"] if is_frozen else [sys.executable, "start.py", "--min"]
         process = await asyncio.create_subprocess_exec(
-            sys.executable, "start.py", "--min",
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -77,9 +82,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return ConversationHandler.END
 
     elif query.data == "save_excel":
-        await query.edit_message_text(text="`debug_save.py`를 실행하여 엑셀 저장을 시작합니다...")
+        await query.edit_message_text(text="`scripts/debug/save.py`를 실행하여 엑셀 저장을 시작합니다...")
+        cmd = [sys.executable, "--mode", "save_excel"] if is_frozen else [sys.executable, os.path.join("scripts", "debug", "save.py")]
         process = await asyncio.create_subprocess_exec(
-            sys.executable, "debug_save.py",
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )

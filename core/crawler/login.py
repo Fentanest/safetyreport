@@ -5,7 +5,7 @@ from selenium.webdriver.support import expected_conditions as EC
 import datetime
 import settings.settings as settings
 from time import sleep
-import logger
+from core.utils import logger
 
 def login_mysafety(driver):
     attemps = 0

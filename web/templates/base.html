@@ -24,6 +24,21 @@
         .sidebar a:hover, .sidebar a.active { color: white; background-color: #495057; border-left: 3px solid #0d6efd;}
         .main-content { padding: 20px; }
         .card-custom { box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); border-radius: 0.5rem; border: none; margin-bottom: 20px;}
+        .floating-search-btn {
+            position: fixed;
+            right: 20px;
+            bottom: 60px;
+            z-index: 1050;
+            border-radius: 50px;
+            padding: 12px 25px;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+        }
+        .floating-search-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>

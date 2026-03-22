@@ -2,11 +2,11 @@ import settings.settings as settings
 import pandas as pd
 from sqlalchemy import select, func, exists, update, text, inspect
 from sqlalchemy.dialects.sqlite import insert
-import logger
+from core.utils import logger
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-from database_models import *
+from .models import *
 
 def upgrade_schema(engine):
     inspector = inspect(engine)
