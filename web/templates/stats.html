@@ -10,81 +10,88 @@
             <i class="bi bi-info-circle"></i> 행을 클릭하면 해당 부서 및 담당자의 데이터 조회 페이지로 이동합니다.
         </div>
 
-        <form method="get" action="/stats" class="row g-3 mb-4 p-3 bg-light border rounded">
-            <h6 class="fw-bold"><i class="fas fa-filter"></i> 상세 조건 검색</h6>
+<!-- 플로팅 상세 검색 버튼 -->
+        <button class="btn btn-primary floating-search-btn shadow-lg" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasSearch">
+            <i class="fas fa-filter me-2"></i>상세 조건 검색
+        </button>
 
-            <div class="col-md-3">
-                <label class="form-label">처리기관</label>
-                <input type="text" class="form-control" name="agency" value="{{ f.agency or '' }}">
+        <!-- 상세 검색 사이드바 (Offcanvas) -->
+        <div class="offcanvas offcanvas-end" tabindex="-1" id="offcanvasSearch" aria-labelledby="offcanvasSearchLabel" style="width: 400px;">
+            <div class="offcanvas-header bg-primary text-white">
+                <h5 class="offcanvas-title fw-bold" id="offcanvasSearchLabel"><i class="fas fa-filter me-2"></i>상세 조건 검색</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
             </div>
-            <div class="col-md-3 d-flex flex-column justify-content-center">
-                <div class="form-check">
-                    <input class="form-check-input filter-police" type="checkbox" name="excludePolice" id="excludePolice" {% if
-                        f.excludePolice %}checked{% endif %} value="true">
-                    <label class="form-check-label" for="excludePolice">경찰기관 제외</label>
-                </div>
-                <div class="form-check">
-                    <input class="form-check-input filter-police" type="checkbox" name="onlyPolice" id="onlyPolice" {% if
-                        f.onlyPolice %}checked{% endif %} value="true">
-                    <label class="form-check-label" for="onlyPolice">경찰기관만 포함</label>
-                </div>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">신고명</label>
-                <input type="text" class="form-control" name="reportName" value="{{ f.reportName or '' }}">
-            </div>
-            <div class="col-md-3">
-                <label class="form-label">위반법규명</label>
-                <input type="text" class="form-control" name="law" value="{{ f.law or '' }}">
-            </div>
-            <div class="col-md-4">
-                <label class="form-label">위반장소</label>
-                <input type="text" class="form-control" name="location" value="{{ f.location or '' }}">
-            </div>
+            <div class="offcanvas-body">
+                <form method="get" action="/stats" class="row g-3">
+                    <div class="col-12">
+                        <label class="form-label fw-bold">처리기관</label>
+                        <input type="text" class="form-control" name="agency" value="{{ f.agency or '' }}" placeholder="예: 강남경찰서">
+                    </div>
+                    <div class="col-12">
+                        <div class="form-check form-switch mb-1">
+                            <input class="form-check-input filter-police" type="checkbox" name="excludePolice" id="excludePolice" {% if f.excludePolice %}checked{% endif %} value="true">
+                            <label class="form-check-label" for="excludePolice">경찰기관 제외</label>
+                        </div>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input filter-police" type="checkbox" name="onlyPolice" id="onlyPolice" {% if f.onlyPolice %}checked{% endif %} value="true">
+                            <label class="form-check-label" for="onlyPolice">경찰기관만 포함</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold">신고명</label>
+                        <input type="text" class="form-control" name="reportName" value="{{ f.reportName or '' }}">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold">위반법규명</label>
+                        <input type="text" class="form-control" name="law" value="{{ f.law or '' }}">
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold">위반장소</label>
+                        <input type="text" class="form-control" name="location" value="{{ f.location or '' }}">
+                    </div>
 
-            <div class="col-md-3">
-                <label class="form-label text-primary">신고일</label>
-                <div class="input-group">
-                    <input type="date" class="form-control" name="reportDateStart"
-                        value="{{ f.reportDateStart or '' }}">
-                    <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" name="reportDateEnd" value="{{ f.reportDateEnd or '' }}">
-                </div>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label text-success">발생일</label>
-                <div class="input-group">
-                    <input type="date" class="form-control" name="occurDateStart" value="{{ f.occurDateStart or '' }}">
-                    <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" name="occurDateEnd" value="{{ f.occurDateEnd or '' }}">
-                </div>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label text-warning">답변일</label>
-                <div class="input-group">
-                    <input type="date" class="form-control" name="responseDateStart"
-                        value="{{ f.responseDateStart or '' }}">
-                    <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" name="responseDateEnd"
-                        value="{{ f.responseDateEnd or '' }}">
-                </div>
-            </div>
-            <div class="col-md-3">
-                <label class="form-label text-secondary">발생시간</label>
-                <div class="input-group">
-                    <input type="text" class="form-control" name="occurTimeStart" value="{{ f.occurTimeStart or '' }}"
-                        placeholder="14:30">
-                    <span class="input-group-text">~</span>
-                    <input type="text" class="form-control" name="occurTimeEnd" value="{{ f.occurTimeEnd or '' }}"
-                        placeholder="15:00">
-                </div>
-            </div>
+                    <hr class="my-3">
 
-            <div class="col-12 mt-3">
-                <button type="submit" class="btn btn-primary"><i class="fas fa-search"></i> 통계 재산출</button>
-                <a href="/stats" class="btn btn-secondary">초기화</a>
+                    <div class="col-12">
+                        <label class="form-label fw-bold text-primary">신고일 범위</label>
+                        <div class="input-group input-group-sm">
+                            <input type="date" class="form-control" name="reportDateStart" value="{{ f.reportDateStart or '' }}">
+                            <span class="input-group-text">~</span>
+                            <input type="date" class="form-control" name="reportDateEnd" value="{{ f.reportDateEnd or '' }}">
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold text-success">발생일 범위</label>
+                        <div class="input-group input-group-sm">
+                            <input type="date" class="form-control" name="occurDateStart" value="{{ f.occurDateStart or '' }}">
+                            <span class="input-group-text">~</span>
+                            <input type="date" class="form-control" name="occurDateEnd" value="{{ f.occurDateEnd or '' }}">
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold text-warning">답변일 범위</label>
+                        <div class="input-group input-group-sm">
+                            <input type="date" class="form-control" name="responseDateStart" value="{{ f.responseDateStart or '' }}">
+                            <span class="input-group-text">~</span>
+                            <input type="date" class="form-control" name="responseDateEnd" value="{{ f.responseDateEnd or '' }}">
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label fw-bold text-secondary">발생시간 범위</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" name="occurTimeStart" value="{{ f.occurTimeStart or '' }}" placeholder="14:30">
+                            <span class="input-group-text">~</span>
+                            <input type="text" class="form-control" name="occurTimeEnd" value="{{ f.occurTimeEnd or '' }}" placeholder="15:00">
+                        </div>
+                    </div>
+
+                    <div class="col-12 mt-4 d-grid gap-2">
+                        <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-search me-1"></i> 통계 재산출</button>
+                        <a href="/stats" class="btn btn-outline-secondary">필터 초기화</a>
+                    </div>
+                </form>
             </div>
-        </form>
+        </div>
 
         <!-- Nav tabs -->
         <ul class="nav nav-tabs mb-3" id="statsTabs" role="tablist">

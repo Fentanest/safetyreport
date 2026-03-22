@@ -1,19 +1,25 @@
 import settings.settings as settings
 import os
 import sys
-import driv
-import login
+
+# Add project root to sys.path
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
+from core.crawler import driv
+from core.crawler import login
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import time
-import logger
-import crawldetail # Import the refactored module
+from core.utils import logger
+from core.crawler import crawldetail
+from services import parser as doc_parser
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("사용법: python debug_extractor.py <신고번호>")
+        print("사용법: python extractor.py <신고번호>")
         sys.exit(1)
     report_id = sys.argv[1]
 
@@ -53,9 +59,9 @@ if __name__ == "__main__":
         except Exception:
             print("--- [정보] 2번 테이블 '처리결과' 없음 ---")
 
-        # Call the centralized parsing function from crawldetail
+        # Call the centralized parsing function from services.parser
         print("\n--- 파싱 결과 ---")
-        details = crawldetail._parse_details(report_soup, result_soup)
+        details = doc_parser.parse_details(driver, report_soup, result_soup)
         
         # Define the output file path
         output_file_path = os.path.join(settings.logpath, f"{report_id}.txt")

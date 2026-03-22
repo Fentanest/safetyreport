@@ -7,7 +7,7 @@ import re
 import os
 import requests
 import settings.settings as settings
-import logger
+from core.utils import logger
 
 import services.parser as doc_parser
 

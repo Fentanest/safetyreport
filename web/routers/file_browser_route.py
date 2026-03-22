@@ -1,16 +1,25 @@
-from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import APIRouter, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse, FileResponse
+from core.utils.templating import templates
+from core.utils import logger
 import os
-import time
+import shutil
 import zipfile
 import io
 from datetime import datetime
 
 import settings.settings as settings
 
+
+def _get_protected_paths() -> set:
+    """현재 삭제로부터 보호해야 할 로그 파일 경로 집합을 반환합니다."""
+    protected = set(logger.LoggerFactory._active_log_paths)
+    # 크롤링/별점 작업 중 사용되는 live 로그 파일도 항상 보호
+    protected.add(os.path.abspath(os.path.join(settings.logpath, 'current_crawl.log')))
+    protected.add(os.path.abspath(os.path.join(settings.logpath, 'current_rating.log')))
+    return protected
+
 router = APIRouter(prefix="/file-browser", tags=["file-browser"])
-templates = Jinja2Templates(directory="web/templates")
 
 @router.get("", response_class=HTMLResponse)
 async def list_files(request: Request):
@@ -102,10 +111,8 @@ async def delete_file(path: str):
     abs_path = os.path.abspath(path)
     if not any(abs_path.startswith(os.path.abspath(d)) for d in allowed_dirs):
         raise HTTPException(status_code=403, detail="Access denied")
-    
-    # 보호된 파일 (현재 로그) 체크
-    current_log = os.path.abspath(os.path.join(settings.logpath, settings.logfile))
-    if abs_path == current_log:
+
+    if abs_path in _get_protected_paths():
         raise HTTPException(status_code=400, detail="현재 사용 중인 로그 파일은 삭제할 수 없습니다.")
 
     if not os.path.exists(path):
@@ -125,20 +132,20 @@ async def delete_multi(request: Request):
         raise HTTPException(status_code=400, detail="No files selected")
         
     allowed_dirs = [settings.logpath, settings.resultpath]
-    current_log = os.path.abspath(os.path.join(settings.logpath, settings.logfile))
-    
+    protected = _get_protected_paths()
+
     deleted_count = 0
     errors = []
-    
+
     for path in paths:
         abs_path = os.path.abspath(path)
         is_allowed = any(abs_path.startswith(os.path.abspath(d)) for d in allowed_dirs)
-        
+
         if not is_allowed:
             errors.append(f"{os.path.basename(path)}: Access denied")
             continue
-            
-        if abs_path == current_log:
+
+        if abs_path in protected:
             errors.append(f"{os.path.basename(path)}: 현재 사용 중인 로그 파일은 삭제 대상에서 제외되었습니다.")
             continue
             
@@ -170,15 +177,15 @@ async def delete_all(request: Request):
     if not os.path.exists(dir_path):
         return {"status": "success", "deleted_count": 0}
         
-    current_log = os.path.abspath(os.path.join(settings.logpath, settings.logfile))
+    protected = _get_protected_paths()
     deleted_count = 0
-    
+
     for filename in os.listdir(dir_path):
         path = os.path.join(dir_path, filename)
         abs_path = os.path.abspath(path)
-        
+
         if os.path.isfile(path):
-            if target == "logs" and abs_path == current_log:
+            if abs_path in protected:
                 continue
                 
             try:

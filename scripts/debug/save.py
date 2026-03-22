@@ -1,11 +1,17 @@
 import os
 import sys
+
+# Add project root to sys.path
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 from sqlalchemy import create_engine
 import settings.settings as settings
-import database, export
-import logger
+from core.database import database
+from core.utils import export
+from core.utils import logger
 
-if __name__ == "__main__":
+def main():
     # Initialize logger
     logger.LoggerFactory.create_logger()
     print("--- Save/Load Debug Script Started ---")
@@ -42,3 +48,6 @@ if __name__ == "__main__":
         print(f"An error occurred: {e}")
 
     print("--- Save/Load Debug Script Finished ---")
+
+if __name__ == "__main__":
+    main()

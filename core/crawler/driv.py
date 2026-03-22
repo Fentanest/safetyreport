@@ -1,9 +1,10 @@
 from selenium import webdriver
+from selenium.webdriver.chrome.webdriver import WebDriver as ChromeWebDriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import settings.settings as settings
-import logger
+from core.utils import logger
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -23,7 +24,7 @@ def create_driver():
     if mode == 'desktop':
         logger.LoggerFactory.logbot.info("데스크톱 크롬을 사용합니다.")
         service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = ChromeWebDriver(service=service, options=options)
     elif mode == 'remote':
         remote_val = str(settings.remote_debug_port).strip()
         if ':' in remote_val:
@@ -34,7 +35,7 @@ def create_driver():
         logger.LoggerFactory.logbot.info(f"원격 디버깅 모드 통신 (주소: {debug_addr})")
         options.add_experimental_option("debuggerAddress", debug_addr)
         service = Service(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service, options=options)
+        driver = ChromeWebDriver(service=service, options=options)
     else: # hub
         logger.LoggerFactory.logbot.info(f"Selenium Hub를 사용합니다: {settings.remotepath}")
         driver = webdriver.Remote(command_executor=settings.remotepath, options=options)

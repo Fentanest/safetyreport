@@ -1,18 +1,17 @@
 from fastapi import APIRouter, Request
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, desc
 import pandas as pd
 from datetime import datetime, timedelta
 
-import database
+from core.database import database
 import settings.settings as settings
 from sqlalchemy import create_engine
 import os
 from services import data_service
+from core.utils.templating import templates
 
 engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_same_thread": False})
 router = APIRouter()
-templates = Jinja2Templates(directory="web/templates")
 
 @router.get("/")
 async def dashboard(request: Request):

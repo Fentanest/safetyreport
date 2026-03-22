@@ -39,111 +39,123 @@
 {% endblock %}
 
 {% block content %}
-<div class="card card-custom mb-4">
-    <div class="card-header bg-white fw-bold">상세 검색</div>
-    <div class="card-body">
+<!-- 플로팅 상세 검색 버튼 -->
+<button class="btn btn-primary floating-search-btn shadow-lg" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasSearch">
+    <i class="fas fa-search me-2"></i>상세 검색 및 도구
+</button>
+
+<!-- 상세 검색 및 도구 사이드바 (Offcanvas) -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="offcanvasSearch" aria-labelledby="offcanvasSearchLabel" style="width: 400px;">
+    <div class="offcanvas-header bg-primary text-white">
+        <h5 class="offcanvas-title fw-bold" id="offcanvasSearchLabel"><i class="fas fa-filter me-2"></i>상세 검색 및 도구</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
         <form id="advSearchForm" class="row g-3">
-            <!-- Text searches -->
-            <div class="col-md-2">
-                <label class="form-label">차량번호</label>
-                <input type="text" class="form-control" id="searchCar">
+            <div class="col-12">
+                <label class="form-label fw-bold">차량번호</label>
+                <input type="text" class="form-control" id="searchCar" placeholder="예: 12가3456">
             </div>
-            <div class="col-md-2">
-                <label class="form-label">신고번호</label>
+            <div class="col-12">
+                <label class="form-label fw-bold">신고번호</label>
                 <input type="text" class="form-control" id="searchReport">
             </div>
-            <div class="col-md-2">
-                <label class="form-label">신고명</label>
+            <div class="col-12">
+                <label class="form-label fw-bold">신고명</label>
                 <input type="text" class="form-control" id="searchReportName">
             </div>
-            <div class="col-md-2">
-                <label class="form-label">위반법규명</label>
+            <div class="col-12">
+                <label class="form-label fw-bold">위반법규명</label>
                 <input type="text" class="form-control" id="searchLaw">
             </div>
-            <div class="col-md-2">
-                <label class="form-label">담당자</label>
+            <div class="col-12">
+                <label class="form-label fw-bold">담당자</label>
                 <input type="text" class="form-control" id="searchPerson">
             </div>
-            <div class="col-md-2">
-                <label class="form-label">위반장소</label>
+            <div class="col-12">
+                <label class="form-label fw-bold">위반장소</label>
                 <input type="text" class="form-control" id="searchLocation">
             </div>
-            <div class="col-md-2">
-                <label class="form-label">처리기관</label>
+            <div class="col-12">
+                <label class="form-label fw-bold">처리기관</label>
                 <input type="text" class="form-control" id="searchAgency">
             </div>
-            <div class="col-md-2 d-flex flex-column justify-content-center">
-                <div class="form-check">
+            <div class="col-12">
+                <div class="form-check form-switch mb-1">
                     <input class="form-check-input filter-police" type="checkbox" id="excludePolice">
                     <label class="form-check-label" for="excludePolice">경찰기관 제외</label>
                 </div>
-                <div class="form-check">
+                <div class="form-check form-switch">
                     <input class="form-check-input filter-police" type="checkbox" id="onlyPolice">
                     <label class="form-check-label" for="onlyPolice">경찰기관만 포함</label>
                 </div>
             </div>
-            <div class="col-md-2">
-                <label class="form-label">처리상태</label>
+            <div class="col-12">
+                <label class="form-label fw-bold">처리상태</label>
                 <input type="text" class="form-control" id="searchStatus">
             </div>
-            <div class="col-md-2">
-                <label class="form-label">과태료</label>
+            <div class="col-12">
+                <label class="form-label fw-bold">과태료</label>
                 <input type="text" class="form-control" id="searchFine">
             </div>
-            <div class="col-md-2">
-                <label class="form-label">신고내용</label>
+            <div class="col-12">
+                <label class="form-label fw-bold">신고내용</label>
                 <input type="text" class="form-control" id="searchReportContent">
             </div>
-            <div class="col-md-2">
-                <label class="form-label">처리내용</label>
+            <div class="col-12">
+                <label class="form-label fw-bold">처리내용</label>
                 <input type="text" class="form-control" id="searchProcessContent">
             </div>
 
-            <!-- Date Range Searches -->
-            <div class="col-md-3">
-                <label class="form-label text-primary">신고일</label>
-                <div class="input-group">
-                    <input type="date" class="form-control" id="searchReportDateStart" max="2099-12-31">
+            <hr class="my-3">
+
+            <div class="col-12">
+                <label class="form-label fw-bold text-primary">신고일 범위</label>
+                <div class="input-group input-group-sm">
+                    <input type="date" class="form-control" id="searchReportDateStart">
                     <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" id="searchReportDateEnd" max="2099-12-31">
+                    <input type="date" class="form-control" id="searchReportDateEnd">
                 </div>
             </div>
-            <div class="col-md-3">
-                <label class="form-label text-success">발생일</label>
-                <div class="input-group">
-                    <input type="date" class="form-control" id="searchOccurDateStart" max="2099-12-31">
+            <div class="col-12">
+                <label class="form-label fw-bold text-success">발생일 범위</label>
+                <div class="input-group input-group-sm">
+                    <input type="date" class="form-control" id="searchOccurDateStart">
                     <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" id="searchOccurDateEnd" max="2099-12-31">
+                    <input type="date" class="form-control" id="searchOccurDateEnd">
                 </div>
             </div>
-            <div class="col-md-3">
-                <label class="form-label text-warning">답변일</label>
-                <div class="input-group">
-                    <input type="date" class="form-control" id="searchResponseDateStart" max="2099-12-31">
+            <div class="col-12">
+                <label class="form-label fw-bold text-warning">답변일 범위</label>
+                <div class="input-group input-group-sm">
+                    <input type="date" class="form-control" id="searchResponseDateStart">
                     <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" id="searchResponseDateEnd" max="2099-12-31">
+                    <input type="date" class="form-control" id="searchResponseDateEnd">
                 </div>
             </div>
-            <div class="col-md-3">
-                <label class="form-label text-secondary">발생시간</label>
-                <div class="input-group">
+            <div class="col-12">
+                <label class="form-label fw-bold text-secondary">발생시간 범위</label>
+                <div class="input-group input-group-sm">
                     <input type="text" class="form-control" id="searchOccurTimeStart" placeholder="14:30">
                     <span class="input-group-text">~</span>
                     <input type="text" class="form-control" id="searchOccurTimeEnd" placeholder="15:00">
                 </div>
             </div>
-            <div class="col-12 mt-3 d-flex gap-2">
-                <button type="button" class="btn btn-primary" id="btnSearch">검색 실행</button>
-                <button type="reset" class="btn btn-secondary" id="btnReset">초기화</button>
-                <div class="ms-auto" style="border-left: 2px solid #ccc; padding-left: 15px;">
-                    <button type="button" class="btn btn-warning shadow-sm me-2" id="btnAddWatchlist"><i class="fas fa-eye"></i> 감시목록 추가</button>
-                    <button type="button" class="btn btn-success ms-2" id="btnExportExcel"><i class="fas fa-file-excel"></i> 현재 표 엑셀로 다운로드</button>
-                    <button type="button" class="btn btn-secondary text-white shadow-sm ms-2 me-2" id="btnCopySelectedIds"><i class="fas fa-clipboard-check"></i> 선택된 신고번호 전체 복사</button>
-                    <button type="button" class="btn btn-info text-white shadow-sm" id="btnCopyIds"><i class="fas fa-copy"></i> 화면의 신고번호 전체 복사</button>
-                </div>
+
+            <div class="col-12 mt-4 d-grid gap-2">
+                <button type="button" class="btn btn-primary btn-lg" id="btnSearch">검색 실행</button>
+                <button type="reset" class="btn btn-outline-secondary" id="btnReset">필터 초기화</button>
             </div>
         </form>
     </div>
+</div>
+
+<!-- 데이터 도구 상단 툴바 -->
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <button type="button" class="btn btn-warning shadow-sm btn-add-watchlist"><i class="fas fa-eye me-1"></i> 감시목록 추가</button>
+    <button type="button" class="btn btn-success shadow-sm btn-export-excel"><i class="fas fa-file-excel me-1"></i> 엑셀 다운로드</button>
+    <button type="button" class="btn btn-secondary text-white shadow-sm btn-copy-selected-ids"><i class="fas fa-clipboard-check me-1"></i> 선택된 신고번호 복사</button>
+    <button type="button" class="btn btn-info text-white shadow-sm btn-copy-ids"><i class="fas fa-copy me-1"></i> 전체 신고번호 복사</button>
 </div>
 
 <div class="card card-custom">
@@ -259,6 +271,14 @@
         </table>
     </div>
 </div>
+
+<!-- 데이터 도구 하단 툴바 -->
+<div class="d-flex flex-wrap gap-2 mt-3">
+    <button type="button" class="btn btn-warning shadow-sm btn-add-watchlist"><i class="fas fa-eye me-1"></i> 감시목록 추가</button>
+    <button type="button" class="btn btn-success shadow-sm btn-export-excel"><i class="fas fa-file-excel me-1"></i> 엑셀 다운로드</button>
+    <button type="button" class="btn btn-secondary text-white shadow-sm btn-copy-selected-ids"><i class="fas fa-clipboard-check me-1"></i> 선택된 신고번호 복사</button>
+    <button type="button" class="btn btn-info text-white shadow-sm btn-copy-ids"><i class="fas fa-copy me-1"></i> 전체 신고번호 복사</button>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -326,16 +346,24 @@ $(document).ready(function() {
     const $topDummy = $('#topScrollDummy');
 
     function syncScroll() {
-        // 실제 테이블의 가로 길이(scrollWidth)를 더미 레이어에 적용
-        const tableWidth = $('.dataTables_scrollBody table').outerWidth();
+        const $scrollBodyElem = $('.dataTables_scrollBody');
+        const $scrollHeadElem = $('.dataTables_scrollHead');
+        if ($scrollBodyElem.length === 0) return;
+
+        const tableWidth = $scrollBodyElem[0].scrollWidth;
         $topDummy.width(tableWidth);
-        
-        // 동기화 이벤트
-        $topScroll.on('scroll', function() {
-            $scrollBody.scrollLeft($topScroll.scrollLeft());
+
+        // 동기화 이벤트 (중복 등록 방지를 위해 off() 선행)
+        // 세 요소(상단바, 헤더, 바디)를 항상 함께 동기화
+        $topScroll.off('scroll').on('scroll', function() {
+            const left = $topScroll.scrollLeft();
+            $scrollBodyElem.scrollLeft(left);
+            $scrollHeadElem.scrollLeft(left);
         });
-        $scrollBody.on('scroll', function() {
-            $topScroll.scrollLeft($scrollBody.scrollLeft());
+        $scrollBodyElem.off('scroll').on('scroll', function() {
+            const left = $scrollBodyElem.scrollLeft();
+            $topScroll.scrollLeft(left);
+            $scrollHeadElem.scrollLeft(left);
         });
     }
 
@@ -500,7 +528,7 @@ $(document).ready(function() {
     });
 
     // 엑셀 다운로드 (BOM 포함 CSV)
-    $('#btnExportExcel').on('click', function() {
+    $('.btn-export-excel').on('click', function() {
         let resultData = [];
         let maxLinksLength = { "첨부사진": 0, "첨부파일": 0 };
         let photoIdx = -1, fileIdx = -1;
@@ -605,7 +633,7 @@ $(document).ready(function() {
     });
 
     // 선택된 신고번호 클립보드 복사
-    $('#btnCopySelectedIds').on('click', function() {
+    $('.btn-copy-selected-ids').on('click', function() {
         let text = [];
         $('.row-checkbox:checked').each(function() {
             let val = $(this).val();
@@ -644,7 +672,7 @@ $(document).ready(function() {
     });
 
     // 화면의 신고번호 일괄 클립보드 복사
-    $('#btnCopyIds').on('click', function() {
+    $('.btn-copy-ids').on('click', function() {
         let text = [];
         table.rows({search:'applied'}).data().each(function(row) {
             let cellHtml = row[3]; // 신고번호 column (인덱스 3)
@@ -720,7 +748,7 @@ $(document).ready(function() {
         $('.row-checkbox').prop('checked', isChecked);
     });
 
-    $('#btnAddWatchlist').on('click', function() {
+    $('.btn-add-watchlist').on('click', function() {
         var selected = [];
         $('.row-checkbox:checked').each(function() {
             var val = $(this).val();

@@ -1,9 +1,14 @@
 import os
 import sys
+
+# Add project root to sys.path
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 from sqlalchemy import create_engine, select, func
 import settings.settings as settings
-import database
-import logger
+from core.database import database
+from core.utils import logger
 
 if __name__ == "__main__":
     # Initialize logger
@@ -25,10 +30,10 @@ if __name__ == "__main__":
         database.merge_final(engine=engine)
         print("items.merge_final() executed successfully.")
 
-        # Verify if merge_table has data now
+        # Verify if merge_traffic_table has data now
         with engine.connect() as conn:
-            row_count_merge = conn.execute(select(func.count()).select_from(database.merge_table)).scalar()
-            print(f"Verification: The final merge_table now contains {row_count_merge} rows.")
+            row_count_merge = conn.execute(select(func.count()).select_from(database.merge_traffic_table)).scalar()
+            print(f"Verification: The final merge_traffic_table now contains {row_count_merge} rows.")
 
     except Exception as e:
         print(f"An error occurred during merge_final: {e}")

@@ -28,12 +28,19 @@ class CrawlManager:
                 return False
 
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
+            
+            # Force UTF-8 for subprocesses on Windows to avoid encoding issues in log streaming
+            env = os.environ.copy()
+            env["PYTHONUTF8"] = "1"
+            
             self._active_process = subprocess.Popen(
                 cmd,
                 cwd=cwd,
-                stdout=open(log_file, 'a', encoding='utf-8'),
+                stdout=open(log_file, 'a', encoding='utf-8', errors='replace'),
                 stderr=subprocess.STDOUT,
-                text=True
+                env=env,
+                encoding='utf-8',
+                errors='replace'
             )
             return True
 

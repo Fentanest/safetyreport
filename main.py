@@ -13,38 +13,82 @@ from web.routers import dashboard, data, settings_route, crawl, stats, rating_ro
 import subprocess
 import sys
 
+from core.utils.path_utils import resource_path, is_frozen
+
+# Handle different execution modes for PyInstaller single-binary bundle
+if __name__ == "__main__":
+    if "--mode" in sys.argv:
+        mode_idx = sys.argv.index("--mode")
+        mode = sys.argv[mode_idx + 1]
+        
+        # Remove --mode and the value from sys.argv so they don't interfere with the target scripts
+        # But for 'crawl', we want to keep other arguments
+        target_argv = [sys.argv[0]] + sys.argv[mode_idx + 2:] + sys.argv[1:mode_idx]
+        sys.argv = target_argv
+
+        if mode == "bot":
+            import bot
+            bot.main()
+            sys.exit(0)
+        elif mode == "crawl":
+            import start
+            start.main()
+            sys.exit(0)
+        elif mode == "notify":
+            import core.utils.notifier as notifier
+            import asyncio
+            asyncio.run(notifier.main())
+            sys.exit(0)
+        elif mode == "save_excel":
+            import scripts.debug.save as save_script
+            save_script.main() # I should wrap save.py main logic in main()
+            sys.exit(0)
+
 bot_process = None
 app = FastAPI(title="나만의 안전신문고")
 
-app.mount("/static", StaticFiles(directory="web/static"), name="static")
-templates = Jinja2Templates(directory="web/templates")
+from core.utils.templating import templates, template_path
 
-# Initialize required directories
-os.makedirs("data", exist_ok=True)
-os.makedirs("data/auth", exist_ok=True)
-os.makedirs("logs", exist_ok=True)
+static_path = resource_path("web/static")
+
+# Log paths for debugging
+print(f"DEBUG: Static path: {static_path}")
+print(f"DEBUG: Template path: {template_path}")
+
+app.mount("/static", StaticFiles(directory=static_path), name="static")
+# templates is now imported from core.utils.templating
+
+import settings.settings as settings
+from core.utils import logger
+logger.LoggerFactory.create_logger()
+
+# Initialize required directories using settings' datapath
+os.makedirs(settings.datapath, exist_ok=True)
+os.makedirs(os.path.join(settings.datapath, 'auth'), exist_ok=True)
+os.makedirs(os.path.join(settings.datapath, 'logs'), exist_ok=True)
+os.makedirs(os.path.join(settings.datapath, 'results'), exist_ok=True)
 
 # DB Init
 from sqlalchemy import create_engine, text
-import logger
-logger.LoggerFactory.create_logger()
-
-import settings.settings as settings
-import database
-import scheduler
+from core.database import database
+from core.utils import scheduler
 engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_same_thread": False})
-database.upgrade_schema(engine)
 
 @app.on_event("startup")
 async def on_startup():
     global bot_process
+    # DB Upgrade on startup
+    database.upgrade_schema(engine)
     # 스케줄러 시작
     scheduler.init_scheduler()
     
     if settings.telegram_enabled:
         try:
             logger.LoggerFactory.logbot.info("텔레그램 봇 프로세스를 시작합니다.")
-            bot_process = subprocess.Popen([sys.executable, "bot.py"])
+            if is_frozen:
+                bot_process = subprocess.Popen([sys.executable, "--mode", "bot"])
+            else:
+                bot_process = subprocess.Popen([sys.executable, "bot.py"])
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"봇 프로세스 시작 실패: {e}")
 
@@ -58,6 +102,15 @@ async def on_shutdown():
             bot_process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             bot_process.kill()
+    
+    # 스케줄러 안전 종료
+    try:
+        if scheduler.scheduler.running:
+            logger.LoggerFactory.logbot.info("스케줄러를 종료합니다.")
+            scheduler.scheduler.shutdown(wait=False)
+    except Exception as e:
+        logger.LoggerFactory.logbot.error(f"스케줄러 종료 중 오류: {e}")
+
     _checkpoint_wal()
 
 def _signal_handler(signum, frame):
@@ -84,7 +137,7 @@ app.include_router(watchlist_route.router)
 app.include_router(file_browser_route.router)
 
 try:
-    with open("VERSION", "r", encoding="utf-8") as f:
+    with open(resource_path("VERSION"), "r", encoding="utf-8") as f:
         APP_VERSION = f.read().strip()
 except Exception:
     APP_VERSION = "Unknown"
@@ -96,19 +149,39 @@ async def inject_version_middleware(request: Request, call_next):
     return response
 
 def start_server():
-    uvicorn.run("main:app", host="0.0.0.0", port=6819, reload=True)
+    # Use app object for frozen binary (no reload), but use "main:app" string for dev mode (with reload)
+    try:
+        if is_frozen:
+            uvicorn.run(app, host="0.0.0.0", port=6819)
+        else:
+            uvicorn.run("main:app", host="0.0.0.0", port=6819, reload=True)
+    except Exception as e:
+        logger.LoggerFactory.get_logger().error(f"서버 시작 오류: {e}")
+        if not is_frozen:
+            raise e
 
 if __name__ == "__main__":
     def open_browser():
         time.sleep(2)
         webbrowser.open("http://127.0.0.1:6819")
     
-    if not os.path.exists('/.dockerenv'):
-        threading.Thread(target=open_browser, daemon=True).start()
-    else:
-        print("\n\n" + "="*60)
-        print("🐳 도커 환경에서 실행 중입니다.")
-        print("호스트 장비의 브라우저에서 'http://[서버-IP]:6819'에 접속하세요.")
-        print("="*60 + "\n\n")
+    try:
+        if not os.path.exists('/.dockerenv'):
+            threading.Thread(target=open_browser, daemon=True).start()
+        else:
+            print("\n\n" + "="*60)
+            print("🐳 도커 환경에서 실행 중입니다.")
+            print("호스트 장비의 브라우저에서 'http://[서버-IP]:6819'에 접속하세요.")
+            print("="*60 + "\n\n")
 
-    start_server()
+        start_server()
+    except Exception as e:
+        # If logger is not initialized yet, try to initialize it or print to console
+        try:
+            logger.LoggerFactory.get_logger().critical(f"애플리케이션 실행 중 치명적 오류 발생: {e}", exc_info=True)
+        except Exception:
+            print(f"CRITICAL ERROR: {e}")
+            with open("crash_report.log", "a", encoding="utf-8") as f:
+                import datetime
+                f.write(f"[{datetime.datetime.now()}] CRITICAL ERROR: {e}\n")
+        sys.exit(1)

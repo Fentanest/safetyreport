@@ -3,10 +3,11 @@ import pandas as pd
 import os
 import gspread
 from gspread.exceptions import WorksheetNotFound, SpreadsheetNotFound, APIError
-import logger
+from core.utils import logger
 import sys
 import subprocess
 import time
+from core.utils.path_utils import resource_path, is_frozen
 
 if settings.google_sheet_enabled:
     try:
@@ -80,7 +81,11 @@ def save_to_excel(df):
     df.to_excel(os.path.join(settings.resultpath, settings.resultfile), index=False)
     logger.LoggerFactory.logbot.info(f"데이터 엑셀 저장 성공, 저장경로 : {os.path.join(settings.resultpath, settings.resultfile)}")
     if settings.telegram_enabled:
-        subprocess.run([sys.executable, "notifier.py", "4/5. 엑셀 파일 생성을 완료했습니다."])
+        if is_frozen:
+            subprocess.run([sys.executable, "--mode", "notify", "4/5. 엑셀 파일 생성을 완료했습니다."])
+        else:
+            notifier_path = resource_path("core/utils/notifier.py")
+            subprocess.run([sys.executable, notifier_path, "4/5. 엑셀 파일 생성을 완료했습니다."])
 
 def save_to_google_sheet(df, photo_cols):
     """Saves the DataFrame to a Google Sheet with retry and chunking."""
@@ -153,7 +158,11 @@ def save_to_google_sheet(df, photo_cols):
                 spreadsheet.batch_update(requests)
 
             if settings.telegram_enabled:
-                subprocess.run([sys.executable, "notifier.py", "5/5. 구글 시트 업로드를 완료했습니다."])
+                if is_frozen:
+                    subprocess.run([sys.executable, "--mode", "notify", "5/5. 구글 시트 업로드를 완료했습니다."])
+                else:
+                    notifier_path = resource_path("core/utils/notifier.py")
+                    subprocess.run([sys.executable, notifier_path, "5/5. 구글 시트 업로드를 완료했습니다."])
             
             return  # Success, exit the function
 
@@ -165,7 +174,11 @@ def save_to_google_sheet(df, photo_cols):
             else:
                 logger.LoggerFactory.logbot.error("최대 재시도 횟수를 초과했습니다. 구글 시트 업로드에 실패했습니다.")
                 if settings.telegram_enabled:
-                    subprocess.run([sys.executable, "notifier.py", "오류: 구글 시트 업로드에 실패했습니다."])
+                    if is_frozen:
+                        subprocess.run([sys.executable, "--mode", "notify", "오류: 구글 시트 업로드에 실패했습니다."])
+                    else:
+                        notifier_path = resource_path("core/utils/notifier.py")
+                        subprocess.run([sys.executable, notifier_path, "오류: 구글 시트 업로드에 실패했습니다."])
                 break # Exit loop after final failure
 
 def save_results(df):
