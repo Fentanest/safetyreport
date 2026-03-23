@@ -6,7 +6,8 @@ from core.utils import logger
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-from .models import *
+from .models import (metadata, title_table, detail_traffic_table, detail_other_table,
+                     merge_traffic_table, merge_other_table, watchlist_table, admin_users_table)
 
 def upgrade_schema(engine):
     inspector = inspect(engine)
@@ -332,6 +333,42 @@ def search_by_report_number(engine, report_number: str):
                 col_names = result.keys()
                 res.extend([dict(zip(col_names, row)) for row in rows])
     return res
+
+# ── 관리자 계정 CRUD ─────────────────────────────────────────────────────────
+
+def has_admin_user(engine) -> bool:
+    with engine.connect() as conn:
+        count = conn.execute(select(func.count()).select_from(admin_users_table)).scalar()
+        return count > 0
+
+
+def get_admin_user(engine, username: str):
+    with engine.connect() as conn:
+        result = conn.execute(
+            select(admin_users_table).where(admin_users_table.c.username == username)
+        ).first()
+        return dict(result._mapping) if result else None
+
+
+def create_admin_user(engine, username: str, password: str):
+    from core.utils.security import hash_password
+    salt, pwd_hash = hash_password(password)
+    with engine.begin() as conn:
+        conn.execute(admin_users_table.insert().values(
+            username=username, password_hash=pwd_hash, salt=salt
+        ))
+
+
+def update_admin_user(engine, old_username: str, new_username: str, new_password: str):
+    from core.utils.security import hash_password
+    salt, pwd_hash = hash_password(new_password)
+    with engine.begin() as conn:
+        conn.execute(
+            update(admin_users_table)
+            .where(admin_users_table.c.username == old_username)
+            .values(username=new_username, password_hash=pwd_hash, salt=salt)
+        )
+
 
 def sync_rating_status(engine, report_id, status_str="참여 완료"):
     with engine.begin() as conn:

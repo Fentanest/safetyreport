@@ -39,7 +39,12 @@ class AppSettings:
         self.headless = self.config.getboolean('SELENIUM', 'headless', fallback=False)
 
         self.username = self.config.get('LOGIN', 'username', fallback=None)
-        self.password = self.config.get('LOGIN', 'password', fallback=None)
+        _raw_pw = self.config.get('LOGIN', 'password', fallback=None)
+        if _raw_pw:
+            from core.utils.security import decrypt_config_value
+            self.password = decrypt_config_value(_raw_pw, self.datapath)
+        else:
+            self.password = None
 
         self.telegram_token = self.config.get('TELEGRAM', 'telegram_token', fallback=None)
         self.chat_id = self.config.get('TELEGRAM', 'chat_id', fallback=None)
@@ -87,6 +92,11 @@ class AppSettings:
         
     def save(self):
         os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
+        # 비밀번호가 평문이면 저장 전에 암호화
+        raw_pw = self.config.get('LOGIN', 'password', fallback='')
+        if raw_pw and not raw_pw.startswith('enc:'):
+            from core.utils.security import encrypt_config_value
+            self.config.set('LOGIN', 'password', encrypt_config_value(raw_pw, self.datapath))
         with open(self.config_path, 'w') as configfile:
             self.config.write(configfile)
         self.load()

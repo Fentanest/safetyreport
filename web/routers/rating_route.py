@@ -19,8 +19,7 @@ router = APIRouter(prefix="/rating")
 async def view_rating_page(request: Request):
     records = data_service.get_unrated_records(engine)
             
-    return templates.TemplateResponse("rating.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "rating.html", {
         "title": "자동 별점 주기",
         "records": records
     })

@@ -13,3 +13,5 @@ python-multipart>=0.0.22
 websockets>=16.0
 webdriver-manager==4.0.2
 apscheduler==3.10.4
+cryptography>=42.0.0
+itsdangerous>=2.1.0

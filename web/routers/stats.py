@@ -44,8 +44,7 @@ async def view_stats(
     }
     records = data_service.get_agency_stats(engine, filters)
         
-    return templates.TemplateResponse("stats.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "stats.html", {
         "title": "부서 통계",
         "records_traffic_person": records["traffic"]["by_person"],
         "records_traffic_agency": records["traffic"]["by_agency"],

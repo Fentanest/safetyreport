@@ -54,8 +54,7 @@ async def list_files(request: Request):
     for label in files:
         files[label].sort(key=lambda x: x['mtime'], reverse=True)
     
-    return templates.TemplateResponse("file_browser.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "file_browser.html", {
         "title": "파일 브라우저",
         "files": files
     })

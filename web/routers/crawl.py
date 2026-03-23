@@ -15,11 +15,11 @@ router = APIRouter(prefix="/crawl")
 async def crawl_dashboard(request: Request):
     import settings.settings as app_settings
     app_settings._instance.load()
-    return templates.TemplateResponse("crawl.html", {
-        "request": request, 
+    return templates.TemplateResponse(request, "crawl.html", {
         "title": "크롤링 제어 및 모니터링",
         "is_running": crawl_manager.is_crawling(),
-        "max_empty_pages": app_settings.config.get('SETTINGS', 'max_empty_pages', fallback=3)
+        "max_empty_pages": app_settings.config.get('SETTINGS', 'max_empty_pages', fallback=3),
+        "google_sheet_enabled": app_settings.google_sheet_enabled
     })
 
 @router.post("/start")

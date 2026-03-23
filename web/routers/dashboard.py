@@ -25,8 +25,7 @@ async def dashboard(request: Request):
             "recent_answers": [], "watchlist": []
         }
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "title": "대시보드",
         **stats
     })
