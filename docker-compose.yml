@@ -1,7 +1,7 @@
 services:
   mysafetyreport:
     container_name: safetyreport
-    image: fentanest/safetyreport:latest
+    image: ghcr.io/fentanest/safetyreport:latest
     ports:
       - 6819:6819
     environment:
