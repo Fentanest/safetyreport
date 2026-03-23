@@ -135,14 +135,11 @@ jobs:
         } else {
           $commits = git log --pretty=format:"- %s" --no-merges
         }
-        $lines = @(
-          "## 나만의 안전신문고 v${{ steps.get_version.outputs.version }}",
-          "",
-          "## 변경사항",
-          "",
-          ($commits -join "`n")
-        )
-        $lines -join "`n" | Out-File -FilePath "release_notes.md" -Encoding utf8
+        "## 나만의 안전신문고 v${{ steps.get_version.outputs.version }}" | Out-File "release_notes.md" -Encoding utf8
+        "" | Add-Content "release_notes.md"
+        "## 변경사항" | Add-Content "release_notes.md"
+        "" | Add-Content "release_notes.md"
+        $commits | Add-Content "release_notes.md"
         Write-Output "Release notes generated."
 
     - name: Create GitHub Release with Windows asset
