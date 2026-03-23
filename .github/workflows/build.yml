@@ -126,20 +126,19 @@ jobs:
 
     - name: Generate release notes
       if: steps.check_tag.outputs.tag_exists == 'false'
-      working-directory: ${{ github.workspace }}
       shell: powershell
       run: |
-        $env:PATH = "C:\Program Files\Git\cmd;$env:PATH"
         $version = "${{ steps.get_version.outputs.version }}"
-        $prevTag = & git describe --tags --abbrev=0 HEAD^ 2>&1
+        $repo = "$env:GITHUB_WORKSPACE"
+        $prevTag = & git -C $repo describe --tags --abbrev=0 HEAD^ 2>&1
         if ($LASTEXITCODE -ne 0) { $prevTag = $null }
         if ($prevTag) {
-          $commits = & git log "$prevTag..HEAD" --pretty=format:"- %s" --no-merges
+          $commits = & git -C $repo log "$prevTag..HEAD" --pretty=format:"- %s" --no-merges
         } else {
-          $commits = & git log --pretty=format:"- %s" --no-merges
+          $commits = & git -C $repo log --pretty=format:"- %s" --no-merges
         }
         $lines = @("## v$version", "", "## Changelog", "") + $commits
-        [System.IO.File]::WriteAllLines("release_notes.md", $lines, [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllLines("$repo\release_notes.md", $lines, [System.Text.Encoding]::UTF8)
         Write-Output "Release notes generated."
 
     - name: Create GitHub Release with Windows asset
