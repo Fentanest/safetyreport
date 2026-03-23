@@ -1,4 +1,4 @@
-# 나만의 안전신문고 (My Safety Report Manager)
+# 나만의 안전신문고 (MySafetyReport Manager)
 
 > 안전신문고에 신고한 내역을 내 PC나 서버로 자동 수집하고, 강력한 검색·분석·자동화 기능을 제공하는 개인용 통합 관리 시스템입니다.
 
