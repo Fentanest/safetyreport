@@ -129,6 +129,7 @@ jobs:
       shell: powershell
       run: |
         $env:PATH = "C:\Program Files\Git\cmd;$env:PATH"
+        Set-Location $env:GITHUB_WORKSPACE
         $version = "${{ steps.get_version.outputs.version }}"
         $prevTag = (git describe --tags --abbrev=0 HEAD^ 2>$null)
         if ($prevTag) {
