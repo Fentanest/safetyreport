@@ -17,5 +17,6 @@ GEMINI.md
 # Build & Packaging
 dist/
 /build/
+compiled/
 *.spec
 build.sh
