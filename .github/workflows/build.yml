@@ -11,7 +11,7 @@ jobs:
   # 1. Windows 실행 파일 빌드 (Git-Windows 셀프호스트 러너)
   # ────────────────────────────────────────────────────────────────
   build-windows:
-    runs-on: [self-hosted, Git-Windows]
+    runs-on: [self-hosted, Windows, X64, 233]
     permissions:
       contents: write
 
@@ -142,7 +142,7 @@ jobs:
   # 2. Linux 실행 파일 + Docker 멀티아키 이미지 빌드 (Git-Debian 셀프호스트 러너)
   # ────────────────────────────────────────────────────────────────
   build-linux-and-docker:
-    runs-on: [self-hosted, Git-Debian]
+    runs-on: [self-hosted, Linux, X64, 234]
     permissions:
       contents: write
       packages: write
