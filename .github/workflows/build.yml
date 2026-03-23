@@ -190,16 +190,17 @@ jobs:
       if: steps.check_tag.outputs.tag_exists == 'false'
       run: rm -rf venv build dist
 
-    - name: Set up Python 3.14
+    - name: Set up Python 3.14 (local install)
       if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.14'
+      run: |
+        PYTHON=$(command -v python3.14 || command -v python3)
+        $PYTHON --version
+        echo "$(dirname $PYTHON)" >> $GITHUB_PATH
 
     - name: Create virtual environment and install dependencies
       if: steps.check_tag.outputs.tag_exists == 'false'
       run: |
-        python3 -m venv venv
+        python3.14 -m venv venv
         ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
         ./venv/bin/pip install --no-cache-dir -r requirements.txt
         ./venv/bin/pip install --no-cache-dir pyinstaller
