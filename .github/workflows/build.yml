@@ -128,6 +128,7 @@ jobs:
       if: steps.check_tag.outputs.tag_exists == 'false'
       shell: powershell
       run: |
+        $env:PATH = "C:\Program Files\Git\cmd;$env:PATH"
         $version = "${{ steps.get_version.outputs.version }}"
         $repo = "$env:GITHUB_WORKSPACE"
         $prevTag = & git -C $repo describe --tags --abbrev=0 HEAD^ 2>&1
