@@ -259,6 +259,10 @@ jobs:
         files: mysafetyreport-linux.zip
 
     # ── Docker 멀티아키텍처 이미지 빌드 (amd64 + arm64) ───────────
+    - name: Set lowercase image name
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: echo "IMAGE_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
     - name: Set up Docker Buildx
       if: steps.check_tag.outputs.tag_exists == 'false'
       uses: docker/setup-buildx-action@v3
@@ -282,8 +286,8 @@ jobs:
         platforms: linux/amd64,linux/arm64
         push: true
         tags: |
-          ghcr.io/${{ github.repository }}:${{ steps.get_version.outputs.version }}
-          ghcr.io/${{ github.repository }}:latest
+          ghcr.io/${{ env.IMAGE_REPO }}:${{ steps.get_version.outputs.version }}
+          ghcr.io/${{ env.IMAGE_REPO }}:latest
         labels: |
           org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           org.opencontainers.image.version=${{ steps.get_version.outputs.version }}

@@ -47,7 +47,7 @@
                 {% for r in records %}
                 <tr>
                     <td class="text-center"><input type="checkbox" class="row-checkbox" value="{{ r.신고번호 }}"></td>
-                    <td><a href="https://www.safetyreport.go.kr/#mypage/mysafereport/{{ r.신고번호.split('-')[2] if r.신고번호 else '' }}" target="_blank">{{ r.신고번호 }}</a></td>
+                    <td><a href="https://www.safetyreport.go.kr/#mypage/mysafereport/{{ r.ID }}" target="_blank">{{ r.신고번호 }}</a></td>
                     <td>{{ r.신고명 }}</td>
                     <td>{{ r.신고일 }}</td>
                     <td>{{ r.답변일 }}</td>
