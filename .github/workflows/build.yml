@@ -124,19 +124,36 @@ jobs:
         name: mysafetyreport-win-${{ steps.get_version.outputs.version }}
         path: mysafetyreport-win.zip
 
+    - name: Generate release notes
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      shell: powershell
+      run: |
+        $prevTag = (git describe --tags --abbrev=0 HEAD^ 2>$null)
+        if ($prevTag) {
+          $commits = git log "$prevTag..HEAD" --pretty=format:"- %s" --no-merges
+        } else {
+          $commits = git log --pretty=format:"- %s" --no-merges
+        }
+        $body = @"
+        ## 나만의 안전신문고 v${{ steps.get_version.outputs.version }}
+
+        ## 변경사항
+
+        $($commits -join "`n")
+        "@
+        $body | Out-File -FilePath "release_notes.md" -Encoding utf8
+        Write-Output "Release notes generated."
+
     - name: Create GitHub Release with Windows asset
       if: steps.check_tag.outputs.tag_exists == 'false'
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_version.outputs.tag }}
         name: "나만의 안전신문고 v${{ steps.get_version.outputs.version }}"
-        body: |
-          **나만의 안전신문고** v${{ steps.get_version.outputs.version }} 자동 릴리즈
-          Commit: ${{ github.sha }}
+        body_path: release_notes.md
         files: mysafetyreport-win.zip
         draft: false
         prerelease: false
-        generate_release_notes: true
 
   # ────────────────────────────────────────────────────────────────
   # 2. Linux 실행 파일 + Docker 멀티아키 이미지 빌드 (Git-Debian 셀프호스트 러너)
