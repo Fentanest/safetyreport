@@ -126,16 +126,17 @@ jobs:
 
     - name: Generate release notes
       if: steps.check_tag.outputs.tag_exists == 'false'
+      working-directory: ${{ github.workspace }}
       shell: powershell
       run: |
         $env:PATH = "C:\Program Files\Git\cmd;$env:PATH"
-        Set-Location $env:GITHUB_WORKSPACE
         $version = "${{ steps.get_version.outputs.version }}"
-        $prevTag = (git describe --tags --abbrev=0 HEAD^ 2>$null)
+        $prevTag = & git describe --tags --abbrev=0 HEAD^ 2>&1
+        if ($LASTEXITCODE -ne 0) { $prevTag = $null }
         if ($prevTag) {
-          $commits = git log "$prevTag..HEAD" --pretty=format:"- %s" --no-merges
+          $commits = & git log "$prevTag..HEAD" --pretty=format:"- %s" --no-merges
         } else {
-          $commits = git log --pretty=format:"- %s" --no-merges
+          $commits = & git log --pretty=format:"- %s" --no-merges
         }
         $lines = @("## v$version", "", "## Changelog", "") + $commits
         [System.IO.File]::WriteAllLines("release_notes.md", $lines, [System.Text.Encoding]::UTF8)
