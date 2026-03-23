@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -10,6 +11,7 @@ import os
 import signal
 
 from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route
+from web.routers import auth_route
 import subprocess
 import sys
 
@@ -45,18 +47,10 @@ if __name__ == "__main__":
             sys.exit(0)
 
 bot_process = None
-app = FastAPI(title="나만의 안전신문고")
 
 from core.utils.templating import templates, template_path
 
 static_path = resource_path("web/static")
-
-# Log paths for debugging
-print(f"DEBUG: Static path: {static_path}")
-print(f"DEBUG: Template path: {template_path}")
-
-app.mount("/static", StaticFiles(directory=static_path), name="static")
-# templates is now imported from core.utils.templating
 
 import settings.settings as settings
 from core.utils import logger
@@ -74,14 +68,19 @@ from core.database import database
 from core.utils import scheduler
 engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_same_thread": False})
 
-@app.on_event("startup")
-async def on_startup():
+def _checkpoint_wal():
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+    except Exception as e:
+        logger.LoggerFactory.logbot.error(f"WAL 체크포인트 실패: {e}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     global bot_process
-    # DB Upgrade on startup
+    # ── startup ──────────────────────────────────────────────────────────────
     database.upgrade_schema(engine)
-    # 스케줄러 시작
     scheduler.init_scheduler()
-    
     if settings.telegram_enabled:
         try:
             logger.LoggerFactory.logbot.info("텔레그램 봇 프로세스를 시작합니다.")
@@ -92,9 +91,9 @@ async def on_startup():
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"봇 프로세스 시작 실패: {e}")
 
-@app.on_event("shutdown")
-async def on_shutdown():
-    global bot_process
+    yield
+
+    # ── shutdown ─────────────────────────────────────────────────────────────
     if bot_process:
         logger.LoggerFactory.logbot.info("텔레그램 봇 프로세스를 종료합니다.")
         bot_process.terminate()
@@ -102,16 +101,16 @@ async def on_shutdown():
             bot_process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             bot_process.kill()
-    
-    # 스케줄러 안전 종료
     try:
         if scheduler.scheduler.running:
             logger.LoggerFactory.logbot.info("스케줄러를 종료합니다.")
             scheduler.scheduler.shutdown(wait=False)
     except Exception as e:
         logger.LoggerFactory.logbot.error(f"스케줄러 종료 중 오류: {e}")
-
     _checkpoint_wal()
+
+app = FastAPI(title="나만의 안전신문고", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=static_path), name="static")
 
 def _signal_handler(signum, frame):
     logger.LoggerFactory.logbot.info(f"종료 신호({signum}) 수신 - WAL 정리 후 종료합니다.")
@@ -127,6 +126,7 @@ signal.signal(signal.SIGINT, _signal_handler)
 if hasattr(signal, 'SIGTERM'):
     signal.signal(signal.SIGTERM, _signal_handler)
 
+app.include_router(auth_route.router)
 app.include_router(dashboard.router)
 app.include_router(data.router)
 app.include_router(settings_route.router)
@@ -147,6 +147,33 @@ async def inject_version_middleware(request: Request, call_next):
     request.state.app_version = APP_VERSION
     response = await call_next(request)
     return response
+
+# ── 인증 미들웨어 ──────────────────────────────────────────────────────────────
+
+_PUBLIC_PATHS = {"/login", "/setup", "/logout"}
+_PUBLIC_PREFIXES = ("/static/",)
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    # WebSocket 및 공개 경로는 인증 없이 통과
+    if (path in _PUBLIC_PATHS
+            or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
+            or request.headers.get("upgrade", "").lower() == "websocket"):
+        return await call_next(request)
+
+    if not request.session.get("admin_logged_in"):
+        from fastapi.responses import RedirectResponse as RR
+        return RR("/login", status_code=302)
+
+    return await call_next(request)
+
+# SessionMiddleware는 마지막에 추가해야 가장 바깥에서(먼저) 실행됨
+from starlette.middleware.sessions import SessionMiddleware
+from core.utils.security import get_or_create_session_key
+_session_key = get_or_create_session_key(settings.datapath)
+app.add_middleware(SessionMiddleware, secret_key=_session_key, session_cookie="safetyreport_session")
+
 
 def start_server():
     # Use app object for frozen binary (no reload), but use "main:app" string for dev mode (with reload)

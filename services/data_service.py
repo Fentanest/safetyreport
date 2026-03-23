@@ -353,8 +353,8 @@ def get_unrated_records(engine):
                 continue
             # 이미 참여 완료 또는 참여 불가(취하)인 항목 제외
             df = df[~df['만족도조사여부'].isin(['참여 완료', '참여 불가'])]
-            # 처리상태가 취하 또는 답변 대기인 항목도 제외 (만족도 조사 불가/미대상)
-            df = df[~df['처리상태'].isin(['취하', '답변 대기'])]
+            # 답변이 없는 상태(처리중/취하 등)는 만족도조사 불가 → 제외
+            df = df[~df['처리상태'].isin(['취하', '답변 대기', '처리중', '진행', '진행중'])]
             results.append(df)
         if not results:
             return []

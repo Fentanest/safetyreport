@@ -155,6 +155,7 @@
     <button type="button" class="btn btn-warning shadow-sm btn-add-watchlist"><i class="fas fa-eye me-1"></i> 감시목록 추가</button>
     <button type="button" class="btn btn-success shadow-sm btn-export-excel"><i class="fas fa-file-excel me-1"></i> 엑셀 다운로드</button>
     <button type="button" class="btn btn-secondary text-white shadow-sm btn-copy-selected-ids"><i class="fas fa-clipboard-check me-1"></i> 선택된 신고번호 복사</button>
+    <button type="button" class="btn btn-outline-info shadow-sm btn-copy-page-ids"><i class="fas fa-file-alt me-1"></i> 현재 페이지 신고번호 복사</button>
     <button type="button" class="btn btn-info text-white shadow-sm btn-copy-ids"><i class="fas fa-copy me-1"></i> 전체 신고번호 복사</button>
 </div>
 
@@ -197,77 +198,7 @@
                     <th style="width: 58.89px;">감시</th>
                 </tr>
             </thead>
-            <tbody>
-                {% for r in records %}
-                <tr>
-                    <td class="text-center"><input type="checkbox" class="row-checkbox" value="{{ r.신고번호 }}"></td>
-                    <td>{{ r.ID }}</td>
-                    <td class="text-center">{{ r.상태 }}</td>
-                    <td class="text-center"><a href="https://www.safetyreport.go.kr/#mypage/mysafereport/{{ r.ID }}" target="_blank">{{ r.신고번호 }}</a></td>
-                    <td class="ellipsis-cell" style="width: 225px;" title="{{ r.신고명 }}">{{ r.신고명 }}</td>
-                    <td>{{ r.신고일 }}</td>
-                    <td class="text-center">
-                        {% if r.처리상태 == '수용' %}
-                            <span class="badge bg-success">{{ r.처리상태 }}</span>
-                        {% elif r.처리상태 in ['불수용', '기타'] %}
-                            <span class="badge bg-danger">{{ r.처리상태 }}</span>
-                        {% elif r.처리상태 == '취하' %}
-                            <span class="badge bg-secondary text-white">{{ r.처리상태 }}</span>
-                        {% elif r.처리상태 == '일부수용' %}
-                            <span class="badge bg-warning text-dark">{{ r.처리상태 }}</span>
-                        {% elif r.처리상태 == '처리중' %}
-                            <span class="badge bg-primary">{{ r.처리상태 }}</span>
-                        {% else %}
-                            <span class="badge bg-light text-dark border">{{ r.처리상태 }}</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-center">{{ r.차량번호 }}</td>
-                    {% if table_id == "duplicateTable" %}
-                    <td data-order="{{ r.valid_count }}">
-                        <span class="badge bg-info text-dark" title="취하 제외">유효 {{ r.valid_count }}</span>
-                        <span class="badge bg-secondary" title="취하 포함">전체 {{ r.total_count }}</span>
-                    </td>
-                    {% endif %}
-                    <td>{{ r.위반법규 }}</td>
-                    <td>{{ r.범칙금_과태료 }}</td>
-                    <td>{{ r.벌점 }}</td>
-                    <td>{{ r.처리기관 }}</td>
-                    <td>{{ r.담당자 }}</td>
-                    <td>{{ r.답변일 }}</td>
-                    <td>{{ r.발생일자 }}</td>
-                    <td class="text-center">{{ r.발생시각 }}</td>
-                    <td class="ellipsis-cell" style="width: 310.45px;" title="{{ r.위반장소 }}">{{ r.위반장소 }}</td>
-                    <td class="text-center">{{ r.종결여부 }}</td>
-                    <td class="ellipsis-cell" style="width: 182px;" title="{{ r.신고내용 }}">{{ r.신고내용 }}</td>
-                    <td class="ellipsis-cell" style="width: 182px;" title="{{ r.처리내용 }}">{{ r.처리내용 }}</td>
-                    <td>
-                        {% if r.지도 and r.지도 != '6개월 초과' %}
-                            <a href="{{ r.지도.split('\n')[0] }}" target="_blank">지도보기</a>
-                        {% elif r.지도 == '6개월 초과' %}
-                            만료 
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if r.첨부사진 and r.첨부사진 != '6개월 초과' %}
-                            {{ r.첨부사진.split('\n')|length }}장 
-                            <button class="btn btn-sm btn-outline-secondary py-0 px-1 view-all-btn" data-links="{{ r.첨부사진|replace('\n', ',') }}">일괄확인</button>
-                        {% elif r.첨부사진 == '6개월 초과' %}
-                            만료
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if r.첨부파일 and r.첨부파일 != '6개월 초과' %}
-                            {{ r.첨부파일.split('\n')|length }}개 
-                            <button class="btn btn-sm btn-outline-primary py-0 px-1 view-all-btn" data-links="{{ r.첨부파일|replace('\n', ',') }}">일괄다운</button>
-                        {% elif r.첨부파일 == '6개월 초과' %}
-                            만료 
-                        {% endif %}
-                    </td>
-                    <td>{{ r.만족도조사여부 }}</td>
-                    <td>{{ r.감시목록 }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
+            <tbody></tbody>
         </table>
     </div>
 </div>
@@ -277,27 +208,129 @@
     <button type="button" class="btn btn-warning shadow-sm btn-add-watchlist"><i class="fas fa-eye me-1"></i> 감시목록 추가</button>
     <button type="button" class="btn btn-success shadow-sm btn-export-excel"><i class="fas fa-file-excel me-1"></i> 엑셀 다운로드</button>
     <button type="button" class="btn btn-secondary text-white shadow-sm btn-copy-selected-ids"><i class="fas fa-clipboard-check me-1"></i> 선택된 신고번호 복사</button>
+    <button type="button" class="btn btn-outline-info shadow-sm btn-copy-page-ids"><i class="fas fa-file-alt me-1"></i> 현재 페이지 신고번호 복사</button>
     <button type="button" class="btn btn-info text-white shadow-sm btn-copy-ids"><i class="fas fa-copy me-1"></i> 전체 신고번호 복사</button>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+// 서버에서 JSON으로만 전달 — Jinja2 HTML 행 렌더링 없음
+var _tableData = {{ records | tojson }};
+</script>
+<script>
 $(document).ready(function() {
     const urlParams = new URLSearchParams(window.location.search);
     const qAgency = urlParams.get('agency');
     const qPerson = urlParams.get('person');
-    
+
     if (qAgency) $('#searchAgency').val(qAgency);
     if (qPerson) $('#searchPerson').val(qPerson);
 
-    const offset = {{ 1 if table_id == 'duplicateTable' else 0 }};
+    const isDuplicate = '{{ table_id }}' === 'duplicateTable';
+    const offset = isDuplicate ? 1 : 0;
+
+    // ── 렌더 헬퍼 ──────────────────────────────────────────────────
+    function esc(v) {
+        return String(v == null ? '' : v)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function renderBadge(d) {
+        const v = d || '';
+        const map = { '수용': 'bg-success', '불수용': 'bg-danger', '기타': 'bg-danger',
+                      '취하': 'bg-secondary', '일부수용': 'bg-warning text-dark', '처리중': 'bg-primary' };
+        const cls = map[v] || 'bg-light text-dark border';
+        return `<span class="badge ${cls}">${esc(v)}</span>`;
+    }
+
+    function renderEllipsis(d, type, maxWidth) {
+        if (type !== 'display') return d || '';
+        const v = esc(d);
+        return `<span class="ellipsis-cell" style="max-width:${maxWidth}px;display:block" title="${v}">${v}</span>`;
+    }
+
+    function renderAttach(d, type, btnLabel, btnClass) {
+        if (type !== 'display') return d || '';
+        if (!d || d === '') return '';
+        if (d === '6개월 초과') return '만료';
+        const links = d.split('\n').filter(l => l.trim());
+        const joined = links.join(',');
+        const unit = btnLabel === '일괄확인' ? '장' : '개';
+        return `${links.length}${unit} <button class="btn btn-sm ${btnClass} py-0 px-1 view-all-btn" data-links="${esc(joined)}">${btnLabel}</button>`;
+    }
+
+    function renderMap(d, type) {
+        if (type !== 'display') return d || '';
+        if (!d || d === '') return '';
+        if (d === '6개월 초과') return '만료';
+        const first = esc(d.split('\n')[0]);
+        return `<a href="${first}" target="_blank">지도보기</a>`;
+    }
+
+    // ── 컬럼 정의 ──────────────────────────────────────────────────
+    const columns = [
+        { data: '신고번호', orderable: false, searchable: false, className: 'text-center',
+          render: (d) => `<input type="checkbox" class="row-checkbox" value="${esc(d)}">` },
+        { data: 'ID' },
+        { data: '상태', className: 'text-center' },
+        { data: '신고번호', className: 'text-center',
+          render: (d, t, r) => t === 'display'
+              ? `<a href="https://www.safetyreport.go.kr/#mypage/mysafereport/${esc(r.ID)}" target="_blank">${esc(d)}</a>`
+              : (d || '') },
+        { data: '신고명',
+          render: (d, t) => t === 'display' ? renderEllipsis(d, t, 225) : (d || '') },
+        { data: '신고일' },
+        { data: '처리상태', className: 'text-center',
+          render: (d, t) => t === 'display' ? renderBadge(d) : (d || '') },
+        { data: '차량번호', className: 'text-center' },
+        ...(isDuplicate ? [{
+            data: 'valid_count',
+            render: (d, t, r) => t === 'display'
+                ? `<span class="badge bg-info text-dark" title="취하 제외">유효 ${d}</span> <span class="badge bg-secondary" title="취하 포함">전체 ${r.total_count}</span>`
+                : String(d || 0)
+        }] : []),
+        { data: '위반법규' },
+        { data: '범칙금_과태료' },
+        { data: '벌점' },
+        { data: '처리기관' },
+        { data: '담당자' },
+        { data: '답변일' },
+        { data: '발생일자' },
+        { data: '발생시각', className: 'text-center' },
+        { data: '위반장소',
+          render: (d, t) => t === 'display' ? renderEllipsis(d, t, 310) : (d || '') },
+        { data: '종결여부', className: 'text-center' },
+        { data: '신고내용',
+          render: (d, t) => t === 'display' ? renderEllipsis(d, t, 182) : (d || '') },
+        { data: '처리내용',
+          render: (d, t) => t === 'display' ? renderEllipsis(d, t, 182) : (d || '') },
+        { data: '지도',       render: renderMap },
+        { data: '첨부사진',
+          render: (d, t) => renderAttach(d, t, '일괄확인', 'btn-outline-secondary') },
+        { data: '첨부파일',
+          render: (d, t) => renderAttach(d, t, '일괄다운', 'btn-outline-primary') },
+        { data: '만족도조사여부' },
+        { data: '감시목록' },
+    ];
+
+    // 엑셀 내보내기용 컬럼→필드 매핑
+    const colFields = [
+        null, 'ID', '상태', '신고번호', '신고명', '신고일', '처리상태', '차량번호',
+        ...(isDuplicate ? ['valid_count'] : []),
+        '위반법규', '범칙금_과태료', '벌점', '처리기관', '담당자', '답변일', '발생일자',
+        '발생시각', '위반장소', '종결여부', '신고내용', '처리내용', '지도',
+        '첨부사진', '첨부파일', '만족도조사여부', '감시목록'
+    ];
+
     var table = $('#{{ table_id }}').DataTable({
-        keys: true,       // Keyboard navigation
-        autoFill: true,   // Excel-like dragging
-        select: true,     // Selectable rows/cells
+        data: _tableData,
+        columns: columns,
+        deferRender: true,   // 현재 페이지(50행)만 DOM 생성 — 핵심 최적화
+        processing: true,
         scrollX: true,
-        autoWidth: false, // Disable automatic column width calculation
+        autoWidth: false,
         pageLength: 50,
         order: [],
         columnDefs: [
@@ -307,9 +340,9 @@ $(document).ready(function() {
             { targets: 3, width: '120.61px' },
             { targets: 4, width: '225.19px' },
             { targets: 5, width: '64.19px' },
-            { targets: 6, width: '58.89px', className: 'text-center' },
-            { targets: 7, width: '89.45px', className: 'text-center' },
-            ...(offset === 1 ? [{ targets: 8, width: '100px' }] : []),
+            { targets: 6, width: '58.89px' },
+            { targets: 7, width: '89.45px' },
+            ...(isDuplicate ? [{ targets: 8, width: '100px' }] : []),
             { targets: 8 + offset, width: '141.13px' },
             { targets: 9 + offset, width: '98.7px' },
             { targets: 10 + offset, width: '29.45px' },
@@ -531,42 +564,31 @@ $(document).ready(function() {
     $('.btn-export-excel').on('click', function() {
         let resultData = [];
         let maxLinksLength = { "첨부사진": 0, "첨부파일": 0 };
-        let photoIdx = -1, fileIdx = -1;
 
-        table.columns().every(function() {
-            let title = $(this.header()).text().trim();
-            if (title === "첨부사진") photoIdx = this.index();
-            else if (title === "첨부파일") fileIdx = this.index();
-        });
-
+        // JSON 데이터 소스: row는 원본 객체이므로 필드명으로 직접 접근
         table.rows({search:'applied'}).data().each(function(row) {
             let rowObj = { raw: row, photos: [], files: [] };
-            
-            if (photoIdx !== -1) {
-                let cellHtml = row[photoIdx];
-                let match = cellHtml.match(/data-links="([^"]+)"/);
-                if (match) {
-                    rowObj.photos = match[1].split(',').filter(x => x.trim() !== '');
-                } else if (cellHtml.includes('만료')) {
-                    rowObj.photos = ['만료'];
-                }
-                if (rowObj.photos.length > maxLinksLength["첨부사진"]) {
-                    maxLinksLength["첨부사진"] = rowObj.photos.length;
-                }
+
+            let photos = (row['첨부사진'] || '').trim();
+            if (photos === '6개월 초과') {
+                rowObj.photos = ['만료'];
+            } else if (photos) {
+                rowObj.photos = photos.split('\n').filter(x => x.trim() !== '');
+            }
+            if (rowObj.photos.length > maxLinksLength["첨부사진"]) {
+                maxLinksLength["첨부사진"] = rowObj.photos.length;
             }
 
-            if (fileIdx !== -1) {
-                let cellHtml = row[fileIdx];
-                let match = cellHtml.match(/data-links="([^"]+)"/);
-                if (match) {
-                    rowObj.files = match[1].split(',').filter(x => x.trim() !== '');
-                } else if (cellHtml.includes('만료')) {
-                    rowObj.files = ['만료'];
-                }
-                if (rowObj.files.length > maxLinksLength["첨부파일"]) {
-                    maxLinksLength["첨부파일"] = rowObj.files.length;
-                }
+            let files = (row['첨부파일'] || '').trim();
+            if (files === '6개월 초과') {
+                rowObj.files = ['만료'];
+            } else if (files) {
+                rowObj.files = files.split('\n').filter(x => x.trim() !== '');
             }
+            if (rowObj.files.length > maxLinksLength["첨부파일"]) {
+                maxLinksLength["첨부파일"] = rowObj.files.length;
+            }
+
             resultData.push(rowObj);
         });
 
@@ -609,7 +631,9 @@ $(document).ready(function() {
                             }
                         }
                     } else {
-                        let cellText = $('<div>').html(rowObj.raw[idx]).text().trim();
+                        // JSON 소스: colFields 매핑으로 필드명 조회
+                        let field = colFields[idx];
+                        let cellText = field != null ? String(rowObj.raw[field] == null ? '' : rowObj.raw[field]).trim() : '';
                         // 엑셀에서 긴 숫자가 지수표기법으로 바뀌거나 잘리는 것을 방지
                         if (title === "신고번호" || title === "차량번호" || title === "연락처") {
                             rowArray.push('="' + cellText.replace(/"/g, '""') + '"');
@@ -671,14 +695,52 @@ $(document).ready(function() {
         }
     });
 
+    // 현재 페이지 신고번호 클립보드 복사
+    $('.btn-copy-page-ids').on('click', function() {
+        let text = [];
+        table.rows({page: 'current'}).data().each(function(row) {
+            let rnum = row['신고번호'];
+            if (rnum) text.push(String(rnum).trim());
+        });
+
+        if (text.length === 0) {
+            alert('복사할 신고번호가 없습니다.');
+            return;
+        }
+
+        let resultString = text.join('\n');
+
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(resultString).then(function() {
+                alert(text.length + "개의 현재 페이지 신고번호가 클립보드에 복사되었습니다!");
+            }).catch(function(err) {
+                alert("복사 실패: " + err);
+            });
+        } else {
+            let textArea = document.createElement("textarea");
+            textArea.value = resultString;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                alert(text.length + "개의 현재 페이지 신고번호가 클립보드에 복사되었습니다!");
+            } catch (err) {
+                alert("복사 실패: " + err);
+            }
+            document.body.removeChild(textArea);
+        }
+    });
+
     // 화면의 신고번호 일괄 클립보드 복사
     $('.btn-copy-ids').on('click', function() {
         let text = [];
         table.rows({search:'applied'}).data().each(function(row) {
-            let cellHtml = row[3]; // 신고번호 column (인덱스 3)
-            let match = cellHtml.match(/>([^<]+)</);
-            if(match) text.push(match[1].trim());
-            else text.push($('<div>').html(cellHtml).text().trim());
+            // JSON 소스: 신고번호 필드 직접 접근
+            let rnum = row['신고번호'];
+            if (rnum) text.push(String(rnum).trim());
         });
         
         if(text.length === 0) {
@@ -718,29 +780,31 @@ $(document).ready(function() {
         <div class="modal fade" id="textModal" tabindex="-1" aria-hidden="true">
           <div class="modal-dialog modal-dialog-centered modal-lg flex-column justify-content-center">
             <div class="modal-content">
-              <div class="modal-header">
-                <h5 class="modal-title fw-bold">상세 내용</h5>
+              <div class="modal-header py-2">
+                <h6 class="modal-title fw-bold" id="textModalTitle">상세 내용</h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
               </div>
               <div class="modal-body">
-                <p id="textModalContent" style="white-space: pre-wrap; font-size: 1.05em;"></p>
+                <p id="textModalContent" style="white-space: pre-wrap; font-size: 1.05em; word-break: break-all;"></p>
               </div>
             </div>
           </div>
         </div>
     `);
 
+    var _textModal = new bootstrap.Modal(document.getElementById('textModal'));
+
     $('#{{ table_id }} tbody').on('dblclick', 'td', function() {
         var cellIdx = table.cell(this).index();
-        if(!cellIdx) return;
+        if (!cellIdx) return;
         var colIdx = cellIdx.column;
-        // 신고명(4), 신고내용(18+offset), 처리내용(19+offset)
-        if(colIdx === 4 || colIdx === (18 + offset) || colIdx === (19 + offset)) {
-            var text = $('<div>').html(table.cell(this).data()).text();
-            $('#textModalContent').text(text);
-            var textModal = new bootstrap.Modal(document.getElementById('textModal'));
-            textModal.show();
-        }
+        if (colIdx === 0) return; // 체크박스 열 제외
+        var text = String(table.cell(this).data() || '');
+        if (!text) return;
+        var colName = $(table.column(colIdx).header()).text().trim();
+        $('#textModalTitle').text(colName);
+        $('#textModalContent').text(text);
+        _textModal.show();
     });
 
     $('#selectAll').on('change', function() {

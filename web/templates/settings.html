@@ -1,9 +1,48 @@
 {% extends "base.html" %}
 
 {% block content %}
+
+{% if admin_error %}
+<div class="alert alert-danger alert-dismissible fade show" role="alert">
+    {{ admin_error }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+{% if admin_success %}
+<div class="alert alert-success alert-dismissible fade show" role="alert">
+    {{ admin_success }}
+    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+</div>
+{% endif %}
+
 <div class="row">
-    <!-- Left Column: Basic & Advanced Settings -->
+    <!-- Left Column: Admin Account + Basic & Advanced Settings -->
     <div class="col-md-6">
+        <div class="card card-custom mb-3">
+            <div class="card-header bg-white fw-bold">0. 관리자 계정 변경</div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">현재 계정: <strong>{{ admin_username }}</strong></p>
+                <form method="post" action="/change-admin">
+                    <div class="mb-3">
+                        <label class="form-label">새 아이디</label>
+                        <input type="text" class="form-control" name="new_username"
+                               value="{{ admin_username }}" autocomplete="username" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">현재 비밀번호</label>
+                        <input type="password" class="form-control" name="current_password"
+                               autocomplete="current-password" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">새 비밀번호 <span class="text-muted small">(4자 이상)</span></label>
+                        <input type="password" class="form-control" name="new_password"
+                               autocomplete="new-password" required>
+                    </div>
+                    <button type="submit" class="btn btn-warning">변경</button>
+                </form>
+            </div>
+        </div>
+
         <form action="/settings/save" method="post" id="mainSettingsForm">
             <div class="card card-custom mb-4">
                 <div class="card-header bg-white fw-bold">1. 시스템 및 서버 설정</div>

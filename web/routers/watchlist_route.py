@@ -16,7 +16,7 @@ class WatchlistReq(BaseModel):
 @router.get("/", response_class=HTMLResponse)
 def view_watchlist(request: Request):
     records = data_service.get_all_watchlist(engine)
-    return templates.TemplateResponse("watchlist.html", {"request": request, "records": records, "title": "감시목록 관리"})
+    return templates.TemplateResponse(request, "watchlist.html", {"records": records, "title": "감시목록 관리"})
 
 @router.post("/add")
 def add_to_watchlist(req: WatchlistReq):

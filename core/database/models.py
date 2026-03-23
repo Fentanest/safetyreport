@@ -1,4 +1,4 @@
-from sqlalchemy import Table, MetaData, Column, String
+from sqlalchemy import Table, MetaData, Column, String, Integer
 import settings.settings as settings
 
 metadata = MetaData()
@@ -70,3 +70,8 @@ merge_other_table = Table(settings.table_merge_other, metadata, *get_merge_colum
 
 watchlist_table = Table('mysafety_watchlist', metadata,
                         Column('신고번호', String, primary_key=True))
+
+admin_users_table = Table('admin_users', metadata,
+                          Column('username', String, primary_key=True),
+                          Column('password_hash', String, nullable=False),
+                          Column('salt', String, nullable=False))

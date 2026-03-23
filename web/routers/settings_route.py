@@ -26,10 +26,13 @@ async def view_settings(request: Request):
         default_chrome_mode = raw_chrome_mode
 
     auth_path = os.path.join(app_settings._instance.datapath, 'auth', 'gspread.json')
-    return templates.TemplateResponse("settings.html", {
-        "request": request, "title": "설정",
+    return templates.TemplateResponse(request, "settings.html", {
+        "title": "설정",
+        "admin_username": request.session.get("admin_username", ""),
+        "admin_error": request.query_params.get("admin_error"),
+        "admin_success": request.query_params.get("admin_success"),
         "username": app_settings.config.get('LOGIN', 'username', fallback=""),
-        "password": app_settings.config.get('LOGIN', 'password', fallback=""),
+        "password": app_settings.password or "",
         "telegram_token": app_settings.config.get('TELEGRAM', 'telegram_token', fallback=""),
         "chat_id": app_settings.config.get('TELEGRAM', 'chat_id', fallback=""),
         "sheet_key": app_settings.config.get('GOOGLESHEET', 'sheet_key', fallback=""),
