@@ -101,7 +101,7 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
     # Get total page number
     page_info_element = WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'p.bbs_info.fl_left')))
     last_page_num = int(page_info_element.text.split('/')[1].replace('페이지', '').strip())
-    logger.LoggerFactory.logbot.debug(f"마지막 페이지 번호: {last_page_num}")
+    logger.LoggerFactory.logbot.info(f"전체 {last_page_num} 페이지 크롤링 시작")
 
     all_title_dfs = []
     empty_page_count = 0
@@ -134,7 +134,7 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
     # --- New "Next" button logic for full crawl ---
     
     # Process page 1
-    logger.LoggerFactory.logbot.debug("1 페이지 처리 중...")
+    logger.LoggerFactory.logbot.info("1 페이지 처리 중...")
     dfs, found_in_progress = _scrape_current_page(driver)
     all_title_dfs.extend(dfs)
     last_crawled_page = 1
@@ -148,7 +148,7 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
             break
         
         try:
-            logger.LoggerFactory.logbot.debug(f"{page_num} 페이지로 이동합니다 (다음 버튼 클릭)...")
+            logger.LoggerFactory.logbot.info(f"{page_num}/{last_page_num} 페이지 처리 중...")
             # Wait for the loading overlay to disappear
             WebDriverWait(driver, 20).until(
                 EC.invisibility_of_element_located((By.CSS_SELECTOR, "div.loading-backdrop"))
