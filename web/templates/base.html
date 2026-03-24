@@ -115,5 +115,22 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+<script>
+// 안전신문고 링크 클릭 시 첫 TCP 연결 RST 오류 우회
+// fetch로 도메인 연결을 먼저 워밍업한 뒤 탭을 엽니다.
+document.addEventListener('click', function(e) {
+    var anchor = e.target.closest('a[target="_blank"]');
+    if (!anchor) return;
+    var href = anchor.getAttribute('href') || '';
+    if (!href.includes('safetyreport.go.kr')) return;
+
+    e.preventDefault();
+    fetch('https://www.safetyreport.go.kr/', { mode: 'no-cors', cache: 'no-store' })
+        .catch(function() {})
+        .finally(function() {
+            window.open(href, '_blank');
+        });
+});
+</script>
 </body>
 </html>
