@@ -21,7 +21,8 @@ async def view_rating_page(request: Request):
             
     return templates.TemplateResponse(request, "rating.html", {
         "title": "자동 별점 주기",
-        "records": records
+        "records": records,
+        "phone_number": app_settings.phone_number or ""
     })
 
 @router.post("/start")
