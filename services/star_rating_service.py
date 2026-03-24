@@ -37,14 +37,23 @@ def run_batch_rating(ids, score=5, log_file=None):
     fail_count = 0
     total = len(ids_to_process)
     
-    headers = {
+    session = requests.Session()
+    session.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
         "Accept": "application/json, text/javascript, */*; q=0.01",
         "Origin": "https://www.safetyreport.go.kr",
         "X-Requested-With": "XMLHttpRequest"
-    }
-    
+    })
+
+    # TCP RST 우회: 첫 연결 전 워밍업 요청 (RST 대비 2회 시도)
+    for _ in range(2):
+        try:
+            session.get("https://www.safetyreport.go.kr/", timeout=5)
+            break
+        except Exception:
+            pass
+
     for idx, report_id in enumerate(ids_to_process, 1):
         progress = f"[{idx}/{total}]"
         write_log(f"{progress} {report_id} 처리 중...")
@@ -60,9 +69,8 @@ def run_batch_rating(ids, score=5, log_file=None):
             try:
                 # 1. 상태 확인 (이미 별점을 주었는지)
                 check_url = f"https://www.safetyreport.go.kr/api/v1/portal/statistics/satisfactionstatistics/score/{report_id}/{settings.phone_number}"
-                headers['Referer'] = f"https://www.safetyreport.go.kr/html/common/popup/satisfaction.html?seq={report_id}&pn={settings.phone_number}"
-                
-                check_res = requests.get(check_url, headers=headers, timeout=10)
+                session.headers.update({"Referer": f"https://www.safetyreport.go.kr/html/common/popup/satisfaction.html?seq={report_id}&pn={settings.phone_number}"})
+                check_res = session.get(check_url, timeout=10)
                 if check_res.status_code == 200:
                     data = check_res.json()
                     if not data.get("result"):
@@ -97,7 +105,7 @@ def run_batch_rating(ids, score=5, log_file=None):
                     "STSFDG_CAUSE": ""
                 }
                 
-                post_res = requests.post(post_url, data=payload, headers=headers, timeout=10)
+                post_res = session.post(post_url, data=payload, timeout=10)
                 if post_res.status_code == 200:
                     msg = f"[{report_id}] {score}점 별점 부여 성공"
                     logger.LoggerFactory.star_log.info(msg + " (API)")
