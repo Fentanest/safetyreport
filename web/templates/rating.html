@@ -25,7 +25,8 @@
                     </div>
                     <div class="col-md-3 mb-3 d-flex flex-column align-items-end justify-content-end"
                         style="height: 100%;">
-                        <button type="submit" class="btn btn-warning w-100" id="btnStartRating"
+                        <input type="hidden" id="phoneNumberSet" value="{{ phone_number }}">
+                <button type="submit" class="btn btn-warning w-100" id="btnStartRating"
                             style="height: 60px; font-weight: bold; font-size: 1.1em;">
                             <i class="fas fa-star me-2"></i> 선택 건 별점 처리 시작
                         </button>
@@ -252,6 +253,10 @@
 
         $('#ratingForm').on('submit', function (e) {
             e.preventDefault();
+            if (!document.getElementById('phoneNumberSet').value) {
+                alert('설정 페이지에서 휴대폰 번호를 입력해 주세요.');
+                return;
+            }
             var ids = $('#ratingIds').val().trim();
             if (!ids) {
                 alert('별점을 부여할 대상(ID 또는 신고번호)을 먼저 입력하세요.');
