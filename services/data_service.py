@@ -86,6 +86,7 @@ def get_dashboard_stats(engine):
                     })
 
     recent_answers.sort(key=lambda x: x['답변일'], reverse=True)
+    watchlist_items.sort(key=lambda x: x['신고번호'] or '', reverse=True)
     
     valid_total = (accept_count + partial_count + reject_count + processing_count) if app_settings.exclude_withdraw else total
     t_bar_total = t_fine_count + t_penalty_count + t_reject_count + t_unconfirmed_count
