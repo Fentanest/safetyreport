@@ -87,7 +87,7 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
     # Initial setup
     start_date_path = WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.ID, "C_FRM_DATE")))
     start_date_path.clear()
-    start_date_path.send_keys("2016-01-01")
+    start_date_path.send_keys("2014-01-01")
     end_date_path = WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.ID, "C_TO_DATE")))
     end_date_path.clear()
     end_date_path.send_keys(today)
