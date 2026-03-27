@@ -41,6 +41,51 @@
             transform: scale(1.05);
             box-shadow: 0 6px 20px rgba(0,0,0,0.3);
         }
+        .btn-sidebar-toggle {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 1046;
+            border-radius: 8px;
+            width: 42px;
+            height: 42px;
+            font-size: 1.1rem;
+            display: none;
+        }
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 1044;
+        }
+        @media (max-width: 767.98px) {
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: -260px;
+                width: 240px;
+                height: 100vh;
+                z-index: 1045;
+                transition: left 0.28s ease;
+                overflow-y: auto;
+                min-height: unset;
+            }
+            .sidebar.sidebar-open {
+                left: 0;
+            }
+            .sidebar-overlay.sidebar-open {
+                display: block;
+            }
+            .btn-sidebar-toggle {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .main-content {
+                padding-top: 56px !important;
+            }
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
@@ -48,8 +93,15 @@
 
 <div class="container-fluid">
     <div class="row">
+        <!-- 모바일 사이드바 토글 버튼 -->
+        <button class="btn btn-dark btn-sidebar-toggle" id="btnSidebarToggle" aria-label="메뉴">
+            <i class="fas fa-bars"></i>
+        </button>
+        <!-- 모바일 사이드바 오버레이 -->
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
         <!-- Sidebar -->
-        <nav class="col-md-2 d-none d-md-block sidebar">
+        <nav class="col-md-2 d-md-block sidebar" id="mainSidebar">
             <div class="sidebar-sticky">
                 <div class="text-center mb-2">
                     <img src="/static/logo.png" alt="Logo" style="width: 80px; height: auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
@@ -116,6 +168,39 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 <script>
+// 모바일 사이드바 토글
+(function() {
+    var sidebar = document.getElementById('mainSidebar');
+    var overlay = document.getElementById('sidebarOverlay');
+    var toggleBtn = document.getElementById('btnSidebarToggle');
+
+    function openSidebar() {
+        sidebar.classList.add('sidebar-open');
+        overlay.classList.add('sidebar-open');
+    }
+    function closeSidebar() {
+        sidebar.classList.remove('sidebar-open');
+        overlay.classList.remove('sidebar-open');
+    }
+
+    toggleBtn.addEventListener('click', openSidebar);
+    overlay.addEventListener('click', closeSidebar);
+    // 사이드바 링크 클릭 시 자동 닫기
+    sidebar.querySelectorAll('a').forEach(function(a) {
+        a.addEventListener('click', closeSidebar);
+    });
+})();
+
+// Offcanvas 열릴 때 플로팅 버튼 숨기기
+document.addEventListener('show.bs.offcanvas', function() {
+    var btn = document.querySelector('.floating-search-btn');
+    if (btn) btn.style.visibility = 'hidden';
+});
+document.addEventListener('hidden.bs.offcanvas', function() {
+    var btn = document.querySelector('.floating-search-btn');
+    if (btn) btn.style.visibility = '';
+});
+
 // 안전신문고 링크 클릭 시 첫 TCP 연결 RST 오류 우회
 // fetch로 도메인 연결을 먼저 워밍업한 뒤 탭을 엽니다.
 document.addEventListener('click', function(e) {
