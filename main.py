@@ -11,7 +11,7 @@ import os
 import signal
 
 from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route
-from web.routers import auth_route
+from web.routers import auth_route, api_route
 import subprocess
 import sys
 
@@ -135,6 +135,7 @@ app.include_router(stats.router)
 app.include_router(rating_route.router)
 app.include_router(watchlist_route.router)
 app.include_router(file_browser_route.router)
+app.include_router(api_route.router)
 
 try:
     with open(resource_path("VERSION"), "r", encoding="utf-8") as f:

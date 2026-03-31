@@ -217,7 +217,8 @@
         $('#btnRatingSearch').on('click', function () {
             table.column(4).search($('#sAgency').val()); // 처리기관
             table.column(5).search($('#sPerson').val()); // 담당자
-            table.column(6).search($('#sStatus').val()); // 처리상태
+            var statusVal = $('#sStatus').val().trim();
+            table.column(6).search(statusVal ? '^' + statusVal + '$' : '', true, false); // 처리상태 (완전일치)
             table.column(7).search($('#sFine').val());  // 범칙금_과태료
             table.draw();
         });
