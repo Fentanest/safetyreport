@@ -7,7 +7,8 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
 from .models import (metadata, title_table, detail_traffic_table, detail_other_table,
-                     merge_traffic_table, merge_other_table, watchlist_table, admin_users_table)
+                     merge_traffic_table, merge_other_table, watchlist_table, admin_users_table,
+                     api_keys_table)
 
 def upgrade_schema(engine):
     inspector = inspect(engine)
@@ -383,3 +384,33 @@ def sync_rating_status(engine, report_id, status_str="참여 완료"):
         conn.execute(update(merge_other_table)
                      .where(merge_other_table.c.신고번호 == report_id)
                      .values(만족도조사여부=status_str))
+
+
+# ── API Key CRUD ──────────────────────────────────────────────────────────────
+
+def create_api_key(engine, name: str) -> str:
+    import uuid
+    key = "sk-" + uuid.uuid4().hex
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with engine.begin() as conn:
+        conn.execute(api_keys_table.insert().values(key=key, name=name, created_at=created_at))
+    return key
+
+
+def get_all_api_keys(engine) -> list:
+    with engine.connect() as conn:
+        result = conn.execute(select(api_keys_table).order_by(api_keys_table.c.created_at.desc()))
+        return [dict(row._mapping) for row in result]
+
+
+def delete_api_key(engine, key: str):
+    with engine.begin() as conn:
+        conn.execute(api_keys_table.delete().where(api_keys_table.c.key == key))
+
+
+def validate_api_key(engine, key: str) -> bool:
+    with engine.connect() as conn:
+        result = conn.execute(
+            select(api_keys_table).where(api_keys_table.c.key == key)
+        ).first()
+        return result is not None

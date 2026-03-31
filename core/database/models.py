@@ -75,3 +75,8 @@ admin_users_table = Table('admin_users', metadata,
                           Column('username', String, primary_key=True),
                           Column('password_hash', String, nullable=False),
                           Column('salt', String, nullable=False))
+
+api_keys_table = Table('api_keys', metadata,
+                       Column('key', String, primary_key=True),
+                       Column('name', String, nullable=False),
+                       Column('created_at', String, nullable=False))

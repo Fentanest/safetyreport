@@ -1,12 +1,17 @@
 from fastapi import APIRouter, Request, Form, File, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 import settings.settings as app_settings
 import os
 import re
 
 from core.utils.templating import templates
+from core.database import database
+from sqlalchemy import create_engine
 
 router = APIRouter(prefix="/settings")
+
+def _get_engine():
+    return create_engine(f'sqlite:///{app_settings.db_path}', connect_args={"check_same_thread": False})
 
 @router.get("/")
 async def view_settings(request: Request):
@@ -52,6 +57,8 @@ async def view_settings(request: Request):
         "phone_number": app_settings.config.get('RATING', 'phone_number', fallback=''),
         "remotepath": app_settings.config.get('SELENIUM', 'remotepath', fallback="http://localhost:4444/wd/hub"),
         "google_json_exists": os.path.isfile(auth_path),
+        "session_max_age": int(app_settings.config.get('SETTINGS', 'session_max_age', fallback=10800)),
+        "api_keys": database.get_all_api_keys(_get_engine()),
     })
 
 @router.post("/save")
@@ -76,7 +83,8 @@ async def save_settings(
     scheduler_cron_times: str = Form("09:00"),
     scheduler_interval_start: str = Form("00:00"),
     phone_number: str = Form(""),
-    remotepath: str = Form("http://localhost:4444/wd/hub")
+    remotepath: str = Form("http://localhost:4444/wd/hub"),
+    session_max_age: int = Form(10800)
 ):
     # Regex to extract Google Spreadsheet ID from full URL
     match = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_key)
@@ -108,6 +116,7 @@ async def save_settings(
     app_settings._instance.update_config('SETTINGS', 'exclude_withdraw', exclude_withdraw)
     app_settings._instance.update_config('SETTINGS', 'retry_interval', retry_interval)
     app_settings._instance.update_config('SETTINGS', 'max_retry_attemps', max_retry_attemps)
+    app_settings._instance.update_config('SETTINGS', 'session_max_age', session_max_age)
     app_settings._instance.update_config('SETTINGS', 'log_level', log_level)
 
     app_settings._instance.save()
@@ -120,6 +129,20 @@ async def save_settings(
         logger.LoggerFactory.logbot.error(f"스케줄러 업데이트 실패: {e}")
 
     return RedirectResponse(url="/settings?saved=true", status_code=303)
+
+@router.post("/api-keys/create")
+async def create_api_key(request: Request, key_name: str = Form(...)):
+    engine = _get_engine()
+    new_key = database.create_api_key(engine, key_name.strip() or "unnamed")
+    return JSONResponse({"key": new_key, "name": key_name})
+
+
+@router.post("/api-keys/delete")
+async def delete_api_key(request: Request, key: str = Form(...)):
+    engine = _get_engine()
+    database.delete_api_key(engine, key)
+    return RedirectResponse(url="/settings?saved=true#api-keys", status_code=303)
+
 
 @router.post("/upload_json")
 async def upload_json(file: UploadFile = File(...)):

@@ -173,7 +173,7 @@ async def auth_middleware(request: Request, call_next):
 from starlette.middleware.sessions import SessionMiddleware
 from core.utils.security import get_or_create_session_key
 _session_key = get_or_create_session_key(settings.datapath)
-app.add_middleware(SessionMiddleware, secret_key=_session_key, session_cookie="safetyreport_session")
+app.add_middleware(SessionMiddleware, secret_key=_session_key, session_cookie="safetyreport_session", max_age=settings.session_max_age)
 
 
 def start_server():
