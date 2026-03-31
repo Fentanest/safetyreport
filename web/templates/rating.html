@@ -62,19 +62,23 @@
         <h6 class="fw-bold mb-3">만족도조사 참여 가능 신고건</h6>
         <!-- Advanced Search Form -->
         <form class="row g-3 mb-4" id="ratingSearchForm">
-            <div class="col-md-3">
+            <div class="col-md-2">
+                <label class="form-label">신고명</label>
+                <input type="text" class="form-control form-control-sm" id="sTitle">
+            </div>
+            <div class="col-md-2">
                 <label class="form-label">처리기관</label>
                 <input type="text" class="form-control form-control-sm" id="sAgency">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">담당자</label>
                 <input type="text" class="form-control form-control-sm" id="sPerson">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">처리상태</label>
                 <input type="text" class="form-control form-control-sm" id="sStatus">
             </div>
-            <div class="col-md-3">
+            <div class="col-md-2">
                 <label class="form-label">과태료/범칙금</label>
                 <input type="text" class="form-control form-control-sm" id="sFine">
             </div>
@@ -215,6 +219,7 @@
         connectRatingWs();
 
         $('#btnRatingSearch').on('click', function () {
+            table.column(2).search($('#sTitle').val());  // 신고명
             table.column(4).search($('#sAgency').val()); // 처리기관
             table.column(5).search($('#sPerson').val()); // 담당자
             var statusVal = $('#sStatus').val().trim();
