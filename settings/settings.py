@@ -62,6 +62,7 @@ class AppSettings:
         self.retry_interval = int(self.config.get('SETTINGS', 'retry_interval', fallback=10))
         self.max_retry_attemps = int(self.config.get('SETTINGS', 'max_retry_attemps', fallback=3))
         self.max_empty_pages = int(self.config.get('SETTINGS', 'max_empty_pages', fallback=3))
+        self.session_max_age = int(self.config.get('SETTINGS', 'session_max_age', fallback=10800))
         self.log_level = self.config.get('SETTINGS', 'log_level', fallback="INFO")
         self.TZ = self.config.get('SETTINGS', 'TZ', fallback="Asia/Seoul")
         
