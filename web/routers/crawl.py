@@ -18,6 +18,7 @@ async def crawl_dashboard(request: Request):
     return templates.TemplateResponse(request, "crawl.html", {
         "title": "크롤링 제어 및 모니터링",
         "is_running": crawl_manager.is_crawling(),
+        "crawl_type": app_settings.crawl_type,
         "max_empty_pages": app_settings.config.get('SETTINGS', 'max_empty_pages', fallback=3),
         "google_sheet_enabled": app_settings.google_sheet_enabled
     })
@@ -27,10 +28,12 @@ async def start_crawl(
     login_mode: str = Form("member"),
     queue_list: str = Form(""),
     crawl_mode: str = Form("full"),
+    crawl_type: str = Form("api"),
     max_empty_pages: int = Form(3)
 ):
     import settings.settings as app_settings
     app_settings._instance.update_config('SETTINGS', 'max_empty_pages', max_empty_pages)
+    app_settings._instance.update_config('Crawler', 'crawl_type', crawl_type)
     app_settings._instance.save()
 
     log_dir = os.path.join(settings.datapath, 'logs')
