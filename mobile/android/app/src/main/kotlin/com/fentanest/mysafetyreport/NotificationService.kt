@@ -10,11 +10,13 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.regex.Pattern
 
 class NotificationService : NotificationListenerService() {
     private val TAG = "SafetyReportNS"
     private val CHANNEL_ID = "safetyreport_results"
+    private val notifIdCounter = AtomicInteger(1000)
 
     // 신고번호 패턴 (202x로 시작하는 10~14자리)
     private val reportNoPattern = Pattern.compile("202[0-9]{7,11}")
@@ -33,8 +35,8 @@ class NotificationService : NotificationListenerService() {
         Log.d(TAG, "알림 수신: $packageName")
         Log.d(TAG, "제목: $title, 내용: $text")
 
-        if (packageName == "kr.go.mss.safetyreport" || packageName == "com.kakao.talk") {
-            extractAndProcess(text)
+        if (packageName == "kr.go.safepeople" || packageName == "com.kakao.talk") {
+            extractAndProcess("$title $text")
         }
     }
 
@@ -181,7 +183,7 @@ class NotificationService : NotificationListenerService() {
             .addAction(android.R.drawable.ic_menu_view, "안전신문고에서 보기", pendingIntent)
             .build()
 
-        notificationManager.notify(System.currentTimeMillis().toInt(), notification)
+        notificationManager.notify(notifIdCounter.getAndIncrement(), notification)
         saveToHistory("📋 $name", bodyText, reportNumber)
     }
 

@@ -8,6 +8,7 @@ import '../models/report.dart';
 import '../widgets/report_detail_sheet.dart';
 import 'settings_screen.dart';
 import 'watchlist_screen.dart';
+import 'filtered_list_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -183,22 +184,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
       mainAxisSpacing: 10,
       crossAxisSpacing: 10,
       children: [
-        _buildStatCard('전체', stats.total, Colors.blue, Icons.assignment_rounded),
+        _buildStatCard('전체', stats.total, Colors.blue, Icons.assignment_rounded,
+            filter: (r) => true),
         _buildStatCard('수용', stats.acceptCount, Colors.green,
-            Icons.check_circle_rounded),
+            Icons.check_circle_rounded,
+            filter: (r) =>
+                r.status.contains('수용') && !r.status.contains('불')),
         _buildStatCard('일부수용', stats.partialCount, const Color(0xFF43A047),
-            Icons.check_circle_outline_rounded),
+            Icons.check_circle_outline_rounded,
+            filter: (r) => r.status == '일부수용'),
         _buildStatCard('불수용/기타', stats.rejectCount, Colors.red,
-            Icons.cancel_rounded),
+            Icons.cancel_rounded,
+            filter: (r) =>
+                r.status.contains('불수용') || r.status == '기타'),
         _buildStatCard('처리 중', stats.processingCount, Colors.orange,
-            Icons.pending_rounded),
+            Icons.pending_rounded,
+            filter: (r) =>
+                r.status.contains('처리') || r.status.contains('진행')),
         _buildStatCard('취하', stats.withdrawCount, Colors.grey,
-            Icons.remove_circle_outline_rounded),
+            Icons.remove_circle_outline_rounded,
+            filter: (r) => r.status == '취하'),
       ],
     );
   }
 
-  Widget _buildStatCard(String label, int value, Color color, IconData icon) {
+  Widget _buildStatCard(String label, int value, Color color, IconData icon,
+      {required bool Function(Report) filter}) {
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -206,27 +217,53 @@ class _DashboardScreenState extends State<DashboardScreen> {
         side: BorderSide(color: color.withOpacity(0.2)),
       ),
       color: color.withOpacity(0.06),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(label,
-                    style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: color)),
-                Icon(icon, color: color.withOpacity(0.7), size: 20),
-              ],
-            ),
-            Text('$value건',
-                style: TextStyle(
-                    fontSize: 22, fontWeight: FontWeight.bold, color: color)),
-          ],
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: value > 0
+            ? () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => FilteredListScreen(
+                      title: label,
+                      category: 'all',
+                      filter: filter,
+                    ),
+                  ),
+                )
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: color)),
+                  Icon(icon, color: color.withOpacity(0.7), size: 20),
+                ],
+              ),
+              Row(
+                children: [
+                  Text('$value건',
+                      style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          color: color)),
+                  if (value > 0) ...[
+                    const Spacer(),
+                    Icon(Icons.chevron_right,
+                        size: 16, color: color.withOpacity(0.5)),
+                  ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -244,16 +281,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const Icon(Icons.directions_car, size: 18, color: Colors.blueGrey),
               const SizedBox(width: 6),
               const Text('교통위반 처리 현황',
-                  style:
-                      TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
             ]),
             const SizedBox(height: 14),
             Row(
               children: [
-                _miniStat('과태료', stats.tFineCount, Colors.red),
-                _miniStat('경고/범칙금', stats.tPenaltyCount, Colors.orange),
-                _miniStat('불수용', stats.tRejectCount, Colors.grey),
-                _miniStat('미확인', stats.tUnconfirmedCount, Colors.blueGrey),
+                _miniStat('과태료', stats.tFineCount, Colors.red,
+                    filter: (r) => r.fineInfo.contains('과태료')),
+                _miniStat('경고/범칙금', stats.tPenaltyCount, Colors.orange,
+                    filter: (r) =>
+                        r.fineInfo.contains('경고') ||
+                        r.fineInfo.contains('범칙금')),
+                _miniStat('불수용', stats.tRejectCount, Colors.grey,
+                    filter: (r) =>
+                        r.status.contains('불수용') || r.status == '기타'),
+                _miniStat('미확인', stats.tUnconfirmedCount, Colors.blueGrey,
+                    filter: (r) =>
+                        r.fineInfo == '미확인' &&
+                        !r.status.contains('불수용') &&
+                        r.status != '기타'),
               ],
             ),
           ],
@@ -262,18 +308,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _miniStat(String label, int value, Color color) {
+  Widget _miniStat(String label, int value, Color color,
+      {required bool Function(Report) filter}) {
     return Expanded(
-      child: Column(
-        children: [
-          Text('$value',
-              style: TextStyle(
-                  fontSize: 20, fontWeight: FontWeight.bold, color: color)),
-          const SizedBox(height: 2),
-          Text(label,
-              style:
-                  const TextStyle(fontSize: 11, color: Colors.grey)),
-        ],
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: value > 0
+            ? () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => FilteredListScreen(
+                      title: '교통위반 — $label',
+                      category: 'traffic',
+                      filter: filter,
+                    ),
+                  ),
+                )
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Column(
+            children: [
+              Text('$value',
+                  style: TextStyle(
+                      fontSize: 20, fontWeight: FontWeight.bold, color: color)),
+              const SizedBox(height: 2),
+              Text(label,
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                  textAlign: TextAlign.center),
+            ],
+          ),
+        ),
       ),
     );
   }
