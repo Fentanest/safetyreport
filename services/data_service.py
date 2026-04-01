@@ -50,13 +50,13 @@ def get_dashboard_stats(engine):
                 recent_df = df[(df['답변일'] >= three_days_ago) & (df['답변일'] <= datetime.now().strftime("%Y-%m-%d"))]
                 for _, row in recent_df.iterrows():
                     recent_answers.append({
-                        "ID": row.get('ID', ''),
+                        "ID": str(row.get('ID', '')),
                         "신고번호": row.get('신고번호', ''),
                         "신고명": row.get('신고명', ''),
                         "신고일": row.get('신고일', ''),
                         "처리기관": row.get('처리기관', ''),
                         "담당자": row.get('담당자', ''),
-                        "상태": row.get('처리상태', ''),
+                        "처리상태": row.get('처리상태', ''),
                         "결과": row.get('처리상태', ''),
                         "범칙금_과태료": row.get('범칙금_과태료', ''),
                         "답변일": row.get('답변일', ''),

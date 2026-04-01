@@ -350,8 +350,31 @@
     });
 
     function copyKey() {
-        var key = document.getElementById('newKeyValue').textContent;
-        navigator.clipboard.writeText(key).then(function() { alert('클립보드에 복사되었습니다.'); });
+        var key = document.getElementById('newKeyValue').textContent.trim();
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(key)
+                .then(function() { alert('클립보드에 복사되었습니다.'); })
+                .catch(function() { _fallbackCopy(key); });
+        } else {
+            _fallbackCopy(key);
+        }
+    }
+
+    function _fallbackCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try {
+            document.execCommand('copy');
+            alert('클립보드에 복사되었습니다.');
+        } catch (e) {
+            prompt('아래 키를 직접 복사하세요 (Ctrl+C):', text);
+        }
+        document.body.removeChild(ta);
     }
 </script>
 {% endblock %}

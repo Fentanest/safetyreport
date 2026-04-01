@@ -9,7 +9,7 @@ def build():
     options = [
         'main.py',
         '--name=mysafetyreport',
-        '--icon=logo.ico',
+        '--icon=safetyreport.ico',
         '--clean',
         '--noconfirm',
         # Add Jinja2 templates, Static files, and VERSION

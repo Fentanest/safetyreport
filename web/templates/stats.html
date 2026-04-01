@@ -127,9 +127,9 @@
                     <thead>
                         <tr>
                             <th>처리기관</th>
-                            <th>총 처리건수</th>
-                            <th>과태료 부여</th><th>비율</th>
-                            <th>경고장/범칙금 발부</th><th>비율</th>
+                            <th class="text-center">총 처리건수</th>
+                            <th>과태료</th><th>비율</th>
+                            <th>경고장/범칙금</th><th>비율</th>
                             <th>불수용/기타</th><th>비율</th>
                         </tr>
                     </thead>
@@ -138,7 +138,7 @@
                         <tr style="cursor: pointer;"
                             onclick="window.location.href='/data/traffic?agency={{ r.agency }}'">
                             <td>{{ r.agency }}</td>
-                            <td data-order="{{ r.total }}"><b>{{ r.total }}</b>건</td>
+                            <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                             <td data-order="{{ r.fines }}" class="text-center"><span class="text-danger fw-bold">{{ r.fines }}</span></td>
                             <td class="text-center text-muted">{{ r.fines_pct }}%</td>
                             <td data-order="{{ r.warnings }}" class="text-center">{{ r.warnings }}</td>
@@ -158,10 +158,10 @@
                     <thead>
                         <tr>
                             <th>처리기관</th>
-                            <th>담당자</th>
-                            <th>총 처리건수</th>
-                            <th>과태료 부여</th><th>비율</th>
-                            <th>경고장/범칙금 발부</th><th>비율</th>
+                            <th class="text-center">담당자</th>
+                            <th class="text-center">총 처리건수</th>
+                            <th>과태료</th><th>비율</th>
+                            <th>경고장/범칙금</th><th>비율</th>
                             <th>불수용/기타</th><th>비율</th>
                         </tr>
                     </thead>
@@ -170,8 +170,8 @@
                         <tr style="cursor: pointer;"
                             onclick="window.location.href='/data/traffic?agency={{ r.agency }}&person={{ r.person }}'">
                             <td>{{ r.agency }}</td>
-                            <td>{{ r.person }}</td>
-                            <td data-order="{{ r.total }}"><b>{{ r.total }}</b>건</td>
+                            <td class="text-center">{{ r.person }}</td>
+                            <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                             <td data-order="{{ r.fines }}" class="text-center"><span class="text-danger fw-bold">{{ r.fines }}</span></td>
                             <td class="text-center text-muted">{{ r.fines_pct }}%</td>
                             <td data-order="{{ r.warnings }}" class="text-center">{{ r.warnings }}</td>
@@ -191,9 +191,9 @@
                     <thead>
                         <tr>
                             <th>처리기관</th>
-                            <th>총 처리건수</th>
-                            <th>과태료 부여</th><th>비율</th>
-                            <th>경고장/범칙금 발부</th><th>비율</th>
+                            <th class="text-center">총 처리건수</th>
+                            <th>과태료</th><th>비율</th>
+                            <th>경고장/범칙금</th><th>비율</th>
                             <th>불수용/기타</th><th>비율</th>
                         </tr>
                     </thead>
@@ -201,7 +201,7 @@
                         {% for r in records_other_agency %}
                         <tr style="cursor: pointer;" onclick="window.location.href='/data/other?agency={{ r.agency }}'">
                             <td>{{ r.agency }}</td>
-                            <td data-order="{{ r.total }}"><b>{{ r.total }}</b>건</td>
+                            <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                             <td data-order="{{ r.fines }}" class="text-center"><span class="text-danger fw-bold">{{ r.fines }}</span></td>
                             <td class="text-center text-muted">{{ r.fines_pct }}%</td>
                             <td data-order="{{ r.warnings }}" class="text-center">{{ r.warnings }}</td>
@@ -221,10 +221,10 @@
                     <thead>
                         <tr>
                             <th>처리기관</th>
-                            <th>담당자</th>
-                            <th>총 처리건수</th>
-                            <th>과태료 부여</th><th>비율</th>
-                            <th>경고장/범칙금 발부</th><th>비율</th>
+                            <th class="text-center">담당자</th>
+                            <th class="text-center">총 처리건수</th>
+                            <th>과태료</th><th>비율</th>
+                            <th>경고장/범칙금</th><th>비율</th>
                             <th>불수용/기타</th><th>비율</th>
                         </tr>
                     </thead>
@@ -233,8 +233,8 @@
                         <tr style="cursor: pointer;"
                             onclick="window.location.href='/data/other?agency={{ r.agency }}&person={{ r.person }}'">
                             <td>{{ r.agency }}</td>
-                            <td>{{ r.person }}</td>
-                            <td data-order="{{ r.total }}"><b>{{ r.total }}</b>건</td>
+                            <td class="text-center">{{ r.person }}</td>
+                            <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                             <td data-order="{{ r.fines }}" class="text-center"><span class="text-danger fw-bold">{{ r.fines }}</span></td>
                             <td class="text-center text-muted">{{ r.fines_pct }}%</td>
                             <td data-order="{{ r.warnings }}" class="text-center">{{ r.warnings }}</td>

@@ -149,10 +149,29 @@ async def inject_version_middleware(request: Request, call_next):
     response = await call_next(request)
     return response
 
+# ── 세션 만료 / 미인증 응답 ────────────────────────────────────────────────────
+
+def _is_ajax(request: Request) -> bool:
+    """fetch/XHR 요청 여부 판단 (Accept 헤더 또는 X-Requested-With)."""
+    accept = request.headers.get("accept", "")
+    return (
+        "application/json" in accept
+        or request.headers.get("x-requested-with", "").lower() == "xmlhttprequest"
+    )
+
+def _login_redirect(request: Request):
+    from fastapi.responses import RedirectResponse, JSONResponse
+    if _is_ajax(request):
+        return JSONResponse({"detail": "session_expired"}, status_code=401)
+    next_path = request.url.path
+    if next_path and next_path not in ("/login", "/logout", "/setup"):
+        return RedirectResponse(f"/login?next={next_path}", status_code=302)
+    return RedirectResponse("/login", status_code=302)
+
 # ── 인증 미들웨어 ──────────────────────────────────────────────────────────────
 
 _PUBLIC_PATHS = {"/login", "/setup", "/logout"}
-_PUBLIC_PREFIXES = ("/static/",)
+_PUBLIC_PREFIXES = ("/static/", "/api/v1/")
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
@@ -161,13 +180,22 @@ async def auth_middleware(request: Request, call_next):
     if (path in _PUBLIC_PATHS
             or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
             or request.headers.get("upgrade", "").lower() == "websocket"):
+        try:
+            return await call_next(request)
+        except Exception:
+            from fastapi.responses import Response
+            return Response(status_code=500)
+
+    try:
+        if not request.session.get("admin_logged_in"):
+            return _login_redirect(request)
         return await call_next(request)
-
-    if not request.session.get("admin_logged_in"):
-        from fastapi.responses import RedirectResponse as RR
-        return RR("/login", status_code=302)
-
-    return await call_next(request)
+    except Exception:
+        # 미들웨어 예외가 ASGI 소켓을 닫아 nginx 502로 이어지는 것을 방지
+        if not request.session.get("admin_logged_in", False):
+            return _login_redirect(request)
+        from fastapi.responses import Response
+        return Response(status_code=500)
 
 # SessionMiddleware는 마지막에 추가해야 가장 바깥에서(먼저) 실행됨
 from starlette.middleware.sessions import SessionMiddleware
