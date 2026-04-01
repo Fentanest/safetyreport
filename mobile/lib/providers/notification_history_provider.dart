@@ -49,6 +49,48 @@ class NotificationHistoryProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> addFromServerResults(List<Map<String, dynamic>> serverData, {bool isMobileTriggered = false}) async {
+    final now = DateTime.now();
+    final ts = '${now.year}-${now.month.toString().padLeft(2,'0')}-${now.day.toString().padLeft(2,'0')} ${now.hour.toString().padLeft(2,'0')}:${now.minute.toString().padLeft(2,'0')}:${now.second.toString().padLeft(2,'0')}';
+    final List<NotificationItem> newItems = [];
+
+    if (serverData.isEmpty) {
+      newItems.add(NotificationItem(
+        id: '${now.millisecondsSinceEpoch}',
+        title: isMobileTriggered ? '📱 크롤링 완료' : '🖥️ 크롤링 완료',
+        body: '변경된 신고건이 없습니다.',
+        reportNumber: '',
+        timestamp: ts,
+        isRead: false,
+      ));
+    } else {
+      for (final r in serverData) {
+        final rnum = r['신고번호']?.toString() ?? '';
+        final name = r['신고명']?.toString() ?? '신고';
+        final status = r['처리상태']?.toString() ?? '';
+        final agency = r['처리기관']?.toString() ?? '';
+        final fine = r['범칙금_과태료']?.toString() ?? '';
+        final lines = <String>[];
+        if (rnum.isNotEmpty) lines.add('신고번호: $rnum');
+        if (status.isNotEmpty) lines.add('처리상태: $status');
+        if (agency.isNotEmpty) lines.add('처리기관: $agency');
+        if (fine.isNotEmpty && fine != '미확인' && fine != 'null') lines.add('범칙금/과태료: $fine');
+        newItems.add(NotificationItem(
+          id: '${now.millisecondsSinceEpoch}_$rnum',
+          title: '📋 $name',
+          body: lines.join('\n'),
+          reportNumber: rnum,
+          timestamp: ts,
+          isRead: false,
+        ));
+      }
+    }
+
+    _items.insertAll(0, newItems);
+    await _save();
+    notifyListeners();
+  }
+
   Future<void> _save() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(

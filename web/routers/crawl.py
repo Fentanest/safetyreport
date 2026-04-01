@@ -34,6 +34,8 @@ async def start_crawl(
     import settings.settings as app_settings
     app_settings._instance.update_config('SETTINGS', 'max_empty_pages', max_empty_pages)
     app_settings._instance.update_config('Crawler', 'crawl_type', crawl_type)
+    save_mode = 'full' if crawl_mode == 'reset' else crawl_mode
+    app_settings._instance.update_config('SETTINGS', 'crawl_mode', save_mode)
     app_settings._instance.save()
 
     log_dir = os.path.join(settings.datapath, 'logs')

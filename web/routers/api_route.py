@@ -103,12 +103,47 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
     cmd.append("--queue")
     cmd.append(queue_file)
 
+    import datetime, shutil, threading
     log_dir = os.path.join(settings.datapath, 'logs')
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, 'current_crawl.log')
+
+    # 기존 로그 백업
+    if os.path.exists(log_file):
+        try:
+            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
+            dst = os.path.join(log_dir, f"crawl_{now_str}.log")
+            shutil.copy2(log_file, dst)
+        except Exception:
+            pass
+
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write(f"=== [모바일에서 시작된 크롤링] - 신고번호: {report_number} ===\n")
+
     work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 
     if crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
+        proc = crawl_manager.get_process()
+
+        def wait_and_rotate(p, lpath):
+            if p:
+                p.wait()
+            crawl_manager.clear_process()
+            import time, shutil as sh, datetime as dt
+            time.sleep(1)
+            if os.path.exists(lpath):
+                now_str = dt.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
+                dst = os.path.join(os.path.dirname(lpath), f"crawl_{now_str}.log")
+                try:
+                    with open(lpath, 'a', encoding='utf-8') as f:
+                        f.write(f"\n[시스템] 크롤링 작업이 완료되었습니다.\n")
+                    sh.copy2(lpath, dst)
+                except Exception:
+                    pass
+
+        if proc:
+            threading.Thread(target=wait_and_rotate, args=(proc, log_file), daemon=True).start()
+
         return {"status": "success", "message": f"Report {report_number} has been enqueued and crawling started."}
     else:
         return {"status": "error", "message": "크롤링 프로세스를 시작하지 못했습니다."}
@@ -121,6 +156,151 @@ async def get_crawl_results(_: str = Depends(_require_api_key)):
         return {"status": "success", "count": len(changes), "data": changes}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/crawl/status")
+async def get_crawl_status(_: str = Depends(_require_api_key)):
+    """크롤링 실행 중 여부 확인"""
+    from services.crawl_manager import crawl_manager
+    return {"status": "success", "running": crawl_manager.is_crawling()}
+
+
+@router.get("/crawl/done")
+async def get_crawl_done(_: str = Depends(_require_api_key)):
+    """크롤링 완료 여부 및 변경 건수 조회 (확인 후 자동 삭제)"""
+    try:
+        done = data_service.get_and_clear_crawl_done()
+        if done is None:
+            return {"status": "success", "done": False}
+        return {"status": "success", "done": True, "timestamp": done["timestamp"], "changed_count": done["changed_count"]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/crawl/config")
+async def get_crawl_config(_: str = Depends(_require_api_key)):
+    """크롤링 설정 조회 (저장된 crawl_type, max_empty_pages)"""
+    import settings.settings as s
+    s._instance.load()
+    return {
+        "status": "success",
+        "data": {
+            "crawl_type": s.crawl_type,
+            "crawl_mode": s.crawl_mode,
+            "max_empty_pages": s.max_empty_pages,
+        }
+    }
+
+
+@router.post("/crawl/start")
+async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key)):
+    """모바일에서 크롤링 시작"""
+    import sys, os, datetime, shutil, threading
+    from services.crawl_manager import crawl_manager
+
+    if crawl_manager.is_crawling():
+        raise HTTPException(status_code=409, detail="크롤링이 이미 실행 중입니다.")
+
+    body = await request.json()
+    login_mode = body.get("login_mode", "member")
+    crawl_type = body.get("crawl_type", "api")
+    crawl_mode = body.get("crawl_mode", "full")
+    max_empty_pages = int(body.get("max_empty_pages", 3))
+    queue_list = body.get("queue_list", "").strip()
+
+    import settings.settings as app_settings
+    app_settings._instance.update_config('SETTINGS', 'max_empty_pages', max_empty_pages)
+    app_settings._instance.update_config('Crawler', 'crawl_type', crawl_type)
+    save_mode = 'full' if crawl_mode == 'reset' else crawl_mode
+    app_settings._instance.update_config('SETTINGS', 'crawl_mode', save_mode)
+    app_settings._instance.save()
+
+    is_frozen = getattr(sys, 'frozen', False)
+    cmd = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
+
+    if login_mode == "nonmember":
+        cmd.append("--nonmember")
+    if crawl_mode == "min":
+        cmd.append("--min")
+    elif crawl_mode == "reset":
+        cmd.append("--reset")
+
+    if queue_list:
+        queue_file = os.path.join(settings.datapath, 'mobile_queue.txt')
+        with open(queue_file, 'w', encoding='utf-8') as qf:
+            qf.write(queue_list)
+        cmd.extend(["--queue", queue_file])
+
+    log_dir = os.path.join(settings.datapath, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, 'current_crawl.log')
+
+    if os.path.exists(log_file):
+        try:
+            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
+            dst = os.path.join(log_dir, f"crawl_{now_str}.log")
+            shutil.copy2(log_file, dst)
+        except Exception:
+            pass
+
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write("=== [모바일에서 시작된 크롤링] ===\n")
+
+    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    if not crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
+        raise HTTPException(status_code=500, detail="크롤링 프로세스를 시작하지 못했습니다.")
+
+    proc = crawl_manager.get_process()
+
+    def _wait_and_rotate(p, lpath):
+        if p:
+            p.wait()
+        crawl_manager.clear_process()
+        import time, shutil as sh, datetime as dt
+        time.sleep(1)
+        if os.path.exists(lpath):
+            ts = dt.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
+            dst = os.path.join(os.path.dirname(lpath), f"crawl_{ts}.log")
+            try:
+                with open(lpath, 'a', encoding='utf-8') as f:
+                    f.write("\n[시스템] 크롤링 작업이 완료되었습니다.\n")
+                sh.copy2(lpath, dst)
+            except Exception:
+                pass
+
+    if proc:
+        threading.Thread(target=_wait_and_rotate, args=(proc, log_file), daemon=True).start()
+
+    return {"status": "success", "message": "크롤링이 시작되었습니다."}
+
+
+@router.post("/crawl/kill")
+async def mobile_kill_crawl(_: str = Depends(_require_api_key)):
+    """모바일에서 크롤링 강제 중지"""
+    import os
+    from services.crawl_manager import crawl_manager
+    import settings.settings as app_settings
+    if not crawl_manager.is_crawling():
+        raise HTTPException(status_code=409, detail="실행 중인 크롤링이 없습니다.")
+    try:
+        crawl_manager.stop_crawl()
+        log_file = os.path.join(app_settings.datapath, 'logs', 'current_crawl.log')
+        with open(log_file, 'a', encoding='utf-8') as f:
+            f.write("\n[시스템] 사용자 요청으로 크롤링 프로세스가 강제 종료되었습니다.\n")
+        return {"status": "success", "message": "크롤링이 강제 중지되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/crawl/resume")
+async def mobile_resume_crawl(_: str = Depends(_require_api_key)):
+    """모바일에서 크롤링 재개 (비회원 수동 로그인 완료 신호)"""
+    import os
+    import settings.settings as app_settings
+    signal_file = os.path.join(app_settings.datapath, 'resume.sig')
+    with open(signal_file, 'w', encoding='utf-8') as f:
+        f.write("RESUME")
+    return {"status": "success", "message": "크롤링 재개 신호가 전송되었습니다."}
 
 
 @router.get("/files")

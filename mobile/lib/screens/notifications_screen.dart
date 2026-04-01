@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/notification_item.dart';
 import '../providers/notification_history_provider.dart';
+import '../providers/report_provider.dart';
+import '../services/api_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -12,12 +15,14 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen>
     with WidgetsBindingObserver {
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<NotificationHistoryProvider>().load();
+      _fetchServerResults();
     });
   }
 
@@ -31,7 +36,30 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       context.read<NotificationHistoryProvider>().load();
+      _fetchServerResults();
     }
+  }
+
+  ApiService? _getApi() {
+    final p = context.read<ReportProvider>();
+    if (p.baseUrl.isEmpty) return null;
+    return ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
+  }
+
+  /// 서버에서 크롤링 완료 결과 가져와 알림 히스토리에 추가
+  Future<void> _fetchServerResults() async {
+    final api = _getApi();
+    if (api == null) return;
+    try {
+      final done = await api.getCrawlDone();
+      if (done['done'] == true) {
+        final results = await api.fetchCrawlResults();
+        if (mounted) {
+          await context.read<NotificationHistoryProvider>()
+              .addFromServerResults(results);
+        }
+      }
+    } catch (_) {}
   }
 
   Future<bool> _confirmClear(BuildContext context) async {
@@ -47,8 +75,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, true),
-                style: FilledButton.styleFrom(
-                    backgroundColor: Colors.red),
+                style: FilledButton.styleFrom(backgroundColor: Colors.red),
                 child: const Text('삭제'),
               ),
             ],
@@ -110,8 +137,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             SizedBox(
                 width: 72,
                 child: Text(label,
-                    style: const TextStyle(
-                        color: Colors.grey, fontSize: 13))),
+                    style: const TextStyle(color: Colors.grey, fontSize: 13))),
             Expanded(
                 child: Text(value,
                     style: const TextStyle(fontSize: 13))),
@@ -150,7 +176,10 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: '새로고침',
-            onPressed: provider.load,
+            onPressed: () {
+              provider.load();
+              _fetchServerResults();
+            },
           ),
         ],
       ),
@@ -166,7 +195,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                       style: TextStyle(color: Colors.grey, fontSize: 15)),
                   const SizedBox(height: 8),
                   const Text(
-                    '카카오톡·안전신문고 알림이 감지되면\n크롤링 결과가 여기에 기록됩니다.',
+                    '카카오톡·안전신문고 알림이 감지되거나\n크롤링이 완료되면 여기에 기록됩니다.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.grey, fontSize: 12, height: 1.5),
                   ),
@@ -205,7 +234,6 @@ class _NotifTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 읽음 표시 점
             Padding(
               padding: const EdgeInsets.only(top: 5, right: 10),
               child: Container(
@@ -217,7 +245,6 @@ class _NotifTile extends StatelessWidget {
                 ),
               ),
             ),
-            // 아이콘
             Container(
               width: 40,
               height: 40,
@@ -229,7 +256,6 @@ class _NotifTile extends StatelessWidget {
                   color: Colors.blue.shade700, size: 20),
             ),
             const SizedBox(width: 12),
-            // 내용
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
