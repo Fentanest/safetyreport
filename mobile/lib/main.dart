@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/report_list_screen.dart';
-import 'screens/search_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/setup_screen.dart';
 import 'screens/file_browser_screen.dart';
@@ -125,7 +124,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   final List<Widget> _screens = [
     const DashboardScreen(),
     const ReportListScreen(),
-    const SearchScreen(),
     const StatisticsScreen(),
     const NotificationsScreen(),
     const FileBrowserScreen(),
@@ -154,8 +152,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
           setState(() => _selectedIndex = index);
-          // 알림 탭 선택 시 새로고침
-          if (index == 4) {
+          // 알림 탭(index 3) 선택 시 새로고침
+          if (index == 3) {
             context.read<NotificationHistoryProvider>().load();
           }
         },
@@ -169,11 +167,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             icon: Icon(Icons.list_alt_outlined),
             selectedIcon: Icon(Icons.list_alt),
             label: '신고리스트',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.search_outlined),
-            selectedIcon: Icon(Icons.search),
-            label: '검색',
           ),
           const NavigationDestination(
             icon: Icon(Icons.bar_chart_outlined),

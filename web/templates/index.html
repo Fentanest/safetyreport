@@ -14,7 +14,7 @@
 
 <div class="row mb-1">
     <div class="col-md-3 mb-3">
-        <div class="card card-custom bg-primary text-white h-100 shadow-sm border-0">
+        <div class="card card-custom bg-primary text-white h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/all'">
             <div class="card-body text-center">
                 <h6 class="card-title fw-bold">총 신고</h6>
                 <h3 class="card-text fw-bold">{{ total }}</h3>
@@ -22,7 +22,7 @@
         </div>
     </div>
     <div class="col-md-3 mb-3">
-        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #6c757d;">
+        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #6c757d; cursor: pointer;" onclick="window.location.href='/data/all?status=처리중'">
             <div class="card-body text-center">
                 <h6 class="card-title fw-bold">처리 중</h6>
                 <h3 class="card-text fw-bold">{{ processingCount }}</h3>
@@ -30,7 +30,7 @@
         </div>
     </div>
     <div class="col-md-3 mb-3">
-        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #0dcaf0;">
+        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #0dcaf0; cursor: pointer;" onclick="window.location.href='/data/all?status=완료'">
             <div class="card-body text-center">
                 <h6 class="card-title fw-bold">답변 완료</h6>
                 <h3 class="card-text fw-bold">{{ completedCount }}</h3>
@@ -38,7 +38,7 @@
         </div>
     </div>
     <div class="col-md-3 mb-3">
-        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #adb5bd;">
+        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #adb5bd; cursor: pointer;" onclick="window.location.href='/data/all?status=취하'">
             <div class="card-body text-center">
                 <h6 class="card-title fw-bold">취하</h6>
                 <h3 class="card-text fw-bold">{{ withdrawCount }}</h3>
@@ -49,7 +49,7 @@
 
 <div class="row mb-3">
     <div class="col-md-4 mb-3">
-        <div class="card card-custom bg-success text-white h-100 shadow-sm border-0">
+        <div class="card card-custom bg-success text-white h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/all?status=수용'">
             <div class="card-body text-center">
                 <h6 class="card-title fw-bold">수용</h6>
                 <h3 class="card-text fw-bold">{{ acceptCount }}</h3>
@@ -57,7 +57,7 @@
         </div>
     </div>
     <div class="col-md-4 mb-3">
-        <div class="card card-custom bg-warning text-dark h-100 shadow-sm border-0">
+        <div class="card card-custom bg-warning text-dark h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/all?status=일부수용'">
             <div class="card-body text-center">
                 <h6 class="card-title fw-bold">일부수용</h6>
                 <h3 class="card-text fw-bold">{{ partialCount }}</h3>
@@ -65,7 +65,7 @@
         </div>
     </div>
     <div class="col-md-4 mb-3">
-        <div class="card card-custom bg-danger text-white h-100 shadow-sm border-0">
+        <div class="card card-custom bg-danger text-white h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/all?status=불수용'">
             <div class="card-body text-center">
                 <h6 class="card-title fw-bold">불수용/기타</h6>
                 <h3 class="card-text fw-bold">{{ rejectCount }}</h3>
@@ -115,7 +115,7 @@
 
 <div class="row mb-3">
     <div class="col-md-3 mb-3">
-        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #e83e8c;">
+        <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #e83e8c; cursor: pointer;" onclick="window.location.href='/data/traffic?fine=과태료'">
             <div class="card-body text-center">
                 <h6 class="card-title fw-bold">과태료 부과</h6>
                 <h3 class="card-text fw-bold">{{ tFineCount }}</h3>
@@ -123,7 +123,7 @@
         </div>
     </div>
     <div class="col-md-3 mb-3">
-        <div class="card card-custom bg-secondary text-white h-100 shadow-sm border-0">
+        <div class="card card-custom bg-secondary text-white h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/traffic?fine=경고'">
             <div class="card-body text-center">
                 <h6 class="card-title fw-bold">경고장/범칙금 발부</h6>
                 <h3 class="card-text fw-bold">{{ tPenaltyCount }}</h3>
@@ -131,7 +131,7 @@
         </div>
     </div>
     <div class="col-md-3 mb-3">
-        <div class="card card-custom bg-danger text-white h-100 shadow-sm border-0">
+        <div class="card card-custom bg-danger text-white h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/traffic?status=불수용'">
             <div class="card-body text-center">
                 <h6 class="card-title fw-bold">불수용/기타</h6>
                 <h3 class="card-text fw-bold">{{ tRejectCount }}</h3>
@@ -139,7 +139,7 @@
         </div>
     </div>
     <div class="col-md-3 mb-3">
-        <div class="card card-custom bg-light text-dark h-100 shadow-sm border-1 border-secondary">
+        <div class="card card-custom bg-light text-dark h-100 shadow-sm border-1 border-secondary" style="cursor: pointer;" onclick="window.location.href='/data/traffic?fine=미확인'">
             <div class="card-body text-center">
                 <h6 class="card-title fw-bold text-secondary">미확인</h6>
                 <h3 class="card-text fw-bold">{{ tUnconfirmedCount }}</h3>

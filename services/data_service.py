@@ -124,16 +124,16 @@ def get_dashboard_stats(engine):
         "exclude_withdraw": app_settings.exclude_withdraw
     }
 
-def _get_records_from_table(engine, table_obj):
+def _get_records_from_table(engine, table_obj, filters=None):
     with engine.connect() as conn:
         df = pd.read_sql_query(select(table_obj).order_by(desc('신고번호')), conn)
-        
+
         df_watch = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
         watch_ids = set(df_watch['신고번호'].tolist())
 
         if app_settings.exclude_withdraw and not df.empty:
             df = df[df['처리상태'] != '취하']
-            
+
         if app_settings.normalize_police and not df.empty and '처리기관' in df.columns:
             def norm_police(x):
                 x = str(x)
@@ -142,17 +142,53 @@ def _get_records_from_table(engine, table_obj):
                     return x[:idx + 3]
                 return x
             df['처리기관'] = df['처리기관'].apply(norm_police)
-            
+
+        if filters and not df.empty:
+            status = filters.get('status')
+            if status:
+                if status == '처리중':
+                    df = df[df['처리상태'].isin(['처리중', '진행', '진행중'])]
+                elif status == '완료':
+                    df = df[df['처리상태'].isin(['수용', '불수용', '일부수용', '기타', '답변완료'])]
+                elif status == '불수용':
+                    df = df[df['처리상태'].isin(['불수용', '기타'])]
+                else:
+                    df = df[df['처리상태'] == status]
+
+            fine = filters.get('fine')
+            if fine and '범칙금_과태료' in df.columns:
+                if fine == '과태료':
+                    df = df[df['범칙금_과태료'].str.contains('과태료', na=False)]
+                elif fine == '경고':
+                    df = df[df['범칙금_과태료'].str.contains('경고|범칙금', na=False)]
+                elif fine == '미확인':
+                    df = df[(df['범칙금_과태료'] == '미확인') & (~df['처리상태'].isin(['불수용', '기타']))]
+
+            agency = filters.get('agency')
+            if agency and '처리기관' in df.columns:
+                df = df[df['처리기관'].str.contains(agency, na=False, regex=False)]
+
+            person = filters.get('person')
+            if person and '담당자' in df.columns:
+                df = df[df['담당자'] == person]
+
         if not df.empty:
             df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
-            
+
         return df.to_dict(orient="records") if not df.empty else []
 
-def get_traffic_records(engine):
-    return _get_records_from_table(engine, database.merge_traffic_table)
+def get_traffic_records(engine, filters=None):
+    return _get_records_from_table(engine, database.merge_traffic_table, filters)
 
-def get_other_records(engine):
-    return _get_records_from_table(engine, database.merge_other_table)
+def get_other_records(engine, filters=None):
+    return _get_records_from_table(engine, database.merge_other_table, filters)
+
+def get_all_records(engine, filters=None):
+    traffic = _get_records_from_table(engine, database.merge_traffic_table, filters)
+    other = _get_records_from_table(engine, database.merge_other_table, filters)
+    combined = traffic + other
+    combined.sort(key=lambda x: x.get('신고번호', '') or '', reverse=True)
+    return combined
 
 def get_duplicate_records(engine):
     with engine.connect() as conn:

@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/agency_stats.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import 'filtered_list_screen.dart';
 
 class StatisticsScreen extends StatefulWidget {
   const StatisticsScreen({super.key});
@@ -73,10 +74,10 @@ class _StatisticsScreenState extends State<StatisticsScreen>
               : TabBarView(
                   controller: _tab,
                   children: [
-                    _StatsTable(rows: _stats!.traffic.byAgency, showPerson: false),
-                    _StatsTable(rows: _stats!.traffic.byPerson, showPerson: true),
-                    _StatsTable(rows: _stats!.other.byAgency, showPerson: false),
-                    _StatsTable(rows: _stats!.other.byPerson, showPerson: true),
+                    _StatsTable(rows: _stats!.traffic.byAgency, showPerson: false, category: 'traffic'),
+                    _StatsTable(rows: _stats!.traffic.byPerson, showPerson: true, category: 'traffic'),
+                    _StatsTable(rows: _stats!.other.byAgency, showPerson: false, category: 'other'),
+                    _StatsTable(rows: _stats!.other.byPerson, showPerson: true, category: 'other'),
                   ],
                 ),
     );
@@ -106,8 +107,9 @@ class _StatisticsScreenState extends State<StatisticsScreen>
 class _StatsTable extends StatelessWidget {
   final List<AgencyStatRow> rows;
   final bool showPerson;
+  final String category; // 'traffic' or 'other'
 
-  const _StatsTable({required this.rows, required this.showPerson});
+  const _StatsTable({required this.rows, required this.showPerson, required this.category});
 
   @override
   Widget build(BuildContext context) {
@@ -118,13 +120,12 @@ class _StatsTable extends StatelessWidget {
     }
 
     return RefreshIndicator(
-      onRefresh: () async {
-        // StatisticsScreen의 _load를 직접 호출할 수 없으므로 부모 state를 통해
-      },
+      onRefresh: () async {},
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
         itemCount: rows.length,
-        itemBuilder: (context, i) => _RowCard(row: rows[i], showPerson: showPerson, rank: i + 1),
+        itemBuilder: (context, i) => _RowCard(
+            row: rows[i], showPerson: showPerson, rank: i + 1, category: category),
       ),
     );
   }
@@ -134,8 +135,13 @@ class _RowCard extends StatelessWidget {
   final AgencyStatRow row;
   final bool showPerson;
   final int rank;
+  final String category;
 
-  const _RowCard({required this.row, required this.showPerson, required this.rank});
+  const _RowCard(
+      {required this.row,
+      required this.showPerson,
+      required this.rank,
+      required this.category});
 
   @override
   Widget build(BuildContext context) {
@@ -143,7 +149,30 @@ class _RowCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () {
+          final agency = row.agency;
+          final person = showPerson ? row.person : '';
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => FilteredListScreen(
+                title: (showPerson && person.isNotEmpty)
+                    ? '$agency / $person'
+                    : agency,
+                category: category,
+                filter: (r) {
+                  final agencyMatch = r.agency.contains(agency);
+                  final personMatch =
+                      person.isEmpty || r.manager == person;
+                  return agencyMatch && personMatch;
+                },
+              ),
+            ),
+          );
+        },
+        child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -242,7 +271,8 @@ class _RowCard extends StatelessWidget {
           ],
         ),
       ),
-    );
+    ),
+  );
   }
 
   Widget _statBadge(String label, int count, double pct, Color color) {
