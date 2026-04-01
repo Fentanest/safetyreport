@@ -110,8 +110,8 @@ class WsService : Service() {
                 // http → ws, https → wss 변환
                 val wsUrl = baseUrl
                     .replace(Regex("^https://"), "wss://")
-                    .replace(Regex("^http://"),  "ws://")
-                    + "/ws/events?api_key=$apiKey"
+                    .replace(Regex("^http://"), "ws://") +
+                    "/ws/events?api_key=$apiKey"
 
                 Log.i(TAG, "WS 연결 시도 #$attempt: $wsUrl")
                 updateForegroundNotif("서버 연결 중... (#$attempt)")
