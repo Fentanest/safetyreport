@@ -12,7 +12,8 @@ logs/
 config.ini
 .env
 *.json
-GEMINI.md
+*.md
+test_*
 
 # Build & Packaging
 dist/
