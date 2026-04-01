@@ -22,10 +22,13 @@ async def main():
         sys.exit(0)
 
     if len(sys.argv) < 2:
-        print("Usage: python notifier.py <message>")
-        sys.exit(1)
-
-    message = sys.argv[1]
+        if not sys.stdin.isatty():
+            message = sys.stdin.read()
+        else:
+            print("Usage: python notifier.py <message> or echo <message> | python notifier.py")
+            sys.exit(1)
+    else:
+        message = sys.argv[1]
     bot = telegram.Bot(token=settings.telegram_token)
 
     max_len = 4096
