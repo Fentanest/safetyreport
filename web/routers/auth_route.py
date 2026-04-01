@@ -58,28 +58,31 @@ async def login_page(request: Request):
     if not database.has_admin_user(engine):
         return RedirectResponse("/setup", status_code=302)
     error = request.query_params.get("error")
-    return templates.TemplateResponse(request, "login.html", {"error": error})
+    next_path = request.query_params.get("next", "")
+    return templates.TemplateResponse(request, "login.html", {"error": error, "next": next_path})
 
 
 @router.post("/login")
 async def do_login(
     request: Request,
     username: str = Form(...),
-    password: str = Form(...)
+    password: str = Form(...),
+    next: str = Form(default="")
 ):
     engine = _get_engine()
     user = database.get_admin_user(engine, username.strip())
 
     if not user:
-        return RedirectResponse("/login?error=아이디 또는 비밀번호가 올바르지 않습니다.", status_code=303)
+        return RedirectResponse(f"/login?error=아이디 또는 비밀번호가 올바르지 않습니다.&next={next}", status_code=303)
 
     from core.utils.security import verify_password
     if not verify_password(password, user["salt"], user["password_hash"]):
-        return RedirectResponse("/login?error=아이디 또는 비밀번호가 올바르지 않습니다.", status_code=303)
+        return RedirectResponse(f"/login?error=아이디 또는 비밀번호가 올바르지 않습니다.&next={next}", status_code=303)
 
     request.session["admin_logged_in"] = True
     request.session["admin_username"] = username.strip()
-    return RedirectResponse("/", status_code=303)
+    redirect_to = next if (next and next.startswith("/") and not next.startswith("//")) else "/"
+    return RedirectResponse(redirect_to, status_code=303)
 
 
 # ── 로그아웃 ──────────────────────────────────────────────────────────────────
