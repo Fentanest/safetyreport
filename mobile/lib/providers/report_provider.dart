@@ -110,6 +110,7 @@ class ReportProvider with ChangeNotifier {
   DashboardStats? _stats;
   List<Report> _trafficReports = [];
   List<Report> _otherReports = [];
+  Set<String> _watchlistNumbers = {};
 
   ReportFilter _filter = const ReportFilter();
 
@@ -122,6 +123,8 @@ class ReportProvider with ChangeNotifier {
   DashboardStats? get stats => _stats;
   List<Report> get trafficReports => _trafficReports;
   List<Report> get otherReports => _otherReports;
+  Set<String> get watchlistNumbers => _watchlistNumbers;
+  bool isInWatchlist(String reportNumber) => _watchlistNumbers.contains(reportNumber);
   ReportFilter get filter => _filter;
   bool get hasFilter => !_filter.isEmpty;
 
@@ -181,6 +184,7 @@ class ReportProvider with ChangeNotifier {
     _apiKey = prefs.getString('apiKey') ?? '';
     _isInitialized = true;
     notifyListeners();
+    if (isConfigured) fetchWatchlistNumbers();
   }
 
   Future<void> setConfig(String url, String key) async {
@@ -241,5 +245,41 @@ class ReportProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  Future<void> fetchWatchlistNumbers() async {
+    if (!isConfigured) return;
+    try {
+      final reports = await _api.getWatchlist();
+      _watchlistNumbers = reports.map((r) => r.reportNumber).toSet();
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> addToWatchlist(List<String> reportNumbers) async {
+    await _api.updateWatchlist(reportNumbers, add: true);
+    _watchlistNumbers.addAll(reportNumbers);
+    notifyListeners();
+  }
+
+  Future<void> removeFromWatchlist(List<String> reportNumbers) async {
+    await _api.updateWatchlist(reportNumbers, add: false);
+    _watchlistNumbers.removeAll(reportNumbers);
+    notifyListeners();
+  }
+
+  Future<void> enqueueCrawl(String reportNumber) async {
+    await _api.enqueueCrawl(reportNumber);
+  }
+
+  Future<void> refreshAll() async {
+    if (!isConfigured) return;
+    _errorMessage = null;
+    await Future.wait([
+      fetchSummary(),
+      fetchTrafficReports(),
+      fetchOtherReports(),
+      fetchWatchlistNumbers(),
+    ]);
   }
 }

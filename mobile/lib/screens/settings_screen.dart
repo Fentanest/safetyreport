@@ -115,11 +115,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       return;
     }
-    await context.read<ReportProvider>().setConfig(url, key);
+    final provider = context.read<ReportProvider>();
+    await provider.setConfig(url, key);
+    // 설정 변경 후 모든 데이터 새로고침
+    provider.refreshAll();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('설정이 저장되었습니다.'),
+          content: Text('설정이 저장되었습니다. 데이터를 불러오는 중...'),
           backgroundColor: Colors.green,
         ),
       );
