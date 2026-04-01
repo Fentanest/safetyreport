@@ -1,0 +1,17 @@
+flutter_icons:
+  android: "ic_launcher"
+  ios: true
+  image_path: "../safetyreport.png"
+  min_sdk_android: 21
+  web:
+    generate: true
+    image_path: "../safetyreport.png"
+    background_color: "#FFFFFF"
+    theme_color: "#1A73E8"
+  windows:
+    generate: true
+    image_path: "../safetyreport.png"
+    icon_size: 48
+  macos:
+    generate: true
+    image_path: "../safetyreport.png"

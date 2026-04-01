@@ -1,0 +1,102 @@
+class Report {
+  final String id;
+  final String reportNumber;
+  final String name;
+  final String date;
+  final String responseDate;
+  final String agency;
+  final String manager;
+  final String status;
+  final String result;
+  final String fineInfo;
+  final String carNumber;
+
+  Report({
+    required this.id,
+    required this.reportNumber,
+    required this.name,
+    required this.date,
+    required this.responseDate,
+    required this.agency,
+    required this.manager,
+    required this.status,
+    required this.result,
+    required this.fineInfo,
+    required this.carNumber,
+  });
+
+  factory Report.fromJson(Map<String, dynamic> json) {
+    return Report(
+      id: json['ID']?.toString() ?? '',
+      reportNumber: json['신고번호']?.toString() ?? '',
+      name: json['신고명']?.toString() ?? '',
+      date: json['신고일']?.toString() ?? '',
+      responseDate: json['답변일']?.toString() ?? '',
+      agency: json['처리기관']?.toString() ?? '',
+      manager: json['담당자']?.toString() ?? '',
+      status: (json['처리상태'] ?? json['상태'])?.toString() ?? '',
+      result: json['결과']?.toString() ?? '',
+      fineInfo: json['범칙금_과태료']?.toString() ?? '',
+      carNumber: json['차량번호']?.toString() ?? '',
+    );
+  }
+}
+
+class DashboardStats {
+  final String lastCrawlTime;
+  final int total;
+  final int acceptCount;
+  final int partialCount;
+  final int rejectCount;
+  final int processingCount;
+  final int completedCount;
+  final int withdrawCount;
+  final int tFineCount;
+  final int tPenaltyCount;
+  final int tRejectCount;
+  final int tUnconfirmedCount;
+  final List<Report> recentAnswers;
+  final List<Report> watchlist;
+
+  DashboardStats({
+    required this.lastCrawlTime,
+    required this.total,
+    required this.acceptCount,
+    required this.partialCount,
+    required this.rejectCount,
+    required this.processingCount,
+    required this.completedCount,
+    required this.withdrawCount,
+    required this.tFineCount,
+    required this.tPenaltyCount,
+    required this.tRejectCount,
+    required this.tUnconfirmedCount,
+    required this.recentAnswers,
+    required this.watchlist,
+  });
+
+  factory DashboardStats.fromJson(Map<String, dynamic> json) {
+    var recentList = json['recent_answers'] as List? ?? [];
+    var watchList = json['watchlist'] as List? ?? [];
+    return DashboardStats(
+      lastCrawlTime: json['last_crawl_time']?.toString() ?? '',
+      total: (json['total'] as num?)?.toInt() ?? 0,
+      acceptCount: (json['acceptCount'] as num?)?.toInt() ?? 0,
+      partialCount: (json['partialCount'] as num?)?.toInt() ?? 0,
+      rejectCount: (json['rejectCount'] as num?)?.toInt() ?? 0,
+      processingCount: (json['processingCount'] as num?)?.toInt() ?? 0,
+      completedCount: (json['completedCount'] as num?)?.toInt() ?? 0,
+      withdrawCount: (json['withdrawCount'] as num?)?.toInt() ?? 0,
+      tFineCount: (json['tFineCount'] as num?)?.toInt() ?? 0,
+      tPenaltyCount: (json['tPenaltyCount'] as num?)?.toInt() ?? 0,
+      tRejectCount: (json['tRejectCount'] as num?)?.toInt() ?? 0,
+      tUnconfirmedCount: (json['tUnconfirmedCount'] as num?)?.toInt() ?? 0,
+      recentAnswers: recentList
+          .map((i) => Report.fromJson(i as Map<String, dynamic>))
+          .toList(),
+      watchlist: watchList
+          .map((i) => Report.fromJson(i as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+}
