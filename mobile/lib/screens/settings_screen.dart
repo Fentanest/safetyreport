@@ -294,10 +294,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Text(
                           '앱 정보',
                           style: TextStyle(
-                            child: const Text('저장'),
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: cs.secondary,
                           ),
                         ),
                       ],
+                    ),
+                    const SizedBox(height: 12),
+                    const _InfoRow(label: '앱 버전', value: 'v1.0.0'),
+                    const _InfoRow(label: '플랫폼', value: 'Android / iOS'),
+                    const SizedBox(height: 8),
+                    const Text(
+                      '※ 인터넷 권한(INTERNET)은 Android 일반 권한으로 설치 시 별도 요청 없이 자동 부여됩니다.',
+                      style: TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                   ],
                 ),
