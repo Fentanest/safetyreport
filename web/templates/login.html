@@ -50,7 +50,14 @@
                     <div class="alert alert-danger py-2 small" role="alert">{{ error }}</div>
                     {% endif %}
 
+                    {% if next %}
+                    <div class="alert alert-info py-2 small" role="alert">
+                        <i class="bi bi-info-circle me-1"></i>세션이 만료되었습니다. 다시 로그인해 주세요.
+                    </div>
+                    {% endif %}
+
                     <form method="post" action="/login">
+                        <input type="hidden" name="next" value="{{ next or '' }}">
                         <div class="mb-3">
                             <label for="username" class="form-label fw-bold">아이디</label>
                             <input type="text" class="form-control" id="username" name="username"

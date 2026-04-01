@@ -19,13 +19,15 @@ logs/
 config.ini
 .env
 *.json
+test_*
 
 # Build & Documentation
 build_exe.py
 build.sh
-README.md
-GEMINI.md
+*.md
 build/
 dist/
 *.spec
 docker-compose.yml
+mobile/
+safepeople/

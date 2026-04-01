@@ -81,7 +81,7 @@ def _parse_report_content_table(driver, report_soup):
                             other_urls.append(url)
 
                 attachment_files = "\n".join(other_urls)
-                attached_photos = "\n".join(image_urls)
+                attached_photos = "\n".join(map_urls + image_urls)
                 map_image = "\n".join(map_urls)
 
     return {
@@ -209,10 +209,187 @@ def parse_details(driver, report_soup, result_soup=None):
 
     if report_details["progress_status"] == "취하":
         processing_details["processing_finish"] = "Y"
-        if not processing_details["processing_status"] or processing_details["processing_status"] == "처리중":
-            processing_details["processing_status"] = "취하"
+        processing_details["processing_status"] = "취하"
 
     all_details = {**report_details, **processing_details}
     all_details.pop("progress_status", None)
 
     return all_details
+
+def parse_json_details(result_data):
+    # 1. Body Text Extraction & Regex Parsing
+    content_text = result_data.get("C_A_CONTENTS", "")
+    if not content_text:
+        content_text = result_data.get("C_A_BODY", "")
+    content_text_clean = content_text.translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
+    
+    import re
+    entry_match = re.search(r'본 신고는 안전신문고 (?:앱의|포털의) (.*?) 메뉴로 접수된 신고입니다', content_text_clean)
+    entry_value = entry_match.group(1).strip() if entry_match else result_data.get("C_APP_GUBUN_NM", "")
+    
+    car_number_match = re.search(r'차량번호\s*:\s*(.*?)(?=\n|\(위)', content_text_clean)
+    car_number = re.sub(r'\s+', '', car_number_match.group(1)) if car_number_match else ""
+    
+    occurrence_date_match = re.search(r'발생일자\s*:\s*(\d{4}.\d{1,2}.\d{1,2})', content_text_clean)
+    occurrence_date = occurrence_date_match.group(1).strip().replace('.', '-') if occurrence_date_match else ""
+    
+    occurrence_time_match = re.search(r'발생시각\s*:\s*(\d{2}:\d{2})', content_text_clean)
+    occurrence_time = occurrence_time_match.group(1).strip() if occurrence_time_match else ""
+    
+    # Extract Violation Location from text or fallback to JSON fields
+    violation_location = ""
+    # Usually address isn't structured easily in text, fallback to API fields if available
+    if result_data.get("RN_ADRES"):
+        violation_location = result_data.get("RN_ADRES")
+    elif result_data.get("C_A_ADD2"):
+        violation_location = result_data.get("C_A_ADD2")
+    else:
+        violation_location = str(result_data.get("C_A_ADDR_HEAD", "")) + " " + str(result_data.get("C_A_ADDR_TAIL", ""))
+    violation_location = violation_location.strip()
+    
+    # 2. Progress Status Mapping
+    c_now = result_data.get("C_NOW", 0)
+    process_status = "진행"
+    if str(c_now) == "10": process_status = "답변완료"
+    elif str(c_now) == "11": process_status = "일부수용"
+    elif str(c_now) == "14": process_status = "불수용"
+    elif str(c_now) == "15": process_status = "기타"
+    elif str(c_now) == "20": process_status = "취하"
+    elif str(c_now) == "30": process_status = "이송"
+    
+    report_content = ""
+    if content_text_clean:
+        parts = re.split(r'\*\s*차량번호', content_text_clean, 1)
+        if parts:
+            report_content = parts[0].strip()
+    
+    # 3. Agency Answers & Results Processing
+    processing_status = ""
+    processing_agency = ""
+    person_in_charge = ""
+    response_date = ""
+    processing_content = ""
+    processing_finish = "N"
+    
+    answers = result_data.get("answers", [])
+    if answers:
+        latest_ans = answers[-1]
+        processing_status = latest_ans.get("C_MANAGER_TYPE_NM", latest_ans.get("C_R_PROC_STAT_NM", ""))
+        if processing_status in ["수용", "불수용", "일부수용", "기타", "검토중"]:
+            processing_finish = "Y"
+        processing_agency = latest_ans.get("C_MANAGE_ORG_NAME", latest_ans.get("C_MANAGER_TYPE_NM", ""))
+        person_in_charge = latest_ans.get("C_MANAGE_MAN", latest_ans.get("C_R_MOD_ID", ""))
+        response_date = latest_ans.get("C_DATE", latest_ans.get("C_R_MOD_DATE", ""))
+        if response_date and len(response_date) >= 10:
+             response_date = response_date[:10]
+        processing_content = (latest_ans.get("C_MANAGE_CONTENTS") or latest_ans.get("C_R_BODY") or "")
+        # Strip HTML tags
+        processing_content = re.sub(r'<[^>]+>', '\n', processing_content).strip()
+        
+    violation_law = ""
+    if processing_content:
+        violation_law_match = re.search(r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?', processing_content)
+        if violation_law_match:
+            violation_law = re.sub(r'\s+', '', violation_law_match.group(0)).replace('법제', '법 제')
+
+    # 범칙금/과태료: 레거시와 동일하게 실제 금액 정규식 추출
+    full_text = processing_content + "\n" + content_text_clean
+
+    fine_entry = ""
+    if ("버스전용차로 위반" in entry_value or "쓰레기, 폐기물" in entry_value or "불법주정차신고" in entry_value) and processing_status == "수용":
+        fine_entry = "과태료"
+
+    penalty_matches = re.search(r'범칙금\s+([\d,]+)\s*원[,\s]*벌점\s+(\d{0,4})\s*점', full_text)
+    fine_matches = re.search(r'과태료\s*([\d,]+)\s*원', full_text)
+
+    penalty_amount = ""
+    penalty_points = ""
+
+    if penalty_matches:
+        penalty_amount = "범칙금: " + penalty_matches.group(1) + "원"
+        penalty_points = "벌점: " + penalty_matches.group(2) + "점"
+    elif fine_matches:
+        penalty_amount = "과태료: " + fine_matches.group(1) + "원"
+    else:
+        penalty_amount = fine_entry
+
+    # 불수용 키워드 감지 → 상태 강제 교정 + 범칙금 초기화
+    reject_keywords = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
+    warning_keywords = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
+
+    if any(kw in full_text for kw in reject_keywords):
+        processing_status = "불수용"
+        processing_finish = "Y"
+        penalty_amount = ""
+        penalty_points = ""
+    elif not penalty_amount and any(kw in full_text for kw in warning_keywords):
+        penalty_amount = "경고"
+
+    # 4. Attachments Mapping
+    map_image = ""
+    if result_data.get("STTEMNT_IMAGE_URL"):
+        map_image = str(result_data.get("STTEMNT_IMAGE_URL"))
+        if map_image.startswith('/'):
+            map_image = "https://www.safetyreport.go.kr" + map_image
+        
+    attached_photos = ""
+    attachment_files = ""
+    files = result_data.get("ARR_C_FILES", result_data.get("files", []))
+    img_links = []
+    other_links = []
+    
+    if files:
+        for f in files:
+            file_url = f.get("FILE_URL")
+            if not file_url:
+                atch_id = f.get("ATCH_FILE_ID")
+                file_url = f"https://www.safetyreport.go.kr/fileDown/singo/{atch_id}" if atch_id else ""
+            if not file_url: continue
+            
+            # FILE_TY: 1 (img) / 3 (img) / 8 (img) / 2 (video) / 99 (other)
+            file_ty = str(f.get("FILE_TY", ""))
+            original_nm = f.get("ORGINL_FILE_NM", "").lower()
+            if original_nm:
+                ext = original_nm.split('.')[-1]
+            else:
+                ext = f.get("FILE_EXTSN", f.get("EXT", "")).lower()
+                
+            if file_ty in ["1", "3", "8"] or ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp']:
+                img_links.append(file_url)
+            else:
+                other_links.append(file_url)
+            
+    if map_image:
+        img_links.insert(0, map_image)
+        
+    attached_photos = "\n".join(img_links)
+    attachment_files = "\n".join(other_links)
+
+    if not processing_status:
+        processing_status = "처리중"
+
+    if process_status == "취하":
+        processing_finish = "Y"
+        processing_status = "취하"
+
+    return {
+        "entry_value": entry_value,
+        "car_number": car_number,
+        "occurrence_date": occurrence_date,
+        "occurrence_time": occurrence_time,
+        "violation_location": violation_location,
+        "progress_status": process_status,
+        "processing_status": processing_status,
+        "processing_finish": processing_finish,
+        "processing_agency": processing_agency,
+        "person_in_charge": person_in_charge,
+        "response_date": response_date,
+        "processing_content": processing_content,
+        "violation_law": violation_law,
+        "penalty_amount": penalty_amount,
+        "penalty_points": penalty_points,
+        "report_content": report_content,
+        "attachment_files": attachment_files,
+        "attached_photos": attached_photos,
+        "map_image": map_image,
+    }

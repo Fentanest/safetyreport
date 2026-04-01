@@ -201,6 +201,38 @@ document.addEventListener('hidden.bs.offcanvas', function() {
     if (btn) btn.style.visibility = '';
 });
 
+// 세션 만료(401) 시 로그인 화면으로 이동
+(function() {
+    var _redirecting = false;
+    function handleSessionExpired() {
+        if (_redirecting) return;
+        _redirecting = true;
+        window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
+    }
+
+    // fetch 인터셉터
+    var _origFetch = window.fetch;
+    window.fetch = function() {
+        return _origFetch.apply(this, arguments).then(function(response) {
+            if (response.status === 401) {
+                handleSessionExpired();
+            }
+            return response;
+        });
+    };
+
+    // XMLHttpRequest 인터셉터
+    var _origOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function() {
+        this.addEventListener('load', function() {
+            if (this.status === 401) {
+                handleSessionExpired();
+            }
+        });
+        return _origOpen.apply(this, arguments);
+    };
+})();
+
 // 안전신문고 링크 클릭 시 첫 TCP 연결 RST 오류 우회
 // fetch로 도메인 연결을 먼저 워밍업한 뒤 탭을 엽니다.
 document.addEventListener('click', function(e) {

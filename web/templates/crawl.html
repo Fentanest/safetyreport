@@ -25,7 +25,21 @@
                         </label>
                     </div>
 
-                    <h6 class="mb-3 text-primary border-bottom pb-2">2. 크롤링 범위</h6>
+                    <h6 class="mb-3 text-primary border-bottom pb-2">2. 크롤링 방식</h6>
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="radio" name="crawl_type" id="crawlApi" value="api" {% if crawl_type == 'api' %}checked{% endif %}>
+                        <label class="form-check-label text-success fw-bold" for="crawlApi">
+                            API 방식 <br><small class="text-muted fw-normal">백그라운드 통신으로 처리속도가 매우 빠르며 안정적입니다. (권장)</small>
+                        </label>
+                    </div>
+                    <div class="form-check mb-4">
+                        <input class="form-check-input" type="radio" name="crawl_type" id="crawlWeb" value="web" {% if crawl_type == 'web' %}checked{% endif %}>
+                        <label class="form-check-label" for="crawlWeb">
+                            웹 크롤링 방식 (레거시) <br><small class="text-muted">기존처럼 웹페이지의 UI를 직접 읽어오며 수집합니다.</small>
+                        </label>
+                    </div>
+
+                    <h6 class="mb-3 text-primary border-bottom pb-2">3. 크롤링 범위</h6>
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="radio" name="crawl_mode" id="crawlFull" value="full"
                             checked>
@@ -46,7 +60,7 @@
                         <label class="form-check-label text-danger" for="crawlReset">DB 초기화 후 새로 크롤링 (--reset)</label>
                     </div>
 
-                    <h6 class="mb-3 text-primary border-bottom pb-2">3. 큐(Queue) 기능 (선택사항)</h6>
+                    <h6 class="mb-3 text-primary border-bottom pb-2">4. 큐(Queue) 기능 (선택사항)</h6>
                     <div class="mb-4">
                         <label class="form-label text-muted"><small>신고번호(SPP-...) 또는 ID를 입력하면, 해당 리스트만 순차적으로 강제 크롤링 및
                                 덮어쓰기합니다. 여러 개일 경우 줄바꿈으로 구분하세요.</small></label>
@@ -54,7 +68,7 @@
                             placeholder="SPP-231120-1234567&#10;SPP-231121-7654321"></textarea>
                     </div>
 
-                    <h6 class="mb-3 text-success border-bottom pb-2">4. 수동 데이터 내보내기</h6>
+                    <h6 class="mb-3 text-success border-bottom pb-2">5. 수동 데이터 내보내기</h6>
                     <div class="d-flex gap-2 mb-4">
                         <button type="button" class="btn btn-outline-success flex-grow-1" id="btnExportExcel">
                             <i class="fas fa-file-excel me-1"></i> 현재 DB 엑셀 저장
@@ -92,7 +106,7 @@
                     {% if is_running %}실행 중{% else %}대기 중{% endif %}
                 </span>
             </div>
-            <div class="card-body p-0 d-flex flex-column" style="background-color: #1e1e1e; height: 500px;">
+            <div class="card-body p-0 d-flex flex-column" style="background-color: #1e1e1e; height: 650px;">
                 <div id="logConsole"
                     style="flex-grow: 1; overflow-y: auto; padding: 15px; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.9em; white-space: pre-wrap;">
                 </div>
@@ -123,13 +137,26 @@
         }
         connectWs();
 
-        $('input[name="crawl_mode"]').change(function () {
-            if ($('#crawlMin').is(':checked')) {
-                $('#maxEmptyPages').prop('disabled', false);
-            } else {
+        function updateCrawlOptions() {
+            const isApi = $('#crawlApi').is(':checked');
+            if (isApi) {
+                $('#crawlMin').prop('disabled', true);
+                if ($('#crawlMin').is(':checked')) {
+                    $('#crawlFull').prop('checked', true);
+                }
                 $('#maxEmptyPages').prop('disabled', true);
+            } else {
+                $('#crawlMin').prop('disabled', false);
+                if ($('#crawlMin').is(':checked')) {
+                    $('#maxEmptyPages').prop('disabled', false);
+                } else {
+                    $('#maxEmptyPages').prop('disabled', true);
+                }
             }
-        });
+        }
+        
+        $('input[name="crawl_type"], input[name="crawl_mode"]').change(updateCrawlOptions);
+        updateCrawlOptions(); // Init
 
         $('#crawlForm').on('submit', function (e) {
             e.preventDefault();

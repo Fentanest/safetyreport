@@ -6,6 +6,10 @@ import subprocess
 import time
 import settings.settings as settings
 from core.crawler import driv, login, crawltitle, crawldetail
+try:
+    from core.crawler import crawltitle_api, crawldetail_api
+except ImportError:
+    pass
 from core.utils import logger
 logger.LoggerFactory.create_logger(mode='crawl')
 from core.database import database
@@ -51,8 +55,16 @@ def _validate_settings():
 
 def _prepare_database(engine, reset=False):
     if reset:
-        logger.LoggerFactory.logbot.warning("--reset 옵션이 사용되어 DB를 초기화합니다.")
-        database.metadata.drop_all(engine)
+        logger.LoggerFactory.logbot.warning("--reset 옵션이 사용되어 크롤링 데이터 테이블을 초기화합니다.")
+        # 관리자 계정(admin_users), API 키(api_keys), 감시 목록(watchlist)은 보존
+        data_tables = [
+            database.title_table,
+            database.detail_traffic_table,
+            database.detail_other_table,
+            database.merge_traffic_table,
+            database.merge_other_table,
+        ]
+        database.metadata.drop_all(engine, tables=data_tables)
     database.upgrade_schema(engine)
 
 def extract_ids_from_queue(engine, queuelist):
@@ -79,12 +91,18 @@ def _run_crawling_process(driver, engine, args):
     if args.get("queue_file"):
         logger.LoggerFactory.logbot.info("큐 지정 크롤링 모드입니다. 전체 목록 갱신을 건너뜁니다.")
     else:
-        if args["page_range"]:
-            logger.LoggerFactory.logbot.info(f"페이지 {args['page_range']} 크롤링 시작.")
-            titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"], page_range=args["page_range"])
+        if settings.crawl_type == 'api':
+            logger.LoggerFactory.logbot.info("[API 방식]으로 신고 목록 크롤링 시작.")
+            if args["page_range"]:
+                titlelist, last_page = crawltitle_api.crawl_titles(driver=driver, use_minimal_crawl=args["min"], page_range=args["page_range"])
+            else:
+                titlelist, last_page = crawltitle_api.crawl_titles(driver=driver, use_minimal_crawl=args["min"])
         else:
-            logger.LoggerFactory.logbot.info("전체 신고 목록 크롤링 시작.")
-            titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"])
+            logger.LoggerFactory.logbot.info("[웹 방식(레거시)]으로 신고 목록 크롤링 시작.")
+            if args["page_range"]:
+                titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"], page_range=args["page_range"])
+            else:
+                titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"])
 
         new_report_numbers = database.title_to_sql(dataframes=titlelist, engine=engine)
         if settings.telegram_enabled:
@@ -95,10 +113,10 @@ def _run_crawling_process(driver, engine, args):
                     msg += f"\n... 외 {len(new_report_numbers)-30}건"
             
             if is_frozen:
-                subprocess.run([sys.executable, "--mode", "notify", msg])
+                subprocess.run([sys.executable, "--mode", "notify"], input=msg, text=True)
             else:
                 notifier_path = resource_path("core/utils/notifier.py")
-                subprocess.run([sys.executable, notifier_path, msg])
+                subprocess.run([sys.executable, notifier_path], input=msg, text=True)
 
     # Prepare detail list
     if args.get("queue_file"):
@@ -119,8 +137,12 @@ def _run_crawling_process(driver, engine, args):
 
     logger.LoggerFactory.logbot.info(f"상세 크롤링 대상 ID: {len(detaillist)} 건 (순차 처리)")
     
-    # 공격적인 멀티쓰레딩 대신 안정적인 단일 브라우저 순차 크롤링으로 복구
-    detail_datas = list(crawldetail.crawl_details(driver=driver, list=detaillist))
+    if settings.crawl_type == 'api':
+        logger.LoggerFactory.logbot.info("[API 방식] 상세 데이터 추출 시작")
+        detail_datas = list(crawldetail_api.crawl_details(driver=driver, list=detaillist))
+    else:
+        logger.LoggerFactory.logbot.info("[웹 방식(레거시)] 상세 데이터 추출 시작")
+        detail_datas = list(crawldetail.crawl_details(driver=driver, list=detaillist))
         
     changed_item_ids = database.deatil_to_sql(dataframes_with_category=detail_datas, engine=engine)
     if settings.telegram_enabled:
@@ -142,15 +164,15 @@ def _process_and_save_results(engine, changed_item_ids):
         msg = "3/5. 최종 데이터 병합 및 DB 저장을 완료했습니다."
         if changed_item_ids:
             changed_records = database.get_merged_records_by_ids(engine, changed_item_ids)
-            detail_msg = message_formatter.format_report_list(changed_records, "[내용 변경/신규 처리된 신고 목록 (병합 후)]")
+            detail_msg = message_formatter.format_report_list(changed_records, "[내용 변경/신규 처리된 신고 목록]")
             if detail_msg:
                 msg += "\n\n" + detail_msg
         
         if is_frozen:
-            subprocess.run([sys.executable, "--mode", "notify", msg])
+            subprocess.run([sys.executable, "--mode", "notify"], input=msg, text=True)
         else:
             notifier_path = resource_path("core/utils/notifier.py")
-            subprocess.run([sys.executable, notifier_path, msg])
+            subprocess.run([sys.executable, notifier_path], input=msg, text=True)
 
     df = database.load_results(engine=engine)
     export.save_results(df=df)
@@ -182,10 +204,10 @@ def main():
             login.login_mysafety(driver=driver)
             if settings.telegram_enabled:
                 if is_frozen:
-                    subprocess.run([sys.executable, "--mode", "notify", "안전신문고 로그인에 성공했습니다."])
+                    subprocess.run([sys.executable, "--mode", "notify"], input="안전신문고 로그인에 성공했습니다.", text=True)
                 else:
                     notifier_path = resource_path("core/utils/notifier.py")
-                    subprocess.run([sys.executable, notifier_path, "안전신문고 로그인에 성공했습니다."])
+                    subprocess.run([sys.executable, notifier_path], input="안전신문고 로그인에 성공했습니다.", text=True)
 
         changed_item_ids = _run_crawling_process(driver, engine, args)
     except Exception as e:
