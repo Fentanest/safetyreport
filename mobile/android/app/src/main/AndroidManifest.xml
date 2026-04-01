@@ -4,6 +4,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14+ Foreground Service 타입 권한 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
     <application
         android:label="나만의 안전신문고"
         android:name="${applicationName}"
@@ -37,6 +40,7 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
+        <!-- 카카오톡/안전신문고 알림 가로채기 서비스 -->
         <service android:name=".NotificationService"
             android:label="SafetyReport Notification Listener"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
@@ -45,6 +49,13 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- WebSocket Foreground Service — 앱 종료 후에도 서버 이벤트 수신 -->
+        <service
+            android:name=".WsService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

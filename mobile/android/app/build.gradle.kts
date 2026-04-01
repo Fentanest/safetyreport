@@ -42,3 +42,8 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // WebSocket 클라이언트 (WsService용)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+}

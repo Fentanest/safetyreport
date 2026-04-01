@@ -5,6 +5,7 @@ import sys
 import subprocess
 import os
 from services.crawl_manager import crawl_manager
+from services.ws_manager import ws_manager
 from core.utils.templating import templates
 from sqlalchemy import create_engine
 import settings.settings as settings
@@ -71,6 +72,19 @@ async def start_crawl(
 
     proc = crawl_manager.get_process()
 
+    # WS 브로드캐스트: 크롤링 시작
+    import asyncio as _asyncio
+    try:
+        loop = _asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(ws_manager.broadcast("crawl_started", {
+                "login_mode": login_mode,
+                "crawl_mode": crawl_mode,
+                "crawl_type": crawl_type,
+            }))
+    except Exception:
+        pass
+
     def wait_and_rotate_log(p, lpath):
         if p:
             p.wait()
@@ -86,11 +100,24 @@ async def start_crawl(
                 shutil.copy2(lpath, dst)
             except Exception:
                 pass
+        # WS 브로드캐스트: 크롤링 완료
+        try:
+            from services.data_service import get_and_clear_crawl_done
+            done = get_and_clear_crawl_done()
+            changed_count = done["changed_count"] if done else 0
+            import asyncio as _aio
+            loop2 = _aio.new_event_loop()
+            loop2.run_until_complete(ws_manager.broadcast("crawl_finished", {
+                "changed_count": changed_count,
+            }))
+            loop2.close()
+        except Exception:
+            pass
 
     import threading
     if proc:
         threading.Thread(target=wait_and_rotate_log, args=(proc, log_file), daemon=True).start()
-    
+
     return JSONResponse({"status": "success", "message": "크롤링이 \uc2dc\uc791\ub418\uc5c8\uc2b5\ub2c8\ub2e4."})
 
 @router.post("/resume")

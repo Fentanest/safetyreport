@@ -3,6 +3,7 @@ from fastapi.security import APIKeyHeader
 from sqlalchemy import create_engine
 import settings.settings as settings
 from services import data_service
+from services.ws_manager import ws_manager
 from core.database import database
 import pandas as pd
 
@@ -125,6 +126,15 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
     if crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
         proc = crawl_manager.get_process()
 
+        # WS: 크롤링 시작 알림
+        import asyncio as _aio
+        try:
+            loop = _aio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(ws_manager.broadcast("crawl_started", {"source": "mobile_enqueue", "report_number": report_number}))
+        except Exception:
+            pass
+
         def wait_and_rotate(p, lpath):
             if p:
                 p.wait()
@@ -140,6 +150,15 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
                     sh.copy2(lpath, dst)
                 except Exception:
                     pass
+            # WS: 크롤링 완료 알림
+            try:
+                done = data_service.get_and_clear_crawl_done()
+                changed_count = done["changed_count"] if done else 0
+                loop2 = _aio.new_event_loop()
+                loop2.run_until_complete(ws_manager.broadcast("crawl_finished", {"changed_count": changed_count}))
+                loop2.close()
+            except Exception:
+                pass
 
         if proc:
             threading.Thread(target=wait_and_rotate, args=(proc, log_file), daemon=True).start()
@@ -252,6 +271,20 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
 
     proc = crawl_manager.get_process()
 
+    # WS: 크롤링 시작 알림
+    import asyncio as _aio2
+    try:
+        loop3 = _aio2.get_event_loop()
+        if loop3.is_running():
+            loop3.create_task(ws_manager.broadcast("crawl_started", {
+                "source": "mobile_start",
+                "login_mode": login_mode,
+                "crawl_mode": crawl_mode,
+                "crawl_type": crawl_type,
+            }))
+    except Exception:
+        pass
+
     def _wait_and_rotate(p, lpath):
         if p:
             p.wait()
@@ -267,6 +300,15 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
                 sh.copy2(lpath, dst)
             except Exception:
                 pass
+        # WS: 크롤링 완료 알림
+        try:
+            done = data_service.get_and_clear_crawl_done()
+            changed_count = done["changed_count"] if done else 0
+            loop4 = _aio2.new_event_loop()
+            loop4.run_until_complete(ws_manager.broadcast("crawl_finished", {"changed_count": changed_count}))
+            loop4.close()
+        except Exception:
+            pass
 
     if proc:
         threading.Thread(target=_wait_and_rotate, args=(proc, log_file), daemon=True).start()
