@@ -169,7 +169,7 @@ def _parse_processing_result_table(result_soup, entry_value):
     
     warning_keywords = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
     
-    if is_rejected:
+    if is_rejected and processing_status_text not in ("수용", "일부수용"):
         processing_status_text = "불수용"
         processing_finish_text = "Y"
         final_penalty = ""
@@ -317,7 +317,7 @@ def parse_json_details(result_data):
     reject_keywords = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
     warning_keywords = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
 
-    if any(kw in full_text for kw in reject_keywords):
+    if processing_status not in ("수용", "일부수용") and any(kw in full_text for kw in reject_keywords):
         processing_status = "불수용"
         processing_finish = "Y"
         penalty_amount = ""
