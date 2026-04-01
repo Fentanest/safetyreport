@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/report.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../widgets/report_detail_sheet.dart';
 
 class WatchlistScreen extends StatefulWidget {
   const WatchlistScreen({super.key});
@@ -188,7 +189,10 @@ class _WatchCard extends StatelessWidget {
     final color = _statusColor(report.status);
     return Card(
       margin: EdgeInsets.zero,
-      child: Padding(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => showReportDetailSheet(context, report),
+        child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -246,6 +250,7 @@ class _WatchCard extends StatelessWidget {
           ],
         ),
       ),
+    ),
     );
   }
 

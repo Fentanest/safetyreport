@@ -4,6 +4,8 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
+import '../widgets/report_detail_sheet.dart';
+import '../widgets/search_filter_sheet.dart';
 import 'settings_screen.dart';
 
 class ReportListScreen extends StatefulWidget {
@@ -113,150 +115,14 @@ class _ReportListScreenState extends State<ReportListScreen> {
   }
 
   void _showSearchPopup(BuildContext context) {
-    final provider = context.read<ReportProvider>();
-    final queryCtrl = TextEditingController();
-    String selectedStatus = '';
-    String startDate = '';
-    String endDate = '';
-
-    const statusOptions = ['', '수용', '일부수용', '불수용', '처리중', '취하'];
-
-    Future<String?> pickDate(BuildContext ctx) async {
-      final now = DateTime.now();
-      final picked = await showDatePicker(
-        context: ctx,
-        initialDate: now,
-        firstDate: DateTime(2020),
-        lastDate: now,
-      );
-      if (picked == null) return null;
-      return '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-    }
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom,
-            left: 16,
-            right: 16,
-            top: 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 핸들
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('상세 검색',
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  if (provider.hasFilter)
-                    TextButton(
-                      onPressed: () {
-                        provider.clearFilter();
-                        Navigator.pop(ctx);
-                      },
-                      child: const Text('초기화'),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                controller: queryCtrl,
-                decoration: const InputDecoration(
-                  labelText: '신고명 / 신고번호 / 기관명 / 차량번호',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.search),
-                  isDense: true,
-                ),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: selectedStatus,
-                decoration: const InputDecoration(
-                  labelText: '처리 상태',
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.task_alt),
-                  isDense: true,
-                ),
-                items: statusOptions
-                    .map((s) => DropdownMenuItem(
-                          value: s,
-                          child: Text(s.isEmpty ? '전체' : s),
-                        ))
-                    .toList(),
-                onChanged: (v) => setSheet(() => selectedStatus = v ?? ''),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.calendar_today, size: 15),
-                      label: Text(startDate.isEmpty ? '시작일' : startDate,
-                          style: const TextStyle(fontSize: 13)),
-                      onPressed: () async {
-                        final d = await pickDate(ctx);
-                        if (d != null) setSheet(() => startDate = d);
-                      },
-                    ),
-                  ),
-                  const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 8),
-                      child: Text('~')),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      icon: const Icon(Icons.calendar_today, size: 15),
-                      label: Text(endDate.isEmpty ? '종료일' : endDate,
-                          style: const TextStyle(fontSize: 13)),
-                      onPressed: () async {
-                        final d = await pickDate(ctx);
-                        if (d != null) setSheet(() => endDate = d);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                icon: const Icon(Icons.search, size: 18),
-                label: const Text('검색 적용'),
-                style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14)),
-                onPressed: () {
-                  provider.setFilter(
-                    query: queryCtrl.text.trim(),
-                    status: selectedStatus,
-                    startDate: startDate,
-                    endDate: endDate,
-                  );
-                  Navigator.pop(ctx);
-                },
-              ),
-              const SizedBox(height: 20),
-            ],
-          ),
-        ),
-      ),
+      builder: (_) =>
+          SearchFilterSheet(provider: context.read<ReportProvider>()),
     );
   }
 
@@ -269,66 +135,71 @@ class _ReportListScreenState extends State<ReportListScreen> {
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: Colors.grey.shade200),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    report.name,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 14),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _statusChip(report.status, color),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                const Icon(Icons.tag, size: 13, color: Colors.grey),
-                const SizedBox(width: 3),
-                Text(report.reportNumber,
-                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
-              ],
-            ),
-            const Divider(height: 14),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _metaRow(Icons.calendar_today, report.date),
-                    const SizedBox(height: 3),
-                    _metaRow(Icons.business, report.agency),
-                  ],
-                ),
-                if (report.carNumber.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: Colors.blueGrey.shade50,
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(color: Colors.blueGrey.shade200),
-                    ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => showReportDetailSheet(context, report),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
                     child: Text(
-                      report.carNumber,
+                      report.name,
                       style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 13,
-                          letterSpacing: 0.5),
+                          fontWeight: FontWeight.bold, fontSize: 14),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 8),
+                  _statusChip(report.status, color),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(Icons.tag, size: 13, color: Colors.grey),
+                  const SizedBox(width: 3),
+                  Text(report.reportNumber,
+                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+              const Divider(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _metaRow(Icons.calendar_today, report.date),
+                        const SizedBox(height: 3),
+                        _metaRow(Icons.business, report.agency),
+                      ],
+                    ),
+                  ),
+                  if (report.carNumber.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey.shade50,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.blueGrey.shade200),
+                      ),
+                      child: Text(
+                        report.carNumber,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            letterSpacing: 0.5),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
