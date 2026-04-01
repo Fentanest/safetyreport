@@ -53,20 +53,17 @@ class LoggerFactory:
                 core.addHandler(_make_file_handler(core_log_path))
             LoggerFactory.logbot = core
 
-            # ── 별점 로거 ──
-            star_log_path = os.path.join(settings.logpath, f'star_{now_str}.log')
+            # ── 별점 로거 (파일 핸들러는 별점 작업 시작 시 set_star_log_file()로 설정) ──
             star = logging.getLogger('safetyreport.star')
             star.setLevel(level)
             star.propagate = False
             if not star.handlers:
                 star.addHandler(_make_stream_handler())
-                star.addHandler(_make_file_handler(star_log_path))
             LoggerFactory.star_log = star
 
             # 현재 사용 중인 로그 파일 경로 등록 (파일 브라우저 삭제 보호용)
             LoggerFactory._active_log_paths = [
                 os.path.abspath(core_log_path),
-                os.path.abspath(star_log_path),
             ]
 
             # ── uvicorn 로거 → 코어 파일 핸들러에 연결 ──
@@ -90,3 +87,18 @@ class LoggerFactory:
     @classmethod
     def get_logger(cls):
         return cls.logbot
+
+    @classmethod
+    def set_star_log_file(cls, path):
+        """별점 작업 시작 시 star_log의 파일 핸들러를 current_rating.log로 교체."""
+        star = cls.star_log
+        if star is None:
+            return
+        for h in list(star.handlers):
+            if isinstance(h, logging.FileHandler):
+                h.close()
+                star.removeHandler(h)
+        star.addHandler(_make_file_handler(path))
+        # 활성 경로에서 이전 rating 로그 경로 교체
+        cls._active_log_paths = [p for p in cls._active_log_paths if 'star_' not in os.path.basename(p) and 'current_rating' not in os.path.basename(p)]
+        cls._active_log_paths.append(os.path.abspath(path))
