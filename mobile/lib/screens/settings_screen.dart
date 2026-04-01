@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import '../providers/report_provider.dart';
+import '../services/permission_service.dart';
 import 'permission_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -19,6 +20,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _obscureKey = true;
   bool _testing = false;
   _TestResult? _testResult;
+  bool _wsRunning = false;
+  bool _wsToggling = false;
 
   @override
   void initState() {
@@ -26,6 +29,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final provider = context.read<ReportProvider>();
     _urlController.text = provider.baseUrl;
     _apiController.text = provider.apiKey;
+    _checkWsStatus();
+  }
+
+  Future<void> _checkWsStatus() async {
+    final running = await PermissionService.isWsServiceRunning();
+    if (mounted) setState(() => _wsRunning = running);
+  }
+
+  Future<void> _toggleWsService() async {
+    setState(() => _wsToggling = true);
+    if (_wsRunning) {
+      await PermissionService.stopWsService();
+    } else {
+      await PermissionService.startWsService();
+    }
+    await Future.delayed(const Duration(seconds: 1));
+    await _checkWsStatus();
+    setState(() => _wsToggling = false);
   }
 
   @override
@@ -273,20 +294,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         Text(
                           '앱 정보',
                           style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: cs.secondary,
+                            child: const Text('저장'),
                           ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 12),
-                    const _InfoRow(label: '앱 버전', value: 'v1.0.0'),
-                    const _InfoRow(label: '플랫폼', value: 'Android / iOS'),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '※ 인터넷 권한(INTERNET)은 Android 일반 권한으로 설치 시 별도 요청 없이 자동 부여됩니다.',
-                      style: TextStyle(fontSize: 11, color: Colors.grey),
                     ),
                   ],
                 ),
@@ -294,15 +305,96 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // ── 권한 설정 카드 ──────────────────────────────
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.wifi_tethering,
+                          color: _wsRunning ? Colors.green : Colors.grey,
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            '백그라운드 서버 연결',
+                            style: TextStyle(
+                                fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: _wsRunning
+                                ? Colors.green.shade50
+                                : Colors.red.shade50,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: _wsRunning
+                                  ? Colors.green.shade300
+                                  : Colors.red.shade200,
+                            ),
+                          ),
+                          child: Text(
+                            _wsRunning ? '● 실행 중' : '○ 중지됨',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: _wsRunning
+                                  ? Colors.green.shade700
+                                  : Colors.red.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      '앱 종료 후에도 크롤링 시작·완료 이벤트를 실시간으로 알림으로 받습니다.\n상단 상태바에 지속 알림이 표시됩니다.',
+                      style: TextStyle(color: Colors.grey, fontSize: 12, height: 1.5),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: _wsToggling
+                          ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(8),
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            )
+                          : OutlinedButton.icon(
+                              icon: Icon(
+                                _wsRunning ? Icons.stop_circle_outlined : Icons.play_circle_outline,
+                                size: 18,
+                              ),
+                              label: Text(_wsRunning ? '서비스 중지' : '서비스 시작'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor:
+                                    _wsRunning ? Colors.red : Colors.green,
+                                side: BorderSide(
+                                  color: _wsRunning ? Colors.red : Colors.green,
+                                ),
+                              ),
+                              onPressed: _toggleWsService,
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
             Card(
               child: InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () => Navigator.push(
                   context,
-                  MaterialPageRoute(
-                    builder: (_) => const PermissionScreen(),
-                  ),
+                  MaterialPageRoute(builder: (_) => const PermissionScreen()),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(20),
@@ -324,7 +416,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ),
                             const SizedBox(height: 2),
                             const Text(
-                              '알림 접근, 배터리 최적화 제외 등 앱 권한을 관리합니다.',
+                              '알림 접근, 배터리 최적화 제외, 백그라운드 서비스 등 권한을 관리합니다.',
                               style: TextStyle(color: Colors.grey, fontSize: 13),
                             ),
                           ],

@@ -18,6 +18,7 @@ class _PermissionScreenState extends State<PermissionScreen>
   bool _listenerEnabled = false;
   bool _batteryIgnored = false;
   bool _notifGranted = false;
+  bool _wsRunning = false;
   bool _loading = true;
 
   @override
@@ -47,19 +48,21 @@ class _PermissionScreenState extends State<PermissionScreen>
       PermissionService.isNotificationListenerEnabled(),
       PermissionService.isBatteryOptimizationIgnored(),
       PermissionService.isNotificationPermissionGranted(),
+      PermissionService.isWsServiceRunning(),
     ]);
     if (mounted) {
       setState(() {
         _listenerEnabled = results[0];
         _batteryIgnored = results[1];
         _notifGranted = results[2];
+        _wsRunning = results[3];
         _loading = false;
       });
     }
   }
 
   bool get _allGranted =>
-      _listenerEnabled && _batteryIgnored && _notifGranted;
+      _listenerEnabled && _batteryIgnored && _notifGranted && _wsRunning;
 
   Future<void> _grantAll() async {
     if (!_notifGranted) {
@@ -73,6 +76,11 @@ class _PermissionScreenState extends State<PermissionScreen>
     if (!_listenerEnabled) {
       await PermissionService.openNotificationListenerSettings();
       // 돌아오면 didChangeAppLifecycleState에서 재확인
+    }
+    if (!_wsRunning) {
+      await PermissionService.startWsService();
+      await Future.delayed(const Duration(seconds: 1));
+      await _checkAll();
     }
   }
 
@@ -160,6 +168,22 @@ class _PermissionScreenState extends State<PermissionScreen>
               await _checkAll();
             },
             buttonLabel: '알림 권한 요청',
+          ),
+          const SizedBox(height: 12),
+
+          _PermCard(
+            icon: Icons.wifi_tethering,
+            title: '백그라운드 서버 연결 (WebSocket)',
+            desc: '앱을 종료해도 서버의 크롤링 이벤트를 실시간으로 받으려면\n백그라운드 서비스를 시작해야 합니다.\n상단 상태바에 지속 알림이 표시됩니다.',
+            granted: _wsRunning,
+            grantedLabel: '실행 중',
+            deniedLabel: '중지됨',
+            onGrant: () async {
+              await PermissionService.startWsService();
+              await Future.delayed(const Duration(seconds: 1));
+              await _checkAll();
+            },
+            buttonLabel: '백그라운드 서비스 시작',
           ),
           const SizedBox(height: 28),
 
