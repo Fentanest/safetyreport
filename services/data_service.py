@@ -48,6 +48,8 @@ def get_dashboard_stats(engine):
                 # Recent answers (3 days)
                 three_days_ago = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
                 recent_df = df[(df['답변일'] >= three_days_ago) & (df['답변일'] <= datetime.now().strftime("%Y-%m-%d"))]
+                if app_settings.exclude_withdraw:
+                    recent_df = recent_df[recent_df['처리상태'] != '취하']
                 for _, row in recent_df.iterrows():
                     recent_answers.append({
                         "ID": str(row.get('ID', '')),
