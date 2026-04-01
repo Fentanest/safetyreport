@@ -6,6 +6,7 @@ import 'screens/statistics_screen.dart';
 import 'screens/setup_screen.dart';
 import 'screens/file_browser_screen.dart';
 import 'screens/notifications_screen.dart';
+import 'screens/crawl_screen.dart';
 import 'providers/report_provider.dart';
 import 'providers/notification_history_provider.dart';
 
@@ -127,6 +128,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     const StatisticsScreen(),
     const NotificationsScreen(),
     const FileBrowserScreen(),
+    const CrawlScreen(),
   ];
 
   @override
@@ -190,6 +192,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             icon: Icon(Icons.folder_outlined),
             selectedIcon: Icon(Icons.folder),
             label: '파일',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.sync_outlined),
+            selectedIcon: Icon(Icons.sync),
+            label: '크롤링',
           ),
         ],
       ),

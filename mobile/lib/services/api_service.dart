@@ -98,4 +98,89 @@ class ApiService {
       throw Exception('Failed to enqueue crawl');
     }
   }
+
+  Future<Map<String, dynamic>> getCrawlStatus() async {
+    final response = await http.get(
+        Uri.parse('$baseUrl/api/v1/crawl/status'), headers: _headers);
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception('상태 확인 실패');
+  }
+
+  Future<Map<String, dynamic>> getCrawlDone() async {
+    final response = await http.get(
+        Uri.parse('$baseUrl/api/v1/crawl/done'), headers: _headers);
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception('완료 확인 실패');
+  }
+
+  Future<List<Map<String, dynamic>>> fetchCrawlResults() async {
+    final response = await http.get(
+        Uri.parse('$baseUrl/api/v1/crawl/results'), headers: _headers);
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      return (json['data'] as List? ?? []).cast<Map<String, dynamic>>();
+    }
+    throw Exception('결과 조회 실패');
+  }
+
+  Future<Map<String, dynamic>> getCrawlConfig() async {
+    final response = await http.get(
+        Uri.parse('$baseUrl/api/v1/crawl/config'), headers: _headers);
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      return json['data'] as Map<String, dynamic>;
+    }
+    throw Exception('설정 조회 실패');
+  }
+
+  Future<void> startCrawl({
+    required String loginMode,
+    required String crawlType,
+    required String crawlMode,
+    required int maxEmptyPages,
+    required String queueList,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/v1/crawl/start'),
+      headers: _headers,
+      body: jsonEncode({
+        'login_mode': loginMode,
+        'crawl_type': crawlType,
+        'crawl_mode': crawlMode,
+        'max_empty_pages': maxEmptyPages,
+        'queue_list': queueList,
+      }),
+    );
+    if (response.statusCode != 200) {
+      final msg = jsonDecode(response.body)['detail'] ?? '크롤링 시작 실패';
+      throw Exception(msg);
+    }
+  }
+
+  Future<void> killCrawl() async {
+    final response = await http.post(
+        Uri.parse('$baseUrl/api/v1/crawl/kill'), headers: _headers);
+    if (response.statusCode != 200) {
+      final msg = jsonDecode(response.body)['detail'] ?? '중지 실패';
+      throw Exception(msg);
+    }
+  }
+
+  Future<void> resumeCrawl() async {
+    final response = await http.post(
+        Uri.parse('$baseUrl/api/v1/crawl/resume'), headers: _headers);
+    if (response.statusCode != 200) {
+      throw Exception('재개 실패');
+    }
+  }
+
+  String get wsBaseUrl {
+    final uri = Uri.parse(baseUrl);
+    final scheme = uri.scheme == 'https' ? 'wss' : 'ws';
+    return '$scheme://${uri.host}:${uri.port}';
+  }
 }

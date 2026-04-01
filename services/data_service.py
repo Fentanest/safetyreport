@@ -487,6 +487,33 @@ def get_and_clear_crawl_changes():
         return []
 
 
+def save_crawl_done(changed_count: int):
+    """크롤링 완료 마커 저장 (Flutter 앱 폴링용)"""
+    import json
+    from datetime import datetime
+    done_file = os.path.join(app_settings.datapath, 'crawl_done.json')
+    with open(done_file, 'w', encoding='utf-8') as f:
+        json.dump({
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "changed_count": changed_count
+        }, f, ensure_ascii=False)
+
+
+def get_and_clear_crawl_done():
+    """크롤링 완료 마커 조회 후 삭제"""
+    import json
+    done_file = os.path.join(app_settings.datapath, 'crawl_done.json')
+    if not os.path.exists(done_file):
+        return None
+    try:
+        with open(done_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        os.remove(done_file)
+        return data
+    except Exception:
+        return None
+
+
 def update_watchlist_status(engine, rnums, status):
     if not rnums:
         return 0

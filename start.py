@@ -68,7 +68,9 @@ def _prepare_database(engine, reset=False):
     database.upgrade_schema(engine)
 
 def extract_ids_from_queue(engine, queuelist):
+    """Returns (resolved_ids, missing_report_numbers) tuple."""
     resolved_ids = []
+    missing_rnums = []
     with engine.connect() as conn:
         for item in queuelist:
             item = item.strip()
@@ -79,10 +81,11 @@ def extract_ids_from_queue(engine, queuelist):
                 if res:
                     resolved_ids.append(res)
                 else:
-                    logger.LoggerFactory.logbot.warning(f"큐 신고번호 {item}의 ID를 찾을 수 없습니다.")
+                    logger.LoggerFactory.logbot.warning(f"큐 신고번호 {item}의 ID를 찾을 수 없습니다. 목록 크롤링 후 재검색합니다.")
+                    missing_rnums.append(item)
             else:
                 resolved_ids.append(item)
-    return resolved_ids
+    return resolved_ids, missing_rnums
 
 def _run_crawling_process(driver, engine, args):
     last_page = 0
@@ -122,7 +125,43 @@ def _run_crawling_process(driver, engine, args):
     if args.get("queue_file"):
         with open(args["queue_file"], 'r', encoding='utf-8') as f:
             q_items = f.readlines()
-        detaillist = extract_ids_from_queue(engine, q_items)
+        detaillist, missing_rnums = extract_ids_from_queue(engine, q_items)
+
+        # DB에 없는 신고번호가 있으면 목록 크롤링으로 탐색
+        if missing_rnums and driver is not None:
+            logger.LoggerFactory.logbot.info(f"미확인 신고번호 {len(missing_rnums)}건을 목록 크롤링으로 탐색합니다.")
+            MAX_SEARCH_PAGES = 100
+            for page_num in range(1, MAX_SEARCH_PAGES + 1):
+                if not missing_rnums:
+                    break
+                logger.LoggerFactory.logbot.info(f"목록 탐색 중... 페이지 {page_num} (남은 미확인: {len(missing_rnums)}건)")
+                try:
+                    if settings.crawl_type == 'api':
+                        page_dfs, _ = crawltitle_api.crawl_titles(driver=driver, page_range=[page_num])
+                    else:
+                        page_dfs, _ = crawltitle.crawl_titles(driver=driver, page_range=[page_num])
+                except Exception as e:
+                    logger.LoggerFactory.logbot.warning(f"페이지 {page_num} 탐색 실패: {e}")
+                    break
+                if not page_dfs:
+                    logger.LoggerFactory.logbot.info(f"페이지 {page_num} 이후 데이터 없음. 탐색 종료.")
+                    break
+                database.title_to_sql(dataframes=page_dfs, engine=engine)
+                # 이번 페이지에서 미확인 신고번호 재검색
+                still_missing = []
+                with engine.connect() as conn:
+                    for rnum in missing_rnums:
+                        query = select(database.title_table.c.ID).where(database.title_table.c.신고번호.like(f"%{rnum}%"))
+                        res = conn.execute(query).scalar()
+                        if res:
+                            detaillist.append(res)
+                            logger.LoggerFactory.logbot.info(f"신고번호 {rnum} → ID {res} 발견 (페이지 {page_num})")
+                        else:
+                            still_missing.append(rnum)
+                missing_rnums = still_missing
+            if missing_rnums:
+                logger.LoggerFactory.logbot.warning(f"탐색 완료 후에도 찾지 못한 신고번호: {missing_rnums}")
+
         logger.LoggerFactory.logbot.info(f"큐 파일에서 {len(detaillist)}개의 아이템 크롤링 시작.")
     elif args["page_range"]:
         detaillist = []
@@ -160,10 +199,11 @@ def _process_and_save_results(engine, changed_item_ids):
     database.merge_final(engine=engine)
     database.clear_old_attachments(engine=engine)
 
-    # 모바일 개별 알림용 변경 목록 파일 저장
+    # 모바일 개별 알림용 변경 목록 파일 저장 + 완료 마커
+    from services.data_service import save_crawl_changes, save_crawl_done
     if changed_item_ids:
-        from services.data_service import save_crawl_changes
         save_crawl_changes(engine, changed_item_ids)
+    save_crawl_done(len(changed_item_ids))
     
     if settings.telegram_enabled:
         msg = "3/5. 최종 데이터 병합 및 DB 저장을 완료했습니다."
