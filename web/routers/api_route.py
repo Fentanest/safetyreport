@@ -127,8 +127,8 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
         proc = crawl_manager.get_process()
 
         # WS: 크롤링 시작 알림
-        import asyncio as _aio
         try:
+            import asyncio as _aio
             loop = _aio.get_event_loop()
             if loop.is_running():
                 loop.create_task(ws_manager.broadcast("crawl_started", {"source": "mobile_enqueue", "report_number": report_number}))
@@ -154,9 +154,7 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
             try:
                 done = data_service.get_and_clear_crawl_done()
                 changed_count = done["changed_count"] if done else 0
-                loop2 = _aio.new_event_loop()
-                loop2.run_until_complete(ws_manager.broadcast("crawl_finished", {"changed_count": changed_count}))
-                loop2.close()
+                ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
             except Exception:
                 pass
 
@@ -272,8 +270,8 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
     proc = crawl_manager.get_process()
 
     # WS: 크롤링 시작 알림
-    import asyncio as _aio2
     try:
+        import asyncio as _aio2
         loop3 = _aio2.get_event_loop()
         if loop3.is_running():
             loop3.create_task(ws_manager.broadcast("crawl_started", {
@@ -304,9 +302,7 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
         try:
             done = data_service.get_and_clear_crawl_done()
             changed_count = done["changed_count"] if done else 0
-            loop4 = _aio2.new_event_loop()
-            loop4.run_until_complete(ws_manager.broadcast("crawl_finished", {"changed_count": changed_count}))
-            loop4.close()
+            ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
         except Exception:
             pass
 
@@ -402,12 +398,28 @@ async def list_files(path: str = "", _: str = Depends(_require_api_key)):
 @router.get("/app/config")
 async def get_app_config(_: str = Depends(_require_api_key)):
     """모바일 앱 설정 및 버전 정보"""
+    import settings.settings as s
+    s._instance.load()
     return {
         "status": "success",
         "data": {
             "app_name": "나만의 안전신문고",
             "version": "1.0.0",
             "support_email": "support@example.com",
-            "exclude_withdraw": settings.exclude_withdraw
+            "exclude_withdraw": s.exclude_withdraw,
+            "normalize_police": s.normalize_police,
         }
     }
+
+
+@router.post("/settings")
+async def update_settings(request: Request, _: str = Depends(_require_api_key)):
+    """기타 데이터 필터 세팅 저장 (normalize_police, exclude_withdraw)"""
+    import settings.settings as app_settings
+    body = await request.json()
+    if "normalize_police" in body:
+        app_settings._instance.update_config('SETTINGS', 'normalize_police', body["normalize_police"])
+    if "exclude_withdraw" in body:
+        app_settings._instance.update_config('SETTINGS', 'exclude_withdraw', body["exclude_withdraw"])
+    app_settings._instance.save()
+    return {"status": "success"}

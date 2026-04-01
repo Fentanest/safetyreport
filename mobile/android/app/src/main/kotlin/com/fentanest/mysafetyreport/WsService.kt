@@ -123,7 +123,7 @@ class WsService : Service() {
                 // 재연결 대기
                 val delay = BACKOFF_MS[attempt.coerceAtMost(BACKOFF_MS.size - 1)]
                 Log.i(TAG, "WS 연결 종료. ${delay}ms 후 재연결.")
-                updateForegroundNotif("연결 끊김. ${delay / 1000}초 후 재연결...")
+                updateForegroundNotif("서버 연결 대기 중...")
                 attempt = if (connected) 0 else (attempt + 1).coerceAtMost(BACKOFF_MS.size - 1)
                 Thread.sleep(delay)
             }

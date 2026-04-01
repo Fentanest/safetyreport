@@ -43,6 +43,8 @@ async def view_settings(request: Request):
         "sheet_key": app_settings.config.get('GOOGLESHEET', 'sheet_key', fallback=""),
         "normalize_police": app_settings.config.getboolean('SETTINGS', 'normalize_police', fallback=True),
         "exclude_withdraw": app_settings.config.getboolean('SETTINGS', 'exclude_withdraw', fallback=True),
+        "auto_export_excel": app_settings.config.getboolean('SETTINGS', 'auto_export_excel', fallback=True),
+        "auto_export_sheet": app_settings.config.getboolean('SETTINGS', 'auto_export_sheet', fallback=True),
         "retry_interval": int(app_settings.config.get('SETTINGS', 'retry_interval', fallback=10)),
         "max_retry_attemps": int(app_settings.config.get('SETTINGS', 'max_retry_attemps', fallback=3)),
         "log_level": app_settings.config.get('SETTINGS', 'log_level', fallback="INFO"),
@@ -71,6 +73,8 @@ async def save_settings(
     sheet_key: str = Form(""),
     normalize_police: bool = Form(False),
     exclude_withdraw: bool = Form(False),
+    auto_export_excel: bool = Form(False),
+    auto_export_sheet: bool = Form(False),
     retry_interval: int = Form(10),
     max_retry_attemps: int = Form(3),
     log_level: str = Form("INFO"),
@@ -114,6 +118,8 @@ async def save_settings(
 
     app_settings._instance.update_config('SETTINGS', 'normalize_police', normalize_police)
     app_settings._instance.update_config('SETTINGS', 'exclude_withdraw', exclude_withdraw)
+    app_settings._instance.update_config('SETTINGS', 'auto_export_excel', auto_export_excel)
+    app_settings._instance.update_config('SETTINGS', 'auto_export_sheet', auto_export_sheet)
     app_settings._instance.update_config('SETTINGS', 'retry_interval', retry_interval)
     app_settings._instance.update_config('SETTINGS', 'max_retry_attemps', max_retry_attemps)
     app_settings._instance.update_config('SETTINGS', 'session_max_age', session_max_age)

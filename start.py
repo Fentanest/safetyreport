@@ -219,8 +219,15 @@ def _process_and_save_results(engine, changed_item_ids):
             notifier_path = resource_path("core/utils/notifier.py")
             subprocess.run([sys.executable, notifier_path], input=msg, text=True)
 
-    df = database.load_results(engine=engine)
-    export.save_results(df=df)
+    if settings.auto_export_excel or settings.auto_export_sheet:
+        df = database.load_results(engine=engine)
+        if not df.empty:
+            from core.utils.export import _process_dataframe, save_to_excel, save_to_google_sheet
+            processed_df, photo_cols = _process_dataframe(df)
+            if settings.auto_export_excel:
+                save_to_excel(processed_df)
+            if settings.auto_export_sheet:
+                save_to_google_sheet(processed_df, photo_cols)
 
 def wait_for_resume_signal():
     logger.LoggerFactory.logbot.info("비회원 모드 대기 중... 브라우저에서 로그인 후 웹 UI의 '크롤링 재개'를 클릭하세요.")

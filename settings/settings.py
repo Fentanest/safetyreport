@@ -58,6 +58,8 @@ class AppSettings:
         self.phone_number = self.config.get('RATING', 'phone_number', fallback='')
 
         self.normalize_police = self.config.getboolean('SETTINGS', 'normalize_police', fallback=True)
+        self.auto_export_excel = self.config.getboolean('SETTINGS', 'auto_export_excel', fallback=True)
+        self.auto_export_sheet = self.config.getboolean('SETTINGS', 'auto_export_sheet', fallback=True)
         self.crawl_mode = self.config.get('SETTINGS', 'crawl_mode', fallback='full')
         self.crawl_type = self.config.get('Crawler', 'crawl_type', fallback='api')
         self.exclude_withdraw = self.config.getboolean('SETTINGS', 'exclude_withdraw', fallback=True)

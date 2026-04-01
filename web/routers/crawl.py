@@ -73,8 +73,8 @@ async def start_crawl(
     proc = crawl_manager.get_process()
 
     # WS 브로드캐스트: 크롤링 시작
-    import asyncio as _asyncio
     try:
+        import asyncio as _asyncio
         loop = _asyncio.get_event_loop()
         if loop.is_running():
             loop.create_task(ws_manager.broadcast("crawl_started", {
@@ -105,12 +105,9 @@ async def start_crawl(
             from services.data_service import get_and_clear_crawl_done
             done = get_and_clear_crawl_done()
             changed_count = done["changed_count"] if done else 0
-            import asyncio as _aio
-            loop2 = _aio.new_event_loop()
-            loop2.run_until_complete(ws_manager.broadcast("crawl_finished", {
+            ws_manager.broadcast_from_thread("crawl_finished", {
                 "changed_count": changed_count,
-            }))
-            loop2.close()
+            })
         except Exception:
             pass
 

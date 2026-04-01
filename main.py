@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -79,6 +80,8 @@ def _checkpoint_wal():
 async def lifespan(app: FastAPI):
     global bot_process
     # ── startup ──────────────────────────────────────────────────────────────
+    from services.ws_manager import ws_manager as _ws_manager
+    _ws_manager.set_main_loop(asyncio.get_event_loop())
     database.upgrade_schema(engine)
     scheduler.init_scheduler()
     if settings.telegram_enabled:
