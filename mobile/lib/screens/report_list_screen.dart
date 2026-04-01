@@ -6,6 +6,7 @@ import '../providers/report_provider.dart';
 import '../models/report.dart';
 import '../widgets/report_detail_sheet.dart';
 import '../widgets/search_filter_sheet.dart';
+import '../widgets/selection_action_bar.dart';
 import 'settings_screen.dart';
 
 class ReportListScreen extends StatefulWidget {
@@ -16,6 +17,9 @@ class ReportListScreen extends StatefulWidget {
 }
 
 class _ReportListScreenState extends State<ReportListScreen> {
+  final Set<String> _selected = {};
+  bool get _selectionMode => _selected.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
@@ -25,58 +29,102 @@ class _ReportListScreenState extends State<ReportListScreen> {
     });
   }
 
+  void _toggleSelect(String reportNumber) {
+    setState(() {
+      if (_selected.contains(reportNumber)) {
+        _selected.remove(reportNumber);
+      } else {
+        _selected.add(reportNumber);
+      }
+    });
+  }
+
+  void _clearSelection() => setState(() => _selected.clear());
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ReportProvider>();
 
+    // 현재 탭의 reports에서 선택된 Report 객체들을 찾아 액션 바에 전달
+    final allReports = [
+      ...provider.filteredTrafficReports,
+      ...provider.filteredOtherReports,
+    ];
+    final selectedReports =
+        allReports.where((r) => _selected.contains(r.reportNumber)).toList();
+
     return DefaultTabController(
       length: 2,
       child: Scaffold(
-        appBar: AppBar(
-          title: const Text('신고 내역'),
-          actions: [
-            IconButton(
-              icon: Badge(
-                isLabelVisible: provider.hasFilter,
-                child: const Icon(Icons.filter_list),
+        appBar: _selectionMode
+            ? AppBar(
+                leading: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: _clearSelection,
+                ),
+                title: Text('${_selected.length}개 선택됨'),
+                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+              )
+            : AppBar(
+                title: const Text('신고 내역'),
+                actions: [
+                  IconButton(
+                    icon: Badge(
+                      isLabelVisible: provider.hasFilter,
+                      child: const Icon(Icons.filter_list),
+                    ),
+                    tooltip: '검색/필터',
+                    onPressed: () => _showSearchPopup(context),
+                  ),
+                  IconButton(
+                    icon: const Icon(FontAwesomeIcons.wordpress),
+                    tooltip: '제작자 블로그',
+                    onPressed: () async {
+                      final url =
+                          Uri.parse('https://hb.worklazy.net/mysafetyreport/');
+                      await launchUrl(url, mode: LaunchMode.externalApplication);
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.settings),
+                    tooltip: '설정',
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    ),
+                  ),
+                ],
+                bottom: const TabBar(
+                  labelColor: Colors.white,
+                  unselectedLabelColor: Colors.white70,
+                  indicatorColor: Colors.white,
+                  indicatorWeight: 3,
+                  tabs: [
+                    Tab(text: '교통위반'),
+                    Tab(text: '기타위반'),
+                  ],
+                ),
               ),
-              tooltip: '검색/필터',
-              onPressed: () => _showSearchPopup(context),
-            ),
-            IconButton(
-              icon: const Icon(FontAwesomeIcons.wordpress),
-              tooltip: '제작자 블로그',
-              onPressed: () async {
-                final url = Uri.parse('https://hb.worklazy.net/mysafetyreport/');
-                await launchUrl(url, mode: LaunchMode.externalApplication);
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings),
-              tooltip: '설정',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              ),
-            ),
-          ],
-          bottom: const TabBar(
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white70,
-            indicatorColor: Colors.white,
-            indicatorWeight: 3,
-            tabs: [
-              Tab(text: '교통위반'),
-              Tab(text: '기타위반'),
-            ],
-          ),
-        ),
-        body: TabBarView(
+        body: Stack(
           children: [
-            _buildTab(provider, provider.filteredTrafficReports,
-                provider.fetchTrafficReports),
-            _buildTab(provider, provider.filteredOtherReports,
-                provider.fetchOtherReports),
+            TabBarView(
+              children: [
+                _buildTab(provider, provider.filteredTrafficReports,
+                    provider.fetchTrafficReports),
+                _buildTab(provider, provider.filteredOtherReports,
+                    provider.fetchOtherReports),
+              ],
+            ),
+            if (_selectionMode)
+              Positioned(
+                bottom: 0, left: 0, right: 0,
+                child: SelectionActionBar(
+                  selectedReports: selectedReports,
+                  onCancel: _clearSelection,
+                  onActionDone: _clearSelection,
+                ),
+              ),
           ],
         ),
       ),
@@ -85,32 +133,65 @@ class _ReportListScreenState extends State<ReportListScreen> {
 
   Widget _buildTab(ReportProvider provider, List<Report> reports,
       Future<void> Function() onRefresh) {
-    return RefreshIndicator(
-      onRefresh: onRefresh,
-      child: provider.isLoading && reports.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : reports.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
+    if (provider.isLoading && reports.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (reports.isEmpty) {
+      return LayoutBuilder(
+        builder: (context, constraints) => RefreshIndicator(
+          onRefresh: onRefresh,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (provider.errorMessage != null) ...[
+                      Icon(Icons.cloud_off_rounded,
+                          size: 56, color: Colors.grey.shade400),
+                      const SizedBox(height: 12),
+                      const Text('데이터를 불러오지 못했습니다.',
+                          style: TextStyle(
+                              color: Colors.grey,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
+                      const Text('아래로 당겨 다시 시도하거나\n설정에서 서버 상태를 확인하세요.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey, fontSize: 13)),
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: const Text('다시 시도'),
+                        onPressed: onRefresh,
+                      ),
+                    ] else ...[
                       Icon(Icons.inbox_rounded,
                           size: 56, color: Colors.grey.shade400),
                       const SizedBox(height: 12),
                       Text(
                         provider.hasFilter ? '검색 결과가 없습니다.' : '신고 내역이 없습니다.',
-                        style:
-                            const TextStyle(color: Colors.grey, fontSize: 15),
+                        style: const TextStyle(color: Colors.grey, fontSize: 15),
                       ),
                     ],
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
-                  itemCount: reports.length,
-                  itemBuilder: (context, index) =>
-                      _buildReportCard(reports[index]),
+                  ],
                 ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: onRefresh,
+      child: ListView.builder(
+        padding: EdgeInsets.fromLTRB(
+            12, 10, 12, _selectionMode ? 100 : 20), // 선택바 공간 확보
+        itemCount: reports.length,
+        itemBuilder: (context, index) => _buildReportCard(reports[index]),
+      ),
     );
   }
 
@@ -128,75 +209,115 @@ class _ReportListScreenState extends State<ReportListScreen> {
 
   Widget _buildReportCard(Report report) {
     final color = _statusColor(report.status);
+    final isSelected = _selected.contains(report.reportNumber);
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: Colors.grey.shade200),
+        side: BorderSide(
+          color: isSelected
+              ? Theme.of(context).colorScheme.primary
+              : Colors.grey.shade200,
+          width: isSelected ? 2 : 1,
+        ),
       ),
+      color: isSelected
+          ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3)
+          : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: () => showReportDetailSheet(context, report),
+        onTap: _selectionMode
+            ? () => _toggleSelect(report.reportNumber)
+            : () => showReportDetailSheet(context, report),
+        onLongPress: () {
+          if (!_selectionMode) {
+            setState(() => _selected.add(report.reportNumber));
+          }
+        },
         child: Padding(
           padding: const EdgeInsets.all(14),
-          child: Column(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      report.name,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 14),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+              // 선택 모드 체크박스
+              if (_selectionMode)
+                Padding(
+                  padding: const EdgeInsets.only(right: 10, top: 2),
+                  child: Icon(
+                    isSelected
+                        ? Icons.check_circle
+                        : Icons.radio_button_unchecked,
+                    size: 20,
+                    color: isSelected
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.grey.shade400,
                   ),
-                  const SizedBox(width: 8),
-                  _statusChip(report.status, color),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  const Icon(Icons.tag, size: 13, color: Colors.grey),
-                  const SizedBox(width: 3),
-                  Text(report.reportNumber,
-                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                ],
-              ),
-              const Divider(height: 14),
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        _metaRow(Icons.calendar_today, report.date),
-                        const SizedBox(height: 3),
-                        _metaRow(Icons.business, report.agency),
+                        Expanded(
+                          child: Text(
+                            report.name,
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, fontSize: 14),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _statusChip(report.status, color),
                       ],
                     ),
-                  ),
-                  if (report.carNumber.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: Colors.blueGrey.shade50,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.blueGrey.shade200),
-                      ),
-                      child: Text(
-                        report.carNumber,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                            letterSpacing: 0.5),
-                      ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.tag, size: 13, color: Colors.grey),
+                        const SizedBox(width: 3),
+                        Text(report.reportNumber,
+                            style: const TextStyle(
+                                color: Colors.grey, fontSize: 12)),
+                      ],
                     ),
-                ],
+                    const Divider(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _metaRow(Icons.calendar_today, report.date),
+                              const SizedBox(height: 3),
+                              _metaRow(Icons.business, report.agency),
+                            ],
+                          ),
+                        ),
+                        if (report.carNumber.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: Colors.blueGrey.shade50,
+                              borderRadius: BorderRadius.circular(6),
+                              border:
+                                  Border.all(color: Colors.blueGrey.shade200),
+                            ),
+                            child: Text(
+                              report.carNumber,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  letterSpacing: 0.5),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -210,7 +331,11 @@ class _ReportListScreenState extends State<ReportListScreen> {
       children: [
         Icon(icon, size: 12, color: Colors.grey),
         const SizedBox(width: 4),
-        Text(text, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        Expanded(
+          child: Text(text,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+              overflow: TextOverflow.ellipsis),
+        ),
       ],
     );
   }
@@ -230,6 +355,7 @@ class _ReportListScreenState extends State<ReportListScreen> {
   }
 
   Color _statusColor(String status) {
+    if (status == '일부수용') return const Color(0xFF43A047);
     if (status.contains('수용') && !status.contains('불')) return Colors.green;
     if (status.contains('불수용')) return Colors.red;
     if (status.contains('처리') || status.contains('진행')) return Colors.orange;

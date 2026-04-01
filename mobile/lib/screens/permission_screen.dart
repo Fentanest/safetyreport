@@ -61,15 +61,27 @@ class _PermissionScreenState extends State<PermissionScreen>
   bool get _allGranted =>
       _listenerEnabled && _batteryIgnored && _notifGranted;
 
+  Future<void> _grantAll() async {
+    if (!_notifGranted) {
+      await PermissionService.requestNotificationPermission();
+      await _checkAll();
+    }
+    if (!_batteryIgnored) {
+      await PermissionService.requestIgnoreBatteryOptimizations();
+      await _checkAll();
+    }
+    if (!_listenerEnabled) {
+      await PermissionService.openNotificationListenerSettings();
+      // 돌아오면 didChangeAppLifecycleState에서 재확인
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    if (widget.isSetup) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('권한 설정')),
-        body: _buildBody(),
-      );
-    }
-    return _buildBody();
+    return Scaffold(
+      appBar: AppBar(title: const Text('권한 설정')),
+      body: _buildBody(),
+    );
   }
 
   Widget _buildBody() {
@@ -150,6 +162,23 @@ class _PermissionScreenState extends State<PermissionScreen>
             buttonLabel: '알림 권한 요청',
           ),
           const SizedBox(height: 28),
+
+          // 일괄 허용 버튼
+          if (!_allGranted) ...[
+            FilledButton.icon(
+              icon: _loading
+                  ? const SizedBox(
+                      width: 16, height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.shield_outlined, size: 18),
+              label: const Text('모든 권한 한 번에 허용하기'),
+              style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 14)),
+              onPressed: _loading ? null : _grantAll,
+            ),
+            const SizedBox(height: 16),
+          ],
 
           // 전체 상태
           AnimatedContainer(

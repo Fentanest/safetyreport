@@ -71,50 +71,63 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // ── 에러 상태 ──────────────────────────────────────
   Widget _buildErrorState(BuildContext context, ReportProvider provider) {
     final error = provider.errorMessage;
-    return SingleChildScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            const SizedBox(height: 40),
-            Icon(Icons.cloud_off_rounded, size: 72, color: Colors.grey.shade400),
-            const SizedBox(height: 20),
-            const Text('서버에 연결할 수 없습니다',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            if (error != null)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.red.shade200),
-                ),
-                child: SelectableText(error,
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.red.shade800,
-                        height: 1.6,
-                        fontFamily: 'monospace')),
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.cloud_off_rounded,
+                      size: 72, color: Colors.grey.shade400),
+                  const SizedBox(height: 20),
+                  const Text('서버에 연결할 수 없습니다',
+                      style: TextStyle(
+                          fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  const Text('아래로 당겨 다시 시도하세요.',
+                      style: TextStyle(color: Colors.grey, fontSize: 13)),
+                  if (error != null) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.red.shade50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.red.shade200),
+                      ),
+                      child: SelectableText(error,
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.red.shade800,
+                              height: 1.6,
+                              fontFamily: 'monospace')),
+                    ),
+                  ],
+                  const SizedBox(height: 24),
+                  FilledButton.icon(
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('다시 시도'),
+                    onPressed: provider.fetchSummary,
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.settings),
+                    label: const Text('설정 확인'),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                    ),
+                  ),
+                ],
               ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              icon: const Icon(Icons.refresh),
-              label: const Text('다시 시도'),
-              onPressed: provider.fetchSummary,
             ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              icon: const Icon(Icons.settings),
-              label: const Text('설정 확인'),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
