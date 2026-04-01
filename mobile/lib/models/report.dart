@@ -9,7 +9,14 @@ class Report {
   final String status;
   final String result;
   final String fineInfo;
+  final String penaltyPoints;
   final String carNumber;
+  final String law;
+  final String location;
+  final String occurrenceDate;
+  final String occurrenceTime;
+  final String reportContent;
+  final String processContent;
 
   Report({
     required this.id,
@@ -22,7 +29,14 @@ class Report {
     required this.status,
     required this.result,
     required this.fineInfo,
+    required this.penaltyPoints,
     required this.carNumber,
+    required this.law,
+    required this.location,
+    required this.occurrenceDate,
+    required this.occurrenceTime,
+    required this.reportContent,
+    required this.processContent,
   });
 
   factory Report.fromJson(Map<String, dynamic> json) {
@@ -37,7 +51,14 @@ class Report {
       status: (json['처리상태'] ?? json['상태'])?.toString() ?? '',
       result: json['결과']?.toString() ?? '',
       fineInfo: json['범칙금_과태료']?.toString() ?? '',
+      penaltyPoints: json['벌점']?.toString() ?? '',
       carNumber: json['차량번호']?.toString() ?? '',
+      law: json['위반법규']?.toString() ?? '',
+      location: json['위반장소']?.toString() ?? '',
+      occurrenceDate: json['발생일자']?.toString() ?? '',
+      occurrenceTime: json['발생시각']?.toString() ?? '',
+      reportContent: json['신고내용']?.toString() ?? '',
+      processContent: json['처리내용']?.toString() ?? '',
     );
   }
 }
