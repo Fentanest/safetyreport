@@ -113,6 +113,16 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
     else:
         return {"status": "error", "message": "크롤링 프로세스를 시작하지 못했습니다."}
 
+@router.get("/crawl/results")
+async def get_crawl_results(_: str = Depends(_require_api_key)):
+    """크롤링으로 변경된 신고 목록 조회 및 초기화 (모바일 개별 알림용)"""
+    try:
+        changes = data_service.get_and_clear_crawl_changes()
+        return {"status": "success", "count": len(changes), "data": changes}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/files")
 async def list_files(path: str = "", _: str = Depends(_require_api_key)):
     """서버 파일 브라우저 — logs / results 폴더만 허용"""

@@ -389,6 +389,68 @@ def get_all_watchlist(engine):
         df = df.fillna('')
         return df.to_dict('records')
 
+def save_crawl_changes(engine, changed_item_ids):
+    """크롤링으로 변경된 신고건의 상세 정보를 파일에 저장 (모바일 개별 알림용)"""
+    import json
+    if not changed_item_ids:
+        return
+
+    changed_records = database.get_merged_records_by_ids(engine, changed_item_ids)
+    if not changed_records:
+        return
+
+    changes = []
+    for r in changed_records:
+        changes.append({
+            "ID": str(r.get('ID', '')),
+            "신고번호": str(r.get('신고번호', '')),
+            "신고명": str(r.get('신고명', '')),
+            "신고일": str(r.get('신고일', '')),
+            "처리기관": str(r.get('처리기관', '')),
+            "담당자": str(r.get('담당자', '')),
+            "처리상태": str(r.get('처리상태', '')),
+            "범칙금_과태료": str(r.get('범칙금_과태료', '')),
+            "벌점": str(r.get('벌점', '')),
+            "답변일": str(r.get('답변일', '')),
+            "차량번호": str(r.get('차량번호', '')),
+            "위반법규": str(r.get('위반법규', '')),
+            "위반장소": str(r.get('위반장소', '')),
+            "발생일자": str(r.get('발생일자', '')),
+            "발생시각": str(r.get('발생시각', '')),
+        })
+
+    changes_file = os.path.join(app_settings.datapath, 'crawl_changes.json')
+    existing = []
+    if os.path.exists(changes_file):
+        try:
+            with open(changes_file, 'r', encoding='utf-8') as f:
+                existing = json.load(f)
+        except Exception:
+            existing = []
+
+    merged_map = {item['신고번호']: item for item in existing}
+    for item in changes:
+        merged_map[item['신고번호']] = item
+
+    with open(changes_file, 'w', encoding='utf-8') as f:
+        json.dump(list(merged_map.values()), f, ensure_ascii=False)
+
+
+def get_and_clear_crawl_changes():
+    """크롤링 변경 결과 조회 후 파일 삭제 (모바일 알림용)"""
+    import json
+    changes_file = os.path.join(app_settings.datapath, 'crawl_changes.json')
+    if not os.path.exists(changes_file):
+        return []
+    try:
+        with open(changes_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        os.remove(changes_file)
+        return data
+    except Exception:
+        return []
+
+
 def update_watchlist_status(engine, rnums, status):
     if not rnums:
         return 0

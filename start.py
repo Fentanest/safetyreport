@@ -159,6 +159,11 @@ def _process_and_save_results(engine, changed_item_ids):
     logger.LoggerFactory.logbot.info("최종 데이터 병합 및 저장 시작")
     database.merge_final(engine=engine)
     database.clear_old_attachments(engine=engine)
+
+    # 모바일 개별 알림용 변경 목록 파일 저장
+    if changed_item_ids:
+        from services.data_service import save_crawl_changes
+        save_crawl_changes(engine, changed_item_ids)
     
     if settings.telegram_enabled:
         msg = "3/5. 최종 데이터 병합 및 DB 저장을 완료했습니다."

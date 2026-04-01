@@ -2,12 +2,15 @@ package com.fentanest.mysafetyreport
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
-import java.util.regex.Pattern
 import org.json.JSONObject
+import java.util.regex.Pattern
 
 class NotificationService : NotificationListenerService() {
     private val TAG = "SafetyReportNS"
@@ -46,10 +49,10 @@ class NotificationService : NotificationListenerService() {
 
     private fun sendToBackend(reportNumber: String) {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
-        val baseUrl = prefs.getString("flutter.baseUrl", "")?.trimEnd('/')
+        val baseUrl = prefs.getString("flutter.baseUrl", "")?.trimEnd('/') ?: ""
         val apiKey = prefs.getString("flutter.apiKey", "") ?: ""
 
-        if (baseUrl.isNullOrEmpty()) {
+        if (baseUrl.isEmpty()) {
             Log.w(TAG, "baseUrl 미설정, 서버 전송 건너뜀")
             return
         }
@@ -75,7 +78,7 @@ class NotificationService : NotificationListenerService() {
 
                 if (enqueueStatus == 200) {
                     // 2. 크롤링 완료 폴링 (30초 간격, 최대 10회 = 5분)
-                    pollForResult(baseUrl, apiKey, reportNumber)
+                    pollForCrawlResults(baseUrl, apiKey)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "서버 전송 오류: ${e.message}")
@@ -83,15 +86,15 @@ class NotificationService : NotificationListenerService() {
         }.start()
     }
 
-    private fun pollForResult(baseUrl: String, apiKey: String, reportNumber: String) {
+    private fun pollForCrawlResults(baseUrl: String, apiKey: String) {
         val maxAttempts = 10
         val intervalMs = 30_000L
 
         for (attempt in 1..maxAttempts) {
             Thread.sleep(intervalMs)
             try {
-                val summaryUrl = java.net.URL("$baseUrl/api/v1/summary")
-                val conn = summaryUrl.openConnection() as java.net.HttpURLConnection
+                val url = java.net.URL("$baseUrl/api/v1/crawl/results")
+                val conn = url.openConnection() as java.net.HttpURLConnection
                 conn.setRequestProperty("X-API-Key", apiKey)
                 conn.connectTimeout = 8000
                 conn.readTimeout = 8000
@@ -102,39 +105,16 @@ class NotificationService : NotificationListenerService() {
                     conn.disconnect()
 
                     val json = JSONObject(responseText)
-                    val data = json.optJSONObject("data") ?: continue
-
-                    // recent_answers에서 해당 신고번호 검색
-                    val recentList = data.optJSONArray("recent_answers")
-                    if (recentList != null) {
-                        for (i in 0 until recentList.length()) {
-                            val item = recentList.getJSONObject(i)
-                            if (item.optString("신고번호") == reportNumber) {
-                                val name = item.optString("신고명", "신고")
-                                val status = item.optString("처리상태", "")
-                                val agency = item.optString("처리기관", "")
-                                showLocalNotification(
-                                    title = "📋 신고 처리 완료",
-                                    text = "$name\n처리상태: $status | $agency",
-                                    reportNumber = reportNumber
-                                )
-                                Log.i(TAG, "크롤링 완료 알림 표시: $reportNumber")
-                                return
+                    val count = json.optInt("count", 0)
+                    if (count > 0) {
+                        val dataArr = json.optJSONArray("data")
+                        if (dataArr != null) {
+                            for (i in 0 until dataArr.length()) {
+                                showReportNotification(dataArr.getJSONObject(i))
                             }
                         }
-                    }
-
-                    // recent_answers에 없으면 total 증가로 판단
-                    if (attempt >= 3) {
-                        val total = data.optInt("total", 0)
-                        if (total > 0) {
-                            showLocalNotification(
-                                title = "📋 안전신문고 업데이트",
-                                text = "신고번호 $reportNumber 처리 결과가 업데이트되었습니다.",
-                                reportNumber = reportNumber
-                            )
-                            return
-                        }
+                        Log.i(TAG, "크롤링 결과 알림 표시: ${count}건")
+                        return
                     }
                 } else {
                     conn.disconnect()
@@ -143,20 +123,66 @@ class NotificationService : NotificationListenerService() {
                 Log.w(TAG, "폴링 오류 (${attempt}회): ${e.message}")
             }
         }
-        Log.w(TAG, "폴링 최대 횟수 초과: $reportNumber")
+        Log.w(TAG, "폴링 최대 횟수 초과")
     }
 
-    private fun showLocalNotification(title: String, text: String, reportNumber: String = "") {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    private fun showReportNotification(record: JSONObject) {
+        val id = record.optString("ID", "")
+        val reportNumber = record.optString("신고번호", "")
+        val name = record.optString("신고명", "신고")
+        val status = record.optString("처리상태", "")
+        val agency = record.optString("처리기관", "")
+        val manager = record.optString("담당자", "")
+        val fine = record.optString("범칙금_과태료", "")
+        val penalty = record.optString("벌점", "")
+        val responseDate = record.optString("답변일", "")
+        val carNumber = record.optString("차량번호", "")
+        val reportDate = record.optString("신고일", "")
+        val law = record.optString("위반법규", "")
+        val location = record.optString("위반장소", "")
+        val occurDate = record.optString("발생일자", "")
+        val occurTime = record.optString("발생시각", "")
+
+        val bodyLines = mutableListOf<String>()
+        if (reportNumber.isNotEmpty()) bodyLines.add("신고번호: $reportNumber")
+        if (status.isNotEmpty()) bodyLines.add("처리상태: $status")
+        if (agency.isNotEmpty()) bodyLines.add("처리기관: $agency")
+        if (manager.isNotEmpty()) bodyLines.add("담당자: $manager")
+        if (responseDate.isNotEmpty()) bodyLines.add("답변일: $responseDate")
+        if (fine.isNotEmpty() && fine != "미확인" && fine != "null") bodyLines.add("범칙금/과태료: $fine")
+        if (penalty.isNotEmpty() && penalty != "null") bodyLines.add("벌점: $penalty")
+        if (carNumber.isNotEmpty()) bodyLines.add("차량번호: $carNumber")
+        if (reportDate.isNotEmpty()) bodyLines.add("신고일: $reportDate")
+        if (law.isNotEmpty()) bodyLines.add("위반법규: $law")
+        if (location.isNotEmpty()) bodyLines.add("위반장소: $location")
+        if (occurDate.isNotEmpty()) bodyLines.add("발생일자: $occurDate")
+        if (occurTime.isNotEmpty()) bodyLines.add("발생시각: $occurTime")
+
+        val bodyText = bodyLines.joinToString("\n")
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        // 안전신문고 앱 딥링크 액션 버튼
+        val deepLinkUri = Uri.parse(
+            "appsafetyreport://view?c_no=$id&ext_path=M_MY_01_S0002.html&mem_yn=Y"
+        )
+        val deepLinkIntent = Intent(Intent.ACTION_VIEW, deepLinkUri)
+        val requestCode = (System.currentTimeMillis() % Int.MAX_VALUE).toInt()
+        val pendingIntent = PendingIntent.getActivity(
+            this, requestCode, deepLinkIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         val notification = android.app.Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setStyle(android.app.Notification.BigTextStyle().bigText(text))
+            .setContentTitle("📋 $name")
+            .setContentText("처리상태: $status")
+            .setStyle(android.app.Notification.BigTextStyle().bigText(bodyText))
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setAutoCancel(true)
+            .addAction(android.R.drawable.ic_menu_view, "안전신문고에서 보기", pendingIntent)
             .build()
-        manager.notify(System.currentTimeMillis().toInt(), notification)
-        saveToHistory(title, text, reportNumber)
+
+        notificationManager.notify(System.currentTimeMillis().toInt(), notification)
+        saveToHistory("📋 $name", bodyText, reportNumber)
     }
 
     private fun saveToHistory(title: String, body: String, reportNumber: String) {
