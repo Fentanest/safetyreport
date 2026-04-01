@@ -45,18 +45,18 @@ async def start_batch_rating(request: Request, ids: str = Form(""), score: int =
         try:
             mtime = os.path.getmtime(log_file)
             ts = time.strftime('%Y%m%d_%H%M%S', time.localtime(mtime))
-            backup_name = os.path.join(log_dir, f"{ts}_rating.log")
+            backup_name = os.path.join(log_dir, f"star_{ts}.log")
             import shutil
             shutil.move(log_file, backup_name)
         except Exception as e:
             logger.LoggerFactory.get_logger().error(f"별점 로그 백업 중 오류: {e}")
 
-    with open(log_file, 'w', encoding='utf-8') as f:
-        f.write("=== 별점 작업 로그 시작 ===\n")
+    # star_log 파일 핸들러를 current_rating.log로 교체
+    logger.LoggerFactory.set_star_log_file(log_file)
 
     def _do_rating():
         from services import star_rating_service as star_rating
-        star_rating.run_batch_rating(final_ids, score=score, log_file=log_file)
+        star_rating.run_batch_rating(final_ids, score=score)
 
     # ==============================================================================
     # 추후 API 통신 불가 시 (가령 로그인 세션 검증 추가) 복구용 셀레니움 기반 로직 백업
