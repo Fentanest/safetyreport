@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/notification_item.dart';
 import '../providers/notification_history_provider.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+
+const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -53,12 +56,27 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     try {
       final done = await api.getCrawlDone();
       if (done['done'] == true) {
+        final changedCount = (done['changed_count'] as num?)?.toInt() ?? 0;
         final results = await api.fetchCrawlResults();
         if (mounted) {
           await context.read<NotificationHistoryProvider>()
               .addFromServerResults(results);
         }
+        // Android 시스템 푸시 알림 표시 (WsService가 놓친 경우 보완)
+        _showPushNotif(changedCount);
       }
+    } catch (_) {}
+  }
+
+  Future<void> _showPushNotif(int changedCount) async {
+    try {
+      final body = changedCount > 0
+          ? '크롤링이 완료되었습니다. ${changedCount}건의 변경사항이 있습니다.'
+          : '크롤링이 완료되었습니다. 변경사항이 없습니다.';
+      await _permChannel.invokeMethod('showNotification', {
+        'title': '✅ 크롤링 완료',
+        'body': body,
+      });
     } catch (_) {}
   }
 

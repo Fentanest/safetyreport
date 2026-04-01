@@ -102,6 +102,18 @@
                         <label class="form-check-label" for="excludeWithdrawSwitch">취하 데이터 숨기기</label>
                     </div>
 
+                    <h6 class="mb-3 text-primary border-bottom pb-2">크롤링 후 자동 저장</h6>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" role="switch" id="autoExportExcelSwitch"
+                            name="auto_export_excel" value="true" {% if auto_export_excel %}checked{% endif %}>
+                        <label class="form-check-label" for="autoExportExcelSwitch">크롤링 완료 후 엑셀 파일 자동 저장</label>
+                    </div>
+                    <div class="form-check form-switch mb-4">
+                        <input class="form-check-input" type="checkbox" role="switch" id="autoExportSheetSwitch"
+                            name="auto_export_sheet" value="true" {% if auto_export_sheet %}checked{% endif %}>
+                        <label class="form-check-label" for="autoExportSheetSwitch">크롤링 완료 후 구글 시트 자동 업로드</label>
+                    </div>
+
                     <h6 class="mb-3 text-primary border-bottom pb-2">크롤링 고급 설정</h6>
                     <div class="row mb-3">
                         <div class="col-md-6">

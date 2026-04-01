@@ -178,6 +178,27 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> getAppConfig() async {
+    final response = await http.get(
+        Uri.parse('$baseUrl/api/v1/app/config'), headers: _headers);
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      return json['data'] as Map<String, dynamic>;
+    }
+    throw Exception('앱 설정 조회 실패');
+  }
+
+  Future<void> updateSettings(Map<String, dynamic> settings) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/api/v1/settings'),
+      headers: _headers,
+      body: jsonEncode(settings),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('설정 저장 실패');
+    }
+  }
+
   String get wsBaseUrl {
     final uri = Uri.parse(baseUrl);
     final scheme = uri.scheme == 'https' ? 'wss' : 'ws';

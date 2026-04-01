@@ -210,6 +210,8 @@ def parse_details(driver, report_soup, result_soup=None):
     if report_details["progress_status"] == "취하":
         processing_details["processing_finish"] = "Y"
         processing_details["processing_status"] = "취하"
+        processing_details["penalty_amount"] = ""
+        processing_details["penalty_points"] = ""
 
     all_details = {**report_details, **processing_details}
     all_details.pop("progress_status", None)
@@ -371,6 +373,8 @@ def parse_json_details(result_data):
     if process_status == "취하":
         processing_finish = "Y"
         processing_status = "취하"
+        penalty_amount = ""
+        penalty_points = ""
 
     return {
         "entry_value": entry_value,

@@ -191,9 +191,17 @@ class _FilteredListScreenState extends State<FilteredListScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _metaRow(Icons.calendar_today, r.date),
+                              _metaRow(Icons.calendar_today, r.date.isNotEmpty ? '신고: ${r.date}' : ''),
+                              if (r.responseDate.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                _metaRow(Icons.event_available, '답변: ${r.responseDate}'),
+                              ],
                               const SizedBox(height: 3),
                               _metaRow(Icons.business, r.agency),
+                              if (r.manager.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                _metaRow(Icons.person_outline, r.manager),
+                              ],
                               if (r.fineInfo.isNotEmpty) ...[
                                 const SizedBox(height: 3),
                                 _metaRow(
