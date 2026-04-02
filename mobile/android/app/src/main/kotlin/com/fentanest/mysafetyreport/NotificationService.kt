@@ -18,8 +18,8 @@ class NotificationService : NotificationListenerService() {
     private val CHANNEL_ID = "safetyreport_results"
     private val notifIdCounter = AtomicInteger(1000)
 
-    // 신고번호 패턴 (202x로 시작하는 10~14자리)
-    private val reportNoPattern = Pattern.compile("202[0-9]{7,11}")
+    // 신고번호 패턴 (SPP-YYMM-NNNNNNN 형식, 예: SPP-2603-1434237)
+    private val reportNoPattern = Pattern.compile("SPP-\\d{4}-\\d{6,8}")
 
     override fun onCreate() {
         super.onCreate()
