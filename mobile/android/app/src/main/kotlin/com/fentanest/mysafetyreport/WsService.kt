@@ -176,7 +176,7 @@ class WsService : Service() {
         })
         activeWs = ws
 
-        latch.await()
+        try { latch.await() } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
         client.dispatcher.executorService.shutdown()
         return connected
     }
