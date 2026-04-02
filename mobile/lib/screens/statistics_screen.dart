@@ -52,24 +52,7 @@ class _StatisticsScreenState extends State<StatisticsScreen>
         actions: [
           IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
         ],
-        bottom: TabBar(
-          controller: _tab,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          indicatorColor: Colors.white,
-          indicatorWeight: 3,
-          isScrollable: true,
-          tabs: const [
-            Tab(text: '교통 기관별'),
-            Tab(text: '교통 담당자별'),
-            Tab(text: '교통 경찰 기관'),
-            Tab(text: '교통 경찰 담당자'),
-            Tab(text: '기타 기관별'),
-            Tab(text: '기타 담당자별'),
-            Tab(text: '기타 경찰 기관'),
-            Tab(text: '기타 경찰 담당자'),
-          ],
-        ),
+        bottom: _GroupedTabBar(controller: _tab),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -304,6 +287,103 @@ class _RowCard extends StatelessWidget {
                 textAlign: TextAlign.center),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+class _GroupedTabBar extends StatefulWidget implements PreferredSizeWidget {
+  final TabController controller;
+  const _GroupedTabBar({required this.controller});
+
+  @override
+  Size get preferredSize => const Size.fromHeight(88);
+
+  @override
+  State<_GroupedTabBar> createState() => _GroupedTabBarState();
+}
+
+class _GroupedTabBarState extends State<_GroupedTabBar> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onTabChange);
+  }
+
+  void _onTabChange() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onTabChange);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildGroup('교통위반', 0, ['기관별', '담당자별', '경찰 기관', '경찰 담당자']),
+        const Divider(height: 1, thickness: 1, color: Colors.white24),
+        _buildGroup('기타 위반', 4, ['기관별', '담당자별', '경찰 기관', '경찰 담당자']),
+      ],
+    );
+  }
+
+  Widget _buildGroup(String title, int startIdx, List<String> labels) {
+    return SizedBox(
+      height: 43,
+      child: Row(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Text(title,
+                style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500)),
+          ),
+          Container(width: 1, height: 18, color: Colors.white24),
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: List.generate(labels.length, (i) {
+                  final idx = startIdx + i;
+                  final selected = widget.controller.index == idx;
+                  return GestureDetector(
+                    onTap: () => widget.controller.animateTo(idx),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: selected ? Colors.white : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      height: 43,
+                      child: Text(
+                        labels[i],
+                        style: TextStyle(
+                          color: selected ? Colors.white : Colors.white70,
+                          fontSize: 13,
+                          fontWeight:
+                              selected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

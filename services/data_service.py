@@ -249,16 +249,21 @@ def get_agency_stats(engine, filters=None):
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
 
     def calc_stats(df):
+        _empty = {
+            "by_agency": [], "by_person": [],
+            "police_by_agency": [], "police_by_person": [],
+            "other_by_agency": [], "other_by_person": [],
+        }
         if df.empty:
-            return {"by_person": [], "by_agency": []}
+            return _empty
 
         if filters:
             if filters.get('reportName') and '신고명' in df.columns:
-                df = df[df['신고명'].str.contains(filters['reportName'], na=False, regex=True)]
+                df = df[df['신고명'].str.contains(filters['reportName'], na=False, regex=False)]
             if filters.get('law') and '위반법규' in df.columns:
-                df = df[df['위반법규'].str.contains(filters['law'], na=False, regex=True)]
+                df = df[df['위반법규'].str.contains(filters['law'], na=False, regex=False)]
             if filters.get('location') and '위반장소' in df.columns:
-                df = df[df['위반장소'].str.contains(filters['location'], na=False, regex=True)]
+                df = df[df['위반장소'].str.contains(filters['location'], na=False, regex=False)]
             
             if filters.get('reportDateStart') and '신고일' in df.columns:
                 df = df[df['신고일'] >= filters['reportDateStart']]
@@ -281,7 +286,7 @@ def get_agency_stats(engine, filters=None):
                 df = df[df['발생시각'] <= filters['occurTimeEnd']]
             
             if filters.get('agency') and '처리기관' in df.columns:
-                df = df[df['처리기관'].str.contains(filters['agency'], na=False, regex=True)]
+                df = df[df['처리기관'].str.contains(filters['agency'], na=False, regex=False)]
             
             if filters.get('excludePolice') and '처리기관' in df.columns:
                 df = df[~df['처리기관'].str.contains('경찰', na=False)]
@@ -289,7 +294,7 @@ def get_agency_stats(engine, filters=None):
                 df = df[df['처리기관'].str.contains('경찰', na=False)]
 
         if df.empty:
-            return {"by_person": [], "by_agency": []}
+            return _empty
 
         if app_settings.normalize_police and '처리기관' in df.columns:
             def norm_police(x):
