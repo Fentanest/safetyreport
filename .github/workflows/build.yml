@@ -17,7 +17,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -119,7 +119,7 @@ jobs:
 
     - name: Upload Windows artifact
       if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: mysafetyreport-win-${{ steps.get_version.outputs.version }}
         path: mysafetyreport-win.zip
@@ -149,7 +149,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -246,7 +246,7 @@ jobs:
 
     - name: Upload Linux artifact
       if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: mysafetyreport-linux-${{ steps.get_version.outputs.version }}
         path: mysafetyreport-linux.zip
@@ -256,7 +256,6 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_version.outputs.tag }}
-        files: mysafetyreport-linux.zip
 
     # ── Docker 멀티아키텍처 이미지 빌드 (amd64 + arm64) ───────────
     - name: Set lowercase image name
@@ -265,14 +264,14 @@ jobs:
 
     - name: Set up Docker Buildx
       if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
       with:
         driver: docker-container
         use: true
 
     - name: Log in to GitHub Container Registry (GHCR)
       if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -280,14 +279,14 @@ jobs:
 
     - name: Log in to Docker Hub
       if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Build and push Docker image (amd64 + arm64)
       if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: docker/build-push-action@v6
+      uses: docker/build-push-action@v7
       with:
         context: .
         platforms: linux/amd64,linux/arm64
@@ -301,3 +300,114 @@ jobs:
           org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           org.opencontainers.image.version=${{ steps.get_version.outputs.version }}
           org.opencontainers.image.revision=${{ github.sha }}
+
+  # ────────────────────────────────────────────────────────────────
+  # 3. Raspberry Pi (ARM64) 실행 파일 빌드
+  # ────────────────────────────────────────────────────────────────
+  build-linux-arm64:
+    runs-on: [self-hosted, Linux, ARM64]
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Read version from VERSION file
+      id: get_version
+      run: |
+        versionString=$(cat VERSION | tr -d '[:space:]')
+        if [ -z "$versionString" ]; then
+          echo "::error::VERSION 파일에서 버전을 읽을 수 없습니다."
+          exit 1
+        fi
+        echo "version=$versionString" >> "$GITHUB_OUTPUT"
+        echo "tag=v$versionString" >> "$GITHUB_OUTPUT"
+
+    - name: Check if tag already exists
+      id: check_tag
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        TAG: ${{ steps.get_version.outputs.tag }}
+      run: |
+        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          -H "Authorization: Bearer $GITHUB_TOKEN" \
+          "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG")
+        if [ "$HTTP_STATUS" -eq 200 ]; then
+          echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+        elif [ "$HTTP_STATUS" -eq 404 ]; then
+          echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "::error::API call failed with status: $HTTP_STATUS"
+          exit 1
+        fi
+
+    - name: Clean previous build artifacts
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: rm -rf venv build dist
+
+    - name: Set up Python 3.14 (local install)
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: |
+        PYTHON=$(command -v python3.14 || command -v python3)
+        $PYTHON --version
+        echo "$(dirname $PYTHON)" >> $GITHUB_PATH
+
+    - name: Create virtual environment and install dependencies
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: |
+        PYTHON=$(command -v python3.14 || command -v python3)
+        $PYTHON -m venv venv
+        ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
+        ./venv/bin/pip install --no-cache-dir -r requirements.txt
+        ./venv/bin/pip install --no-cache-dir pyinstaller
+
+    - name: Setup UPX 5.1.1 (ARM64)
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      id: setup_upx
+      run: |
+        VERSION="5.1.1"
+        UPX_DIR="/tmp/upx-${VERSION}-arm64_linux"
+        UPX_PATH="${UPX_DIR}/upx"
+        TAR_PATH="/tmp/upx_arm64.tar.xz"
+        DOWNLOAD_URL="https://github.com/upx/upx/releases/download/v${VERSION}/upx-${VERSION}-arm64_linux.tar.xz"
+
+        if [ ! -f "$UPX_PATH" ]; then
+          rm -rf "$UPX_DIR"
+          echo "Downloading UPX $VERSION (ARM64) from $DOWNLOAD_URL"
+          wget -q -O "$TAR_PATH" "$DOWNLOAD_URL"
+          mkdir -p "$UPX_DIR"
+          tar -xf "$TAR_PATH" -C "$UPX_DIR" --strip-components=1
+        fi
+        echo "upx_path=$UPX_PATH" >> "$GITHUB_OUTPUT"
+
+    - name: Build Linux ARM64 executable with PyInstaller
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: ./venv/bin/python scripts/build/build_exe.py
+
+    - name: Compress Linux ARM64 executable with UPX
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: |
+        "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/mysafetyreport/mysafetyreport
+
+    - name: Package Linux ARM64 into Zip
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: |
+        cd dist/mysafetyreport
+        zip -r ../../mysafetyreport-linux-arm64.zip .
+
+    - name: Upload Linux ARM64 artifact
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-linux-arm64-${{ steps.get_version.outputs.version }}
+        path: mysafetyreport-linux-arm64.zip
+
+    - name: Update GitHub Release with ARM64 asset
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.get_version.outputs.tag }}
+        files: mysafetyreport-linux-arm64.zip
