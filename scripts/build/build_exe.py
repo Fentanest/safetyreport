@@ -2,6 +2,7 @@ import PyInstaller.__main__
 import sys
 import os
 import shutil
+import platform
 
 def build():
     sep = ';' if sys.platform == 'win32' else ':'
@@ -74,12 +75,23 @@ def _remove_cross_platform_selenium_manager():
     if not os.path.isdir(selenium_common):
         return
 
+    machine = platform.machine().lower()
+    is_arm = 'arm' in machine or 'aarch64' in machine
+
     if sys.platform == "win32":
         remove_dirs = ["macos", "linux"]
     elif sys.platform == "darwin":
         remove_dirs = ["windows", "linux"]
     else:
+        # Linux (including Raspberry Pi)
         remove_dirs = ["macos", "windows"]
+        # If it's x86_64, you might want to remove arm64 folders if they exist
+        # If it's ARM64, you might want to remove x64 folders if they exist
+        # (Assuming selenium has separate linux-arm64 directory in future/other versions)
+        if is_arm:
+            print(f"[build] ARM64 환경 감지: {machine}")
+        else:
+            print(f"[build] x86_64 환경 감지: {machine}")
 
     for d in remove_dirs:
         path = os.path.join(selenium_common, d)
