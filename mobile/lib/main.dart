@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/report_list_screen.dart';
 import 'screens/statistics_screen.dart';
@@ -119,7 +121,8 @@ class MainNavigationScreen extends StatefulWidget {
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
+class _MainNavigationScreenState extends State<MainNavigationScreen>
+    with WidgetsBindingObserver {
   int _selectedIndex = 0;
 
   final List<Widget> _screens = [
@@ -134,10 +137,198 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   void initState() {
     super.initState();
-    // 탭 전환 시 알림 히스토리 새로고침
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<NotificationHistoryProvider>().load();
+      _checkPendingChanges();
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPendingChanges();
+    }
+  }
+
+  Future<void> _checkPendingChanges() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final raw = prefs.getString('pending_crawl_changes');
+    if (raw == null || raw.isEmpty) return;
+    await prefs.remove('pending_crawl_changes');
+
+    List<dynamic> changes;
+    try {
+      changes = jsonDecode(raw) as List<dynamic>;
+    } catch (_) {
+      return;
+    }
+    if (changes.isEmpty) return;
+    if (!mounted) return;
+
+    // 알림 탭으로 이동
+    setState(() => _selectedIndex = 3);
+
+    // 변경 신고건 카드 뷰 표시
+    await Future.delayed(const Duration(milliseconds: 200));
+    if (!mounted) return;
+    _showChangesBottomSheet(changes);
+  }
+
+  void _showChangesBottomSheet(List<dynamic> changes) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.6,
+        minChildSize: 0.35,
+        maxChildSize: 0.92,
+        expand: false,
+        builder: (_, controller) => Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Column(
+                children: [
+                  Container(
+                    width: 36, height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.sync_alt, color: Colors.blue, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        '변경된 신고건 ${changes.length}건',
+                        style: const TextStyle(
+                          fontSize: 16, fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView.separated(
+                controller: controller,
+                padding: const EdgeInsets.all(12),
+                itemCount: changes.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
+                itemBuilder: (ctx, i) {
+                  final r = changes[i] as Map<String, dynamic>;
+                  final reportNo = r['신고번호']?.toString() ?? '';
+                  final name = r['신고명']?.toString() ?? '신고';
+                  final status = r['처리상태']?.toString() ?? '';
+                  final agency = r['처리기관']?.toString() ?? '';
+                  final fine = r['범칙금_과태료']?.toString() ?? '';
+
+                  Color statusColor = Colors.grey;
+                  if (status == '수용') statusColor = Colors.green;
+                  else if (status == '불수용') statusColor = Colors.red;
+                  else if (status == '처리중') statusColor = Colors.orange;
+                  else if (status.contains('완료')) statusColor = Colors.blue;
+
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                      color: statusColor.withOpacity(0.4)),
+                                ),
+                                child: Text(
+                                  status,
+                                  style: TextStyle(
+                                    fontSize: 12, color: statusColor,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (reportNo.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Row(children: [
+                              Icon(Icons.tag, size: 13,
+                                  color: Colors.grey.shade500),
+                              const SizedBox(width: 4),
+                              Text(reportNo,
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600)),
+                            ]),
+                          ],
+                          if (agency.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Row(children: [
+                              Icon(Icons.business, size: 13,
+                                  color: Colors.grey.shade500),
+                              const SizedBox(width: 4),
+                              Text(agency,
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600)),
+                            ]),
+                          ],
+                          if (fine.isNotEmpty &&
+                              fine != '미확인' &&
+                              fine != 'null') ...[
+                            const SizedBox(height: 4),
+                            Row(children: [
+                              Icon(Icons.receipt_long, size: 13,
+                                  color: Colors.grey.shade500),
+                              const SizedBox(width: 4),
+                              Text(fine,
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600)),
+                            ]),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override

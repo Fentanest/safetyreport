@@ -41,7 +41,10 @@ async def ws_events(
         return
 
     client_id = str(uuid.uuid4())
-    await ws_manager.connect(client_id, websocket)
+    device_name = database.get_api_key_name(_get_engine(), api_key)
+    forwarded = websocket.headers.get("x-forwarded-for", "")
+    ip = forwarded.split(",")[0].strip() if forwarded else (websocket.client.host if websocket.client else "")
+    await ws_manager.connect(client_id, websocket, api_key=api_key, ip=ip, device_name=device_name)
 
     # 연결 확인 메시지
     await websocket.send_json({

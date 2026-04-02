@@ -414,3 +414,10 @@ def validate_api_key(engine, key: str) -> bool:
             select(api_keys_table).where(api_keys_table.c.key == key)
         ).first()
         return result is not None
+
+def get_api_key_name(engine, key: str) -> str:
+    with engine.connect() as conn:
+        result = conn.execute(
+            select(api_keys_table.c.name).where(api_keys_table.c.key == key)
+        ).first()
+        return result[0] if result else "알 수 없는 기기"

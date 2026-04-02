@@ -125,8 +125,8 @@
                   <span>설정</span>
                 </h6>
                 <a href="/settings" class="{% if request.url.path == '/settings' %}active{% endif %}"><i class="fas fa-cog fa-fw me-2"></i>앱 설정</a>
-                <a href="/settings/admin" class="{% if request.url.path.startswith('/settings/admin') %}active{% endif %}"><i class="fas fa-user-shield fa-fw me-2"></i>관리자 계정 변경</a>
                 <a href="/devices" class="{% if request.url.path.startswith('/devices') %}active{% endif %}"><i class="fas fa-mobile-alt fa-fw me-2"></i>기기 연동</a>
+                <a href="/settings/admin" class="{% if request.url.path.startswith('/settings/admin') %}active{% endif %}"><i class="fas fa-user-shield fa-fw me-2"></i>관리자 계정 변경</a>
 
                 <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-white fw-bold">
                   <span>기타</span>
