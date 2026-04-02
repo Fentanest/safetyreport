@@ -13,6 +13,7 @@ config.ini
 .env
 *.json
 *.md
+!README.md
 test_*
 
 # Build & Packaging
