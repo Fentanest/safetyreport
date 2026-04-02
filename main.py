@@ -115,6 +115,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="나만의 안전신문고", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=static_path), name="static")
 
+# Reverse proxy support: trust X-Forwarded-For / X-Forwarded-Proto from configured IPs
+if settings.trusted_proxies:
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+    _trusted_list = [ip.strip() for ip in settings.trusted_proxies.split(',') if ip.strip()]
+    if _trusted_list:
+        app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_trusted_list)
+
 def _signal_handler(signum, frame):
     logger.LoggerFactory.logbot.info(f"종료 신호({signum}) 수신 - WAL 정리 후 종료합니다.")
     _checkpoint_wal()

@@ -125,8 +125,12 @@ def get_dashboard_stats(engine):
     }
 
 def _get_records_from_table(engine, table_obj, filters=None):
+    try:
+        with engine.connect() as conn:
+            df = pd.read_sql_query(select(table_obj).order_by(desc('신고번호')), conn)
+    except Exception:
+        return []
     with engine.connect() as conn:
-        df = pd.read_sql_query(select(table_obj).order_by(desc('신고번호')), conn)
 
         df_watch = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
         watch_ids = set(df_watch['신고번호'].tolist())
@@ -174,6 +178,7 @@ def _get_records_from_table(engine, table_obj, filters=None):
 
         if not df.empty:
             df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
+            df = df.fillna('')
 
         return df.to_dict(orient="records") if not df.empty else []
 
@@ -236,7 +241,7 @@ def get_duplicate_records(engine):
                 if single_after_filter:
                     df_dups = df_dups[~df_dups['차량번호'].isin(single_after_filter)]
 
-        return df_dups.to_dict('records')
+        return df_dups.fillna('').to_dict('records')
 
 def get_agency_stats(engine, filters=None):
     with engine.connect() as conn:
