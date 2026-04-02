@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="row">
+    <!-- API 키 관리 -->
+    <div class="col-md-7">
+        <div class="card card-custom border-primary border-opacity-50">
+            <div class="card-header bg-primary text-white fw-bold d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-key me-2"></i>모바일 앱 API 키 관리</span>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">생성된 키를 모바일 앱의 <code>X-API-Key</code> 헤더에 포함하면 API에 접근할 수 있습니다.</p>
+                <form id="createKeyForm" class="d-flex gap-2 mb-3">
+                    <input type="text" class="form-control form-control-sm" id="newKeyName"
+                        placeholder="키 이름 (예: 내 폰)" maxlength="50">
+                    <button type="submit" class="btn btn-sm btn-primary text-nowrap">
+                        <i class="fas fa-plus me-1"></i>키 생성
+                    </button>
+                </form>
+                <div id="newKeyResult" class="alert alert-success d-none mb-3" role="alert">
+                    <strong>새 API 키 (한 번만 표시됩니다):</strong><br>
+                    <code id="newKeyValue" class="fs-6"></code>
+                    <button class="btn btn-sm btn-outline-secondary ms-2" onclick="copyKey()">
+                        <i class="fas fa-copy"></i> 복사
+                    </button>
+                </div>
+                <table class="table table-sm table-bordered mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>이름</th>
+                            <th>생성일</th>
+                            <th>키 (앞 16자)</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="apiKeyTableBody">
+                        {% for k in api_keys %}
+                        <tr>
+                            <td>{{ k.name }}</td>
+                            <td class="text-muted small">{{ k.created_at }}</td>
+                            <td><code class="small">{{ k.key[:16] }}...</code></td>
+                            <td>
+                                <form method="post" action="/devices/api-keys/delete"
+                                    onsubmit="return confirm('이 키를 삭제하시겠습니까?');">
+                                    <input type="hidden" name="key" value="{{ k.key }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger py-0">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="4" class="text-center text-muted small">생성된 API 키가 없습니다.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 현재 연결된 기기 -->
+    <div class="col-md-5">
+        <div class="card card-custom border-success border-opacity-50">
+            <div class="card-header bg-success text-white fw-bold d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-wifi me-2"></i>현재 연결된 기기</span>
+                <button class="btn btn-sm btn-outline-light" onclick="refreshClients()">
+                    <i class="fas fa-sync-alt"></i> 새로고침
+                </button>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">
+                    서버에 WebSocket으로 실시간 연결된 모바일 앱 기기 목록입니다.
+                </p>
+                <div id="connectedClientsContainer">
+                    <div id="connectedCount" class="fw-bold mb-2 text-success">
+                        <i class="fas fa-circle me-1"></i>연결 확인 중...
+                    </div>
+                    <div id="clientsList"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card card-custom mt-3 border-info border-opacity-50">
+            <div class="card-header bg-info text-white fw-bold">
+                <i class="fas fa-info-circle me-2"></i>연동 방법
+            </div>
+            <div class="card-body">
+                <ol class="small mb-0 ps-3">
+                    <li class="mb-2">위에서 <strong>새 API 키</strong>를 생성하세요.</li>
+                    <li class="mb-2">모바일 앱 → <strong>설정</strong> 탭을 엽니다.</li>
+                    <li class="mb-2">서버 주소와 API 키를 입력하고 저장합니다.</li>
+                    <li>앱이 자동으로 서버에 연결되어 이 화면에 표시됩니다.</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function refreshClients() {
+        fetch('/devices/connected-clients')
+            .then(function (r) { return r.json(); })
+            .then(function (clients) {
+                var countEl = document.getElementById('connectedCount');
+                var listEl = document.getElementById('clientsList');
+                if (clients.length === 0) {
+                    countEl.innerHTML = '<i class="fas fa-circle text-secondary me-1"></i>연결된 기기 없음';
+                    listEl.innerHTML = '<p class="text-muted small">현재 연결된 기기가 없습니다.</p>';
+                } else {
+                    countEl.innerHTML = '<i class="fas fa-circle text-success me-1"></i>' + clients.length + '개 기기 연결됨';
+                    var html = '<table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr><th>ID</th><th>IP</th><th>연결 시각</th></tr></thead><tbody>';
+                    clients.forEach(function (c) {
+                        html += '<tr>';
+                        html += '<td><code class="small">' + (c.client_id || '-') + '</code></td>';
+                        html += '<td class="small">' + (c.ip || '-') + '</td>';
+                        html += '<td class="text-muted small">' + (c.connected_at || '-') + '</td>';
+                        html += '</tr>';
+                    });
+                    html += '</tbody></table>';
+                    listEl.innerHTML = html;
+                }
+            })
+            .catch(function () {
+                document.getElementById('connectedCount').innerHTML =
+                    '<i class="fas fa-exclamation-triangle text-warning me-1"></i>연결 정보 로드 실패';
+            });
+    }
+
+    // 페이지 로드 시 자동 조회
+    refreshClients();
+
+    // API 키 생성
+    document.getElementById('createKeyForm').addEventListener('submit', function (e) {
+        e.preventDefault();
+        var name = document.getElementById('newKeyName').value.trim() || 'unnamed';
+        var form = new FormData();
+        form.append('key_name', name);
+        fetch('/devices/api-keys/create', { method: 'POST', body: form })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                document.getElementById('newKeyValue').textContent = data.key;
+                document.getElementById('newKeyResult').classList.remove('d-none');
+                document.getElementById('newKeyName').value = '';
+                var tbody = document.getElementById('apiKeyTableBody');
+                var empty = tbody.querySelector('td[colspan]');
+                if (empty) empty.closest('tr').remove();
+                var now = new Date().toLocaleString('ko-KR');
+                tbody.insertAdjacentHTML('afterbegin',
+                    '<tr><td>' + name + '</td><td class="text-muted small">' + now + '</td>' +
+                    '<td><code class="small">' + data.key.slice(0, 16) + '...</code></td>' +
+                    '<td><span class="text-muted small">저장 후 삭제 가능</span></td></tr>');
+            });
+    });
+
+    function copyKey() {
+        var key = document.getElementById('newKeyValue').textContent.trim();
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(key)
+                .then(function () { alert('클립보드에 복사되었습니다.'); })
+                .catch(function () { _fallbackCopy(key); });
+        } else {
+            _fallbackCopy(key);
+        }
+    }
+
+    function _fallbackCopy(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        try {
+            document.execCommand('copy');
+            alert('클립보드에 복사되었습니다.');
+        } catch (e) {
+            prompt('아래 키를 직접 복사하세요 (Ctrl+C):', text);
+        }
+        document.body.removeChild(ta);
+    }
+</script>
+
+{% endblock %}
