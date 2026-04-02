@@ -38,21 +38,16 @@ class _SelectionActionBarState extends State<SelectionActionBar> {
     if (_busy) return;
     setState(() => _busy = true);
     final provider = context.read<ReportProvider>();
-    int ok = 0, fail = 0;
-    for (final r in reports) {
-      try {
-        await provider.enqueueCrawl(r.reportNumber);
-        ok++;
-      } catch (_) {
-        fail++;
-      }
-    }
-    if (!mounted) return;
-    setState(() => _busy = false);
-    if (fail == 0) {
-      _snack('크롤링 요청 완료: $ok건', icon: Icons.refresh);
-    } else {
-      _snack('완료 $ok건 / 실패 ${fail}건', icon: Icons.warning_amber, error: true);
+    try {
+      final reportNumbers = reports.map((r) => r.reportNumber).toList();
+      await provider.startCrawlQueue(reportNumbers);
+      if (!mounted) return;
+      _snack('크롤링 요청 완료: ${reportNumbers.length}건', icon: Icons.refresh);
+    } catch (e) {
+      if (!mounted) return;
+      _snack('크롤링 요청 실패: $e', icon: Icons.warning_amber, error: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
     widget.onActionDone?.call();
   }

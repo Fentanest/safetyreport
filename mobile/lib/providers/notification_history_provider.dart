@@ -13,6 +13,7 @@ class NotificationHistoryProvider with ChangeNotifier {
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload(); // WsService가 직접 쓴 내용 반영
     final raw = prefs.getString(_key);
     if (raw != null && raw.isNotEmpty) {
       try {

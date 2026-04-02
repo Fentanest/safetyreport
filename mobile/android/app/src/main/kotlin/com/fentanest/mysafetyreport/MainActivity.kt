@@ -16,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.fentanest.mysafetyreport/permissions"
     private val notifIdGen = AtomicInteger(3000)
-    private val NOTIF_CHANNEL_APP = "app_push"
+    private val NOTIF_CHANNEL_APP = "app_push_v2"
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
@@ -27,8 +27,11 @@ class MainActivity : FlutterActivity() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (nm.getNotificationChannel(NOTIF_CHANNEL_APP) == null) {
             val ch = NotificationChannel(
-                NOTIF_CHANNEL_APP, "앱 알림", NotificationManager.IMPORTANCE_DEFAULT
-            ).apply { description = "크롤링 완료 등 앱 이벤트 알림" }
+                NOTIF_CHANNEL_APP, "앱 알림", NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "크롤링 완료 등 앱 이벤트 알림"
+                enableVibration(true)
+            }
             nm.createNotificationChannel(ch)
         }
     }

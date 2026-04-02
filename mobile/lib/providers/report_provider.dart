@@ -272,6 +272,25 @@ class ReportProvider with ChangeNotifier {
     await _api.enqueueCrawl(reportNumber);
   }
 
+  Future<void> startCrawlQueue(List<String> reportNumbers) async {
+    String crawlType = 'api';
+    String crawlMode = 'full';
+    int maxEmptyPages = 3;
+    try {
+      final config = await _api.getCrawlConfig();
+      crawlType = config['crawl_type']?.toString() ?? 'api';
+      crawlMode = config['crawl_mode']?.toString() ?? 'full';
+      maxEmptyPages = (config['max_empty_pages'] as num?)?.toInt() ?? 3;
+    } catch (_) {}
+    await _api.startCrawl(
+      loginMode: 'member',
+      crawlType: crawlType,
+      crawlMode: crawlMode,
+      maxEmptyPages: maxEmptyPages,
+      queueList: reportNumbers.join('\n'),
+    );
+  }
+
   Future<void> refreshAll() async {
     if (!isConfigured) return;
     _errorMessage = null;
