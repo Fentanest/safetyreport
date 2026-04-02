@@ -76,11 +76,95 @@ async def update_watchlist(request: Request, _: str = Depends(_require_api_key))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+import sys as _sys
+import os as _os
+import datetime as _dt
+import shutil as _sh
+import threading as _threading
+
+def _get_work_dir():
+    return _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..'))
+
+def _rotate_log(log_file: str):
+    """현재 로그를 타임스탬프 파일로 백업."""
+    if _os.path.exists(log_file):
+        try:
+            now_str = _dt.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
+            dst = _os.path.join(_os.path.dirname(log_file), f"crawl_{now_str}.log")
+            _sh.copy2(log_file, dst)
+        except Exception:
+            pass
+
+def _run_after_crawl(proc, log_file: str):
+    """크롤링 프로세스 완료 후 공통 처리: 로그 회전 → WS 브로드캐스트 → 대기 큐 자동 실행."""
+    from services.crawl_manager import crawl_manager
+    import time
+    if proc:
+        proc.wait()
+    crawl_manager.clear_process()
+    time.sleep(1)
+
+    # 로그 완료 메시지 + 백업
+    if _os.path.exists(log_file):
+        try:
+            with open(log_file, 'a', encoding='utf-8') as f:
+                f.write("\n[시스템] 크롤링 작업이 완료되었습니다.\n")
+            _rotate_log(log_file)
+        except Exception:
+            pass
+
+    # WS: crawl_finished
+    try:
+        done = data_service.get_and_clear_crawl_done()
+        changed_count = done["changed_count"] if done else 0
+        ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
+    except Exception:
+        pass
+
+    # 대기 큐에 쌓인 신고번호가 있으면 자동으로 다음 크롤링 시작
+    pending = crawl_manager.pop_pending()
+    if pending:
+        _launch_pending_crawl(pending)
+
+
+def _launch_pending_crawl(pending: list):
+    """대기 큐의 신고번호로 새 크롤링을 즉시 시작."""
+    from services.crawl_manager import crawl_manager
+    if not pending:
+        return
+
+    is_frozen = getattr(_sys, 'frozen', False)
+    cmd = [_sys.executable, "--mode", "crawl"] if is_frozen else [_sys.executable, "-u", "start.py"]
+
+    queue_file = _os.path.join(settings.datapath, 'pending_queue.txt')
+    with open(queue_file, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(str(r) for r in pending))
+    cmd.extend(["--queue", queue_file])
+
+    log_dir = _os.path.join(settings.datapath, 'logs')
+    log_file = _os.path.join(log_dir, 'current_crawl.log')
+    _rotate_log(log_file)
+
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write(f"=== [대기 큐 자동 시작] 신고번호 {len(pending)}건 ===\n")
+        f.write('\n'.join(f"  - {r}" for r in pending) + '\n')
+
+    if crawl_manager.start_crawl(cmd, cwd=_get_work_dir(), log_file=log_file):
+        ws_manager.broadcast_from_thread("crawl_started", {
+            "source": "pending_queue",
+            "count": len(pending),
+        })
+        proc = crawl_manager.get_process()
+        if proc:
+            _threading.Thread(
+                target=_run_after_crawl, args=(proc, log_file), daemon=True
+            ).start()
+
+
 @router.post("/crawl/enqueue")
 async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
-    """신고번호를 받아 크롤링 큐에 추가 (안드로이드 알림 연동용)"""
-    import sys
-    import os
+    """신고번호를 받아 크롤링 큐에 추가 (안드로이드 알림 연동용).
+    크롤링 중이면 대기 큐에 쌓아두고 완료 후 자동 실행."""
     from services.crawl_manager import crawl_manager
 
     body = await request.json()
@@ -88,80 +172,45 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
     if not report_number:
         raise HTTPException(status_code=400, detail="report_number is required")
 
+    # 크롤링 중이면 대기 큐에 추가
     if crawl_manager.is_crawling():
-        return {"status": "busy", "message": "크롤링이 이미 실행 중입니다. 잠시 후 다시 시도해 주세요."}
+        queue_size = crawl_manager.append_to_pending(str(report_number))
+        return {
+            "status": "queued",
+            "message": f"크롤링 완료 후 자동 실행됩니다. (대기 중: {queue_size}건)",
+        }
 
-    is_frozen = getattr(sys, 'frozen', False)
-    if is_frozen:
-        cmd = [sys.executable, "--mode", "crawl"]
-    else:
-        cmd = [sys.executable, "-u", "start.py"]
+    is_frozen = getattr(_sys, 'frozen', False)
+    cmd = [_sys.executable, "--mode", "crawl"] if is_frozen else [_sys.executable, "-u", "start.py"]
 
-    queue_file = os.path.join(settings.datapath, 'mobile_queue.txt')
+    queue_file = _os.path.join(settings.datapath, 'mobile_queue.txt')
     with open(queue_file, 'w', encoding='utf-8') as qf:
         qf.write(str(report_number))
+    cmd.extend(["--queue", queue_file])
 
-    cmd.append("--queue")
-    cmd.append(queue_file)
-
-    import datetime, shutil, threading
-    log_dir = os.path.join(settings.datapath, 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, 'current_crawl.log')
-
-    # 기존 로그 백업
-    if os.path.exists(log_file):
-        try:
-            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
-            dst = os.path.join(log_dir, f"crawl_{now_str}.log")
-            shutil.copy2(log_file, dst)
-        except Exception:
-            pass
+    log_dir = _os.path.join(settings.datapath, 'logs')
+    _os.makedirs(log_dir, exist_ok=True)
+    log_file = _os.path.join(log_dir, 'current_crawl.log')
+    _rotate_log(log_file)
 
     with open(log_file, 'w', encoding='utf-8') as f:
         f.write(f"=== [모바일에서 시작된 크롤링] - 신고번호: {report_number} ===\n")
 
-    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-
-    if crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
+    if crawl_manager.start_crawl(cmd, cwd=_get_work_dir(), log_file=log_file):
         proc = crawl_manager.get_process()
-
-        # WS: 크롤링 시작 알림
         try:
             import asyncio as _aio
             loop = _aio.get_event_loop()
             if loop.is_running():
-                loop.create_task(ws_manager.broadcast("crawl_started", {"source": "mobile_enqueue", "report_number": report_number}))
+                loop.create_task(ws_manager.broadcast("crawl_started", {
+                    "source": "mobile_enqueue",
+                    "report_number": report_number,
+                }))
         except Exception:
             pass
-
-        def wait_and_rotate(p, lpath):
-            if p:
-                p.wait()
-            crawl_manager.clear_process()
-            import time, shutil as sh, datetime as dt
-            time.sleep(1)
-            if os.path.exists(lpath):
-                now_str = dt.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
-                dst = os.path.join(os.path.dirname(lpath), f"crawl_{now_str}.log")
-                try:
-                    with open(lpath, 'a', encoding='utf-8') as f:
-                        f.write(f"\n[시스템] 크롤링 작업이 완료되었습니다.\n")
-                    sh.copy2(lpath, dst)
-                except Exception:
-                    pass
-            # WS: 크롤링 완료 알림
-            try:
-                done = data_service.get_and_clear_crawl_done()
-                changed_count = done["changed_count"] if done else 0
-                ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
-            except Exception:
-                pass
-
         if proc:
-            threading.Thread(target=wait_and_rotate, args=(proc, log_file), daemon=True).start()
-
-        return {"status": "success", "message": f"Report {report_number} has been enqueued and crawling started."}
+            _threading.Thread(target=_run_after_crawl, args=(proc, log_file), daemon=True).start()
+        return {"status": "success", "message": f"신고번호 {report_number} 크롤링이 시작되었습니다."}
     else:
         return {"status": "error", "message": "크롤링 프로세스를 시작하지 못했습니다."}
 
@@ -211,12 +260,8 @@ async def get_crawl_config(_: str = Depends(_require_api_key)):
 
 @router.post("/crawl/start")
 async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key)):
-    """모바일에서 크롤링 시작"""
-    import sys, os, datetime, shutil, threading
+    """모바일에서 크롤링 시작. queue_list가 있고 이미 실행 중이면 대기 큐에 추가."""
     from services.crawl_manager import crawl_manager
-
-    if crawl_manager.is_crawling():
-        raise HTTPException(status_code=409, detail="크롤링이 이미 실행 중입니다.")
 
     body = await request.json()
     login_mode = body.get("login_mode", "member")
@@ -225,6 +270,20 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
     max_empty_pages = int(body.get("max_empty_pages", 3))
     queue_list = body.get("queue_list", "").strip()
 
+    # 이미 크롤링 중인 경우
+    if crawl_manager.is_crawling():
+        # queue_list(다중 선택 신고번호)가 있으면 대기 큐에 추가
+        if queue_list:
+            for rnum in queue_list.splitlines():
+                rnum = rnum.strip()
+                if rnum:
+                    crawl_manager.append_to_pending(rnum)
+            return {
+                "status": "queued",
+                "message": f"크롤링 완료 후 자동 실행됩니다. (대기 중: {crawl_manager.pending_count()}건)",
+            }
+        raise HTTPException(status_code=409, detail="크롤링이 이미 실행 중입니다.")
+
     import settings.settings as app_settings
     app_settings._instance.update_config('SETTINGS', 'max_empty_pages', max_empty_pages)
     app_settings._instance.update_config('Crawler', 'crawl_type', crawl_type)
@@ -232,8 +291,8 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
     app_settings._instance.update_config('SETTINGS', 'crawl_mode', save_mode)
     app_settings._instance.save()
 
-    is_frozen = getattr(sys, 'frozen', False)
-    cmd = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
+    is_frozen = getattr(_sys, 'frozen', False)
+    cmd = [_sys.executable, "--mode", "crawl"] if is_frozen else [_sys.executable, "-u", "start.py"]
 
     if login_mode == "nonmember":
         cmd.append("--nonmember")
@@ -243,33 +302,23 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
         cmd.append("--reset")
 
     if queue_list:
-        queue_file = os.path.join(settings.datapath, 'mobile_queue.txt')
+        queue_file = _os.path.join(settings.datapath, 'mobile_queue.txt')
         with open(queue_file, 'w', encoding='utf-8') as qf:
             qf.write(queue_list)
         cmd.extend(["--queue", queue_file])
 
-    log_dir = os.path.join(settings.datapath, 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, 'current_crawl.log')
-
-    if os.path.exists(log_file):
-        try:
-            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
-            dst = os.path.join(log_dir, f"crawl_{now_str}.log")
-            shutil.copy2(log_file, dst)
-        except Exception:
-            pass
+    log_dir = _os.path.join(settings.datapath, 'logs')
+    _os.makedirs(log_dir, exist_ok=True)
+    log_file = _os.path.join(log_dir, 'current_crawl.log')
+    _rotate_log(log_file)
 
     with open(log_file, 'w', encoding='utf-8') as f:
         f.write("=== [모바일에서 시작된 크롤링] ===\n")
 
-    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    if not crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
+    if not crawl_manager.start_crawl(cmd, cwd=_get_work_dir(), log_file=log_file):
         raise HTTPException(status_code=500, detail="크롤링 프로세스를 시작하지 못했습니다.")
 
     proc = crawl_manager.get_process()
-
-    # WS: 크롤링 시작 알림
     try:
         import asyncio as _aio2
         loop3 = _aio2.get_event_loop()
@@ -283,31 +332,8 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
     except Exception:
         pass
 
-    def _wait_and_rotate(p, lpath):
-        if p:
-            p.wait()
-        crawl_manager.clear_process()
-        import time, shutil as sh, datetime as dt
-        time.sleep(1)
-        if os.path.exists(lpath):
-            ts = dt.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
-            dst = os.path.join(os.path.dirname(lpath), f"crawl_{ts}.log")
-            try:
-                with open(lpath, 'a', encoding='utf-8') as f:
-                    f.write("\n[시스템] 크롤링 작업이 완료되었습니다.\n")
-                sh.copy2(lpath, dst)
-            except Exception:
-                pass
-        # WS: 크롤링 완료 알림
-        try:
-            done = data_service.get_and_clear_crawl_done()
-            changed_count = done["changed_count"] if done else 0
-            ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
-        except Exception:
-            pass
-
     if proc:
-        threading.Thread(target=_wait_and_rotate, args=(proc, log_file), daemon=True).start()
+        _threading.Thread(target=_run_after_crawl, args=(proc, log_file), daemon=True).start()
 
     return {"status": "success", "message": "크롤링이 시작되었습니다."}
 
