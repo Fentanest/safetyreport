@@ -347,6 +347,8 @@ def parse_json_details(result_data):
                 atch_id = f.get("ATCH_FILE_ID")
                 file_url = f"https://www.safetyreport.go.kr/fileDown/singo/{atch_id}" if atch_id else ""
             if not file_url: continue
+            if file_url.startswith('/'):
+                file_url = "https://www.safetyreport.go.kr" + file_url
             
             # FILE_TY: 1 (img) / 3 (img) / 8 (img) / 2 (video) / 99 (other)
             file_ty = str(f.get("FILE_TY", ""))

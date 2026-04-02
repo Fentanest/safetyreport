@@ -239,6 +239,11 @@ class WsService : Service() {
 
     private fun showCrawlChangesNotif(data: JSONObject) {
         val changes = data.optJSONArray("changes") ?: return
+
+        // Flutter가 앱 포어그라운드 복귀 시 카드 뷰로 표시할 수 있도록 저장
+        val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+        prefs.edit().putString("flutter.pending_crawl_changes", changes.toString()).apply()
+
         for (i in 0 until changes.length()) {
             val record = changes.getJSONObject(i)
             val reportNo = record.optString("신고번호", "")
@@ -328,10 +333,18 @@ class WsService : Service() {
     // ─────────────────────────────────────────────────────────────────────────
 
     private fun buildForegroundNotif(text: String): Notification {
+        // 알림 탭 시 앱 실행
+        val openIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP }
+        val openPi = PendingIntent.getActivity(
+            this, 0, openIntent ?: Intent(),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
         // 서비스 중지 버튼
         val stopIntent = Intent(this, WsService::class.java).apply { action = ACTION_STOP }
         val stopPi = PendingIntent.getService(
-            this, 0, stopIntent,
+            this, 1, stopIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
@@ -340,6 +353,7 @@ class WsService : Service() {
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_logo)
             .setOngoing(true)
+            .setContentIntent(openPi)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "중지", stopPi)
             .build()
     }

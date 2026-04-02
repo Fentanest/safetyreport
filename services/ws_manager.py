@@ -32,15 +32,16 @@ class WsManager:
     def _all(self) -> list:
         return list(self._connections.values())
 
-    async def connect(self, client_id: str, ws: WebSocket, api_key: str = "", ip: str = ""):
+    async def connect(self, client_id: str, ws: WebSocket, api_key: str = "", ip: str = "", device_name: str = ""):
         await ws.accept()
         self._connections[client_id] = ws
         self._connection_meta[client_id] = {
+            "device_name": device_name or "알 수 없는 기기",
             "api_key": api_key,
             "connected_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "ip": ip,
         }
-        logger.info(f"[WS] 클라이언트 연결: {client_id} (총 {len(self._connections)}개)")
+        logger.info(f"[WS] 클라이언트 연결: {client_id} / {device_name} (총 {len(self._connections)}개)")
 
     def disconnect(self, client_id: str):
         self._connections.pop(client_id, None)
@@ -87,7 +88,7 @@ class WsManager:
 
     def get_connected_clients(self) -> list:
         return [
-            {"client_id": cid[:8] + "...", **meta}
+            {"client_id": meta.get("device_name", cid[:8] + "..."), **meta}
             for cid, meta in self._connection_meta.items()
         ]
 
