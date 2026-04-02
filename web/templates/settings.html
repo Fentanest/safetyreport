@@ -61,53 +61,8 @@
         </div>
     </div>
 
-    <!-- Right Column: External Integrations + Crawling Settings -->
+    <!-- Right Column: Crawling Settings + External Integrations -->
     <div class="col-md-6">
-        <div class="card card-custom mb-3 border-success border-opacity-50">
-            <div class="card-header bg-success text-white fw-bold">3. 외부 연동 키 설정</div>
-            <div class="card-body">
-                <h6 class="mb-3 text-success border-bottom pb-2"><i class="fab fa-telegram me-1"></i>텔레그램 (Telegram) API</h6>
-                <div class="mb-3">
-                    <label class="form-label">Telegram Bot Token</label>
-                    <input type="text" class="form-control" name="telegram_token" value="{{ telegram_token }}">
-                </div>
-                <div class="mb-4">
-                    <label class="form-label">Chat ID</label>
-                    <input type="text" class="form-control" name="chat_id" value="{{ chat_id }}">
-                </div>
-
-                <h6 class="mb-3 mt-4 text-success border-bottom pb-2"><i class="fas fa-file-excel me-1"></i>구글 스프레드시트 외부 적재</h6>
-                <div class="mb-3">
-                    <label class="form-label">Sheet URL 또는 ID 고유키</label>
-                    <input type="text" class="form-control" name="sheet_key" value="{{ sheet_key }}"
-                        placeholder="https://docs.google.com/spreadsheets/d/...">
-                    <small class="text-muted">엑셀 링크의 전체 주소를 입력하시면 ID를 자동 추출합니다.</small>
-                </div>
-
-                <!-- 구글 JSON 업로드 (JS fetch로 처리) -->
-                <div class="mt-3 p-3 border rounded" style="background:#fffdf0;">
-                    <div class="d-flex justify-content-between align-items-center mb-2">
-                        <span class="fw-bold small"><i class="fas fa-file-code me-1 text-warning"></i>구글 연동 인증 파일 (JSON) 업로드</span>
-                        {% if google_json_exists %}
-                        <span class="badge bg-success" id="jsonStatusBadge"><i class="fas fa-check-circle me-1"></i>인증 파일 있음</span>
-                        {% else %}
-                        <span class="badge bg-danger" id="jsonStatusBadge"><i class="fas fa-exclamation-circle me-1"></i>인증 파일 없음</span>
-                        {% endif %}
-                    </div>
-                    <label class="form-label text-muted small">
-                        구글 스프레드시트 업데이트 권한을 위한 <code>Service Account Private JSON 키</code>를 여기에 업로드하세요.
-                    </label>
-                    <div class="d-flex gap-2">
-                        <input class="form-control form-control-sm" type="file" id="jsonFile" accept=".json">
-                        <button type="button" class="btn btn-sm btn-warning text-nowrap fw-bold" onclick="uploadJson()">
-                            <i class="fas fa-upload me-1"></i>업로드
-                        </button>
-                    </div>
-                    <div id="jsonUploadStatus" class="mt-2 d-none"></div>
-                </div>
-            </div>
-        </div>
-
         <div class="card card-custom mb-3">
             <div class="card-header bg-white fw-bold">2. 크롤링 설정</div>
             <div class="card-body">
@@ -211,6 +166,51 @@
                         <input type="text" class="form-control form-control-sm" name="scheduler_cron_times"
                             value="{{ scheduler_cron_times }}" placeholder="09:00, 15:30">
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card card-custom mb-3 border-success border-opacity-50">
+            <div class="card-header bg-success text-white fw-bold">3. 외부 연동 키 설정</div>
+            <div class="card-body">
+                <h6 class="mb-3 text-success border-bottom pb-2"><i class="fab fa-telegram me-1"></i>텔레그램 (Telegram) API</h6>
+                <div class="mb-3">
+                    <label class="form-label">Telegram Bot Token</label>
+                    <input type="text" class="form-control" name="telegram_token" value="{{ telegram_token }}">
+                </div>
+                <div class="mb-4">
+                    <label class="form-label">Chat ID</label>
+                    <input type="text" class="form-control" name="chat_id" value="{{ chat_id }}">
+                </div>
+
+                <h6 class="mb-3 mt-4 text-success border-bottom pb-2"><i class="fas fa-file-excel me-1"></i>구글 스프레드시트 외부 적재</h6>
+                <div class="mb-3">
+                    <label class="form-label">Sheet URL 또는 ID 고유키</label>
+                    <input type="text" class="form-control" name="sheet_key" value="{{ sheet_key }}"
+                        placeholder="https://docs.google.com/spreadsheets/d/...">
+                    <small class="text-muted">엑셀 링크의 전체 주소를 입력하시면 ID를 자동 추출합니다.</small>
+                </div>
+
+                <!-- 구글 JSON 업로드 (JS fetch로 처리) -->
+                <div class="mt-3 p-3 border rounded" style="background:#fffdf0;">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="fw-bold small"><i class="fas fa-file-code me-1 text-warning"></i>구글 연동 인증 파일 (JSON) 업로드</span>
+                        {% if google_json_exists %}
+                        <span class="badge bg-success" id="jsonStatusBadge"><i class="fas fa-check-circle me-1"></i>인증 파일 있음</span>
+                        {% else %}
+                        <span class="badge bg-danger" id="jsonStatusBadge"><i class="fas fa-exclamation-circle me-1"></i>인증 파일 없음</span>
+                        {% endif %}
+                    </div>
+                    <label class="form-label text-muted small">
+                        구글 스프레드시트 업데이트 권한을 위한 <code>Service Account Private JSON 키</code>를 여기에 업로드하세요.
+                    </label>
+                    <div class="d-flex gap-2">
+                        <input class="form-control form-control-sm" type="file" id="jsonFile" accept=".json">
+                        <button type="button" class="btn btn-sm btn-warning text-nowrap fw-bold" onclick="uploadJson()">
+                            <i class="fas fa-upload me-1"></i>업로드
+                        </button>
+                    </div>
+                    <div id="jsonUploadStatus" class="mt-2 d-none"></div>
                 </div>
             </div>
         </div>
