@@ -108,33 +108,33 @@
                 </div>
                 <h5 class="text-center mb-0 text-white fw-bold">나만의<br>안전신문고</h5>
                 <div class="text-center text-white fw-bold mb-4" style="font-size: 0.8rem;">프로젝트 버전: v{{ request.state.app_version }}</div>
-                <a href="/" class="{% if request.url.path == '/' %}active{% endif %}"><i class="fas fa-tachometer-alt me-2"></i>대시보드</a>
-                <a href="/crawl" class="{% if request.url.path.startswith('/crawl') %}active{% endif %}"><i class="fas fa-spider me-2"></i>크롤링 제어</a>
-                <a href="/rating" class="{% if request.url.path.startswith('/rating') %}active{% endif %}"><i class="fas fa-star text-warning me-2"></i>자동 별점 주기</a>
-                <a href="/watchlist" class="{% if request.url.path.startswith('/watchlist') %}active{% endif %}"><i class="fas fa-eye text-danger me-2"></i>감시 목록 관리</a>
+                <a href="/" class="{% if request.url.path == '/' %}active{% endif %}"><i class="fas fa-tachometer-alt fa-fw me-2"></i>대시보드</a>
+                <a href="/crawl" class="{% if request.url.path.startswith('/crawl') %}active{% endif %}"><i class="fas fa-spider fa-fw me-2"></i>크롤링 제어</a>
+                <a href="/rating" class="{% if request.url.path.startswith('/rating') %}active{% endif %}"><i class="fas fa-star fa-fw text-warning me-2"></i>자동 별점 주기</a>
+                <a href="/watchlist" class="{% if request.url.path.startswith('/watchlist') %}active{% endif %}"><i class="fas fa-eye fa-fw text-danger me-2"></i>감시 목록 관리</a>
                 
                 <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-white fw-bold">
                   <span>데이터 조회</span>
                 </h6>
-                <a href="/data/traffic" class="{% if request.url.path == '/data/traffic' %}active{% endif %}"><i class="fas fa-car me-2"></i>교통위반 내역</a>
-                <a href="/data/other" class="{% if request.url.path == '/data/other' %}active{% endif %}"><i class="fas fa-exclamation-triangle me-2"></i>기타 위반 조회</a>
-                <a href="/data/duplicates" class="{% if request.url.path == '/data/duplicates' %}active{% endif %}"><i class="fas fa-clone me-2"></i>중복차량 내역</a>
-                <a href="/stats" class="{% if request.url.path == '/stats' %}active{% endif %}"><i class="fas fa-chart-pie me-2"></i>처리 부서 통계</a>
+                <a href="/data/traffic" class="{% if request.url.path == '/data/traffic' %}active{% endif %}"><i class="fas fa-car fa-fw me-2"></i>교통위반 내역</a>
+                <a href="/data/other" class="{% if request.url.path == '/data/other' %}active{% endif %}"><i class="fas fa-exclamation-triangle fa-fw me-2"></i>기타 위반 조회</a>
+                <a href="/data/duplicates" class="{% if request.url.path == '/data/duplicates' %}active{% endif %}"><i class="fas fa-clone fa-fw me-2"></i>중복차량 내역</a>
+                <a href="/stats" class="{% if request.url.path == '/stats' %}active{% endif %}"><i class="fas fa-chart-pie fa-fw me-2"></i>처리 부서 통계</a>
                 
                 <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-white fw-bold">
                   <span>설정</span>
                 </h6>
-                <a href="/settings" class="{% if request.url.path == '/settings' %}active{% endif %}"><i class="fas fa-cog me-2"></i>앱 설정</a>
-                <a href="/settings/admin" class="{% if request.url.path.startswith('/settings/admin') %}active{% endif %}"><i class="fas fa-user-shield me-2"></i>관리자 계정 변경</a>
-                <a href="/devices" class="{% if request.url.path.startswith('/devices') %}active{% endif %}"><i class="fas fa-mobile-alt me-2"></i>기기 연동</a>
+                <a href="/settings" class="{% if request.url.path == '/settings' %}active{% endif %}"><i class="fas fa-cog fa-fw me-2"></i>앱 설정</a>
+                <a href="/settings/admin" class="{% if request.url.path.startswith('/settings/admin') %}active{% endif %}"><i class="fas fa-user-shield fa-fw me-2"></i>관리자 계정 변경</a>
+                <a href="/devices" class="{% if request.url.path.startswith('/devices') %}active{% endif %}"><i class="fas fa-mobile-alt fa-fw me-2"></i>기기 연동</a>
 
                 <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-white fw-bold">
                   <span>기타</span>
                 </h6>
-                <a href="/file-browser" class="{% if request.url.path.startswith('/file-browser') %}active{% endif %}"><i class="fas fa-folder-open me-2"></i>파일 브라우저</a>
-                <a href="https://github.com/Fentanest/safetyreport" target="_blank"><i class="fab fa-github me-2"></i>깃허브 저장소</a>
-                <a href="https://hb.worklazy.net/mysafetyreport/" target="_blank"><i class="fas fa-blog me-2"></i>제작자 블로그</a>
-                <a href="/logout" onclick="return confirm('로그아웃 하시겠습니까?');" style="margin-top: auto;"><i class="fas fa-sign-out-alt me-2"></i>로그아웃</a>
+                <a href="/file-browser" class="{% if request.url.path.startswith('/file-browser') %}active{% endif %}"><i class="fas fa-folder-open fa-fw me-2"></i>파일 브라우저</a>
+                <a href="https://github.com/Fentanest/safetyreport" target="_blank"><i class="fab fa-github fa-fw me-2"></i>깃허브 저장소</a>
+                <a href="https://hb.worklazy.net/mysafetyreport/" target="_blank"><i class="fas fa-blog fa-fw me-2"></i>제작자 블로그</a>
+                <a href="/logout" onclick="return confirm('로그아웃 하시겠습니까?');" style="margin-top: auto;"><i class="fas fa-sign-out-alt fa-fw me-2"></i>로그아웃</a>
             </div>
         </nav>
 
