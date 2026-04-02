@@ -12,6 +12,70 @@ import settings.settings as settings
 
 router = APIRouter(prefix="/crawl")
 
+
+def _start_pending_crawl_from_queue(pending: list):
+    """대기 큐의 신고번호로 새 크롤링을 자동 시작 (스레드 내 호출용)."""
+    import datetime, shutil, threading
+    if not pending:
+        return
+    is_frozen = getattr(sys, 'frozen', False)
+    cmd = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
+
+    queue_file = os.path.join(settings.datapath, 'pending_queue.txt')
+    with open(queue_file, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(str(r) for r in pending))
+    cmd.extend(["--queue", queue_file])
+
+    log_dir = os.path.join(settings.datapath, 'logs')
+    log_file = os.path.join(log_dir, 'current_crawl.log')
+    if os.path.exists(log_file):
+        try:
+            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
+            shutil.copy2(log_file, os.path.join(log_dir, f"crawl_{now_str}.log"))
+        except Exception:
+            pass
+    with open(log_file, 'w', encoding='utf-8') as f:
+        f.write(f"=== [대기 큐 자동 시작] 신고번호 {len(pending)}건 ===\n")
+        f.write('\n'.join(f"  - {r}" for r in pending) + '\n')
+
+    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+    if crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
+        ws_manager.broadcast_from_thread("crawl_started", {
+            "source": "pending_queue",
+            "count": len(pending),
+        })
+        proc = crawl_manager.get_process()
+
+        def _wait(p, lpath):
+            if p:
+                p.wait()
+            crawl_manager.clear_process()
+            import time
+            time.sleep(1)
+            if os.path.exists(lpath):
+                try:
+                    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
+                    dst = os.path.join(os.path.dirname(lpath), f"crawl_{now_str}.log")
+                    with open(lpath, 'a', encoding='utf-8') as f:
+                        f.write("\n[시스템] 크롤링 작업이 완료되었습니다.\n")
+                    shutil.copy2(lpath, dst)
+                except Exception:
+                    pass
+            try:
+                from services.data_service import get_and_clear_crawl_done
+                done = get_and_clear_crawl_done()
+                changed_count = done["changed_count"] if done else 0
+                ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
+            except Exception:
+                pass
+            # 재귀적으로 대기 큐 처리
+            next_pending = crawl_manager.pop_pending()
+            if next_pending:
+                _start_pending_crawl_from_queue(next_pending)
+
+        if proc:
+            threading.Thread(target=_wait, args=(proc, log_file), daemon=True).start()
+
 @router.get("/")
 async def crawl_dashboard(request: Request):
     import settings.settings as app_settings
@@ -108,6 +172,14 @@ async def start_crawl(
             ws_manager.broadcast_from_thread("crawl_finished", {
                 "changed_count": changed_count,
             })
+        except Exception:
+            pass
+        # 대기 큐에 쌓인 신고번호가 있으면 자동으로 다음 크롤링 시작
+        try:
+            pending = crawl_manager.pop_pending()
+            if pending:
+                import threading as _thr
+                _start_pending_crawl_from_queue(pending)
         except Exception:
             pass
 

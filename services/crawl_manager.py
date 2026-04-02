@@ -2,7 +2,7 @@ import subprocess
 import threading
 import sys
 import os
-from typing import Optional
+from typing import Optional, List
 
 class CrawlManager:
     _instance = None
@@ -14,6 +14,7 @@ class CrawlManager:
                 cls._instance = super(CrawlManager, cls).__new__(cls)
                 cls._instance._active_process = None
                 cls._instance._state_lock = threading.Lock()
+                cls._instance._pending_queue: List[str] = []
         return cls._instance
 
     def is_crawling(self) -> bool:
@@ -61,5 +62,25 @@ class CrawlManager:
     def get_process(self) -> Optional[subprocess.Popen]:
         with self._state_lock:
             return self._active_process
+
+    # ── 대기 큐 (크롤링 중 들어온 신고번호 예약) ─────────────────────────────
+
+    def append_to_pending(self, report_number: str) -> int:
+        """크롤링 중 들어온 신고번호를 대기 큐에 추가 (중복 제외). 현재 큐 크기 반환."""
+        with self._state_lock:
+            if report_number not in self._pending_queue:
+                self._pending_queue.append(report_number)
+            return len(self._pending_queue)
+
+    def pop_pending(self) -> List[str]:
+        """대기 큐 전체를 반환하고 초기화."""
+        with self._state_lock:
+            items = list(self._pending_queue)
+            self._pending_queue.clear()
+            return items
+
+    def pending_count(self) -> int:
+        with self._state_lock:
+            return len(self._pending_queue)
 
 crawl_manager = CrawlManager()
