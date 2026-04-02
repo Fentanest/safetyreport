@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/notification_item.dart';
+import '../models/report.dart';
 import '../providers/notification_history_provider.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
+import '../widgets/report_detail_sheet.dart';
 
 const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
 
@@ -104,15 +106,24 @@ class _NotificationsScreenState extends State<NotificationsScreen>
 
   void _showDetail(BuildContext context, NotificationItem item) {
     context.read<NotificationHistoryProvider>().markRead(item.id);
+
+    // extraData가 있으면 ReportDetailSheet (전체 신고 정보 + 안전신문고 앱 열기)
+    if (item.extraData != null && item.extraData!.isNotEmpty) {
+      final report = Report.fromJson(item.extraData!);
+      showReportDetailSheet(context, report);
+      return;
+    }
+
+    // 일반 알림 (crawl_started/finished 등) — 기존 간단 뷰
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.5,
+        initialChildSize: 0.4,
         minChildSize: 0.3,
-        maxChildSize: 0.85,
+        maxChildSize: 0.7,
         expand: false,
         builder: (_, controller) => ListView(
           controller: controller,
@@ -120,8 +131,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           children: [
             Center(
               child: Container(
-                  width: 36,
-                  height: 4,
+                  width: 36, height: 4,
                   margin: const EdgeInsets.only(bottom: 20),
                   decoration: BoxDecoration(
                       color: Colors.grey.shade300,
@@ -139,7 +149,8 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             Text(item.body,
                 style: const TextStyle(fontSize: 14, height: 1.6)),
             const SizedBox(height: 20),
-            if (item.reportNumber.isNotEmpty) _detailRow('신고번호', item.reportNumber),
+            if (item.reportNumber.isNotEmpty)
+              _detailRow('신고번호', item.reportNumber),
             _detailRow('수신 시각', item.timestamp),
           ],
         ),
@@ -157,8 +168,7 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 child: Text(label,
                     style: const TextStyle(color: Colors.grey, fontSize: 13))),
             Expanded(
-                child: Text(value,
-                    style: const TextStyle(fontSize: 13))),
+                child: Text(value, style: const TextStyle(fontSize: 13))),
           ],
         ),
       );

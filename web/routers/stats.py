@@ -46,9 +46,17 @@ async def view_stats(
         
     return templates.TemplateResponse(request, "stats.html", {
         "title": "부서 통계",
-        "records_traffic_person": records["traffic"]["by_person"],
-        "records_traffic_agency": records["traffic"]["by_agency"],
-        "records_other_person": records["other"]["by_person"],
-        "records_other_agency": records["other"]["by_agency"],
+        "records_traffic_agency":        records["traffic"]["by_agency"],
+        "records_traffic_person":        records["traffic"]["by_person"],
+        "records_traffic_police_agency": records["traffic"]["police_by_agency"],
+        "records_traffic_police_person": records["traffic"]["police_by_person"],
+        "records_traffic_other_agency":  records["traffic"]["other_by_agency"],
+        "records_traffic_other_person":  records["traffic"]["other_by_person"],
+        "records_other_agency":          records["other"]["by_agency"],
+        "records_other_person":          records["other"]["by_person"],
+        "records_other_police_agency":   records["other"]["police_by_agency"],
+        "records_other_police_person":   records["other"]["police_by_person"],
+        "records_other_other_agency":    records["other"]["other_by_agency"],
+        "records_other_other_person":    records["other"]["other_by_person"],
         "f": filters
     })

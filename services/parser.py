@@ -364,6 +364,9 @@ def parse_json_details(result_data):
                 other_links.append(file_url)
             
     if map_image:
+        # 이미 파일 목록에 동일 URL이 있으면 제거 후 맨 앞에 배치 (중복 방지)
+        if map_image in img_links:
+            img_links.remove(map_image)
         img_links.insert(0, map_image)
         
     attached_photos = "\n".join(img_links)
