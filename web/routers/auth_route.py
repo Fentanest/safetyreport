@@ -95,29 +95,40 @@ async def do_logout(request: Request):
 
 # ── 관리자 계정 변경 ──────────────────────────────────────────────────────────
 
+@router.get("/settings/admin", response_class=HTMLResponse)
+async def admin_change_page(request: Request):
+    return templates.TemplateResponse(request, "admin_change.html", {
+        "title": "관리자 계정 변경",
+        "admin_username": request.session.get("admin_username", ""),
+        "admin_error": request.query_params.get("admin_error"),
+        "admin_success": request.query_params.get("admin_success"),
+    })
+
+
 @router.post("/change-admin")
 async def change_admin(
     request: Request,
     new_username: str = Form(...),
     current_password: str = Form(...),
-    new_password: str = Form(...)
+    new_password: str = Form(...),
+    redirect_to: str = Form(default="/settings/admin")
 ):
     old_username = request.session.get("admin_username", "")
     engine = _get_engine()
     user = database.get_admin_user(engine, old_username)
 
     if not user:
-        return RedirectResponse("/settings?admin_error=세션이 만료되었습니다. 다시 로그인해주세요.", status_code=303)
+        return RedirectResponse(f"{redirect_to}?admin_error=세션이 만료되었습니다. 다시 로그인해주세요.", status_code=303)
 
     from core.utils.security import verify_password
     if not verify_password(current_password, user["salt"], user["password_hash"]):
-        return RedirectResponse("/settings?admin_error=현재 비밀번호가 올바르지 않습니다.", status_code=303)
+        return RedirectResponse(f"{redirect_to}?admin_error=현재 비밀번호가 올바르지 않습니다.", status_code=303)
 
     if not new_username.strip():
-        return RedirectResponse("/settings?admin_error=새 아이디를 입력해주세요.", status_code=303)
+        return RedirectResponse(f"{redirect_to}?admin_error=새 아이디를 입력해주세요.", status_code=303)
     if len(new_password) < 4:
-        return RedirectResponse("/settings?admin_error=새 비밀번호는 4자 이상이어야 합니다.", status_code=303)
+        return RedirectResponse(f"{redirect_to}?admin_error=새 비밀번호는 4자 이상이어야 합니다.", status_code=303)
 
     database.update_admin_user(engine, old_username, new_username.strip(), new_password)
     request.session["admin_username"] = new_username.strip()
-    return RedirectResponse("/settings?admin_success=관리자 계정이 변경되었습니다.", status_code=303)
+    return RedirectResponse(f"{redirect_to}?admin_success=관리자 계정이 변경되었습니다.", status_code=303)

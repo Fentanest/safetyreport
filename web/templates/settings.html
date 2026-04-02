@@ -2,49 +2,6 @@
 
 {% block content %}
 
-{% if admin_error %}
-<div class="alert alert-danger alert-dismissible fade show" role="alert">
-    {{ admin_error }}
-    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-</div>
-{% endif %}
-{% if admin_success %}
-<div class="alert alert-success alert-dismissible fade show" role="alert">
-    {{ admin_success }}
-    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-</div>
-{% endif %}
-
-<!-- 관리자 계정 변경 (단독 폼) -->
-<div class="row mb-3">
-    <div class="col-md-6">
-        <div class="card card-custom">
-            <div class="card-header bg-white fw-bold">0. 관리자 계정 변경</div>
-            <div class="card-body">
-                <p class="text-muted small mb-3">현재 계정: <strong>{{ admin_username }}</strong></p>
-                <form method="post" action="/change-admin">
-                    <div class="mb-3">
-                        <label class="form-label">새 아이디</label>
-                        <input type="text" class="form-control" name="new_username"
-                               value="{{ admin_username }}" autocomplete="username" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">현재 비밀번호</label>
-                        <input type="password" class="form-control" name="current_password"
-                               autocomplete="current-password" required>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">새 비밀번호 <span class="text-muted small">(4자 이상)</span></label>
-                        <input type="password" class="form-control" name="new_password"
-                               autocomplete="new-password" required>
-                    </div>
-                    <button type="submit" class="btn btn-warning">변경</button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
 <!-- 메인 설정 폼 (전체 행을 감쌈) -->
 <form action="/settings/save" method="post" id="mainSettingsForm">
 <div class="row">
@@ -107,7 +64,7 @@
     <!-- Right Column: External Integrations + Crawling Settings -->
     <div class="col-md-6">
         <div class="card card-custom mb-3 border-success border-opacity-50">
-            <div class="card-header bg-success text-white fw-bold">2. 외부 연동 키 설정</div>
+            <div class="card-header bg-success text-white fw-bold">3. 외부 연동 키 설정</div>
             <div class="card-body">
                 <h6 class="mb-3 text-success border-bottom pb-2"><i class="fab fa-telegram me-1"></i>텔레그램 (Telegram) API</h6>
                 <div class="mb-3">
@@ -152,7 +109,7 @@
         </div>
 
         <div class="card card-custom mb-3">
-            <div class="card-header bg-white fw-bold">크롤링 설정</div>
+            <div class="card-header bg-white fw-bold">2. 크롤링 설정</div>
             <div class="card-body">
 
                 <h6 class="mb-3 text-primary border-bottom pb-2">크롬 구동 방식 설정</h6>

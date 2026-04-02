@@ -27,10 +27,7 @@ async def view_settings(request: Request):
 
     auth_path = os.path.join(app_settings._instance.datapath, 'auth', 'gspread.json')
     return templates.TemplateResponse(request, "settings.html", {
-        "title": "설정",
-        "admin_username": request.session.get("admin_username", ""),
-        "admin_error": request.query_params.get("admin_error"),
-        "admin_success": request.query_params.get("admin_success"),
+        "title": "앱 설정",
         "username": app_settings.config.get('LOGIN', 'username', fallback=""),
         "password": app_settings.password or "",
         "telegram_token": app_settings.config.get('TELEGRAM', 'telegram_token', fallback=""),

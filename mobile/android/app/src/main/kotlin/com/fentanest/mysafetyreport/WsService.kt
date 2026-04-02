@@ -65,6 +65,7 @@ class WsService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                stopForeground(true)
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -103,7 +104,7 @@ class WsService : Service() {
 
                 if (baseUrl.isEmpty() || apiKey.isEmpty()) {
                     Log.w(TAG, "baseUrl/apiKey 미설정. 10초 후 재시도.")
-                    Thread.sleep(10_000)
+                    try { Thread.sleep(10_000) } catch (_: InterruptedException) { break }
                     continue
                 }
 
@@ -125,7 +126,7 @@ class WsService : Service() {
                 Log.i(TAG, "WS 연결 종료. ${delay}ms 후 재연결.")
                 updateForegroundNotif("서버 연결 대기 중...")
                 attempt = if (connected) 0 else (attempt + 1).coerceAtMost(BACKOFF_MS.size - 1)
-                Thread.sleep(delay)
+                try { Thread.sleep(delay) } catch (_: InterruptedException) { break }
             }
         }.also { it.isDaemon = true; it.start() }
     }
