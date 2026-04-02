@@ -37,7 +37,7 @@ class WsService : Service() {
     companion object {
         const val TAG = "WsService"
         const val NOTIF_CHANNEL_WS   = "ws_service"       // 서비스 지속 알림 채널
-        const val NOTIF_CHANNEL_PUSH = "ws_push"          // 이벤트 알림 채널
+        const val NOTIF_CHANNEL_PUSH = "ws_push_v2"       // 이벤트 알림 채널 (heads-up)
         const val FOREGROUND_NOTIF_ID = 1001              // 지속 알림 ID (고정)
         const val ACTION_START = "ACTION_WS_START"
         const val ACTION_STOP  = "ACTION_WS_STOP"
@@ -283,15 +283,28 @@ class WsService : Service() {
         val historyJson = prefs.getString("flutter.notifications_history", "[]") ?: "[]"
         try {
             val existing = JSONObject("{\"arr\":$historyJson}").getJSONArray("arr")
+            val count = data.optInt("changed_count", 0)
             val title = when (type) {
                 "crawl_started"  -> "🔄 크롤링 시작"
-                "crawl_finished" -> "✅ 크롤링 완료 (${data.optInt("changed_count", 0)}건 변경)"
+                "crawl_finished" -> "✅ 크롤링 완료"
                 else             -> type
+            }
+            val body = when (type) {
+                "crawl_started"  -> {
+                    val source = data.optString("source", "")
+                    val sourceLabel = if (source.startsWith("mobile")) "📱 모바일" else "🖥️ 웹"
+                    "$sourceLabel 에서 크롤링이 시작되었습니다."
+                }
+                "crawl_finished" -> if (count > 0)
+                    "크롤링이 완료되었습니다. ${count}건의 변경사항이 있습니다."
+                else
+                    "크롤링이 완료되었습니다. 변경사항이 없습니다."
+                else -> ""
             }
             val item = JSONObject().apply {
                 put("id",          System.currentTimeMillis().toString())
                 put("title",       title)
-                put("body",        data.toString())
+                put("body",        body)
                 put("reportNumber","")
                 put("timestamp",   java.text.SimpleDateFormat(
                     "yyyy-MM-dd HH:mm:ss", java.util.Locale.KOREA
@@ -349,13 +362,14 @@ class WsService : Service() {
         }
         nm.createNotificationChannel(wsChannel)
 
-        // 이벤트 푸시 알림 채널 (기본 중요도)
+        // 이벤트 푸시 알림 채널 (높은 중요도 — heads-up 팝업 표시)
         val pushChannel = NotificationChannel(
             NOTIF_CHANNEL_PUSH,
             "크롤링 이벤트 알림",
-            NotificationManager.IMPORTANCE_DEFAULT
+            NotificationManager.IMPORTANCE_HIGH
         ).apply {
             description = "크롤링 시작/완료 및 변경사항 알림"
+            enableVibration(true)
         }
         nm.createNotificationChannel(pushChannel)
     }

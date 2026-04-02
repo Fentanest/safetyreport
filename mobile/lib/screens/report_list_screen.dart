@@ -16,17 +16,26 @@ class ReportListScreen extends StatefulWidget {
   State<ReportListScreen> createState() => _ReportListScreenState();
 }
 
-class _ReportListScreenState extends State<ReportListScreen> {
+class _ReportListScreenState extends State<ReportListScreen>
+    with TickerProviderStateMixin {
   final Set<String> _selected = {};
   bool get _selectionMode => _selected.isNotEmpty;
+  late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ReportProvider>().fetchTrafficReports();
       context.read<ReportProvider>().fetchOtherReports();
     });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
   }
 
   void _toggleSelect(String reportNumber) {
@@ -41,11 +50,22 @@ class _ReportListScreenState extends State<ReportListScreen> {
 
   void _clearSelection() => setState(() => _selected.clear());
 
+  void _selectAllCurrentTab() {
+    final provider = context.read<ReportProvider>();
+    final currentReports = _tabController.index == 0
+        ? provider.filteredTrafficReports
+        : provider.filteredOtherReports;
+    setState(() {
+      for (final r in currentReports) {
+        _selected.add(r.reportNumber);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<ReportProvider>();
 
-    // 현재 탭의 reports에서 선택된 Report 객체들을 찾아 액션 바에 전달
     final allReports = [
       ...provider.filteredTrafficReports,
       ...provider.filteredOtherReports,
@@ -53,80 +73,96 @@ class _ReportListScreenState extends State<ReportListScreen> {
     final selectedReports =
         allReports.where((r) => _selected.contains(r.reportNumber)).toList();
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: _selectionMode
-            ? AppBar(
-                leading: IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: _clearSelection,
-                ),
-                title: Text('${_selected.length}개 선택됨'),
-                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-                foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
-              )
-            : AppBar(
-                title: const Text('신고 내역'),
-                actions: [
-                  IconButton(
-                    icon: Badge(
-                      isLabelVisible: provider.hasFilter,
-                      child: const Icon(Icons.filter_list),
-                    ),
-                    tooltip: '검색/필터',
-                    onPressed: () => _showSearchPopup(context),
-                  ),
-                  IconButton(
-                    icon: const Icon(FontAwesomeIcons.wordpress),
-                    tooltip: '제작자 블로그',
-                    onPressed: () async {
-                      final url =
-                          Uri.parse('https://hb.worklazy.net/mysafetyreport/');
-                      await launchUrl(url, mode: LaunchMode.externalApplication);
-                    },
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.settings),
-                    tooltip: '설정',
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const SettingsScreen()),
-                    ),
-                  ),
-                ],
-                bottom: const TabBar(
-                  labelColor: Colors.white,
-                  unselectedLabelColor: Colors.white70,
-                  indicatorColor: Colors.white,
-                  indicatorWeight: 3,
-                  tabs: [
-                    Tab(text: '교통위반'),
-                    Tab(text: '기타위반'),
-                  ],
-                ),
+    return Scaffold(
+      appBar: _selectionMode
+          ? AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: _clearSelection,
               ),
-        body: Stack(
-          children: [
-            TabBarView(
-              children: [
-                _buildTab(provider, provider.filteredTrafficReports,
-                    provider.fetchTrafficReports),
-                _buildTab(provider, provider.filteredOtherReports,
-                    provider.fetchOtherReports),
+              title: Text('${_selected.length}개 선택됨'),
+              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+              foregroundColor:
+                  Theme.of(context).colorScheme.onPrimaryContainer,
+              actions: [
+                TextButton(
+                  onPressed: _selectAllCurrentTab,
+                  child: Text(
+                    '전체 선택',
+                    style: TextStyle(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onPrimaryContainer),
+                  ),
+                ),
               ],
-            ),
-            if (_selectionMode)
-              Positioned(
-                bottom: 0, left: 0, right: 0,
-                child: SelectionActionBar(
-                  selectedReports: selectedReports,
-                  onCancel: _clearSelection,
-                  onActionDone: _clearSelection,
+            )
+          : AppBar(
+              title: const Text('신고 내역'),
+              actions: [
+                IconButton(
+                  icon: Badge(
+                    isLabelVisible: provider.hasFilter,
+                    child: const Icon(Icons.filter_list),
+                  ),
+                  tooltip: '검색/필터',
+                  onPressed: () => _showSearchPopup(context),
                 ),
+                IconButton(
+                  icon: const Icon(FontAwesomeIcons.wordpress),
+                  tooltip: '제작자 블로그',
+                  onPressed: () async {
+                    final url =
+                        Uri.parse('https://hb.worklazy.net/mysafetyreport/');
+                    await launchUrl(url,
+                        mode: LaunchMode.externalApplication);
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.settings),
+                  tooltip: '설정',
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const SettingsScreen()),
+                  ),
+                ),
+              ],
+              bottom: TabBar(
+                controller: _tabController,
+                labelColor: Colors.white,
+                unselectedLabelColor: Colors.white70,
+                indicatorColor: Colors.white,
+                indicatorWeight: 3,
+                tabs: const [
+                  Tab(text: '교통위반'),
+                  Tab(text: '기타위반'),
+                ],
               ),
-          ],
-        ),
+            ),
+      body: Stack(
+        children: [
+          TabBarView(
+            controller: _tabController,
+            children: [
+              _buildTab(provider, provider.filteredTrafficReports,
+                  provider.fetchTrafficReports),
+              _buildTab(provider, provider.filteredOtherReports,
+                  provider.fetchOtherReports),
+            ],
+          ),
+          if (_selectionMode)
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: SelectionActionBar(
+                selectedReports: selectedReports,
+                onCancel: _clearSelection,
+                onActionDone: _clearSelection,
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -160,7 +196,8 @@ class _ReportListScreenState extends State<ReportListScreen> {
                       const SizedBox(height: 6),
                       const Text('아래로 당겨 다시 시도하거나\n설정에서 서버 상태를 확인하세요.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey, fontSize: 13)),
+                          style:
+                              TextStyle(color: Colors.grey, fontSize: 13)),
                       const SizedBox(height: 16),
                       FilledButton.icon(
                         icon: const Icon(Icons.refresh, size: 16),
@@ -172,8 +209,11 @@ class _ReportListScreenState extends State<ReportListScreen> {
                           size: 56, color: Colors.grey.shade400),
                       const SizedBox(height: 12),
                       Text(
-                        provider.hasFilter ? '검색 결과가 없습니다.' : '신고 내역이 없습니다.',
-                        style: const TextStyle(color: Colors.grey, fontSize: 15),
+                        provider.hasFilter
+                            ? '검색 결과가 없습니다.'
+                            : '신고 내역이 없습니다.',
+                        style: const TextStyle(
+                            color: Colors.grey, fontSize: 15),
                       ),
                     ],
                   ],
@@ -187,8 +227,7 @@ class _ReportListScreenState extends State<ReportListScreen> {
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView.builder(
-        padding: EdgeInsets.fromLTRB(
-            12, 10, 12, _selectionMode ? 100 : 20), // 선택바 공간 확보
+        padding: EdgeInsets.fromLTRB(12, 10, 12, _selectionMode ? 100 : 20),
         itemCount: reports.length,
         itemBuilder: (context, index) => _buildReportCard(reports[index]),
       ),
@@ -241,7 +280,6 @@ class _ReportListScreenState extends State<ReportListScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 선택 모드 체크박스
               if (_selectionMode)
                 Padding(
                   padding: const EdgeInsets.only(right: 10, top: 2),
@@ -290,9 +328,22 @@ class _ReportListScreenState extends State<ReportListScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              _metaRow(Icons.calendar_today, report.date),
+                              _metaRow(Icons.calendar_today,
+                                  report.date.isNotEmpty
+                                      ? '신고: ${report.date}'
+                                      : ''),
+                              if (report.responseDate.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                _metaRow(Icons.event_available,
+                                    '답변: ${report.responseDate}'),
+                              ],
                               const SizedBox(height: 3),
                               _metaRow(Icons.business, report.agency),
+                              if (report.manager.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                _metaRow(
+                                    Icons.person_outline, report.manager),
+                              ],
                             ],
                           ),
                         ),
@@ -303,8 +354,8 @@ class _ReportListScreenState extends State<ReportListScreen> {
                             decoration: BoxDecoration(
                               color: Colors.blueGrey.shade50,
                               borderRadius: BorderRadius.circular(6),
-                              border:
-                                  Border.all(color: Colors.blueGrey.shade200),
+                              border: Border.all(
+                                  color: Colors.blueGrey.shade200),
                             ),
                             child: Text(
                               report.carNumber,
@@ -327,6 +378,7 @@ class _ReportListScreenState extends State<ReportListScreen> {
   }
 
   Widget _metaRow(IconData icon, String text) {
+    if (text.isEmpty) return const SizedBox.shrink();
     return Row(
       children: [
         Icon(icon, size: 12, color: Colors.grey),
