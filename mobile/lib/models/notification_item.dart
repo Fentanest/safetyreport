@@ -5,6 +5,8 @@ class NotificationItem {
   final String reportNumber;
   final String timestamp;
   final bool isRead;
+  /// 크롤링 변경건의 전체 필드 (있을 때만 — 알림 상세에서 ReportDetailSheet 표시용)
+  final Map<String, dynamic>? extraData;
 
   const NotificationItem({
     required this.id,
@@ -13,6 +15,7 @@ class NotificationItem {
     required this.reportNumber,
     required this.timestamp,
     required this.isRead,
+    this.extraData,
   });
 
   NotificationItem copyWith({bool? isRead}) => NotificationItem(
@@ -22,6 +25,7 @@ class NotificationItem {
         reportNumber: reportNumber,
         timestamp: timestamp,
         isRead: isRead ?? this.isRead,
+        extraData: extraData,
       );
 
   factory NotificationItem.fromJson(Map<String, dynamic> json) {
@@ -32,6 +36,9 @@ class NotificationItem {
       reportNumber: json['reportNumber']?.toString() ?? '',
       timestamp: json['timestamp']?.toString() ?? '',
       isRead: json['isRead'] == true,
+      extraData: json['extraData'] is Map
+          ? Map<String, dynamic>.from(json['extraData'] as Map)
+          : null,
     );
   }
 
@@ -42,5 +49,6 @@ class NotificationItem {
         'reportNumber': reportNumber,
         'timestamp': timestamp,
         'isRead': isRead,
+        if (extraData != null) 'extraData': extraData,
       };
 }

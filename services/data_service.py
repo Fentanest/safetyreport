@@ -351,9 +351,21 @@ def get_agency_stats(engine, filters=None):
                 "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0
             })
 
+        def _sort(lst): return pd.DataFrame(lst).sort_values(by=['total'], ascending=False).to_dict('records') if lst else []
+        all_agency = _sort(stats_agency)
+        all_person = _sort(stats_person)
+        # 경찰/비경찰 분리
+        police_agency  = [r for r in all_agency if '경찰' in r['agency']]
+        police_person  = [r for r in all_person if '경찰' in r['agency']]
+        other_agency   = [r for r in all_agency if '경찰' not in r['agency']]
+        other_person   = [r for r in all_person if '경찰' not in r['agency']]
         return {
-            "by_person": pd.DataFrame(stats_person).sort_values(by=['total'], ascending=False).to_dict('records') if stats_person else [],
-            "by_agency": pd.DataFrame(stats_agency).sort_values(by=['total'], ascending=False).to_dict('records') if stats_agency else []
+            "by_agency":         all_agency,
+            "by_person":         all_person,
+            "police_by_agency":  police_agency,
+            "police_by_person":  police_person,
+            "other_by_agency":   other_agency,
+            "other_by_person":   other_person,
         }
 
     res_t = calc_stats(df_t)
@@ -465,6 +477,8 @@ def save_crawl_changes(engine, changed_item_ids):
             "위반장소": str(r.get('위반장소', '')),
             "발생일자": str(r.get('발생일자', '')),
             "발생시각": str(r.get('발생시각', '')),
+            "신고내용": str(r.get('신고내용', '')),
+            "처리내용": str(r.get('처리내용', '')),
         })
 
     changes_file = os.path.join(app_settings.datapath, 'crawl_changes.json')

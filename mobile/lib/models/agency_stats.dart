@@ -39,17 +39,34 @@ class AgencyStatRow {
 class CategoryStats {
   final List<AgencyStatRow> byAgency;
   final List<AgencyStatRow> byPerson;
+  final List<AgencyStatRow> policeByAgency;
+  final List<AgencyStatRow> policeByPerson;
+  final List<AgencyStatRow> otherByAgency;
+  final List<AgencyStatRow> otherByPerson;
 
-  const CategoryStats({required this.byAgency, required this.byPerson});
+  const CategoryStats({
+    required this.byAgency,
+    required this.byPerson,
+    required this.policeByAgency,
+    required this.policeByPerson,
+    required this.otherByAgency,
+    required this.otherByPerson,
+  });
+
+  static List<AgencyStatRow> _parse(Map<String, dynamic> json, String key) =>
+      (json[key] as List? ?? [])
+          .map((i) => AgencyStatRow.fromJson(i as Map<String, dynamic>))
+          .toList();
 
   factory CategoryStats.fromJson(Map<String, dynamic> json) {
-    final agency = (json['by_agency'] as List? ?? [])
-        .map((i) => AgencyStatRow.fromJson(i as Map<String, dynamic>))
-        .toList();
-    final person = (json['by_person'] as List? ?? [])
-        .map((i) => AgencyStatRow.fromJson(i as Map<String, dynamic>))
-        .toList();
-    return CategoryStats(byAgency: agency, byPerson: person);
+    return CategoryStats(
+      byAgency:      _parse(json, 'by_agency'),
+      byPerson:      _parse(json, 'by_person'),
+      policeByAgency: _parse(json, 'police_by_agency'),
+      policeByPerson: _parse(json, 'police_by_person'),
+      otherByAgency:  _parse(json, 'other_by_agency'),
+      otherByPerson:  _parse(json, 'other_by_person'),
+    );
   }
 }
 

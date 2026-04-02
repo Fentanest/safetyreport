@@ -71,18 +71,21 @@ class NotificationHistoryProvider with ChangeNotifier {
         final status = r['처리상태']?.toString() ?? '';
         final agency = r['처리기관']?.toString() ?? '';
         final fine = r['범칙금_과태료']?.toString() ?? '';
+        final changeType = r['change_type']?.toString() ?? '';
         final lines = <String>[];
+        if (changeType.isNotEmpty) lines.add('[$changeType]');
         if (rnum.isNotEmpty) lines.add('신고번호: $rnum');
         if (status.isNotEmpty) lines.add('처리상태: $status');
         if (agency.isNotEmpty) lines.add('처리기관: $agency');
         if (fine.isNotEmpty && fine != '미확인' && fine != 'null') lines.add('범칙금/과태료: $fine');
         newItems.add(NotificationItem(
           id: '${now.millisecondsSinceEpoch}_$rnum',
-          title: '📋 $name',
+          title: changeType == '신규' ? '🆕 $name' : '🔄 $name',
           body: lines.join('\n'),
           reportNumber: rnum,
           timestamp: ts,
           isRead: false,
+          extraData: Map<String, dynamic>.from(r),
         ));
       }
     }

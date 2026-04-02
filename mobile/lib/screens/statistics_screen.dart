@@ -22,7 +22,7 @@ class _StatisticsScreenState extends State<StatisticsScreen>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 4, vsync: this);
+    _tab = TabController(length: 8, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
@@ -60,10 +60,14 @@ class _StatisticsScreenState extends State<StatisticsScreen>
           indicatorWeight: 3,
           isScrollable: true,
           tabs: const [
-            Tab(text: '교통위반 기관별'),
-            Tab(text: '교통위반 담당자별'),
-            Tab(text: '기타위반 기관별'),
-            Tab(text: '기타위반 담당자별'),
+            Tab(text: '교통 기관별'),
+            Tab(text: '교통 담당자별'),
+            Tab(text: '교통 경찰 기관'),
+            Tab(text: '교통 경찰 담당자'),
+            Tab(text: '기타 기관별'),
+            Tab(text: '기타 담당자별'),
+            Tab(text: '기타 경찰 기관'),
+            Tab(text: '기타 경찰 담당자'),
           ],
         ),
       ),
@@ -74,10 +78,14 @@ class _StatisticsScreenState extends State<StatisticsScreen>
               : TabBarView(
                   controller: _tab,
                   children: [
-                    _StatsTable(rows: _stats!.traffic.byAgency, showPerson: false, category: 'traffic'),
-                    _StatsTable(rows: _stats!.traffic.byPerson, showPerson: true, category: 'traffic'),
-                    _StatsTable(rows: _stats!.other.byAgency, showPerson: false, category: 'other'),
-                    _StatsTable(rows: _stats!.other.byPerson, showPerson: true, category: 'other'),
+                    _StatsTable(rows: _stats!.traffic.byAgency,       showPerson: false, category: 'traffic'),
+                    _StatsTable(rows: _stats!.traffic.byPerson,       showPerson: true,  category: 'traffic'),
+                    _StatsTable(rows: _stats!.traffic.policeByAgency, showPerson: false, category: 'traffic'),
+                    _StatsTable(rows: _stats!.traffic.policeByPerson, showPerson: true,  category: 'traffic'),
+                    _StatsTable(rows: _stats!.other.byAgency,         showPerson: false, category: 'other'),
+                    _StatsTable(rows: _stats!.other.byPerson,         showPerson: true,  category: 'other'),
+                    _StatsTable(rows: _stats!.other.policeByAgency,   showPerson: false, category: 'other'),
+                    _StatsTable(rows: _stats!.other.policeByPerson,   showPerson: true,  category: 'other'),
                   ],
                 ),
     );
