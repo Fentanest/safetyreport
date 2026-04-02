@@ -178,7 +178,7 @@ class NotificationService : NotificationListenerService() {
             .setContentTitle("📋 $name")
             .setContentText("처리상태: $status")
             .setStyle(android.app.Notification.BigTextStyle().bigText(bodyText))
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_stat_logo)
             .setAutoCancel(true)
             .addAction(android.R.drawable.ic_menu_view, "안전신문고에서 보기", pendingIntent)
             .build()
