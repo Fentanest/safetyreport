@@ -60,6 +60,7 @@ async def view_settings(request: Request):
         "remotepath": app_settings.config.get('SELENIUM', 'remotepath', fallback="http://localhost:4444/wd/hub"),
         "google_json_exists": os.path.isfile(auth_path),
         "session_max_age": int(app_settings.config.get('SETTINGS', 'session_max_age', fallback=10800)),
+        "trusted_proxies": app_settings.config.get('SETTINGS', 'trusted_proxies', fallback=''),
         "api_keys": database.get_all_api_keys(_get_engine()),
     })
 
@@ -88,7 +89,8 @@ async def save_settings(
     scheduler_interval_start: str = Form("00:00"),
     phone_number: str = Form(""),
     remotepath: str = Form("http://localhost:4444/wd/hub"),
-    session_max_age: int = Form(10800)
+    session_max_age: int = Form(10800),
+    trusted_proxies: str = Form("")
 ):
     # Regex to extract Google Spreadsheet ID from full URL
     match = re.search(r'/d/([a-zA-Z0-9-_]+)', sheet_key)
@@ -124,6 +126,7 @@ async def save_settings(
     app_settings._instance.update_config('SETTINGS', 'max_retry_attemps', max_retry_attemps)
     app_settings._instance.update_config('SETTINGS', 'session_max_age', session_max_age)
     app_settings._instance.update_config('SETTINGS', 'log_level', log_level)
+    app_settings._instance.update_config('SETTINGS', 'trusted_proxies', trusted_proxies.strip())
 
     app_settings._instance.save()
 

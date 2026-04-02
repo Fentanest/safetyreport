@@ -69,6 +69,7 @@ class AppSettings:
         self.session_max_age = int(self.config.get('SETTINGS', 'session_max_age', fallback=10800))
         self.log_level = self.config.get('SETTINGS', 'log_level', fallback="INFO")
         self.TZ = self.config.get('SETTINGS', 'TZ', fallback="Asia/Seoul")
+        self.trusted_proxies = self.config.get('SETTINGS', 'trusted_proxies', fallback='')
         
         now_str = str(datetime.datetime.now()).replace(":","_")[:19]
         

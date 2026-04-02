@@ -151,6 +151,12 @@
                         </div>
                         <div class="form-text">기본값: 10800 (3시간). 변경 후 저장하면 다음 로그인부터 적용됩니다.</div>
                     </div>
+                    <div class="mb-2">
+                        <label class="form-label">신뢰할 수 있는 프록시 IP</label>
+                        <input type="text" class="form-control" name="trusted_proxies"
+                            value="{{ trusted_proxies }}" placeholder="예: 10.20.10.3 또는 10.20.10.3, 192.168.1.1">
+                        <div class="form-text">리버스 프록시(Nginx 등) IP를 입력하면 X-Forwarded-For 헤더를 신뢰합니다. 비워두면 비활성화. <strong>변경 후 서버 재시작 필요.</strong></div>
+                    </div>
                 </div>
             </div>
 
