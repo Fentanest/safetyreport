@@ -171,7 +171,7 @@ class _RowCard extends StatelessWidget {
                     : agency,
                 category: category,
                 filter: (r) {
-                  final agencyMatch = r.agency.contains(agency);
+                  final agencyMatch = r.agency == agency;
                   final personMatch =
                       person.isEmpty || r.manager == person;
                   return agencyMatch && personMatch;
