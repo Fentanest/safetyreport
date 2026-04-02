@@ -186,6 +186,7 @@ def _run_crawling_process(driver, engine, args):
     changed_item_ids = database.deatil_to_sql(dataframes_with_category=detail_datas, engine=engine)
     if settings.telegram_enabled:
         msg = f"2/5. 상세 정보(Detail) 크롤링 {len(detaillist)}건 및 DB 저장을 완료했습니다. (내용 변경/신규 처리: {len(changed_item_ids)}건)"
+        # changed_item_ids는 [{"id": ..., "change_type": "신규"/"변경"}] 형식
         if is_frozen:
             subprocess.run([sys.executable, "--mode", "notify", msg])
         else:
@@ -204,11 +205,14 @@ def _process_and_save_results(engine, changed_item_ids):
     if changed_item_ids:
         save_crawl_changes(engine, changed_item_ids)
     save_crawl_done(len(changed_item_ids))
-    
+
+    # get_merged_records_by_ids에 전달할 순수 ID 목록
+    all_ids = [item["id"] for item in changed_item_ids]
+
     if settings.telegram_enabled:
         msg = "3/5. 최종 데이터 병합 및 DB 저장을 완료했습니다."
-        if changed_item_ids:
-            changed_records = database.get_merged_records_by_ids(engine, changed_item_ids)
+        if all_ids:
+            changed_records = database.get_merged_records_by_ids(engine, all_ids)
             detail_msg = message_formatter.format_report_list(changed_records, "[내용 변경/신규 처리된 신고 목록]")
             if detail_msg:
                 msg += "\n\n" + detail_msg

@@ -62,10 +62,13 @@ def _start_pending_crawl_from_queue(pending: list):
                 except Exception:
                     pass
             try:
-                from services.data_service import get_and_clear_crawl_done
+                from services.data_service import get_and_clear_crawl_done, peek_crawl_changes
                 done = get_and_clear_crawl_done()
                 changed_count = done["changed_count"] if done else 0
                 ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
+                changes = peek_crawl_changes()
+                if changes:
+                    ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
             except Exception:
                 pass
             # 재귀적으로 대기 큐 처리
@@ -164,14 +167,15 @@ async def start_crawl(
                 shutil.copy2(lpath, dst)
             except Exception:
                 pass
-        # WS 브로드캐스트: 크롤링 완료
+        # WS 브로드캐스트: 크롤링 완료 + 변경 상세
         try:
-            from services.data_service import get_and_clear_crawl_done
+            from services.data_service import get_and_clear_crawl_done, peek_crawl_changes
             done = get_and_clear_crawl_done()
             changed_count = done["changed_count"] if done else 0
-            ws_manager.broadcast_from_thread("crawl_finished", {
-                "changed_count": changed_count,
-            })
+            ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
+            changes = peek_crawl_changes()
+            if changes:
+                ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
         except Exception:
             pass
         # 대기 큐에 쌓인 신고번호가 있으면 자동으로 다음 크롤링 시작

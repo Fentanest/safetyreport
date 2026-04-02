@@ -187,15 +187,17 @@ def deatil_to_sql(dataframes_with_category, engine, conn=None):
             is_new = existing_record_proxy is None
             is_changed = False
 
-            if not is_new:
+            if is_new:
+                changed_item_ids.append({"id": record_id, "change_type": "신규"})
+            else:
                 existing_record = dict(existing_record_proxy._mapping)
                 for key, new_value in new_record.items():
                     if key in existing_record and str(existing_record[key]) != str(new_value):
                         is_changed = True
                         break
-                
+
                 if is_changed:
-                    changed_item_ids.append(record_id)
+                    changed_item_ids.append({"id": record_id, "change_type": "변경"})
             
             insert_stmt = insert(target_table).values(new_record)
             update_dict = {col.name: getattr(insert_stmt.excluded, col.name) for col in target_table.c if col.name != 'ID'}

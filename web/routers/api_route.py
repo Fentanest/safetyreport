@@ -113,11 +113,17 @@ def _run_after_crawl(proc, log_file: str):
         except Exception:
             pass
 
-    # WS: crawl_finished
+    # WS: crawl_finished + crawl_changes
     try:
         done = data_service.get_and_clear_crawl_done()
         changed_count = done["changed_count"] if done else 0
         ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
+    except Exception:
+        pass
+    try:
+        changes = data_service.peek_crawl_changes()
+        if changes:
+            ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
     except Exception:
         pass
 
