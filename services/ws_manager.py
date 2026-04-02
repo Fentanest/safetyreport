@@ -21,6 +21,7 @@ class WsManager:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._connections: Dict[str, WebSocket] = {}
+            cls._instance._connection_meta: Dict[str, dict] = {}
             cls._instance._main_loop: asyncio.AbstractEventLoop | None = None
         return cls._instance
 
@@ -31,13 +32,19 @@ class WsManager:
     def _all(self) -> list:
         return list(self._connections.values())
 
-    async def connect(self, client_id: str, ws: WebSocket):
+    async def connect(self, client_id: str, ws: WebSocket, api_key: str = "", ip: str = ""):
         await ws.accept()
         self._connections[client_id] = ws
+        self._connection_meta[client_id] = {
+            "api_key": api_key,
+            "connected_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "ip": ip,
+        }
         logger.info(f"[WS] 클라이언트 연결: {client_id} (총 {len(self._connections)}개)")
 
     def disconnect(self, client_id: str):
         self._connections.pop(client_id, None)
+        self._connection_meta.pop(client_id, None)
         logger.info(f"[WS] 클라이언트 종료: {client_id} (남은 {len(self._connections)}개)")
 
     async def broadcast(self, event_type: str, data: dict | None = None):
@@ -77,6 +84,12 @@ class WsManager:
         else:
             # 폴백: 연결된 클라이언트가 없거나 루프 미설정
             logger.debug(f"[WS] 메인 루프 없음, 브로드캐스트 스킵: {event_type}")
+
+    def get_connected_clients(self) -> list:
+        return [
+            {"client_id": cid[:8] + "...", **meta}
+            for cid, meta in self._connection_meta.items()
+        ]
 
     def connected_count(self) -> int:
         return len(self._connections)
