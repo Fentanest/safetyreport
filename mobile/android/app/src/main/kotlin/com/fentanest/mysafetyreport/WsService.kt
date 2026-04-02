@@ -245,13 +245,28 @@ class WsService : Service() {
         prefs.edit().putString("flutter.pending_crawl_changes", changes.toString()).apply()
 
         for (i in 0 until changes.length()) {
-            val record = changes.getJSONObject(i)
-            val reportNo = record.optString("신고번호", "")
-            val name     = record.optString("신고명", "신고")
-            val status   = record.optString("처리상태", "")
+            val record     = changes.getJSONObject(i)
+            val changeType = record.optString("change_type", "변경")
+            val reportNo   = record.optString("신고번호", "")
+            val name       = record.optString("신고명", "신고")
+            val status     = record.optString("처리상태", "")
+            val agency     = record.optString("처리기관", "")
+
+            val (titlePrefix, bodyPrefix) = if (changeType == "신규") {
+                "🆕 신규 신고" to "신규 등록된 신고건입니다."
+            } else {
+                "🔄 처리 변경" to "처리 내용이 변경되었습니다."
+            }
+
+            val bodyLines = mutableListOf(bodyPrefix)
+            if (name.isNotEmpty() && name != "신고") bodyLines.add("신고명: $name")
+            if (reportNo.isNotEmpty())               bodyLines.add("신고번호: $reportNo")
+            if (status.isNotEmpty())                 bodyLines.add("처리상태: $status")
+            if (agency.isNotEmpty())                 bodyLines.add("처리기관: $agency")
+
             showPushNotif(
-                title = "📋 $name",
-                body  = "신고번호: $reportNo\n처리상태: $status",
+                title = titlePrefix,
+                body  = bodyLines.joinToString("\n"),
                 type  = "crawl_changes"
             )
         }
@@ -260,10 +275,12 @@ class WsService : Service() {
     private fun showPushNotif(title: String, body: String, type: String) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // 앱 열기 인텐트
+        // 앱 열기 인텐트 — SINGLE_TOP으로 onNewIntent 트리거, 앱 재시작 방지
         val openIntent = packageManager.getLaunchIntentForPackage(packageName)
+            ?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP }
+        val notifId = pushIdGen.get()
         val pi = PendingIntent.getActivity(
-            this, pushIdGen.get(),
+            this, notifId,
             openIntent ?: Intent(),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )

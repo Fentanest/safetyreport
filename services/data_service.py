@@ -431,19 +431,26 @@ def get_all_watchlist(engine):
         return df.to_dict('records')
 
 def save_crawl_changes(engine, changed_item_ids):
-    """크롤링으로 변경된 신고건의 상세 정보를 파일에 저장 (모바일 개별 알림용)"""
+    """크롤링으로 변경된 신고건의 상세 정보를 파일에 저장 (모바일 개별 알림용).
+    changed_item_ids: [{"id": ..., "change_type": "신규"/"변경"}, ...]"""
     import json
     if not changed_item_ids:
         return
 
-    changed_records = database.get_merged_records_by_ids(engine, changed_item_ids)
+    # change_type 맵 구성
+    change_type_map = {item["id"]: item["change_type"] for item in changed_item_ids}
+    all_ids = list(change_type_map.keys())
+
+    changed_records = database.get_merged_records_by_ids(engine, all_ids)
     if not changed_records:
         return
 
     changes = []
     for r in changed_records:
+        rid = r.get('ID', '')
         changes.append({
-            "ID": str(r.get('ID', '')),
+            "ID": str(rid),
+            "change_type": change_type_map.get(rid, "변경"),
             "신고번호": str(r.get('신고번호', '')),
             "신고명": str(r.get('신고명', '')),
             "신고일": str(r.get('신고일', '')),
@@ -475,6 +482,19 @@ def save_crawl_changes(engine, changed_item_ids):
 
     with open(changes_file, 'w', encoding='utf-8') as f:
         json.dump(list(merged_map.values()), f, ensure_ascii=False)
+
+
+def peek_crawl_changes():
+    """크롤링 변경 결과 조회 (파일 삭제 없음 — WS 브로드캐스트용)"""
+    import json
+    changes_file = os.path.join(app_settings.datapath, 'crawl_changes.json')
+    if not os.path.exists(changes_file):
+        return []
+    try:
+        with open(changes_file, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return []
 
 
 def get_and_clear_crawl_changes():

@@ -194,7 +194,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
         minChildSize: 0.35,
         maxChildSize: 0.92,
         expand: false,
-        builder: (_, controller) => Column(
+        builder: (_, controller) {
+          final newCount = changes
+              .where((r) => (r as Map)['change_type'] == '신규')
+              .length;
+          final changedCount = changes.length - newCount;
+          return Column(
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
@@ -214,11 +219,20 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                       const Icon(Icons.sync_alt, color: Colors.blue, size: 20),
                       const SizedBox(width: 8),
                       Text(
-                        '변경된 신고건 ${changes.length}건',
+                        '신고 변경 ${changes.length}건',
                         style: const TextStyle(
                           fontSize: 16, fontWeight: FontWeight.bold,
                         ),
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      if (newCount > 0) _changeBadge('신규', newCount, Colors.teal),
+                      if (newCount > 0 && changedCount > 0) const SizedBox(width: 6),
+                      if (changedCount > 0) _changeBadge('처리변경', changedCount, Colors.orange),
                     ],
                   ),
                 ],
@@ -233,6 +247,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                 separatorBuilder: (_, __) => const SizedBox(height: 8),
                 itemBuilder: (ctx, i) {
                   final r = changes[i] as Map<String, dynamic>;
+                  final changeType = r['change_type']?.toString() ?? '변경';
+                  final isNew = changeType == '신규';
                   final reportNo = r['신고번호']?.toString() ?? '';
                   final name = r['신고명']?.toString() ?? '신고';
                   final status = r['처리상태']?.toString() ?? '';
@@ -253,6 +269,30 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
                         children: [
                           Row(
                             children: [
+                              Container(
+                                margin: const EdgeInsets.only(right: 6),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isNew
+                                      ? Colors.teal.withOpacity(0.12)
+                                      : Colors.orange.withOpacity(0.12),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(
+                                    color: isNew
+                                        ? Colors.teal.withOpacity(0.5)
+                                        : Colors.orange.withOpacity(0.5),
+                                  ),
+                                ),
+                                child: Text(
+                                  isNew ? '신규' : '처리변경',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: isNew ? Colors.teal : Colors.orange,
+                                  ),
+                                ),
+                              ),
                               Expanded(
                                 child: Text(
                                   name,
@@ -326,6 +366,23 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
               ),
             ),
           ],
+        );},
+      ),
+    );
+  }
+
+  Widget _changeBadge(String label, int count, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Text(
+        '$label $count건',
+        style: TextStyle(
+          fontSize: 12, color: color, fontWeight: FontWeight.w600,
         ),
       ),
     );
