@@ -15,9 +15,11 @@ fi
 if [ "$1" == "--dev" ]; then
     echo "Development build selected. Using 'dev' tag."
     TAG="dev"
-    # For dev builds, we don't need multi-platform or push
-    echo "Building Docker image with tag: $IMAGE_NAME:$TAG (local build)"
-    docker build -t "$IMAGE_NAME:$TAG" .
+    echo "Building and pushing multi-platform Docker image with tag: $IMAGE_NAME:$TAG"
+    docker buildx build --no-cache --platform linux/amd64,linux/arm64 \
+      -t "$IMAGE_NAME:$TAG" \
+      --push \
+      .
 else
     # Use the provided argument as the version
     NEW_VERSION="$1"

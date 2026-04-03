@@ -2,8 +2,11 @@ FROM python:3.14-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y gcc g++ chromium chromium-driver xvfb
-# Note: Selenium might need chromium/chromium-driver if not using a Hub remote.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc g++ chromium chromium-driver xvfb \
+    libnss3 libatk-bridge2.0-0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libasound2 \
+    libpangocairo-1.0-0 libpango-1.0-0 libcups2 \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY ./requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip
