@@ -302,10 +302,10 @@ jobs:
           org.opencontainers.image.revision=${{ github.sha }}
 
   # ────────────────────────────────────────────────────────────────
-  # 3. Raspberry Pi (ARM64) 실행 파일 빌드
+  # 3. Linux ARM64 실행 파일 빌드 (Docker 크로스컴파일, 234 러너)
   # ────────────────────────────────────────────────────────────────
   build-linux-arm64:
-    runs-on: [self-hosted, Linux, ARM64, rpi4]
+    runs-on: [self-hosted, Linux, X64, 234]
     permissions:
       contents: write
 
@@ -344,58 +344,39 @@ jobs:
           exit 1
         fi
 
-    - name: Clean previous build artifacts
+    - name: Set up QEMU (ARM64 에뮬레이션)
       if: steps.check_tag.outputs.tag_exists == 'false'
-      run: rm -rf venv build dist
+      uses: docker/setup-qemu-action@v3
+      with:
+        platforms: arm64
 
-    - name: Set up Python 3.14 (local install)
+    - name: Set up Docker Buildx
       if: steps.check_tag.outputs.tag_exists == 'false'
-      run: |
-        PYTHON=$(command -v python3.14 || command -v python3)
-        $PYTHON --version
-        echo "$(dirname $PYTHON)" >> $GITHUB_PATH
+      uses: docker/setup-buildx-action@v4
 
-    - name: Create virtual environment and install dependencies
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      run: |
-        PYTHON=$(command -v python3.14 || command -v python3)
-        $PYTHON -m venv venv
-        ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
-        ./venv/bin/pip install --no-cache-dir -r requirements.txt
-        ./venv/bin/pip install --no-cache-dir pyinstaller
-
-    - name: Setup UPX 5.1.1 (ARM64)
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      id: setup_upx
-      run: |
-        VERSION="5.1.1"
-        UPX_DIR="/tmp/upx-${VERSION}-arm64_linux"
-        UPX_PATH="${UPX_DIR}/upx"
-        TAR_PATH="/tmp/upx_arm64.tar.xz"
-        DOWNLOAD_URL="https://github.com/upx/upx/releases/download/v${VERSION}/upx-${VERSION}-arm64_linux.tar.xz"
-
-        if [ ! -f "$UPX_PATH" ]; then
-          rm -rf "$UPX_DIR"
-          echo "Downloading UPX $VERSION (ARM64) from $DOWNLOAD_URL"
-          wget -q -O "$TAR_PATH" "$DOWNLOAD_URL"
-          mkdir -p "$UPX_DIR"
-          tar -xf "$TAR_PATH" -C "$UPX_DIR" --strip-components=1
-        fi
-        echo "upx_path=$UPX_PATH" >> "$GITHUB_OUTPUT"
-
-    - name: Build Linux ARM64 executable with PyInstaller
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      run: ./venv/bin/python scripts/build/build_exe.py
-
-    - name: Compress Linux ARM64 executable with UPX
+    - name: Build ARM64 Docker image
       if: steps.check_tag.outputs.tag_exists == 'false'
       run: |
-        "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/mysafetyreport/mysafetyreport
+        docker buildx build \
+          --platform linux/arm64 \
+          -f Dockerfile.build \
+          -t safetyreport-arm64-build \
+          --load \
+          .
+
+    - name: Extract ARM64 binary from Docker image
+      if: steps.check_tag.outputs.tag_exists == 'false'
+      run: |
+        rm -rf dist-arm64
+        docker run --rm \
+          --platform linux/arm64 \
+          -v "$(pwd)/dist-arm64:/out" \
+          safetyreport-arm64-build
 
     - name: Package Linux ARM64 into Zip
       if: steps.check_tag.outputs.tag_exists == 'false'
       run: |
-        cd dist/mysafetyreport
+        cd dist-arm64/mysafetyreport
         zip -r ../../mysafetyreport-linux-arm64.zip .
 
     - name: Upload Linux ARM64 artifact
