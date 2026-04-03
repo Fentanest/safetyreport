@@ -65,8 +65,15 @@ class NotificationHistoryProvider with ChangeNotifier {
         isRead: false,
       ));
     } else {
+      // 이미 history에 있는 신고번호는 중복 추가 방지
+      final existingRnums = _items
+          .where((i) => i.reportNumber.isNotEmpty)
+          .map((i) => i.reportNumber)
+          .toSet();
+
       for (final r in serverData) {
         final rnum = r['신고번호']?.toString() ?? '';
+        if (rnum.isNotEmpty && existingRnums.contains(rnum)) continue;
         final name = r['신고명']?.toString() ?? '신고';
         final status = r['처리상태']?.toString() ?? '';
         final agency = r['처리기관']?.toString() ?? '';
@@ -90,6 +97,7 @@ class NotificationHistoryProvider with ChangeNotifier {
       }
     }
 
+    if (newItems.isEmpty) return;
     _items.insertAll(0, newItems);
     await _save();
     notifyListeners();

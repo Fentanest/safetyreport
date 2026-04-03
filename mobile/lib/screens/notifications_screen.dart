@@ -51,7 +51,6 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     return ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
   }
 
-  /// 서버에서 크롤링 완료 결과 가져와 알림 히스토리에 추가
   Future<void> _fetchServerResults() async {
     final api = _getApi();
     if (api == null) return;
@@ -64,7 +63,6 @@ class _NotificationsScreenState extends State<NotificationsScreen>
           await context.read<NotificationHistoryProvider>()
               .addFromServerResults(results);
         }
-        // Android 시스템 푸시 알림 표시 (WsService가 놓친 경우 보완)
         _showPushNotif(changedCount);
       }
     } catch (_) {}
@@ -107,14 +105,12 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   void _showDetail(BuildContext context, NotificationItem item) {
     context.read<NotificationHistoryProvider>().markRead(item.id);
 
-    // extraData가 있으면 ReportDetailSheet (전체 신고 정보 + 안전신문고 앱 열기)
     if (item.extraData != null && item.extraData!.isNotEmpty) {
       final report = Report.fromJson(item.extraData!);
       showReportDetailSheet(context, report);
       return;
     }
 
-    // 일반 알림 (crawl_started/finished 등) — 기존 간단 뷰
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -176,72 +172,147 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<NotificationHistoryProvider>();
-    final items = provider.items;
+    final allItems = provider.items;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('알림 기록'),
-        actions: [
-          if (items.isNotEmpty && provider.unreadCount > 0)
-            TextButton.icon(
-              icon: const Icon(Icons.done_all, size: 18),
-              label: const Text('모두 읽음'),
-              style: TextButton.styleFrom(foregroundColor: Colors.white),
-              onPressed: provider.markAllRead,
-            ),
-          if (items.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.delete_sweep_outlined),
-              tooltip: '모두 비우기',
-              onPressed: () async {
-                if (await _confirmClear(context)) {
-                  if (context.mounted) {
-                    context.read<NotificationHistoryProvider>().clearAll();
-                  }
-                }
-              },
-            ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: '새로고침',
-            onPressed: () {
-              provider.load();
-              _fetchServerResults();
-            },
-          ),
-        ],
-      ),
-      body: items.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.notifications_none,
-                      size: 72, color: Colors.grey.shade300),
-                  const SizedBox(height: 16),
-                  const Text('알림 기록이 없습니다.',
-                      style: TextStyle(color: Colors.grey, fontSize: 15)),
-                  const SizedBox(height: 8),
-                  const Text(
-                    '카카오톡·안전신문고 알림이 감지되거나\n크롤링이 완료되면 여기에 기록됩니다.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey, fontSize: 12, height: 1.5),
-                  ),
-                ],
+    final crawlItems = allItems.where((i) => i.extraData == null).toList();
+    final reportItems = allItems.where((i) => i.extraData != null).toList();
+    final crawlUnread = crawlItems.where((i) => !i.isRead).length;
+    final reportUnread = reportItems.where((i) => !i.isRead).length;
+
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('알림 기록'),
+          actions: [
+            if (allItems.isNotEmpty && provider.unreadCount > 0)
+              TextButton.icon(
+                icon: const Icon(Icons.done_all, size: 18),
+                label: const Text('모두 읽음'),
+                style: TextButton.styleFrom(foregroundColor: Colors.white),
+                onPressed: provider.markAllRead,
               ),
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: items.length,
-              separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
-              itemBuilder: (context, index) {
-                final item = items[index];
-                return _NotifTile(
-                  item: item,
-                  onTap: () => _showDetail(context, item),
-                );
+            if (allItems.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.delete_sweep_outlined),
+                tooltip: '모두 비우기',
+                onPressed: () async {
+                  if (await _confirmClear(context)) {
+                    if (context.mounted) {
+                      context.read<NotificationHistoryProvider>().clearAll();
+                    }
+                  }
+                },
+              ),
+            IconButton(
+              icon: const Icon(Icons.refresh),
+              tooltip: '새로고침',
+              onPressed: () {
+                provider.load();
+                _fetchServerResults();
               },
             ),
+          ],
+          bottom: TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            indicatorColor: Colors.white,
+            indicatorWeight: 3,
+            tabs: [
+              Tab(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('크롤링 현황'),
+                    if (crawlUnread > 0) ...[
+                      const SizedBox(width: 6),
+                      _unreadBadge(crawlUnread),
+                    ],
+                  ],
+                ),
+              ),
+              Tab(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('신고 결과'),
+                    if (reportUnread > 0) ...[
+                      const SizedBox(width: 6),
+                      _unreadBadge(reportUnread),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            _buildList(
+              items: crawlItems,
+              emptyMessage: '크롤링 알림이 없습니다.',
+              emptySubMessage: '크롤링 시작/완료 알림이 여기에 기록됩니다.',
+            ),
+            _buildList(
+              items: reportItems,
+              emptyMessage: '신고 결과가 없습니다.',
+              emptySubMessage: '크롤링 후 변경된 신고건이 여기에 기록됩니다.\n각 항목을 눌러 상세 정보를 확인하세요.',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _unreadBadge(int count) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text('$count',
+            style: const TextStyle(
+                fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
+      );
+
+  Widget _buildList({
+    required List<NotificationItem> items,
+    required String emptyMessage,
+    required String emptySubMessage,
+  }) {
+    if (items.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.notifications_none,
+                size: 72, color: Colors.grey.shade300),
+            const SizedBox(height: 16),
+            Text(emptyMessage,
+                style: const TextStyle(color: Colors.grey, fontSize: 15)),
+            const SizedBox(height: 8),
+            Text(
+              emptySubMessage,
+              textAlign: TextAlign.center,
+              style:
+                  const TextStyle(color: Colors.grey, fontSize: 12, height: 1.5),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: items.length,
+      separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+      itemBuilder: (context, index) {
+        final item = items[index];
+        return _NotifTile(
+          item: item,
+          onTap: () => _showDetail(context, item),
+        );
+      },
     );
   }
 }
@@ -255,6 +326,7 @@ class _NotifTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final unread = !item.isRead;
+    final hasDetail = item.extraData != null && item.extraData!.isNotEmpty;
     return InkWell(
       onTap: onTap,
       child: Padding(
@@ -277,11 +349,20 @@ class _NotifTile extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: Colors.blue.shade50,
+                color: hasDetail
+                    ? Colors.orange.shade50
+                    : Colors.blue.shade50,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(Icons.notifications_active,
-                  color: Colors.blue.shade700, size: 20),
+              child: Icon(
+                hasDetail
+                    ? Icons.assignment_outlined
+                    : Icons.notifications_active,
+                color: hasDetail
+                    ? Colors.orange.shade700
+                    : Colors.blue.shade700,
+                size: 20,
+              ),
             ),
             const SizedBox(width: 12),
             Expanded(
