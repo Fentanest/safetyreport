@@ -305,7 +305,7 @@ jobs:
   # 3. Raspberry Pi (ARM64) 실행 파일 빌드
   # ────────────────────────────────────────────────────────────────
   build-linux-arm64:
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: [self-hosted, Linux, ARM64, rpi4]
     permissions:
       contents: write
 
