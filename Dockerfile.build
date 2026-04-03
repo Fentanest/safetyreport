@@ -8,11 +8,12 @@
 #   docker run --privileged --rm tonistiigi/binfmt --install arm64
 # ─────────────────────────────────────────────────────────────
 
-FROM --platform=linux/arm64 python:3.14-slim-bookworm AS builder
+# --platform은 빌드 커맨드에서 지정 (상수 플래그 경고 방지)
+FROM python:3.14-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     binutils \
-    upx-ucl \
+    && apt-get install -y upx-ucl 2>/dev/null || true \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build

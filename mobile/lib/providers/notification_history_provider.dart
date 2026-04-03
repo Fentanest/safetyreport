@@ -84,7 +84,7 @@ class NotificationHistoryProvider with ChangeNotifier {
         if (rnum.isNotEmpty) lines.add('신고번호: $rnum');
         if (status.isNotEmpty) lines.add('처리상태: $status');
         if (agency.isNotEmpty) lines.add('처리기관: $agency');
-        if (fine.isNotEmpty && fine != '미확인' && fine != 'null') lines.add('범칙금/과태료: $fine');
+        if (fine.isNotEmpty && fine != 'null') lines.add('범칙금/과태료: $fine');
         newItems.add(NotificationItem(
           id: '${now.millisecondsSinceEpoch}_$rnum',
           title: changeType == '신규' ? '🆕 $name' : '🔄 $name',
