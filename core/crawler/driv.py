@@ -53,7 +53,10 @@ def _get_clean_env():
 
 def create_driver():
     options = webdriver.ChromeOptions()
-    # options.add_argument("--headless=new")
+    # settings.headless 값에 따라 헤드리스 모드 적용
+    if settings.headless:
+        options.add_argument("--headless=new")
+    
     options.add_argument("--no-sandbox")
     options.add_argument("--incognito")
     options.add_argument("--nogpu")
