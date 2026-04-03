@@ -16,7 +16,6 @@ GEMINI.md
 
 # 개발 도구 / 빌드
 venv/
-scripts/
 compiled/
 build/
 dist/
