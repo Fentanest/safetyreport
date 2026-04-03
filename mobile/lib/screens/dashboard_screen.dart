@@ -491,38 +491,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildWatchItem(Report r) {
-    final color = _statusColor(r.status);
     return Card(
       margin: const EdgeInsets.only(bottom: 6),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: () => showReportDetailSheet(context, r),
-        child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-        leading: const Icon(Icons.bookmark, color: Colors.blue, size: 18),
-        title: Text(r.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-        subtitle: Text([
-              if (r.reportNumber.isNotEmpty) r.reportNumber,
-              if (r.agency.isNotEmpty) r.agency,
-              if (r.fineInfo.isNotEmpty) r.fineInfo,
-            ].join('  ·  '),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, color: Colors.grey)),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: color.withOpacity(0.4)),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Icon(Icons.bookmark, color: Colors.blue, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(r.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 14)),
+                  ),
+                  const SizedBox(width: 8),
+                  _statusChip(r.status),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (r.reportNumber.isNotEmpty)
+                _metaRow(Icons.tag, '신고번호', r.reportNumber),
+              if (r.date.isNotEmpty)
+                _metaRow(Icons.calendar_today, '신고일', r.date),
+              if (r.responseDate.isNotEmpty)
+                _metaRow(Icons.check_circle_outline, '답변일', r.responseDate),
+              if (r.agency.isNotEmpty)
+                _metaRow(Icons.business, '처리기관', r.agency),
+              if (r.manager.isNotEmpty)
+                _metaRow(Icons.person_outline, '담당자', r.manager),
+              if (r.fineInfo.isNotEmpty && r.fineInfo != '미확인')
+                _metaRow(Icons.monetization_on_outlined, '과태료/범칙금', r.fineInfo),
+            ],
           ),
-          child: Text(r.status,
-              style: TextStyle(
-                  color: color, fontSize: 11, fontWeight: FontWeight.bold)),
-        ),
         ),
       ),
     );
