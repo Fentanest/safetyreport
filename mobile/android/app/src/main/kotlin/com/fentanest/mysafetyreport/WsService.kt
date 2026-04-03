@@ -244,6 +244,9 @@ class WsService : Service() {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
         prefs.edit().putString("flutter.pending_crawl_changes", changes.toString()).apply()
 
+        // 알림 히스토리에도 extraData 포함해서 저장 (신고 결과 탭 표시용)
+        saveCrawlChangesToHistory(changes, prefs)
+
         for (i in 0 until changes.length()) {
             val record     = changes.getJSONObject(i)
             val changeType = record.optString("change_type", "변경")
@@ -251,24 +254,68 @@ class WsService : Service() {
             val name       = record.optString("신고명", "신고")
             val status     = record.optString("처리상태", "")
             val agency     = record.optString("처리기관", "")
+            val fine       = record.optString("범칙금_과태료", "")
 
-            val (titlePrefix, bodyPrefix) = if (changeType == "신규") {
-                "🆕 신규 신고" to "신규 등록된 신고건입니다."
-            } else {
-                "🔄 처리 변경" to "처리 내용이 변경되었습니다."
-            }
+            val titlePrefix = if (changeType == "신규") "🆕 신규 신고" else "🔄 처리 변경"
 
-            val bodyLines = mutableListOf(bodyPrefix)
-            if (name.isNotEmpty() && name != "신고") bodyLines.add("신고명: $name")
-            if (reportNo.isNotEmpty())               bodyLines.add("신고번호: $reportNo")
-            if (status.isNotEmpty())                 bodyLines.add("처리상태: $status")
-            if (agency.isNotEmpty())                 bodyLines.add("처리기관: $agency")
+            val bodyLines = mutableListOf<String>()
+            if (reportNo.isNotEmpty())                        bodyLines.add("신고번호: $reportNo")
+            if (status.isNotEmpty())                          bodyLines.add("처리상태: $status")
+            if (agency.isNotEmpty())                          bodyLines.add("처리기관: $agency")
+            if (fine.isNotEmpty() && fine != "null")          bodyLines.add("범칙금/과태료: $fine")
 
             showPushNotif(
-                title = titlePrefix,
+                title = "$titlePrefix — $name",
                 body  = bodyLines.joinToString("\n"),
                 type  = "crawl_changes"
             )
+        }
+    }
+
+    private fun saveCrawlChangesToHistory(changes: org.json.JSONArray, prefs: android.content.SharedPreferences) {
+        try {
+            val historyJson = prefs.getString("flutter.notifications_history", "[]") ?: "[]"
+            val existing = JSONObject("{\"arr\":$historyJson}").getJSONArray("arr")
+            val ts = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.KOREA)
+                .format(java.util.Date())
+            val newArr = org.json.JSONArray()
+            val baseMs = System.currentTimeMillis()
+
+            for (i in 0 until changes.length()) {
+                val record     = changes.getJSONObject(i)
+                val changeType = record.optString("change_type", "변경")
+                val reportNo   = record.optString("신고번호", "")
+                val name       = record.optString("신고명", "신고")
+                val status     = record.optString("처리상태", "")
+                val agency     = record.optString("처리기관", "")
+                val fine       = record.optString("범칙금_과태료", "")
+
+                val title = if (changeType == "신규") "🆕 $name" else "🔄 $name"
+                val bodyLines = mutableListOf<String>()
+                if (changeType.isNotEmpty()) bodyLines.add("[$changeType]")
+                if (reportNo.isNotEmpty())   bodyLines.add("신고번호: $reportNo")
+                if (status.isNotEmpty())     bodyLines.add("처리상태: $status")
+                if (agency.isNotEmpty())     bodyLines.add("처리기관: $agency")
+                if (fine.isNotEmpty() && fine != "null") bodyLines.add("범칙금/과태료: $fine")
+
+                val item = JSONObject().apply {
+                    put("id",           "${baseMs}_$reportNo")
+                    put("title",        title)
+                    put("body",         bodyLines.joinToString("\n"))
+                    put("reportNumber", reportNo)
+                    put("timestamp",    ts)
+                    put("isRead",       false)
+                    put("extraData",    record)  // 전체 신고 데이터 보존
+                }
+                newArr.put(item)
+            }
+            // 기존 항목 이어붙이기 (최대 200개 유지)
+            for (i in 0 until minOf(existing.length(), 200 - changes.length())) {
+                newArr.put(existing.getJSONObject(i))
+            }
+            prefs.edit().putString("flutter.notifications_history", newArr.toString()).apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "crawl_changes 히스토리 저장 오류: ${e.message}")
         }
     }
 

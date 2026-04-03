@@ -22,7 +22,7 @@ class _StatisticsScreenState extends State<StatisticsScreen>
   @override
   void initState() {
     super.initState();
-    _tab = TabController(length: 8, vsync: this);
+    _tab = TabController(length: 12, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
@@ -65,10 +65,14 @@ class _StatisticsScreenState extends State<StatisticsScreen>
                     _StatsTable(rows: _stats!.traffic.byPerson,       showPerson: true,  category: 'traffic'),
                     _StatsTable(rows: _stats!.traffic.policeByAgency, showPerson: false, category: 'traffic'),
                     _StatsTable(rows: _stats!.traffic.policeByPerson, showPerson: true,  category: 'traffic'),
+                    _StatsTable(rows: _stats!.traffic.otherByAgency,  showPerson: false, category: 'traffic'),
+                    _StatsTable(rows: _stats!.traffic.otherByPerson,  showPerson: true,  category: 'traffic'),
                     _StatsTable(rows: _stats!.other.byAgency,         showPerson: false, category: 'other'),
                     _StatsTable(rows: _stats!.other.byPerson,         showPerson: true,  category: 'other'),
                     _StatsTable(rows: _stats!.other.policeByAgency,   showPerson: false, category: 'other'),
                     _StatsTable(rows: _stats!.other.policeByPerson,   showPerson: true,  category: 'other'),
+                    _StatsTable(rows: _stats!.other.otherByAgency,    showPerson: false, category: 'other'),
+                    _StatsTable(rows: _stats!.other.otherByPerson,    showPerson: true,  category: 'other'),
                   ],
                 ),
     );
@@ -326,9 +330,9 @@ class _GroupedTabBarState extends State<_GroupedTabBar> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildGroup('교통위반', 0, ['기관별', '담당자별', '경찰 기관', '경찰 담당자']),
+        _buildGroup('교통위반', 0, ['기관별', '담당자별', '경찰 기관', '경찰 담당자', '비경찰 기관', '비경찰 담당자']),
         const Divider(height: 1, thickness: 1, color: Colors.white24),
-        _buildGroup('기타 위반', 4, ['기관별', '담당자별', '경찰 기관', '경찰 담당자']),
+        _buildGroup('기타위반', 6, ['기관별', '담당자별', '경찰 기관', '경찰 담당자', '비경찰 기관', '비경찰 담당자']),
       ],
     );
   }
