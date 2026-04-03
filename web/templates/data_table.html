@@ -258,7 +258,8 @@ $(document).ready(function() {
         const links = d.split('\n').filter(l => l.trim());
         const joined = links.join(',');
         const unit = btnLabel === '일괄확인' ? '장' : '개';
-        return `${links.length}${unit} <button class="btn btn-sm ${btnClass} py-0 px-1 view-all-btn" data-links="${esc(joined)}">${btnLabel}</button>`;
+        var dataType = btnLabel === '일괄확인' ? 'photo' : 'file';
+        return `${links.length}${unit} <button class="btn btn-sm ${btnClass} py-0 px-1 view-all-btn" data-links="${esc(joined)}" data-type="${dataType}">${btnLabel}</button>`;
     }
 
     function renderMap(d, type) {
@@ -552,12 +553,48 @@ $(document).ready(function() {
     });
 
     $(document).on('click', '.view-all-btn', function() {
-        var links = $(this).attr('data-links').split(',');
-        links.forEach(function(link) {
-            if(link.trim() !== '') {
-                window.open(link.trim(), '_blank');
+        var isPhoto = $(this).data('type') === 'photo';
+        var links = $(this).attr('data-links').split(',').map(s => s.trim()).filter(Boolean);
+        var title = isPhoto ? '첨부사진' : '첨부파일';
+        $('#attachModalLabel').text(title);
+
+        var $body = $('#attachModalBody').empty();
+        links.forEach(function(url, idx) {
+            var ext = url.split('?')[0].toLowerCase();
+            var isImg = /\.(jpg|jpeg|png|gif|webp|bmp)$/.test(ext);
+            var isVid = /\.(mp4|mov|avi|webm|mkv)$/.test(ext);
+            var $item = $('<div class="mb-4 border rounded p-2 bg-light"></div>');
+            var num = idx + 1;
+
+            if (isImg) {
+                $item.append(`
+                    <img src="${url}" class="img-fluid rounded mb-2" style="max-height:480px;width:100%;object-fit:contain;background:#000;"
+                         onerror="this.parentElement.querySelector('.attach-err').style.display=''">
+                    <div class="attach-err text-muted small" style="display:none">이미지를 불러올 수 없습니다.</div>
+                    <div class="d-flex gap-2 mt-1">
+                        <a href="${url}" download class="btn btn-sm btn-outline-primary">다운로드</a>
+                    </div>`);
+            } else if (isVid) {
+                $item.append(`
+                    <video controls class="w-100 rounded mb-2" style="max-height:480px;background:#000;">
+                        <source src="${url}">
+                        브라우저가 동영상 재생을 지원하지 않습니다.
+                    </video>
+                    <div class="d-flex gap-2 mt-1">
+                        <a href="${url}" download class="btn btn-sm btn-outline-primary">다운로드</a>
+                    </div>`);
+            } else {
+                $item.append(`
+                    <div class="d-flex align-items-center gap-2 p-2">
+                        <i class="fas fa-file me-1 text-muted"></i>
+                        <span class="text-truncate flex-grow-1 small">${url.split('/').pop() || ('파일 ' + num)}</span>
+                        <a href="${url}" download class="btn btn-sm btn-outline-primary">다운로드</a>
+                    </div>`);
             }
+            $body.append($item);
         });
+
+        _attachModal.show();
     });
 
     // 엑셀 다운로드 (BOM 포함 CSV)
@@ -793,6 +830,23 @@ $(document).ready(function() {
     `);
 
     var _textModal = new bootstrap.Modal(document.getElementById('textModal'));
+
+    // 첨부사진/파일 인라인 미디어 모달
+    $('body').append(`
+        <div class="modal fade" id="attachModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+              <div class="modal-header py-2">
+                <h6 class="modal-title fw-bold" id="attachModalLabel">첨부파일</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body" id="attachModalBody" style="max-height:70vh;overflow-y:auto;"></div>
+            </div>
+          </div>
+        </div>
+    `);
+
+    var _attachModal = new bootstrap.Modal(document.getElementById('attachModal'));
 
     $('#{{ table_id }} tbody').on('dblclick', 'td', function() {
         var cellIdx = table.cell(this).index();

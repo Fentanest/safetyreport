@@ -52,7 +52,7 @@ class ReportDetailSheet extends StatelessWidget {
   List<String> _splitUrls(String raw) {
     if (raw.isEmpty || raw == '6개월 초과') return [];
     return raw
-        .split(',')
+        .split('\n')
         .map((s) => s.trim())
         .where((s) => s.isNotEmpty)
         .toList();
