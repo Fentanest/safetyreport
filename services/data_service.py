@@ -84,16 +84,26 @@ def get_dashboard_stats(engine):
                 df_watch_part = pd.read_sql_query(query, conn)
                 for _, row in df_watch_part.iterrows():
                     watchlist_items.append({
-                        "ID": row.get('ID', ''),
+                        "ID": str(row.get('ID', '')),
                         "신고번호": row.get('신고번호', ''),
                         "신고명": row.get('신고명', ''),
                         "신고일": row.get('신고일', ''),
                         "답변일": row.get('답변일', ''),
                         "처리기관": row.get('처리기관', ''),
                         "담당자": row.get('담당자', ''),
-                        "상태": row.get('처리상태', ''),
+                        "처리상태": row.get('처리상태', ''),
+                        "결과": row.get('처리상태', ''),
                         "범칙금_과태료": row.get('범칙금_과태료', ''),
-                        "차량번호": row.get('차량번호', '')
+                        "벌점": row.get('벌점', ''),
+                        "차량번호": row.get('차량번호', ''),
+                        "위반법규": row.get('위반법규', ''),
+                        "위반장소": row.get('위반장소', ''),
+                        "발생일자": row.get('발생일자', ''),
+                        "발생시각": row.get('발생시각', ''),
+                        "신고내용": row.get('신고내용', ''),
+                        "처리내용": row.get('처리내용', ''),
+                        "첨부사진": row.get('첨부사진', ''),
+                        "첨부파일": row.get('첨부파일', ''),
                     })
 
     recent_answers.sort(key=lambda x: x['답변일'], reverse=True)
