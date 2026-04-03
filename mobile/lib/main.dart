@@ -173,6 +173,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
     if (changes.isEmpty) return;
     if (!mounted) return;
 
+    // 알림 히스토리에 extraData 포함해서 저장 (신고 결과 탭에서 상세 조회 가능하도록)
+    await context.read<NotificationHistoryProvider>()
+        .addFromServerResults(changes.cast<Map<String, dynamic>>());
+
     // 알림 탭으로 이동
     setState(() => _selectedIndex = 3);
 
