@@ -368,10 +368,10 @@ jobs:
       if: steps.check_tag.outputs.tag_exists == 'false'
       run: |
         rm -rf dist-arm64
-        docker run --rm \
-          --platform linux/arm64 \
-          -v "$(pwd)/dist-arm64:/out" \
-          safetyreport-arm64-build
+        mkdir -p dist-arm64
+        id=$(docker create --platform linux/arm64 safetyreport-arm64-build)
+        docker cp "$id:/build/dist/mysafetyreport" dist-arm64/
+        docker rm "$id"
 
     - name: Package Linux ARM64 into Zip
       if: steps.check_tag.outputs.tag_exists == 'false'
