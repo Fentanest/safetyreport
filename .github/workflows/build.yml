@@ -354,30 +354,22 @@ jobs:
       if: steps.check_tag.outputs.tag_exists == 'false'
       uses: docker/setup-buildx-action@v4
 
-    - name: Build ARM64 Docker image
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      run: |
-        docker buildx build \
-          --platform linux/arm64 \
-          -f Dockerfile.build \
-          -t safetyreport-arm64-build \
-          --load \
-          .
-
-    - name: Extract ARM64 binary from Docker image
+    - name: Build ARM64 binary and extract
       if: steps.check_tag.outputs.tag_exists == 'false'
       run: |
         rm -rf dist-arm64
-        mkdir -p dist-arm64
-        id=$(docker create --platform linux/arm64 safetyreport-arm64-build)
-        docker cp "$id:/build/dist/mysafetyreport" dist-arm64/
-        docker rm "$id"
+        docker buildx build \
+          --platform linux/arm64 \
+          -f Dockerfile.build \
+          --output type=local,dest=./dist-arm64 \
+          --target exporter \
+          .
 
     - name: Package Linux ARM64 into Zip
       if: steps.check_tag.outputs.tag_exists == 'false'
       run: |
-        cd dist-arm64/mysafetyreport
-        zip -r ../../mysafetyreport-linux-arm64.zip .
+        cd dist-arm64
+        zip -r ../mysafetyreport-linux-arm64.zip .
 
     - name: Upload Linux ARM64 artifact
       if: steps.check_tag.outputs.tag_exists == 'false'

@@ -1,20 +1,15 @@
 # ARM64 PyInstaller 빌드용 Dockerfile
 # ─────────────────────────────────────────────────────────────
-# 이미지 빌드 (소스 변경 시마다):
-#   docker buildx build --platform linux/arm64 -f Dockerfile.build -t safetyreport-build --load .
-#
-# 결과물 추출 (./dist-arm64/ 에 자동 복사):
-#   id=$(docker create --platform linux/arm64 safetyreport-build)
-#   docker cp "$id:/build/dist/mysafetyreport" ./dist-arm64/
-#   docker rm "$id"
+# 빌드 + 결과물 추출 (한 줄):
+#   docker buildx build --platform linux/arm64 -f Dockerfile.build \
+#     --output type=local,dest=./dist-arm64 --target exporter .
 #
 # x86_64 호스트에서 ARM64 에뮬레이션이 필요한 경우 최초 1회 실행:
 #   docker run --privileged --rm tonistiigi/binfmt --install arm64
 # ─────────────────────────────────────────────────────────────
 
-FROM --platform=linux/arm64 python:3.14-slim-bookworm
+FROM --platform=linux/arm64 python:3.14-slim-bookworm AS builder
 
-# PyInstaller 실행에 필요한 최소 패키지
 RUN apt-get update && apt-get install -y --no-install-recommends \
     binutils \
     upx-ucl \
@@ -28,3 +23,7 @@ RUN pip install --no-cache-dir "pyinstaller>=6" -r requirements.txt
 COPY . .
 
 RUN python scripts/build/build_exe.py
+
+# 결과물만 추출하기 위한 빈 스테이지
+FROM scratch AS exporter
+COPY --from=builder /build/dist/mysafetyreport /mysafetyreport
