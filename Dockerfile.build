@@ -4,7 +4,6 @@
 #   docker buildx build --platform linux/arm64 -f Dockerfile.build -t safetyreport-build .
 #
 # 결과물 추출 (./dist-arm64/ 에 자동 복사):
-#   mkdir -p dist-arm64
 #   docker run --rm --platform linux/arm64 -v "$(pwd)/dist-arm64:/out" safetyreport-build
 #
 # x86_64 호스트에서 ARM64 에뮬레이션이 필요한 경우 최초 1회 실행:
@@ -29,4 +28,4 @@ COPY . .
 RUN python scripts/build/build_exe.py
 
 # 컨테이너 실행 시 /out (호스트 마운트 경로)에 결과물 복사
-CMD ["sh", "-c", "cp -r /build/dist/mysafetyreport /out/ && echo '✓ dist-arm64에 복사 완료'"]
+CMD ["sh", "-c", "mkdir -p /out && cp -r /build/dist/mysafetyreport /out/ && echo '✓ dist-arm64에 복사 완료'"]
