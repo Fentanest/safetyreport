@@ -1,0 +1,31 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: [self-hosted, Linux, X64, 234]
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Build APK with Flutter Docker
+      working-directory: mobile
+      run: |
+        docker run --rm \
+          -v ${PWD}:/build \
+          -v ~/.pub-cache:/root/.pub-cache \
+          -v ~/.android-ndk-cache:/root/Android/Sdk/ndk \
+          --workdir /build \
+          ghcr.io/cirruslabs/flutter:stable \
+          flutter build apk --release
+
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-${{ github.run_number }}.apk
+        path: mobile/build/app/outputs/flutter-apk/app-release.apk
