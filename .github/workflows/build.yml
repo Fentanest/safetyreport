@@ -301,86 +301,86 @@ jobs:
           org.opencontainers.image.version=${{ steps.get_version.outputs.version }}
           org.opencontainers.image.revision=${{ github.sha }}
 
-  # ────────────────────────────────────────────────────────────────
-  # 3. Linux ARM64 실행 파일 빌드 (Docker 크로스컴파일, 234 러너)
-  # ────────────────────────────────────────────────────────────────
-  build-linux-arm64:
-    runs-on: [self-hosted, Linux, X64, 234]
-    permissions:
-      contents: write
+  # # ────────────────────────────────────────────────────────────────
+  # # 3. Linux ARM64 실행 파일 빌드 (Docker 크로스컴파일, 234 러너)
+  # # ────────────────────────────────────────────────────────────────
+  # build-linux-arm64:
+  #   runs-on: [self-hosted, Linux, X64, 234]
+  #   permissions:
+  #     contents: write
 
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
+  #   steps:
+  #   - name: Checkout repository
+  #     uses: actions/checkout@v6
+  #     with:
+  #       fetch-depth: 0
 
-    - name: Read version from VERSION file
-      id: get_version
-      run: |
-        versionString=$(cat VERSION | tr -d '[:space:]')
-        if [ -z "$versionString" ]; then
-          echo "::error::VERSION 파일에서 버전을 읽을 수 없습니다."
-          exit 1
-        fi
-        echo "version=$versionString" >> "$GITHUB_OUTPUT"
-        echo "tag=v$versionString" >> "$GITHUB_OUTPUT"
+  #   - name: Read version from VERSION file
+  #     id: get_version
+  #     run: |
+  #       versionString=$(cat VERSION | tr -d '[:space:]')
+  #       if [ -z "$versionString" ]; then
+  #         echo "::error::VERSION 파일에서 버전을 읽을 수 없습니다."
+  #         exit 1
+  #       fi
+  #       echo "version=$versionString" >> "$GITHUB_OUTPUT"
+  #       echo "tag=v$versionString" >> "$GITHUB_OUTPUT"
 
-    - name: Check if tag already exists
-      id: check_tag
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        TAG: ${{ steps.get_version.outputs.tag }}
-      run: |
-        HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-          -H "Authorization: Bearer $GITHUB_TOKEN" \
-          "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG")
-        if [ "$HTTP_STATUS" -eq 200 ]; then
-          echo "tag_exists=true" >> "$GITHUB_OUTPUT"
-        elif [ "$HTTP_STATUS" -eq 404 ]; then
-          echo "tag_exists=false" >> "$GITHUB_OUTPUT"
-        else
-          echo "::error::API call failed with status: $HTTP_STATUS"
-          exit 1
-        fi
+  #   - name: Check if tag already exists
+  #     id: check_tag
+  #     env:
+  #       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       TAG: ${{ steps.get_version.outputs.tag }}
+  #     run: |
+  #       HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+  #         -H "Authorization: Bearer $GITHUB_TOKEN" \
+  #         "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG")
+  #       if [ "$HTTP_STATUS" -eq 200 ]; then
+  #         echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+  #       elif [ "$HTTP_STATUS" -eq 404 ]; then
+  #         echo "tag_exists=false" >> "$GITHUB_OUTPUT"
+  #       else
+  #         echo "::error::API call failed with status: $HTTP_STATUS"
+  #         exit 1
+  #       fi
 
-    - name: Set up QEMU (ARM64 에뮬레이션)
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: docker/setup-qemu-action@v3
-      with:
-        platforms: arm64
+  #   - name: Set up QEMU (ARM64 에뮬레이션)
+  #     if: steps.check_tag.outputs.tag_exists == 'false'
+  #     uses: docker/setup-qemu-action@v3
+  #     with:
+  #       platforms: arm64
 
-    - name: Set up Docker Buildx
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: docker/setup-buildx-action@v4
+  #   - name: Set up Docker Buildx
+  #     if: steps.check_tag.outputs.tag_exists == 'false'
+  #     uses: docker/setup-buildx-action@v4
 
-    - name: Build ARM64 binary and extract
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      run: |
-        rm -rf dist-arm64
-        docker buildx build \
-          --platform linux/arm64 \
-          -f Dockerfile.build \
-          --output type=local,dest=./dist-arm64 \
-          --target exporter \
-          .
+  #   - name: Build ARM64 binary and extract
+  #     if: steps.check_tag.outputs.tag_exists == 'false'
+  #     run: |
+  #       rm -rf dist-arm64
+  #       docker buildx build \
+  #         --platform linux/arm64 \
+  #         -f Dockerfile.build \
+  #         --output type=local,dest=./dist-arm64 \
+  #         --target exporter \
+  #         .
 
-    - name: Package Linux ARM64 into Zip
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      run: |
-        cd dist-arm64
-        zip -r ../mysafetyreport-linux-arm64.zip .
+  #   - name: Package Linux ARM64 into Zip
+  #     if: steps.check_tag.outputs.tag_exists == 'false'
+  #     run: |
+  #       cd dist-arm64
+  #       zip -r ../mysafetyreport-linux-arm64.zip .
 
-    - name: Upload Linux ARM64 artifact
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: actions/upload-artifact@v7
-      with:
-        name: mysafetyreport-linux-arm64-${{ steps.get_version.outputs.version }}
-        path: mysafetyreport-linux-arm64.zip
+  #   - name: Upload Linux ARM64 artifact
+  #     if: steps.check_tag.outputs.tag_exists == 'false'
+  #     uses: actions/upload-artifact@v7
+  #     with:
+  #       name: mysafetyreport-linux-arm64-${{ steps.get_version.outputs.version }}
+  #       path: mysafetyreport-linux-arm64.zip
 
-    - name: Update GitHub Release with ARM64 asset
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ steps.get_version.outputs.tag }}
-        files: mysafetyreport-linux-arm64.zip
+  #   - name: Update GitHub Release with ARM64 asset
+  #     if: steps.check_tag.outputs.tag_exists == 'false'
+  #     uses: softprops/action-gh-release@v2
+  #     with:
+  #       tag_name: ${{ steps.get_version.outputs.tag }}
+  #       files: mysafetyreport-linux-arm64.zip
