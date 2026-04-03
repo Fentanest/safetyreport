@@ -170,7 +170,10 @@ def _get_records_from_table(engine, table_obj, filters=None):
 
             agency = filters.get('agency')
             if agency and '처리기관' in df.columns:
-                df = df[df['처리기관'].str.contains(agency, na=False, regex=False)]
+                if filters.get('agencyExact'):
+                    df = df[df['처리기관'] == agency]
+                else:
+                    df = df[df['처리기관'].str.contains(agency, na=False, regex=False)]
 
             person = filters.get('person')
             if person and '담당자' in df.columns:
@@ -286,7 +289,10 @@ def get_agency_stats(engine, filters=None):
                 df = df[df['발생시각'] <= filters['occurTimeEnd']]
             
             if filters.get('agency') and '처리기관' in df.columns:
-                df = df[df['처리기관'].str.contains(filters['agency'], na=False, regex=False)]
+                if filters.get('agencyExact'):
+                    df = df[df['처리기관'] == filters['agency']]
+                else:
+                    df = df[df['처리기관'].str.contains(filters['agency'], na=False, regex=False)]
             
             if filters.get('excludePolice') and '처리기관' in df.columns:
                 df = df[~df['처리기관'].str.contains('경찰', na=False)]

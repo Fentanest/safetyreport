@@ -26,6 +26,10 @@
                     <div class="col-12">
                         <label class="form-label fw-bold">처리기관</label>
                         <input type="text" class="form-control" name="agency" value="{{ f.agency or '' }}" placeholder="예: 강남경찰서">
+                        <div class="form-check mt-1">
+                            <input class="form-check-input" type="checkbox" name="agencyExact" id="agencyExact" {% if f.agencyExact %}checked{% endif %} value="true">
+                            <label class="form-check-label small text-muted" for="agencyExact">정확히 일치 (부분검색 비활성화)</label>
+                        </div>
                     </div>
                     <div class="col-12">
                         <div class="form-check form-switch mb-1">
@@ -95,6 +99,9 @@
 
         <!-- Nav tabs -->
         <ul class="nav nav-tabs mb-3 flex-wrap" id="statsTabs" role="tablist">
+            <li class="d-flex align-items-center pe-2 pb-1" style="pointer-events:none;">
+                <span class="badge bg-primary fs-6 px-2 py-1"><i class="fas fa-road me-1"></i>교통위반</span>
+            </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link active fw-bold text-primary" id="traffic-agency-tab" data-bs-toggle="tab"
                     data-bs-target="#traffic-agency" type="button" role="tab" aria-selected="true"><i
@@ -124,6 +131,10 @@
                 <button class="nav-link fw-bold" style="color:#1B5E20;" id="traffic-other-person-tab" data-bs-toggle="tab"
                     data-bs-target="#traffic-other-person" type="button" role="tab" aria-selected="false"><i
                         class="fas fa-user-tie me-1"></i> 교통 비경찰 담당자</button>
+            </li>
+            <li class="w-100" style="height:4px;"></li>
+            <li class="d-flex align-items-center pe-2 pb-1" style="pointer-events:none;">
+                <span class="badge bg-success fs-6 px-2 py-1"><i class="fas fa-list me-1"></i>기타위반</span>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold text-success" id="other-agency-tab" data-bs-toggle="tab"
@@ -176,7 +187,7 @@
                     <tbody>
                         {% for r in records_traffic_agency %}
                         <tr style="cursor: pointer;"
-                            onclick="window.location.href='/data/traffic?agency={{ r.agency }}'">
+                            onclick="window.location.href='/data/traffic?agency={{ r.agency }}&agencyExact=true'">
                             <td>{{ r.agency }}</td>
                             <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                             <td data-order="{{ r.fines }}" class="text-center"><span class="text-danger fw-bold">{{ r.fines }}</span></td>
@@ -208,7 +219,7 @@
                     <tbody>
                         {% for r in records_traffic_person %}
                         <tr style="cursor: pointer;"
-                            onclick="window.location.href='/data/traffic?agency={{ r.agency }}&person={{ r.person }}'">
+                            onclick="window.location.href='/data/traffic?agency={{ r.agency }}&person={{ r.person }}&agencyExact=true'">
                             <td>{{ r.agency }}</td>
                             <td class="text-center">{{ r.person }}</td>
                             <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
@@ -239,7 +250,7 @@
                     </thead>
                     <tbody>
                         {% for r in records_other_agency %}
-                        <tr style="cursor: pointer;" onclick="window.location.href='/data/other?agency={{ r.agency }}'">
+                        <tr style="cursor: pointer;" onclick="window.location.href='/data/other?agency={{ r.agency }}&agencyExact=true'">
                             <td>{{ r.agency }}</td>
                             <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                             <td data-order="{{ r.fines }}" class="text-center"><span class="text-danger fw-bold">{{ r.fines }}</span></td>
@@ -271,7 +282,7 @@
                     <tbody>
                         {% for r in records_other_person %}
                         <tr style="cursor: pointer;"
-                            onclick="window.location.href='/data/other?agency={{ r.agency }}&person={{ r.person }}'">
+                            onclick="window.location.href='/data/other?agency={{ r.agency }}&person={{ r.person }}&agencyExact=true'">
                             <td>{{ r.agency }}</td>
                             <td class="text-center">{{ r.person }}</td>
                             <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
@@ -289,7 +300,7 @@
 
             {% macro agency_rows(records, base_url) %}
                 {% for r in records %}
-                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}'">
+                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&agencyExact=true'">
                     <td>{{ r.agency }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.fines }}" class="text-center"><span class="text-danger fw-bold">{{ r.fines }}</span></td>
@@ -303,7 +314,7 @@
             {% endmacro %}
             {% macro person_rows(records, base_url) %}
                 {% for r in records %}
-                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&person={{ r.person }}'">
+                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&person={{ r.person }}&agencyExact=true'">
                     <td>{{ r.agency }}</td>
                     <td class="text-center">{{ r.person }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
