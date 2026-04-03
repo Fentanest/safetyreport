@@ -13,19 +13,49 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v6
 
-    - name: Build APK with Flutter Docker
+    - name: Read version
+      id: version
+      working-directory: mobile
+      run: |
+        VERSION=$(cat VERSION | tr -d '[:space:]')
+        BUILD_NAME=$(echo "$VERSION" | cut -d'+' -f1)
+        BUILD_NUMBER=$(echo "$VERSION" | cut -d'+' -f2)
+        echo "build_name=$BUILD_NAME" >> "$GITHUB_OUTPUT"
+        echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+        echo "📦 Version: $BUILD_NAME+$BUILD_NUMBER"
+
+    - name: Build APK & AAB with Flutter Docker
       working-directory: mobile
       run: |
         docker run --rm \
           -v ${PWD}:/build \
           -v ~/.pub-cache:/root/.pub-cache \
           -v ~/.android-ndk-cache:/root/Android/Sdk/ndk \
+          -v ~/mysafetyreport-android/key.properties:/build/android/key.properties:ro \
+          -v ~/mysafetyreport-android/upload-keystore.jks:/build/upload-keystore.jks:ro \
           --workdir /build \
           ghcr.io/cirruslabs/flutter:stable \
-          flutter build apk --release
+          bash -c "\
+            flutter build apk --release \
+              --build-name=${{ steps.version.outputs.build_name }} \
+              --build-number=${{ steps.version.outputs.build_number }} && \
+            flutter build appbundle --release \
+              --build-name=${{ steps.version.outputs.build_name }} \
+              --build-number=${{ steps.version.outputs.build_number }}"
+
+    - name: Rename build outputs
+      run: |
+        cp mobile/build/app/outputs/flutter-apk/app-release.apk mobile/build/app/outputs/flutter-apk/mysafetyreport.apk
+        cp mobile/build/app/outputs/bundle/release/app-release.aab mobile/build/app/outputs/bundle/release/mysafetyreport.aab
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v7
       with:
-        name: mysafetyreport-${{ github.run_number }}.apk
-        path: mobile/build/app/outputs/flutter-apk/app-release.apk
+        name: mysafetyreport-${{ steps.version.outputs.build_name }}+${{ steps.version.outputs.build_number }}-apk
+        path: mobile/build/app/outputs/flutter-apk/mysafetyreport.apk
+
+    - name: Upload AAB artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-${{ steps.version.outputs.build_name }}+${{ steps.version.outputs.build_number }}-aab
+        path: mobile/build/app/outputs/bundle/release/mysafetyreport.aab
