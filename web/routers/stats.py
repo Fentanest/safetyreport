@@ -23,6 +23,7 @@ async def view_stats(
     occurTimeStart: str = None,
     occurTimeEnd: str = None,
     agency: str = None,
+    agencyExact: bool = False,
     excludePolice: bool = False,
     onlyPolice: bool = False,
 ):
@@ -39,6 +40,7 @@ async def view_stats(
         'occurTimeStart': occurTimeStart,
         'occurTimeEnd': occurTimeEnd,
         'agency': agency,
+        'agencyExact': agencyExact,
         'excludePolice': excludePolice,
         'onlyPolice': onlyPolice,
     }

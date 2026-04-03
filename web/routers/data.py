@@ -13,12 +13,13 @@ engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_sam
 router = APIRouter(prefix="/data")
 
 
-def _build_filters(status=None, fine=None, agency=None, person=None):
+def _build_filters(status=None, fine=None, agency=None, person=None, agencyExact=False):
     f = {}
     if status: f['status'] = status
     if fine: f['fine'] = fine
     if agency: f['agency'] = agency
     if person: f['person'] = person
+    if agencyExact: f['agencyExact'] = True
     return f or None
 
 
@@ -38,8 +39,9 @@ async def view_traffic(
     fine: Optional[str] = Query(None),
     agency: Optional[str] = Query(None),
     person: Optional[str] = Query(None),
+    agencyExact: bool = Query(False),
 ):
-    filters = _build_filters(status, fine, agency, person)
+    filters = _build_filters(status, fine, agency, person, agencyExact)
     records = data_service.get_traffic_records(engine, filters)
     title = _filter_title("교통위반 전체 보기", status, fine, agency, person)
     return templates.TemplateResponse(request, "data_table.html", {
@@ -56,8 +58,9 @@ async def view_other(
     fine: Optional[str] = Query(None),
     agency: Optional[str] = Query(None),
     person: Optional[str] = Query(None),
+    agencyExact: bool = Query(False),
 ):
-    filters = _build_filters(status, fine, agency, person)
+    filters = _build_filters(status, fine, agency, person, agencyExact)
     records = data_service.get_other_records(engine, filters)
     title = _filter_title("기타 위반 조회", status, fine, agency, person)
     return templates.TemplateResponse(request, "data_table.html", {
