@@ -10,6 +10,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import platform
 import os
 import shutil
+import sys
 
 
 def _arm64_service():
@@ -24,7 +25,7 @@ def _arm64_service():
         path = shutil.which('chromedriver')
     if path:
         logger.LoggerFactory.logbot.info(f"ARM64: 시스템 chromedriver 사용 → {path}")
-        return Service(path)
+        return Service(path, env=_get_clean_env())
     logger.LoggerFactory.logbot.warning("ARM64: 시스템 chromedriver 미발견, webdriver_manager로 시도합니다.")
     return None
 
@@ -35,7 +36,19 @@ def _get_service():
         svc = _arm64_service()
         if svc:
             return svc
-    return Service(ChromeDriverManager().install())
+    return Service(ChromeDriverManager().install(), env=_get_clean_env())
+
+
+def _get_clean_env():
+    """PyInstaller 환경 변수를 제거하여 시스템 바이너리(브라우저)가 시스템 라이브러리를 사용하도록 함."""
+    env = os.environ.copy()
+    # PyInstaller로 패키징된 환경에서 실행 중인 경우
+    if getattr(sys, 'frozen', False):
+        # 시스템 브라우저가 앱 번들의 라이브러리 대신 시스템 라이브러리를 찾도록 유도
+        for var in ['LD_LIBRARY_PATH', 'LIBPATH', 'SHLIB_PATH', 'PYTHONPATH']:
+            if var in env:
+                del env[var]
+    return env
 
 
 def create_driver():
