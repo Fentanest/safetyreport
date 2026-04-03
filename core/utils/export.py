@@ -82,10 +82,10 @@ def save_to_excel(df):
     logger.LoggerFactory.logbot.info(f"데이터 엑셀 저장 성공, 저장경로 : {os.path.join(settings.resultpath, settings.resultfile)}")
     if settings.telegram_enabled:
         if is_frozen:
-            subprocess.run([sys.executable, "--mode", "notify", "4/5. 엑셀 파일 생성을 완료했습니다."])
+            subprocess.run([sys.executable, "--mode", "notify", "3/5. 엑셀 파일 생성을 완료했습니다."])
         else:
             notifier_path = resource_path("core/utils/notifier.py")
-            subprocess.run([sys.executable, notifier_path, "4/5. 엑셀 파일 생성을 완료했습니다."])
+            subprocess.run([sys.executable, notifier_path, "3/5. 엑셀 파일 생성을 완료했습니다."])
 
 def save_to_google_sheet(df, photo_cols):
     """Saves the DataFrame to a Google Sheet with retry and chunking."""
@@ -110,21 +110,22 @@ def save_to_google_sheet(df, photo_cols):
         worksheet = spreadsheet.add_worksheet(title="data", rows="1000", cols=len(df_gsheet.columns) + 1)
         logger.LoggerFactory.logbot.info("data시트를 생성합니다.")
 
-    worksheet.clear()
-    logger.LoggerFactory.logbot.debug("기존 구글 스프레드시트 데이터를 삭제합니다.")
-
     # Convert all NaN/None to empty strings before list conversion to avoid JSON "nan" issues
     df_gsheet = df_gsheet.fillna('')
     data_to_upload = [df_gsheet.columns.values.tolist()] + df_gsheet.astype(str).values.tolist()
     
     # Retry and chunking logic
-    max_retries = 3
-    retry_delay = 5  # seconds
-    chunk_size = 500  # rows per chunk
+    max_retries = 4
+    retry_delay = 8  # seconds
+    chunk_size = 200  # rows per chunk (대량 업로드 시 500은 Internal Error 발생 가능성 있음)
 
     for attempt in range(max_retries):
         try:
             logger.LoggerFactory.logbot.info(f"구글 시트 업로드를 시작합니다. (시도 {attempt + 1}/{max_retries})")
+            
+            # CLEAR와 UPDATE를 시도 루프 안에 포함하여 안정성 확보
+            worksheet.clear()
+            logger.LoggerFactory.logbot.debug("기존 구글 스프레드시트 데이터를 삭제했습니다.")
             
             # Upload in chunks
             for i in range(0, len(data_to_upload), chunk_size):
@@ -132,7 +133,7 @@ def save_to_google_sheet(df, photo_cols):
                 start_range = f'A{i + 1}'
                 worksheet.update(chunk, range_name=start_range, value_input_option='USER_ENTERED')
                 logger.LoggerFactory.logbot.debug(f"{i + len(chunk) -1}번째 행까지 업로드 완료...")
-                time.sleep(1) # Add a small delay between chunks to avoid rate limiting
+                time.sleep(2) # Add a larger delay between chunks to avoid rate limiting and 500 errors
 
             logger.LoggerFactory.logbot.info("구글 스프레드시트에 새로운 데이터를 성공적으로 입력하였습니다.")
             
@@ -159,10 +160,10 @@ def save_to_google_sheet(df, photo_cols):
 
             if settings.telegram_enabled:
                 if is_frozen:
-                    subprocess.run([sys.executable, "--mode", "notify", "5/5. 구글 시트 업로드를 완료했습니다."])
+                    subprocess.run([sys.executable, "--mode", "notify", "4/5. 구글 시트 업로드를 완료했습니다."])
                 else:
                     notifier_path = resource_path("core/utils/notifier.py")
-                    subprocess.run([sys.executable, notifier_path, "5/5. 구글 시트 업로드를 완료했습니다."])
+                    subprocess.run([sys.executable, notifier_path, "4/5. 구글 시트 업로드를 완료했습니다."])
             
             return  # Success, exit the function
 

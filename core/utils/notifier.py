@@ -11,10 +11,26 @@ import telegram
 import settings.settings as settings
 
 async def send_message(bot, text):
-    """Sends a single message to the predefined chat_id."""
+    """Sends a single message to the predefined chat_id with retry logic."""
     if not text or not text.strip():
         return
-    await bot.send_message(chat_id=settings.chat_id, text=text)
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            await bot.send_message(chat_id=settings.chat_id, text=text)
+            return # Success
+        except telegram.error.RetryAfter as e:
+            # Flood control exceeded, wait and retry
+            wait_time = e.retry_after + 1
+            print(f"Flood control exceeded. Waiting for {wait_time} seconds before retry...")
+            await asyncio.sleep(wait_time)
+        except Exception as e:
+            print(f"Error sending message (attempt {attempt + 1}): {e}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2)
+            else:
+                raise # Re-raise if final attempt fails
 
 async def main():
     """Main function to parse args and send message(s)."""
@@ -60,6 +76,7 @@ async def main():
 
                 for chunk in chunks:
                     await send_message(bot, chunk)
+                    await asyncio.sleep(1.5) # Flood 방지 지연
                 return
             except Exception:
                 # Fallback to simple chunking if smart chunking fails
@@ -69,6 +86,7 @@ async def main():
         for i in range(0, len(message), max_len):
             chunk = message[i:i+max_len]
             await send_message(bot, chunk)
+            await asyncio.sleep(1.5) # Flood 방지 지연
     else:
         await send_message(bot, message)
 

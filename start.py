@@ -209,8 +209,20 @@ def _process_and_save_results(engine, changed_item_ids):
     # get_merged_records_by_ids에 전달할 순수 ID 목록
     all_ids = [item["id"] for item in changed_item_ids]
 
+    # 1. 데이터 저장 (Excel, Google Sheet) - 중요도가 높으므로 먼저 수행
+    if settings.auto_export_excel or settings.auto_export_sheet:
+        df = database.load_results(engine=engine)
+        if not df.empty:
+            from core.utils.export import _process_dataframe, save_to_excel, save_to_google_sheet
+            processed_df, photo_cols = _process_dataframe(df)
+            if settings.auto_export_excel:
+                save_to_excel(processed_df)
+            if settings.auto_export_sheet:
+                save_to_google_sheet(processed_df, photo_cols)
+
+    # 2. 텔레그램 최종 요약 알림 - 대량의 경우 지연이 발생할 수 있으므로 마지막에 처리
     if settings.telegram_enabled:
-        msg = "3/5. 최종 데이터 병합 및 DB 저장을 완료했습니다."
+        msg = "5/5. 최종 데이터 분석 및 요약을 완료했습니다."
         if all_ids:
             changed_records = database.get_merged_records_by_ids(engine, all_ids)
             detail_msg = message_formatter.format_report_list(changed_records, "[내용 변경/신규 처리된 신고 목록]")
@@ -222,16 +234,6 @@ def _process_and_save_results(engine, changed_item_ids):
         else:
             notifier_path = resource_path("core/utils/notifier.py")
             subprocess.run([sys.executable, notifier_path], input=msg, text=True)
-
-    if settings.auto_export_excel or settings.auto_export_sheet:
-        df = database.load_results(engine=engine)
-        if not df.empty:
-            from core.utils.export import _process_dataframe, save_to_excel, save_to_google_sheet
-            processed_df, photo_cols = _process_dataframe(df)
-            if settings.auto_export_excel:
-                save_to_excel(processed_df)
-            if settings.auto_export_sheet:
-                save_to_google_sheet(processed_df, photo_cols)
 
 def wait_for_resume_signal():
     logger.LoggerFactory.logbot.info("비회원 모드 대기 중... 브라우저에서 로그인 후 웹 UI의 '크롤링 재개'를 클릭하세요.")
