@@ -102,6 +102,10 @@ def save_to_google_sheet(df, photo_cols):
         if col in df_gsheet:
             df_gsheet[col] = df_gsheet[col].apply(image_formula)
 
+    # Convert all NaN/None to empty strings before list conversion to avoid JSON "nan" issues
+    df_gsheet = df_gsheet.fillna('')
+    data_to_upload = [df_gsheet.columns.values.tolist()] + df_gsheet.astype(str).values.tolist()
+
     try:
         worksheet = spreadsheet.worksheet("data")
         logger.LoggerFactory.logbot.debug("data시트를 선택합니다.")
@@ -120,10 +124,6 @@ def save_to_google_sheet(df, photo_cols):
         logger.LoggerFactory.logbot.warning("data시트가 확인되지 않습니다.")
         worksheet = spreadsheet.add_worksheet(title="data", rows=len(data_to_upload) + 100, cols=len(data_to_upload[0]) + 5)
         logger.LoggerFactory.logbot.info("data시트를 생성합니다.")
-
-    # Convert all NaN/None to empty strings before list conversion to avoid JSON "nan" issues
-    df_gsheet = df_gsheet.fillna('')
-    data_to_upload = [df_gsheet.columns.values.tolist()] + df_gsheet.astype(str).values.tolist()
     
     # Retry and chunking logic
     max_retries = 4
