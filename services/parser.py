@@ -149,8 +149,8 @@ def _parse_processing_result_table(result_soup, entry_value):
     if ("버스전용차로 위반" in entry_value or "쓰레기, 폐기물" in entry_value or "불법주정차신고" in entry_value) and processing_status_text == "수용":
         fine_entry = "과태료"
 
-    penalty_matches = re.search(r'범칙금\s+([\d,]+)\s*원, 벌점\s+(\d{0,4})\s*점', result_text)
-    fine_matches = re.search(r'과태료\s*([\d,]+)\s*원', result_text)
+    penalty_matches = re.search(r'범칙금\s*([\d,.]+)\s*원, 벌점\s*(\d{0,4})\s*점', result_text)
+    fine_matches = re.search(r'과태료\s*([\d,.]+)\s*원', result_text)
 
     penalty_amount = ""
     penalty_points = ""
@@ -301,8 +301,8 @@ def parse_json_details(result_data):
     if ("버스전용차로 위반" in entry_value or "쓰레기, 폐기물" in entry_value or "불법주정차신고" in entry_value) and processing_status == "수용":
         fine_entry = "과태료"
 
-    penalty_matches = re.search(r'범칙금\s+([\d,]+)\s*원[,\s]*벌점\s+(\d{0,4})\s*점', full_text)
-    fine_matches = re.search(r'과태료\s*([\d,]+)\s*원', full_text)
+    penalty_matches = re.search(r'범칙금\s*([\d,.]+)\s*원[,\s]*벌점\s*(\d{0,4})\s*점', full_text)
+    fine_matches = re.search(r'과태료\s*([\d,.]+)\s*원', full_text)
 
     penalty_amount = ""
     penalty_points = ""
