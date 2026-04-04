@@ -16,7 +16,7 @@ if [ "$1" == "--dev" ]; then
     echo "Development build selected. Using 'dev' tag."
     TAG="dev"
     echo "Building and pushing multi-platform Docker image with tag: $IMAGE_NAME:$TAG"
-    docker buildx build --no-cache --platform linux/amd64,linux/arm64 \
+    docker buildx build --platform linux/amd64,linux/arm64 \
       -t "$IMAGE_NAME:$TAG" \
       --push \
       .
