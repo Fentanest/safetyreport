@@ -105,9 +105,20 @@ def save_to_google_sheet(df, photo_cols):
     try:
         worksheet = spreadsheet.worksheet("data")
         logger.LoggerFactory.logbot.debug("data시트를 선택합니다.")
+        
+        # 데이터 크기에 맞춰 시트 크기 자동 조절 (Grid Limits 방지)
+        required_rows = len(data_to_upload)
+        required_cols = len(data_to_upload[0])
+        
+        if worksheet.row_count < required_rows or worksheet.col_count < required_cols:
+            new_rows = max(worksheet.row_count, required_rows)
+            new_cols = max(worksheet.col_count, required_cols)
+            logger.LoggerFactory.logbot.info(f"시트 크기를 확장합니다: {worksheet.row_count}x{worksheet.col_count} -> {new_rows}x{new_cols}")
+            worksheet.resize(rows=new_rows, cols=new_cols)
+
     except WorksheetNotFound:
         logger.LoggerFactory.logbot.warning("data시트가 확인되지 않습니다.")
-        worksheet = spreadsheet.add_worksheet(title="data", rows="1000", cols=len(df_gsheet.columns) + 1)
+        worksheet = spreadsheet.add_worksheet(title="data", rows=len(data_to_upload) + 100, cols=len(data_to_upload[0]) + 5)
         logger.LoggerFactory.logbot.info("data시트를 생성합니다.")
 
     # Convert all NaN/None to empty strings before list conversion to avoid JSON "nan" issues
