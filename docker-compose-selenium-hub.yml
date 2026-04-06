@@ -1,0 +1,35 @@
+services:
+  mysafetyreport:
+    container_name: safetyreport
+    image: ghcr.io/fentanest/safetyreport:latest
+    ports:
+      - 6819:6819
+    environment:
+      - TZ=Asia/Seoul
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+
+  selenium-hub:
+    image: selenium/hub:latest
+    container_name: selenium-hub
+    ports:
+      - 4442:4442
+      - 4443:4443
+      - 4444:4444
+    restart: always
+
+  chrome:
+    container_name: chrome
+    image: selenium/node-chrome:latest
+    platform: linux/amd64
+    shm_size: 2gb
+    depends_on:
+      - selenium-hub
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_JAVA_OPTS=-Xmx512m
+      - SE_BROWSER_ARGS_INCOGNITO=--incognito
+      - SE_BROWSER_ARGS_DISABLE_DSHM=--disable-dev-shm-usage
+      - SE_VNC_NO_PASSWORD=1
+    restart: always
