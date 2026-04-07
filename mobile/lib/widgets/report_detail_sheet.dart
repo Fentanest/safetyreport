@@ -71,16 +71,17 @@ class ReportDetailSheet extends StatelessWidget {
   }
 
   bool _isVideo(String url) {
-    final lower = url.toLowerCase();
-    return lower.endsWith('.mp4') || lower.endsWith('.mov') ||
-        lower.endsWith('.avi') || lower.endsWith('.webm');
+    final path = Uri.tryParse(url)?.path.toLowerCase() ?? url.toLowerCase();
+    return path.endsWith('.mp4') || path.endsWith('.mov') ||
+        path.endsWith('.avi') || path.endsWith('.webm') ||
+        path.endsWith('.mkv');
   }
 
   bool _isImage(String url) {
-    final lower = url.toLowerCase();
-    return lower.endsWith('.jpg') || lower.endsWith('.jpeg') ||
-        lower.endsWith('.png') || lower.endsWith('.gif') ||
-        lower.endsWith('.webp');
+    final path = Uri.tryParse(url)?.path.toLowerCase() ?? url.toLowerCase();
+    return path.endsWith('.jpg') || path.endsWith('.jpeg') ||
+        path.endsWith('.png') || path.endsWith('.gif') ||
+        path.endsWith('.webp');
   }
 
   @override
@@ -95,16 +96,20 @@ class ReportDetailSheet extends StatelessWidget {
     for (final u in mapUrls) {
       if (!imageUrls.contains(u)) imageUrls.add(u);
     }
-    // 첨부사진 중 이미지/동영상 분류
+    // 첨부사진: 확장자와 무관하게 모두 이미지로 취급 (사진 컬럼이므로)
+    // 단, 동영상 확장자가 명확한 경우엔 videoUrls로 분류
     final videoUrls = <String>[];
     for (final u in photos) {
-      if (_isImage(u) && !imageUrls.contains(u)) imageUrls.add(u);
-      if (_isVideo(u) && !videoUrls.contains(u)) videoUrls.add(u);
+      if (_isVideo(u)) {
+        if (!videoUrls.contains(u)) videoUrls.add(u);
+      } else {
+        if (!imageUrls.contains(u)) imageUrls.add(u);
+      }
     }
     // 파일 중 이미지/동영상/기타 분류
     for (final u in files) {
       if (_isImage(u) && !imageUrls.contains(u)) imageUrls.add(u);
-      if (_isVideo(u) && !videoUrls.contains(u)) videoUrls.add(u);
+      else if (_isVideo(u) && !videoUrls.contains(u)) videoUrls.add(u);
     }
     final otherFiles = files
         .where((u) => !_isImage(u) && !_isVideo(u))
@@ -271,8 +276,14 @@ class ReportDetailSheet extends StatelessWidget {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
     try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {}
+      // 인앱 브라우저로 열기 — Content-Disposition: attachment여도 다운로드 대신 뷰어로 표시
+      final ok = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      if (!ok) await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      try {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+    }
   }
 
   Widget _sectionLabel(String text) => Text(text,
@@ -343,31 +354,90 @@ class _RetryableImage extends StatefulWidget {
 class _RetryableImageState extends State<_RetryableImage> {
   int _attempt = 0;
   bool _retrying = false;
+  bool _timedOut = false;
   Timer? _retryTimer;
+  Timer? _timeoutTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTimeout();
+  }
 
   @override
   void dispose() {
     _retryTimer?.cancel();
+    _timeoutTimer?.cancel();
     super.dispose();
   }
 
+  void _startTimeout() {
+    _timeoutTimer?.cancel();
+    _timedOut = false;
+    // 15초 이내에 로드 안 되면 타임아웃 처리
+    _timeoutTimer = Timer(const Duration(seconds: 15), () {
+      if (!mounted || _timedOut) return;
+      setState(() => _timedOut = true);
+    });
+  }
+
   void _onError() {
+    _timeoutTimer?.cancel();
     if (_attempt >= 1 || _retrying) return;  // 최대 1회 자동 재시도
     _retrying = true;
     _retryTimer = Timer(const Duration(seconds: 2), () async {
       if (!mounted) return;
-      // CachedNetworkImage 캐시에서 실패 항목 제거
       await CachedNetworkImage.evictFromCache(widget.url);
       if (!mounted) return;
       setState(() {
         _attempt++;
         _retrying = false;
+        _startTimeout();
       });
+    });
+  }
+
+  void _onSuccess() {
+    _timeoutTimer?.cancel();
+  }
+
+  void _manualRetry() async {
+    await CachedNetworkImage.evictFromCache(widget.url);
+    if (!mounted) return;
+    setState(() {
+      _attempt++;
+      _timedOut = false;
+      _retrying = false;
+      _startTimeout();
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    // 타임아웃: 로딩 실패로 간주하고 재시도 버튼 표시
+    if (_timedOut) {
+      return Container(
+        height: 80,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.image_not_supported_outlined, color: Colors.grey),
+              const SizedBox(height: 4),
+              TextButton(
+                onPressed: _manualRetry,
+                child: const Text('다시 시도', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: CachedNetworkImage(
@@ -383,6 +453,10 @@ class _RetryableImageState extends State<_RetryableImage> {
                 : const CircularProgressIndicator(),
           ),
         ),
+        imageBuilder: (_, provider) {
+          _onSuccess();
+          return Image(image: provider, fit: BoxFit.cover);
+        },
         errorWidget: (_, __, ___) {
           _onError();
           return Container(
@@ -397,10 +471,7 @@ class _RetryableImageState extends State<_RetryableImage> {
                         const Icon(Icons.broken_image, color: Colors.grey),
                         const SizedBox(height: 4),
                         TextButton(
-                          onPressed: () async {
-                            await CachedNetworkImage.evictFromCache(widget.url);
-                            if (mounted) setState(() => _attempt++);
-                          },
+                          onPressed: _manualRetry,
                           child: const Text('다시 시도', style: TextStyle(fontSize: 12)),
                         ),
                       ],
@@ -425,6 +496,7 @@ class _VideoPlayer extends StatefulWidget {
 class _VideoPlayerState extends State<_VideoPlayer> {
   late VideoPlayerController _ctrl;
   bool _initialized = false;
+  bool _error = false;
 
   @override
   void initState() {
@@ -432,6 +504,8 @@ class _VideoPlayerState extends State<_VideoPlayer> {
     _ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.url))
       ..initialize().then((_) {
         if (mounted) setState(() => _initialized = true);
+      }).catchError((_) {
+        if (mounted) setState(() => _error = true);
       });
   }
 
@@ -443,6 +517,35 @@ class _VideoPlayerState extends State<_VideoPlayer> {
 
   @override
   Widget build(BuildContext context) {
+    if (_error) {
+      return Container(
+        height: 80,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.videocam_off_outlined, color: Colors.grey),
+              const SizedBox(height: 4),
+              const Text('동영상 재생 불가', style: TextStyle(fontSize: 12, color: Colors.grey)),
+              TextButton(
+                onPressed: () async {
+                  final uri = Uri.tryParse(widget.url);
+                  if (uri != null) {
+                    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    if (!ok) await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+                  }
+                },
+                child: const Text('외부 앱으로 열기', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     if (!_initialized) {
       return Container(
         height: 160,
