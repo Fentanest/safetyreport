@@ -256,6 +256,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_version.outputs.tag }}
+        files: mysafetyreport-linux.zip
 
     # ── Docker 멀티아키텍처 이미지 빌드 (amd64 + arm64) ───────────
     - name: Set lowercase image name
