@@ -148,6 +148,9 @@ jobs:
       packages: write
 
     steps:
+    - name: Fix workspace permissions
+      run: sudo chown -R $(id -u):$(id -g) . || true
+
     - name: Checkout repository
       uses: actions/checkout@v6
       with:
