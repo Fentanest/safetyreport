@@ -28,13 +28,22 @@ class ReportDetailSheet extends StatelessWidget {
     return Colors.grey;
   }
 
-  /// 처리내용에서 ☎ 뒤의 전화번호 추출
+  /// 처리내용에서 전화번호 추출
+  /// ☎/☏/📞 아이콘, 전화/Tel/TEL 키워드, 또는 한국 전화번호 형식 자체 감지
   String? _extractPhone(String text) {
-    // ☎, ☏, Tel:, TEL: 뒤 또는 전화 뒤 숫자 패턴 (02-1234-5678, 010-1234-5678 등)
-    final match = RegExp(r'[☎☏📞][\s]*([0-9][0-9\-\s]{6,14}[0-9])')
-        .firstMatch(text);
-    if (match != null) {
-      return match.group(1)!.replaceAll(RegExp(r'\s'), '');
+    // 1순위: 전화 아이콘/키워드 뒤 번호
+    final iconMatch = RegExp(
+      r'(?:[☎☏📞]|전화\s*번호\s*[:：]?|[Tt][Ee][Ll]\s*[:：]?)\s*([0-9][0-9\-\s]{6,14}[0-9])',
+    ).firstMatch(text);
+    if (iconMatch != null) {
+      return iconMatch.group(1)!.replaceAll(RegExp(r'[\s]'), '');
+    }
+    // 2순위: 한국 전화번호 형식 자체 (02-, 03x-, 04x-, 05x-, 07x-, 010-, 011-, 016-, 017-, 018-, 019-)
+    final numMatch = RegExp(
+      r'\b(0(?:2|[3-9]\d)[\-\s]\d{3,4}[\-\s]\d{4}|01[016789][\-\s]\d{3,4}[\-\s]\d{4})\b',
+    ).firstMatch(text);
+    if (numMatch != null) {
+      return numMatch.group(1)!.replaceAll(RegExp(r'[\s]'), '');
     }
     return null;
   }
@@ -355,16 +364,19 @@ class _RetryableImage extends StatefulWidget {
 }
 
 class _RetryableImageState extends State<_RetryableImage> {
+  static const _maxAutoRetry = 3;   // 자동 재시도 최대 횟수
+  static const _autoRetryDelay = Duration(milliseconds: 800);
+  static const _timeoutDuration = Duration(seconds: 12);
+
   int _attempt = 0;
-  bool _retrying = false;
-  bool _timedOut = false;
+  bool _scheduled = false; // 재시도 예약 중
   Timer? _retryTimer;
   Timer? _timeoutTimer;
 
   @override
   void initState() {
     super.initState();
-    _startTimeout();
+    _scheduleTimeout();
   }
 
   @override
@@ -374,73 +386,50 @@ class _RetryableImageState extends State<_RetryableImage> {
     super.dispose();
   }
 
-  void _startTimeout() {
+  void _scheduleTimeout() {
     _timeoutTimer?.cancel();
-    _timedOut = false;
-    // 15초 이내에 로드 안 되면 타임아웃 처리
-    _timeoutTimer = Timer(const Duration(seconds: 15), () {
-      if (!mounted || _timedOut) return;
-      setState(() => _timedOut = true);
+    // 타임아웃 시 자동 재시도 (버튼 없이)
+    _timeoutTimer = Timer(_timeoutDuration, () {
+      if (!mounted || _scheduled) return;
+      _scheduleRetry();
     });
   }
 
-  void _onError() {
-    _timeoutTimer?.cancel();
-    if (_attempt >= 1 || _retrying) return;  // 최대 1회 자동 재시도
-    _retrying = true;
-    _retryTimer = Timer(const Duration(seconds: 2), () async {
+  // 에러/타임아웃 발생 시 자동 재시도 예약
+  void _scheduleRetry() {
+    if (_scheduled) return;
+    if (_attempt >= _maxAutoRetry) {
+      // 최대 재시도 초과 → 수동 버튼만 보여줌 (setState로 errorWidget 유지)
+      if (mounted) setState(() {});
+      return;
+    }
+    _scheduled = true;
+    _retryTimer?.cancel();
+    _retryTimer = Timer(_autoRetryDelay, () async {
       if (!mounted) return;
       await CachedNetworkImage.evictFromCache(widget.url);
       if (!mounted) return;
       setState(() {
         _attempt++;
-        _retrying = false;
-        _startTimeout();
+        _scheduled = false;
       });
+      _scheduleTimeout();
     });
   }
 
-  void _onSuccess() {
-    _timeoutTimer?.cancel();
-  }
-
   void _manualRetry() async {
+    _retryTimer?.cancel();
     await CachedNetworkImage.evictFromCache(widget.url);
     if (!mounted) return;
     setState(() {
       _attempt++;
-      _timedOut = false;
-      _retrying = false;
-      _startTimeout();
+      _scheduled = false;
     });
+    _scheduleTimeout();
   }
 
   @override
   Widget build(BuildContext context) {
-    // 타임아웃: 로딩 실패로 간주하고 재시도 버튼 표시
-    if (_timedOut) {
-      return Container(
-        height: 80,
-        decoration: BoxDecoration(
-          color: Colors.grey.shade100,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.image_not_supported_outlined, color: Colors.grey),
-              const SizedBox(height: 4),
-              TextButton(
-                onPressed: _manualRetry,
-                child: const Text('다시 시도', style: TextStyle(fontSize: 12)),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: CachedNetworkImage(
@@ -450,35 +439,40 @@ class _RetryableImageState extends State<_RetryableImage> {
         placeholder: (_, __) => Container(
           height: 160,
           color: Colors.grey.shade100,
-          child: Center(
-            child: _retrying
-                ? const Text('재시도 중...', style: TextStyle(color: Colors.grey))
-                : const CircularProgressIndicator(),
-          ),
+          child: const Center(child: CircularProgressIndicator()),
         ),
         imageBuilder: (_, provider) {
-          _onSuccess();
+          _timeoutTimer?.cancel();
+          _retryTimer?.cancel();
           return Image(image: provider, fit: BoxFit.cover);
         },
         errorWidget: (_, __, ___) {
-          _onError();
+          _timeoutTimer?.cancel();
+          // 최대 재시도 미만이면 자동 재시도 예약
+          if (_attempt < _maxAutoRetry) {
+            _scheduleRetry();
+            return Container(
+              height: 80,
+              color: Colors.grey.shade100,
+              child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            );
+          }
+          // 최대 재시도 초과: 수동 버튼
           return Container(
             height: 80,
             color: Colors.grey.shade100,
             child: Center(
-              child: _retrying
-                  ? const CircularProgressIndicator()
-                  : Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(Icons.broken_image, color: Colors.grey),
-                        const SizedBox(height: 4),
-                        TextButton(
-                          onPressed: _manualRetry,
-                          child: const Text('다시 시도', style: TextStyle(fontSize: 12)),
-                        ),
-                      ],
-                    ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.broken_image_outlined, color: Colors.grey),
+                  const SizedBox(height: 4),
+                  TextButton(
+                    onPressed: _manualRetry,
+                    child: const Text('다시 시도', style: TextStyle(fontSize: 12)),
+                  ),
+                ],
+              ),
             ),
           );
         },
