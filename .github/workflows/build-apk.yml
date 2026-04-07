@@ -45,6 +45,10 @@ jobs:
             cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/mysafetyreport.apk && \
             cp build/app/outputs/bundle/release/app-release.aab build/app/outputs/bundle/release/mysafetyreport.aab"
 
+    - name: Fix Docker file ownership
+      if: always()
+      run: sudo chown -R $(id -u):$(id -g) mobile/ || true
+
     - name: Upload APK artifact
       uses: actions/upload-artifact@v7
       with:
