@@ -239,7 +239,7 @@ class ReportDetailSheet extends StatelessWidget {
                 child: _VideoPlayer(url: url),
               )),
             ],
-            // 기타 첨부파일 링크
+            // 기타 첨부파일 — 인라인 동영상 재생 시도
             if (otherFiles.isNotEmpty) ...[
               const SizedBox(height: 12),
               _sectionLabel('첨부파일'),
@@ -247,36 +247,12 @@ class ReportDetailSheet extends StatelessWidget {
               ...otherFiles.asMap().entries.map((e) {
                 final url = e.value;
                 final idx = e.key + 1;
-                // URL 경로에서 파일명 추출 (없으면 "첨부파일 N")
                 final fileName = Uri.tryParse(url)?.pathSegments
                     .where((s) => s.isNotEmpty)
                     .lastOrNull ?? '첨부파일 $idx';
-                final ext = fileName.contains('.')
-                    ? fileName.split('.').last.toLowerCase() : '';
-                final isVideoFile = const {'mp4','mov','avi','webm','mkv','3gp','flv','wmv'}.contains(ext);
-                return ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    isVideoFile ? Icons.videocam_outlined : Icons.attach_file,
-                    size: 18, color: Colors.blue),
-                  title: Text(fileName,
-                      style: const TextStyle(fontSize: 13, color: Colors.blue,
-                          decoration: TextDecoration.underline),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis),
-                  subtitle: isVideoFile
-                      ? const Text('동영상 — 외부 앱으로 열기',
-                          style: TextStyle(fontSize: 11, color: Colors.grey))
-                      : null,
-                  onTap: () async {
-                    final uri = Uri.tryParse(url);
-                    if (uri == null) return;
-                    // externalApplication: OS가 파일 형식에 맞는 앱(동영상 플레이어 등)으로 라우팅
-                    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-                    if (!ok && context.mounted) {
-                      await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-                    }
-                  },
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _VideoPlayer(url: url, label: fileName),
                 );
               }),
             ],
@@ -514,7 +490,8 @@ class _RetryableImageState extends State<_RetryableImage> {
 // ──────────────────────────────────────────────────────────────
 class _VideoPlayer extends StatefulWidget {
   final String url;
-  const _VideoPlayer({required this.url});
+  final String? label;  // 파일명 표시용 (otherFiles에서 사용)
+  const _VideoPlayer({required this.url, this.label});
 
   @override
   State<_VideoPlayer> createState() => _VideoPlayerState();
@@ -546,30 +523,37 @@ class _VideoPlayerState extends State<_VideoPlayer> {
   Widget build(BuildContext context) {
     if (_error) {
       return Container(
-        height: 80,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
           color: Colors.grey.shade100,
           borderRadius: BorderRadius.circular(8),
         ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.videocam_off_outlined, color: Colors.grey),
-              const SizedBox(height: 4),
-              const Text('동영상 재생 불가', style: TextStyle(fontSize: 12, color: Colors.grey)),
-              TextButton(
-                onPressed: () async {
-                  final uri = Uri.tryParse(widget.url);
-                  if (uri != null) {
-                    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-                    if (!ok) await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-                  }
-                },
-                child: const Text('외부 앱으로 열기', style: TextStyle(fontSize: 12)),
+        child: Row(
+          children: [
+            const Icon(Icons.videocam_off_outlined, color: Colors.grey, size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                widget.label ?? '동영상',
+                style: const TextStyle(fontSize: 13, color: Colors.grey),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
               ),
-            ],
-          ),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+              onPressed: () {
+                if (mounted) setState(() { _error = false; _initialized = false; });
+                _ctrl.dispose();
+                _ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+                  ..initialize().then((_) {
+                    if (mounted) setState(() => _initialized = true);
+                  }).catchError((_) {
+                    if (mounted) setState(() => _error = true);
+                  });
+              },
+              child: const Text('재시도', style: TextStyle(fontSize: 12)),
+            ),
+          ],
         ),
       );
     }
