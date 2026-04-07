@@ -1,5 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import '../models/report.dart';
@@ -243,7 +247,7 @@ class ReportDetailSheet extends StatelessWidget {
                         visualDensity: VisualDensity.compact,
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       ),
-                      onPressed: () => _openExternal(url),
+                      onPressed: () => _openExternal(context, url),
                     ),
                   ],
                 ),
@@ -268,7 +272,7 @@ class ReportDetailSheet extends StatelessWidget {
                         visualDensity: VisualDensity.compact,
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       ),
-                      onPressed: () => _openExternal(url),
+                      onPressed: () => _openExternal(context, url),
                     ),
                   ],
                 ),
@@ -310,14 +314,52 @@ class ReportDetailSheet extends StatelessWidget {
     );
   }
 
-  Future<void> _openExternal(String url) async {
+  /// 파일을 캐시에 다운로드한 뒤 Android ACTION_VIEW로 다른 앱에 전달
+  Future<void> _openExternal(BuildContext context, String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
+
+    // 파일명 추출 (쿼리스트링 제거)
+    final fileName = uri.pathSegments.lastWhere(
+      (s) => s.isNotEmpty,
+      orElse: () => 'file_${DateTime.now().millisecondsSinceEpoch}',
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('파일 불러오는 중...'),
+        duration: Duration(seconds: 10),
+      ),
+    );
+
     try {
-      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-        await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/$fileName');
+
+      // 이미 캐시에 있으면 재사용
+      if (!await file.exists()) {
+        final response = await http.get(uri);
+        await file.writeAsBytes(response.bodyBytes);
       }
-    } catch (_) {}
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
+
+      final result = await OpenFilex.open(file.path);
+      if (result.type != ResultType.done && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('열 수 있는 앱이 없습니다: ${result.message}')),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('파일을 열지 못했습니다: $e')),
+        );
+      }
+    }
   }
 
   Widget _sectionLabel(String text) => Text(text,
