@@ -41,12 +41,9 @@ jobs:
               --build-number=${{ steps.version.outputs.build_number }} && \
             flutter build appbundle --release \
               --build-name=${{ steps.version.outputs.build_name }} \
-              --build-number=${{ steps.version.outputs.build_number }}"
-
-    - name: Rename build outputs
-      run: |
-        cp mobile/build/app/outputs/flutter-apk/app-release.apk mobile/build/app/outputs/flutter-apk/mysafetyreport.apk
-        cp mobile/build/app/outputs/bundle/release/app-release.aab mobile/build/app/outputs/bundle/release/mysafetyreport.aab
+              --build-number=${{ steps.version.outputs.build_number }} && \
+            cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/flutter-apk/mysafetyreport.apk && \
+            cp build/app/outputs/bundle/release/app-release.aab build/app/outputs/bundle/release/mysafetyreport.aab"
 
     - name: Upload APK artifact
       uses: actions/upload-artifact@v7
