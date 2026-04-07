@@ -8,6 +8,7 @@
             <div class="card-header bg-white fw-bold">크롤링 옵션 설정</div>
             <div class="card-body">
                 <form id="crawlForm">
+                    <input type="hidden" name="crawl_type" value="{{ crawl_type }}">
                     <h6 class="mb-3 text-primary border-bottom pb-2">1. 로그인 모드</h6>
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="radio" name="login_mode" id="loginMember" value="member"
@@ -25,21 +26,18 @@
                         </label>
                     </div>
 
-                    <h6 class="mb-3 text-primary border-bottom pb-2">2. 크롤링 방식</h6>
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="radio" name="crawl_type" id="crawlApi" value="api" {% if crawl_type == 'api' %}checked{% endif %}>
-                        <label class="form-check-label text-success fw-bold" for="crawlApi">
-                            API 방식 <br><small class="text-muted fw-normal">백그라운드 통신으로 처리속도가 매우 빠르며 안정적입니다. (권장)</small>
-                        </label>
-                    </div>
-                    <div class="form-check mb-4">
-                        <input class="form-check-input" type="radio" name="crawl_type" id="crawlWeb" value="web" {% if crawl_type == 'web' %}checked{% endif %}>
-                        <label class="form-check-label" for="crawlWeb">
-                            웹 크롤링 방식 (레거시) <br><small class="text-muted">기존처럼 웹페이지의 UI를 직접 읽어오며 수집합니다.</small>
-                        </label>
+                    <div class="mb-3 d-flex align-items-center gap-2">
+                        <i class="fas fa-exchange-alt text-muted" style="font-size:0.85em;"></i>
+                        <span class="text-muted" style="font-size:0.85em;">크롤링 방식:</span>
+                        {% if crawl_type == 'api' %}
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle">API 방식</span>
+                        {% else %}
+                        <span class="badge bg-warning-subtle text-warning border border-warning-subtle">웹 크롤링 방식 (레거시)</span>
+                        {% endif %}
+                        <a href="/settings#crawl-type" class="ms-auto text-muted" style="font-size:0.8em;" title="설정에서 변경"><i class="fas fa-cog"></i></a>
                     </div>
 
-                    <h6 class="mb-3 text-primary border-bottom pb-2">3. 크롤링 범위</h6>
+                    <h6 class="mb-3 text-primary border-bottom pb-2">2. 크롤링 범위</h6>
                     <div class="form-check mb-2">
                         <input class="form-check-input" type="radio" name="crawl_mode" id="crawlFull" value="full"
                             checked>
@@ -138,7 +136,7 @@
         connectWs();
 
         function updateCrawlOptions() {
-            const isApi = $('#crawlApi').is(':checked');
+            const isApi = '{{ crawl_type }}' === 'api';
             if (isApi) {
                 $('#crawlMin').prop('disabled', true);
                 if ($('#crawlMin').is(':checked')) {
@@ -154,8 +152,8 @@
                 }
             }
         }
-        
-        $('input[name="crawl_type"], input[name="crawl_mode"]').change(updateCrawlOptions);
+
+        $('input[name="crawl_mode"]').change(updateCrawlOptions);
         updateCrawlOptions(); // Init
 
         $('#crawlForm').on('submit', function (e) {
