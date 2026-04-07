@@ -348,6 +348,16 @@ class _ReportListScreenState extends State<ReportListScreen>
                                 const SizedBox(height: 3),
                                 _metaRow(Icons.monetization_on_outlined, report.fineInfo),
                               ],
+                              if (report.location.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                _metaRow(Icons.location_on_outlined, report.location),
+                              ],
+                              if (report.occurrenceDate.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                _metaRow(Icons.access_time,
+                                    '발생: ${report.occurrenceDate}'
+                                    '${report.occurrenceTime.isNotEmpty ? ' ${report.occurrenceTime}' : ''}'),
+                              ],
                             ],
                           ),
                         ),

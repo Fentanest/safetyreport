@@ -156,9 +156,12 @@ def _launch_pending_crawl(pending: list):
         f.write('\n'.join(f"  - {r}" for r in pending) + '\n')
 
     if crawl_manager.start_crawl(cmd, cwd=_get_work_dir(), log_file=log_file):
+        import settings.settings as _s2
         ws_manager.broadcast_from_thread("crawl_started", {
             "source": "pending_queue",
             "count": len(pending),
+            "crawl_mode": _s2.crawl_mode,
+            "crawl_type": _s2.crawl_type,
         })
         proc = crawl_manager.get_process()
         if proc:
@@ -206,11 +209,14 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
         proc = crawl_manager.get_process()
         try:
             import asyncio as _aio
+            import settings.settings as _s
             loop = _aio.get_event_loop()
             if loop.is_running():
                 loop.create_task(ws_manager.broadcast("crawl_started", {
                     "source": "mobile_enqueue",
                     "report_number": report_number,
+                    "crawl_mode": _s.crawl_mode,
+                    "crawl_type": _s.crawl_type,
                 }))
         except Exception:
             pass
@@ -427,6 +433,34 @@ async def list_files(path: str = "", _: str = Depends(_require_api_key)):
     return {"status": "success", "current_path": path, "data": items}
 
 
+@router.get("/files/download")
+async def download_file(path: str = "", _: str = Depends(_require_api_key)):
+    """서버 파일 다운로드 — logs / results 폴더의 파일만 허용"""
+    from fastapi.responses import FileResponse
+    import os
+
+    ALLOWED_ROOTS = {'logs', 'results'}
+    base = os.path.abspath(settings.datapath)
+
+    first = path.replace('\\', '/').split('/')[0]
+    if first not in ALLOWED_ROOTS:
+        raise HTTPException(status_code=403, detail="접근 불가")
+
+    target = os.path.normpath(os.path.join(base, path))
+    if not target.startswith(base):
+        raise HTTPException(status_code=403, detail="접근 불가")
+    if not os.path.exists(target):
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
+    if os.path.isdir(target):
+        raise HTTPException(status_code=400, detail="디렉토리는 다운로드할 수 없습니다")
+
+    return FileResponse(
+        target,
+        filename=os.path.basename(target),
+        media_type="application/octet-stream"
+    )
+
+
 @router.get("/app/config")
 async def get_app_config(_: str = Depends(_require_api_key)):
     """모바일 앱 설정 및 버전 정보"""
@@ -453,5 +487,7 @@ async def update_settings(request: Request, _: str = Depends(_require_api_key)):
         app_settings._instance.update_config('SETTINGS', 'normalize_police', body["normalize_police"])
     if "exclude_withdraw" in body:
         app_settings._instance.update_config('SETTINGS', 'exclude_withdraw', body["exclude_withdraw"])
+    if "crawl_type" in body and body["crawl_type"] in ("api", "web"):
+        app_settings._instance.update_config('Crawler', 'crawl_type', body["crawl_type"])
     app_settings._instance.save()
     return {"status": "success"}

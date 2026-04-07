@@ -105,32 +105,32 @@
             <li class="nav-item" role="presentation">
                 <button class="nav-link active fw-bold text-primary" id="traffic-agency-tab" data-bs-toggle="tab"
                     data-bs-target="#traffic-agency" type="button" role="tab" aria-selected="true"><i
-                        class="fas fa-building me-1"></i> 교통 기관별</button>
+                        class="fas fa-building me-1"></i> 기관별</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold text-primary" id="traffic-person-tab" data-bs-toggle="tab"
                     data-bs-target="#traffic-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-tie me-1"></i> 교통 담당자별</button>
+                        class="fas fa-user-tie me-1"></i> 담당자별</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold" style="color:#1565C0;" id="traffic-police-agency-tab" data-bs-toggle="tab"
                     data-bs-target="#traffic-police-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-shield-alt me-1"></i> 교통 경찰 기관</button>
+                        class="fas fa-shield-alt me-1"></i> 경찰 기관</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold" style="color:#1565C0;" id="traffic-police-person-tab" data-bs-toggle="tab"
                     data-bs-target="#traffic-police-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-shield me-1"></i> 교통 경찰 담당자</button>
+                        class="fas fa-user-shield me-1"></i> 경찰 담당자</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold" style="color:#1B5E20;" id="traffic-other-agency-tab" data-bs-toggle="tab"
                     data-bs-target="#traffic-other-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-building me-1"></i> 교통 비경찰 기관</button>
+                        class="fas fa-building me-1"></i> 비경찰 기관</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold" style="color:#1B5E20;" id="traffic-other-person-tab" data-bs-toggle="tab"
                     data-bs-target="#traffic-other-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-tie me-1"></i> 교통 비경찰 담당자</button>
+                        class="fas fa-user-tie me-1"></i> 비경찰 담당자</button>
             </li>
             <li class="w-100" style="height:4px;"></li>
             <li class="d-flex align-items-center pe-2 pb-1" style="pointer-events:none;">
@@ -139,32 +139,32 @@
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold text-success" id="other-agency-tab" data-bs-toggle="tab"
                     data-bs-target="#other-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-building me-1"></i> 기타 기관별</button>
+                        class="fas fa-building me-1"></i> 기관별</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold text-success" id="other-person-tab" data-bs-toggle="tab"
                     data-bs-target="#other-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-tie me-1"></i> 기타 담당자별</button>
+                        class="fas fa-user-tie me-1"></i> 담당자별</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold" style="color:#0277BD;" id="other-police-agency-tab" data-bs-toggle="tab"
                     data-bs-target="#other-police-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-shield-alt me-1"></i> 기타 경찰 기관</button>
+                        class="fas fa-shield-alt me-1"></i> 경찰 기관</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold" style="color:#0277BD;" id="other-police-person-tab" data-bs-toggle="tab"
                     data-bs-target="#other-police-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-shield me-1"></i> 기타 경찰 담당자</button>
+                        class="fas fa-user-shield me-1"></i> 경찰 담당자</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold" style="color:#2E7D32;" id="other-other-agency-tab" data-bs-toggle="tab"
                     data-bs-target="#other-other-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-building me-1"></i> 기타 비경찰 기관</button>
+                        class="fas fa-building me-1"></i> 비경찰 기관</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link fw-bold" style="color:#2E7D32;" id="other-other-person-tab" data-bs-toggle="tab"
                     data-bs-target="#other-other-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-tie me-1"></i> 기타 비경찰 담당자</button>
+                        class="fas fa-user-tie me-1"></i> 비경찰 담당자</button>
             </li>
         </ul>
 
@@ -426,7 +426,19 @@
         // Refresh column sizing when switching tabs
         $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
             $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust();
+            // 뒤로가기 시 탭 복원을 위해 현재 탭 ID 저장
+            sessionStorage.setItem('stats_active_tab', e.target.id);
         });
+
+        // 이전 탭 복원 (뒤로가기 등)
+        var savedTab = sessionStorage.getItem('stats_active_tab');
+        if (savedTab) {
+            var btn = document.getElementById(savedTab);
+            if (btn) {
+                var bsTab = new bootstrap.Tab(btn);
+                bsTab.show();
+            }
+        }
 
         // 발생시간 24시간제 유효성 검사 및 자동 포맷팅
         function validateTimeFormat(input) {

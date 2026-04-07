@@ -81,7 +81,8 @@ def _parse_report_content_table(driver, report_soup):
                             other_urls.append(url)
 
                 attachment_files = "\n".join(other_urls)
-                attached_photos = "\n".join(map_urls + image_urls)
+                # 지도(MAPIMG)는 별도 '지도' 컬럼에만 저장 — 첨부사진에 중복 포함하지 않음
+                attached_photos = "\n".join(image_urls)
                 map_image = "\n".join(map_urls)
 
     return {
@@ -166,15 +167,18 @@ def _parse_processing_result_table(result_soup, entry_value):
 
     reject_keywords = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
     is_rejected = any(kw in processing_content or kw in result_text for kw in reject_keywords)
-    
+
     warning_keywords = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
-    
+
     if is_rejected and processing_status_text not in ("수용", "일부수용"):
         processing_status_text = "불수용"
         processing_finish_text = "Y"
         final_penalty = ""
     elif not final_penalty and any(kw in processing_content or kw in result_text for kw in warning_keywords):
         final_penalty = '경고'
+    elif not final_penalty and "자동차·교통위반" in entry_value and processing_status_text in ("수용", "일부수용", "기타"):
+        # 교통위반 답변 완료 후 과태료/범칙금을 파싱할 수 없는 경우 → 미확인
+        final_penalty = "미확인"
 
     return {
         "processing_status": processing_status_text,
@@ -326,6 +330,9 @@ def parse_json_details(result_data):
         penalty_points = ""
     elif not penalty_amount and any(kw in full_text for kw in warning_keywords):
         penalty_amount = "경고"
+    elif not penalty_amount and "자동차·교통위반" in entry_value and processing_status in ("수용", "일부수용", "기타"):
+        # 교통위반 답변 완료 후 과태료/범칙금을 파싱할 수 없는 경우 → 미확인
+        penalty_amount = "미확인"
 
     # 4. Attachments Mapping
     map_image = ""
@@ -364,11 +371,11 @@ def parse_json_details(result_data):
                 other_links.append(file_url)
             
     if map_image:
-        # 이미 파일 목록에 동일 URL이 있으면 제거 후 맨 앞에 배치 (중복 방지)
+        # 지도 URL이 파일 목록에 포함된 경우 제거 (지도는 별도 컬럼에만 저장)
         if map_image in img_links:
             img_links.remove(map_image)
-        img_links.insert(0, map_image)
-        
+        # img_links에 삽입하지 않음 — 지도는 map_image 필드로 별도 관리
+
     attached_photos = "\n".join(img_links)
     attachment_files = "\n".join(other_links)
 

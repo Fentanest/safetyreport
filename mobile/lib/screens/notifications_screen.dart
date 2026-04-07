@@ -111,13 +111,15 @@ class _NotificationsScreenState extends State<NotificationsScreen>
       return;
     }
 
+    final tabController = DefaultTabController.of(context);
+    final hasChanges = item.body.contains('변경사항이 있습니다');
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.4,
+      builder: (sheetCtx) => DraggableScrollableSheet(
+        initialChildSize: hasChanges ? 0.5 : 0.4,
         minChildSize: 0.3,
         maxChildSize: 0.7,
         expand: false,
@@ -148,6 +150,17 @@ class _NotificationsScreenState extends State<NotificationsScreen>
             if (item.reportNumber.isNotEmpty)
               _detailRow('신고번호', item.reportNumber),
             _detailRow('수신 시각', item.timestamp),
+            if (hasChanges) ...[
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                icon: const Icon(Icons.assignment_outlined),
+                label: const Text('신고 결과 보기'),
+                onPressed: () {
+                  Navigator.pop(sheetCtx);
+                  tabController.animateTo(1);
+                },
+              ),
+            ],
           ],
         ),
       ),

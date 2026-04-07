@@ -40,9 +40,12 @@ def _start_pending_crawl_from_queue(pending: list):
 
     work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     if crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
+        import settings.settings as _ss
         ws_manager.broadcast_from_thread("crawl_started", {
             "source": "pending_queue",
             "count": len(pending),
+            "crawl_mode": _ss.crawl_mode,
+            "crawl_type": _ss.crawl_type,
         })
         proc = crawl_manager.get_process()
 

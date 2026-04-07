@@ -41,6 +41,7 @@ async def view_settings(request: Request):
         "max_retry_attemps": int(app_settings.config.get('SETTINGS', 'max_retry_attemps', fallback=3)),
         "log_level": app_settings.config.get('SETTINGS', 'log_level', fallback="INFO"),
         "chrome_mode": default_chrome_mode,
+        "crawl_type": app_settings.config.get('Crawler', 'crawl_type', fallback='api'),
         "remote_debug_port": app_settings.config.get('SELENIUM', 'remote_debug_port', fallback="127.0.0.1:9222"),
         "headless": app_settings.config.getboolean('SELENIUM', 'headless', fallback=False),
         "scheduler_enabled": app_settings.config.getboolean('SCHEDULER', 'enabled', fallback=False),
@@ -70,6 +71,7 @@ async def save_settings(
     retry_interval: int = Form(10),
     max_retry_attemps: int = Form(3),
     log_level: str = Form("INFO"),
+    crawl_type: str = Form("api"),
     chrome_mode: str = Form("hub"),
     remote_debug_port: str = Form("9222"),
     headless: bool = Form(False),
@@ -96,6 +98,7 @@ async def save_settings(
 
     app_settings._instance.update_config('GOOGLESHEET', 'sheet_key', sheet_key)
     
+    app_settings._instance.update_config('Crawler', 'crawl_type', crawl_type)
     app_settings._instance.update_config('SELENIUM', 'remotepath', remotepath)
     app_settings._instance.update_config('SELENIUM', 'chrome_mode', chrome_mode)
     app_settings._instance.update_config('SELENIUM', 'headless', headless)

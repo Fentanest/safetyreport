@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -25,6 +26,17 @@ class ReportDetailSheet extends StatelessWidget {
     if (s.contains('불수용')) return Colors.red;
     if (s.contains('처리') || s.contains('진행')) return Colors.orange;
     return Colors.grey;
+  }
+
+  /// 처리내용에서 ☎ 뒤의 전화번호 추출
+  String? _extractPhone(String text) {
+    // ☎, ☏, Tel:, TEL: 뒤 또는 전화 뒤 숫자 패턴 (02-1234-5678, 010-1234-5678 등)
+    final match = RegExp(r'[☎☏📞][\s]*([0-9][0-9\-\s]{6,14}[0-9])')
+        .firstMatch(text);
+    if (match != null) {
+      return match.group(1)!.replaceAll(RegExp(r'\s'), '');
+    }
+    return null;
   }
 
   Future<void> _openInSafetyApp(BuildContext context) async {
@@ -76,10 +88,19 @@ class ReportDetailSheet extends StatelessWidget {
     final color = _statusColor(report.status);
     final photos = _splitUrls(report.attachedPhotos);
     final files = _splitUrls(report.attachedFiles);
+    final mapUrls = _splitUrls(report.mapImage);
 
-    // 사진 중 이미지/동영상 분류
-    final imageUrls = photos.where((u) => _isImage(u)).toList();
-    final videoUrls = photos.where((u) => _isVideo(u)).toList();
+    // 지도 이미지 → imageUrls 맨 앞에 추가
+    final imageUrls = <String>[];
+    for (final u in mapUrls) {
+      if (!imageUrls.contains(u)) imageUrls.add(u);
+    }
+    // 첨부사진 중 이미지/동영상 분류
+    final videoUrls = <String>[];
+    for (final u in photos) {
+      if (_isImage(u) && !imageUrls.contains(u)) imageUrls.add(u);
+      if (_isVideo(u) && !videoUrls.contains(u)) videoUrls.add(u);
+    }
     // 파일 중 이미지/동영상/기타 분류
     for (final u in files) {
       if (_isImage(u) && !imageUrls.contains(u)) imageUrls.add(u);
@@ -172,6 +193,23 @@ class ReportDetailSheet extends StatelessWidget {
             if (report.processContent.isNotEmpty) ...[
               const SizedBox(height: 8),
               _textBlock('처리내용', report.processContent),
+              Builder(builder: (ctx) {
+                final phone = _extractPhone(report.processContent);
+                if (phone == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.phone, size: 16),
+                    label: Text('전화걸기  $phone'),
+                    onPressed: () async {
+                      final uri = Uri.parse('tel:$phone');
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri);
+                      }
+                    },
+                  ),
+                );
+              }),
             ],
             // 인라인 이미지
             if (imageUrls.isNotEmpty) ...[
@@ -182,24 +220,7 @@ class ReportDetailSheet extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: GestureDetector(
                   onTap: () => _openUrl(context, url),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: CachedNetworkImage(
-                      imageUrl: url,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => Container(
-                        height: 160,
-                        color: Colors.grey.shade100,
-                        child: const Center(child: CircularProgressIndicator()),
-                      ),
-                      errorWidget: (_, __, ___) => Container(
-                        height: 80,
-                        color: Colors.grey.shade100,
-                        child: const Center(
-                          child: Icon(Icons.broken_image, color: Colors.grey)),
-                      ),
-                    ),
-                  ),
+                  child: _RetryableImage(url: url),
                 ),
               )),
             ],
@@ -304,6 +325,89 @@ class ReportDetailSheet extends StatelessWidget {
                     fontSize: 13, fontWeight: FontWeight.w500)),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
+/// 로드 실패 시 2초 후 자동 1회 재시도하는 이미지 위젯
+class _RetryableImage extends StatefulWidget {
+  final String url;
+  const _RetryableImage({required this.url});
+
+  @override
+  State<_RetryableImage> createState() => _RetryableImageState();
+}
+
+class _RetryableImageState extends State<_RetryableImage> {
+  int _attempt = 0;
+  bool _retrying = false;
+  Timer? _retryTimer;
+
+  @override
+  void dispose() {
+    _retryTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onError() {
+    if (_attempt >= 1 || _retrying) return;  // 최대 1회 자동 재시도
+    _retrying = true;
+    _retryTimer = Timer(const Duration(seconds: 2), () async {
+      if (!mounted) return;
+      // CachedNetworkImage 캐시에서 실패 항목 제거
+      await CachedNetworkImage.evictFromCache(widget.url);
+      if (!mounted) return;
+      setState(() {
+        _attempt++;
+        _retrying = false;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: CachedNetworkImage(
+        key: ValueKey('${widget.url}_$_attempt'),
+        imageUrl: widget.url,
+        fit: BoxFit.cover,
+        placeholder: (_, __) => Container(
+          height: 160,
+          color: Colors.grey.shade100,
+          child: Center(
+            child: _retrying
+                ? const Text('재시도 중...', style: TextStyle(color: Colors.grey))
+                : const CircularProgressIndicator(),
+          ),
+        ),
+        errorWidget: (_, __, ___) {
+          _onError();
+          return Container(
+            height: 80,
+            color: Colors.grey.shade100,
+            child: Center(
+              child: _retrying
+                  ? const CircularProgressIndicator()
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.broken_image, color: Colors.grey),
+                        const SizedBox(height: 4),
+                        TextButton(
+                          onPressed: () async {
+                            await CachedNetworkImage.evictFromCache(widget.url);
+                            if (mounted) setState(() => _attempt++);
+                          },
+                          child: const Text('다시 시도', style: TextStyle(fontSize: 12)),
+                        ),
+                      ],
+                    ),
+            ),
+          );
+        },
       ),
     );
   }

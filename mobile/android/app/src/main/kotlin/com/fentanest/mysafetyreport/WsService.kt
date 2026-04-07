@@ -323,8 +323,13 @@ class WsService : Service() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
         // 앱 열기 인텐트 — SINGLE_TOP으로 onNewIntent 트리거, 앱 재시작 방지
+        // nav_event_type 엑스트라로 MainActivity가 알림 탭으로 자동 이동
         val openIntent = packageManager.getLaunchIntentForPackage(packageName)
-            ?.apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP }
+            ?.apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("nav_tab", 3)        // 알림 탭 인덱스
+                putExtra("nav_event_type", type)
+            }
         val notifId = pushIdGen.get()
         val pi = PendingIntent.getActivity(
             this, notifId,
@@ -342,6 +347,17 @@ class WsService : Service() {
             .build()
 
         nm.notify(pushIdGen.getAndIncrement(), notif)
+
+        // 앱이 포그라운드일 때 in-app SnackBar 표시용 — SharedPreferences에 기록
+        try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
+            val event = org.json.JSONObject().apply {
+                put("title", title)
+                put("body", body)
+                put("type", type)
+            }
+            prefs.edit().putString("flutter.foreground_event", event.toString()).apply()
+        } catch (_: Exception) {}
     }
 
     // ─────────────────────────────────────────────────────────────────────────
