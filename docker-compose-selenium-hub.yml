@@ -33,3 +33,14 @@ services:
       - SE_BROWSER_ARGS_DISABLE_DSHM=--disable-dev-shm-usage
       - SE_VNC_NO_PASSWORD=1
     restart: always
+
+  watchtower:
+    image: nickfedor/watchtower
+    container_name: watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      TZ: Asia/Seoul
+      WATCHTOWER_CLEANUP: 'true'
+      WATCHTOWER_POLL_INTERVAL: 43200
+    restart: unless-stopped
