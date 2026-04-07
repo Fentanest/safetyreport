@@ -1,6 +1,9 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../models/file_item.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
@@ -137,20 +140,57 @@ class _TreeNodeState extends State<_TreeNode> {
     }
   }
 
+  Future<void> _download(BuildContext ctx, FileItem item) async {
+    final downloadUri = Uri.parse(widget.baseUrl)
+        .replace(path: '/api/v1/files/download')
+        .replace(queryParameters: {'path': item.path});
+
+    ScaffoldMessenger.of(ctx).showSnackBar(
+      const SnackBar(content: Text('다운로드 중...'), duration: Duration(seconds: 30)),
+    );
+
+    try {
+      final response = await http.get(downloadUri, headers: {'X-API-Key': widget.apiKey});
+      if (response.statusCode != 200) {
+        if (ctx.mounted) {
+          ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            SnackBar(content: Text('다운로드 실패: ${response.statusCode}')),
+          );
+        }
+        return;
+      }
+
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/${item.name}');
+      await file.writeAsBytes(response.bodyBytes);
+
+      if (ctx.mounted) ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+
+      final result = await OpenFilex.open(file.path);
+      if (result.type != ResultType.done && ctx.mounted) {
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(content: Text('열 수 있는 앱이 없습니다: ${item.name}')),
+        );
+      }
+    } catch (e) {
+      if (ctx.mounted) {
+        ScaffoldMessenger.of(ctx).hideCurrentSnackBar();
+        ScaffoldMessenger.of(ctx).showSnackBar(
+          SnackBar(content: Text('오류: $e')),
+        );
+      }
+    }
+  }
+
   void _showDetails() {
     final item = widget.item;
-    final downloadUrl = Uri.parse(widget.baseUrl)
-        .replace(path: '/api/v1/files/download')
-        .replace(queryParameters: {
-      'path': item.path,
-      'api_key': widget.apiKey,
-    }).toString();
 
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (_) => Padding(
+      builder: (ctx) => Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -180,12 +220,7 @@ class _TreeNodeState extends State<_TreeNode> {
               child: FilledButton.icon(
                 icon: const Icon(Icons.download),
                 label: const Text('다운로드'),
-                onPressed: () async {
-                  final uri = Uri.parse(downloadUrl);
-                  if (await canLaunchUrl(uri)) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
-                },
+                onPressed: () => _download(ctx, item),
               ),
             ),
           ],
