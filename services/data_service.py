@@ -515,20 +515,8 @@ def save_crawl_changes(engine, changed_item_ids):
         })
 
     changes_file = os.path.join(app_settings.datapath, 'crawl_changes.json')
-    existing = []
-    if os.path.exists(changes_file):
-        try:
-            with open(changes_file, 'r', encoding='utf-8') as f:
-                existing = json.load(f)
-        except Exception:
-            existing = []
-
-    merged_map = {item['신고번호']: item for item in existing}
-    for item in changes:
-        merged_map[item['신고번호']] = item
-
     with open(changes_file, 'w', encoding='utf-8') as f:
-        json.dump(list(merged_map.values()), f, ensure_ascii=False)
+        json.dump(changes, f, ensure_ascii=False)
 
 
 def peek_crawl_changes():
