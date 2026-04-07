@@ -246,8 +246,6 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final scheme = Theme.of(context).colorScheme;
-    final isApi = _crawlType == 'api';
     final isMin = _crawlMode == 'min';
 
     return Scaffold(
@@ -270,6 +268,36 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // 크롤링 방식 표시
+                  Row(
+                    children: [
+                      Icon(Icons.sync_alt, size: 14, color: Colors.grey.shade600),
+                      const SizedBox(width: 6),
+                      Text('크롤링 방식:',
+                          style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+                      const SizedBox(width: 6),
+                      Chip(
+                        label: Text(
+                          _crawlType == 'api' ? 'API 방식' : '웹 크롤링 방식',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        visualDensity: VisualDensity.compact,
+                        side: BorderSide.none,
+                        backgroundColor: _crawlType == 'api'
+                            ? Colors.blue.shade50
+                            : Colors.orange.shade50,
+                        labelStyle: TextStyle(
+                          color: _crawlType == 'api'
+                              ? Colors.blue.shade700
+                              : Colors.orange.shade700,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
                   // 1. 로그인 모드
                   _sectionTitle('1. 로그인 모드'),
                   _radioTile('회원 로그인', 'member', _loginMode,
@@ -281,45 +309,15 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
                   const SizedBox(height: 12),
 
-                  // 2. 크롤링 방식
-                  _sectionTitle('2. 크롤링 방식'),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: DropdownButtonFormField<String>(
-                      value: _crawlType,
-                      decoration: const InputDecoration(
-                        isDense: true,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(value: 'api', child: Text('API 방식 (권장) — 빠르고 안정적')),
-                        DropdownMenuItem(value: 'web', child: Text('웹 크롤링 방식 (레거시) — 직접 읽기')),
-                      ],
-                      onChanged: (v) {
-                        if (v == null) return;
-                        setState(() {
-                          _crawlType = v;
-                          if (v == 'api' && _crawlMode == 'min') {
-                            _crawlMode = 'full';
-                          }
-                        });
-                        _api()?.saveCrawlType(v);
-                      },
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  // 3. 크롤링 범위
-                  _sectionTitle('3. 크롤링 범위'),
+                  // 2. 크롤링 범위
+                  _sectionTitle('2. 크롤링 범위'),
                   _radioTile('전체 크롤링', 'full', _crawlMode, '',
                       onChanged: (v) => setState(() => _crawlMode = v!)),
                   _radioTile('최소 크롤링', 'min', _crawlMode,
                       '변경사항 감지된 곳까지만',
-                      enabled: !isApi,
-                      onChanged: isApi ? null : (v) => setState(() => _crawlMode = v!)),
-                  if (!isApi && isMin)
+                      enabled: _crawlType != 'api',
+                      onChanged: _crawlType == 'api' ? null : (v) => setState(() => _crawlMode = v!)),
+                  if (_crawlType != 'api' && isMin)
                     Padding(
                       padding: const EdgeInsets.only(left: 32, top: 4, bottom: 4),
                       child: Row(children: [
