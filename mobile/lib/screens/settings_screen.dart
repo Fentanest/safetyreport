@@ -27,6 +27,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // 기타 데이터 필터 세팅
   bool _excludeWithdraw = true;
   bool _normalizePolice = true;
+  bool _autoExportExcel = true;
+  bool _autoExportSheet = true;
   bool _filterLoading = false;
 
   @override
@@ -54,6 +56,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _excludeWithdraw = cfg['exclude_withdraw'] as bool? ?? true;
           _normalizePolice = cfg['normalize_police'] as bool? ?? true;
+          _autoExportExcel = cfg['auto_export_excel'] as bool? ?? true;
+          _autoExportSheet = cfg['auto_export_sheet'] as bool? ?? true;
         });
       }
     } catch (_) {}
@@ -372,6 +376,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       onChanged: _filterLoading ? null : (v) {
                         setState(() => _normalizePolice = v);
                         _toggleFilter('normalize_police', v);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // ── 크롤링 자동 저장 카드 ──────────────────────
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.save_outlined, color: cs.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          '크롤링 자동 저장',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: cs.primary,
+                          ),
+                        ),
+                        if (_filterLoading) ...[
+                          const SizedBox(width: 8),
+                          const SizedBox(
+                            width: 14, height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      '크롤링 완료 후 자동으로 내보내기를 실행합니다.',
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                    const SizedBox(height: 12),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('엑셀 자동 저장', style: TextStyle(fontSize: 14)),
+                      subtitle: const Text('크롤링 완료 후 서버에 Excel 파일을 자동 생성합니다.', style: TextStyle(fontSize: 12)),
+                      value: _autoExportExcel,
+                      onChanged: _filterLoading ? null : (v) {
+                        setState(() => _autoExportExcel = v);
+                        _toggleFilter('auto_export_excel', v);
+                      },
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('구글 스프레드시트 자동 업로드', style: TextStyle(fontSize: 14)),
+                      subtitle: const Text('크롤링 완료 후 구글 시트에 자동 업로드합니다.', style: TextStyle(fontSize: 12)),
+                      value: _autoExportSheet,
+                      onChanged: _filterLoading ? null : (v) {
+                        setState(() => _autoExportSheet = v);
+                        _toggleFilter('auto_export_sheet', v);
                       },
                     ),
                   ],

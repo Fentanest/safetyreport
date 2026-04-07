@@ -474,6 +474,8 @@ async def get_app_config(_: str = Depends(_require_api_key)):
             "support_email": "support@example.com",
             "exclude_withdraw": s.exclude_withdraw,
             "normalize_police": s.normalize_police,
+            "auto_export_excel": s.config.getboolean('SETTINGS', 'auto_export_excel', fallback=True),
+            "auto_export_sheet": s.config.getboolean('SETTINGS', 'auto_export_sheet', fallback=True),
         }
     }
 
@@ -489,5 +491,9 @@ async def update_settings(request: Request, _: str = Depends(_require_api_key)):
         app_settings._instance.update_config('SETTINGS', 'exclude_withdraw', body["exclude_withdraw"])
     if "crawl_type" in body and body["crawl_type"] in ("api", "web"):
         app_settings._instance.update_config('Crawler', 'crawl_type', body["crawl_type"])
+    if "auto_export_excel" in body:
+        app_settings._instance.update_config('SETTINGS', 'auto_export_excel', body["auto_export_excel"])
+    if "auto_export_sheet" in body:
+        app_settings._instance.update_config('SETTINGS', 'auto_export_sheet', body["auto_export_sheet"])
     app_settings._instance.save()
     return {"status": "success"}
