@@ -92,6 +92,15 @@
                     <div class="form-text">크롬을 <code>--remote-debugging-port=9222</code> 옵션으로 실행 후 여기에 IP:포트를 입력하세요.</div>
                 </div>
 
+                <h6 class="mb-3 mt-3 text-primary border-bottom pb-2">크롤링 방식 설정</h6>
+                <div class="mb-3">
+                    <select class="form-select" name="crawl_type" id="crawlTypeSelect">
+                        <option value="api" {% if crawl_type=='api' %}selected{% endif %}>API 방식 (권장) — 빠르고 안정적</option>
+                        <option value="web" {% if crawl_type=='web' %}selected{% endif %}>웹 크롤링 방식 (레거시) — 웹페이지 직접 읽기</option>
+                    </select>
+                    <div class="form-text">변경 후 저장하면 다음 크롤링부터 적용됩니다.</div>
+                </div>
+
                 <h6 class="mb-3 mt-2 text-primary border-bottom pb-2">크롤링 후 자동 저장</h6>
                 <div class="form-check form-switch mb-2">
                     <input class="form-check-input" type="checkbox" role="switch" id="autoExportExcelSwitch"

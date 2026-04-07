@@ -17,10 +17,33 @@ class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.fentanest.mysafetyreport/permissions"
     private val notifIdGen = AtomicInteger(3000)
     private val NOTIF_CHANNEL_APP = "app_push_v2"
+    private var methodChannel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
         createAppNotifChannel()
+        // 앱이 종료 상태에서 알림 탭으로 실행된 경우 처리
+        intent?.let { handleNavIntent(it) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNavIntent(intent)
+    }
+
+    private fun handleNavIntent(intent: Intent) {
+        val navTab = intent.getIntExtra("nav_tab", -1)
+        val eventType = intent.getStringExtra("nav_event_type") ?: ""
+        if (navTab >= 0) {
+            // MethodChannel이 준비되기 전(앱 콜드 스타트) 처리를 위해 약간 지연
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                methodChannel?.invokeMethod("navigateToTab", mapOf(
+                    "tab" to navTab,
+                    "event_type" to eventType
+                ))
+            }, 500)
+        }
     }
 
     private fun createAppNotifChannel() {
@@ -57,8 +80,9 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
+        val channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+        methodChannel = channel
+        channel.setMethodCallHandler { call, result ->
                 when (call.method) {
 
                     // ── 알림 리스너 권한 ────────────────────────────────────

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/file_item.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
@@ -16,13 +17,17 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
   bool _loading = true;
   String? _error;
   late ApiService _api;
+  String _baseUrl = '';
+  String _apiKey = '';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final p = context.read<ReportProvider>();
-      _api = ApiService(baseUrl: p.baseUrl, apiKey: p.apiKey);
+      _baseUrl = p.baseUrl;
+      _apiKey = p.apiKey;
+      _api = ApiService(baseUrl: _baseUrl, apiKey: _apiKey);
       _load('');
     });
   }
@@ -82,6 +87,8 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
                     item: _rootItems![i],
                     api: _api,
                     depth: 0,
+                    baseUrl: _baseUrl,
+                    apiKey: _apiKey,
                   ),
                 ),
     );
@@ -93,8 +100,16 @@ class _TreeNode extends StatefulWidget {
   final FileItem item;
   final ApiService api;
   final int depth;
+  final String baseUrl;
+  final String apiKey;
 
-  const _TreeNode({required this.item, required this.api, required this.depth});
+  const _TreeNode({
+    required this.item,
+    required this.api,
+    required this.depth,
+    required this.baseUrl,
+    required this.apiKey,
+  });
 
   @override
   State<_TreeNode> createState() => _TreeNodeState();
@@ -127,6 +142,13 @@ class _TreeNodeState extends State<_TreeNode> {
 
   void _showDetails() {
     final item = widget.item;
+    final downloadUrl = Uri.parse(widget.baseUrl)
+        .replace(path: '/api/v1/files/download')
+        .replace(queryParameters: {
+      'path': item.path,
+      'api_key': widget.apiKey,
+    }).toString();
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(
@@ -155,6 +177,20 @@ class _TreeNodeState extends State<_TreeNode> {
             _row('경로', item.path),
             _row('크기', item.size != null ? _fmt(item.size!) : '-'),
             _row('수정일', item.modified),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                icon: const Icon(Icons.download),
+                label: const Text('다운로드'),
+                onPressed: () async {
+                  final uri = Uri.parse(downloadUrl);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+              ),
+            ),
           ],
         ),
       ),
@@ -250,7 +286,8 @@ class _TreeNodeState extends State<_TreeNode> {
         ),
         if (_expanded && _children != null)
           ..._children!.map((child) => _TreeNode(
-              item: child, api: widget.api, depth: widget.depth + 1)),
+              item: child, api: widget.api, depth: widget.depth + 1,
+              baseUrl: widget.baseUrl, apiKey: widget.apiKey)),
         Divider(height: 1, indent: 16 + indent, color: Colors.grey.shade100),
       ],
     );

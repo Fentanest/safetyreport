@@ -509,6 +509,9 @@ def save_crawl_changes(engine, changed_item_ids):
             "발생시각": str(r.get('발생시각', '')),
             "신고내용": str(r.get('신고내용', '')),
             "처리내용": str(r.get('처리내용', '')),
+            "첨부사진": str(r.get('첨부사진', '')),
+            "첨부파일": str(r.get('첨부파일', '')),
+            "지도": str(r.get('지도', '')),
         })
 
     changes_file = os.path.join(app_settings.datapath, 'crawl_changes.json')

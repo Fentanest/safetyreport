@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'screens/dashboard_screen.dart';
@@ -121,6 +122,8 @@ class MainNavigationScreen extends StatefulWidget {
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
+const _permChannel = MethodChannel('com.fentanest.mysafetyreport/permissions');
+
 class _MainNavigationScreenState extends State<MainNavigationScreen>
     with WidgetsBindingObserver {
   int _selectedIndex = 0;
@@ -138,6 +141,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // Native에서 navigateToTab 호출 수신
+    _permChannel.setMethodCallHandler(_handleNativeCall);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<NotificationHistoryProvider>().load();
       _checkPendingChanges();
@@ -154,7 +159,49 @@ class _MainNavigationScreenState extends State<MainNavigationScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _checkPendingChanges();
+      _checkForegroundEvent();
     }
+  }
+
+  Future<dynamic> _handleNativeCall(MethodCall call) async {
+    if (call.method == 'navigateToTab') {
+      final args = call.arguments as Map?;
+      final tab = (args?['tab'] as num?)?.toInt() ?? 3;
+      if (mounted) setState(() => _selectedIndex = tab);
+    }
+  }
+
+  Future<void> _checkForegroundEvent() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    final raw = prefs.getString('foreground_event');
+    if (raw == null) return;
+    await prefs.remove('foreground_event');
+    if (!mounted) return;
+    try {
+      final event = jsonDecode(raw) as Map<String, dynamic>;
+      final title = event['title']?.toString() ?? '';
+      final body = event['body']?.toString() ?? '';
+      if (title.isEmpty) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+              if (body.isNotEmpty)
+                Text(body, style: const TextStyle(fontSize: 12)),
+            ],
+          ),
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: '알림 보기',
+            onPressed: () => setState(() => _selectedIndex = 3),
+          ),
+        ),
+      );
+    } catch (_) {}
   }
 
   Future<void> _checkPendingChanges() async {

@@ -199,6 +199,16 @@ class ApiService {
     }
   }
 
+  Future<void> saveCrawlType(String crawlType) async {
+    try {
+      await http.post(
+        Uri.parse('$baseUrl/api/v1/settings'),
+        headers: _headers,
+        body: jsonEncode({'crawl_type': crawlType}),
+      );
+    } catch (_) {}
+  }
+
   String get wsBaseUrl {
     final uri = Uri.parse(baseUrl);
     final scheme = uri.scheme == 'https' ? 'wss' : 'ws';

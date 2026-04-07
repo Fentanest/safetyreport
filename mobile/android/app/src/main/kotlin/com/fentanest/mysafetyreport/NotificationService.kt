@@ -184,10 +184,10 @@ class NotificationService : NotificationListenerService() {
             .build()
 
         notificationManager.notify(notifIdCounter.getAndIncrement(), notification)
-        saveToHistory("📋 $name", bodyText, reportNumber)
+        saveToHistory("📋 $name", bodyText, reportNumber, record)
     }
 
-    private fun saveToHistory(title: String, body: String, reportNumber: String) {
+    private fun saveToHistory(title: String, body: String, reportNumber: String, extraData: JSONObject? = null) {
         val prefs = getSharedPreferences("FlutterSharedPreferences", MODE_PRIVATE)
         val historyJson = prefs.getString("flutter.notifications_history", "[]") ?: "[]"
         try {
@@ -201,6 +201,7 @@ class NotificationService : NotificationListenerService() {
                     "yyyy-MM-dd HH:mm:ss", java.util.Locale.KOREA
                 ).format(java.util.Date()))
                 put("isRead", false)
+                if (extraData != null) put("extraData", extraData)
             }
             // 새 항목을 맨 앞에 추가, 최대 100개 유지
             val newArr = JSONObject().put("arr", org.json.JSONArray())

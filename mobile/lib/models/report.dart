@@ -17,8 +17,9 @@ class Report {
   final String occurrenceTime;
   final String reportContent;
   final String processContent;
-  final String attachedPhotos;  // 첨부사진 (쉼표 구분 URL 목록)
-  final String attachedFiles;   // 첨부파일 (쉼표 구분 URL 목록)
+  final String attachedPhotos;  // 첨부사진 (줄바꿈 구분 URL 목록)
+  final String attachedFiles;   // 첨부파일 (줄바꿈 구분 URL 목록)
+  final String mapImage;        // 지도 이미지 URL
 
   Report({
     required this.id,
@@ -41,6 +42,7 @@ class Report {
     required this.processContent,
     this.attachedPhotos = '',
     this.attachedFiles = '',
+    this.mapImage = '',
   });
 
   factory Report.fromJson(Map<String, dynamic> json) {
@@ -65,6 +67,7 @@ class Report {
       processContent: json['처리내용']?.toString() ?? '',
       attachedPhotos: json['첨부사진']?.toString() ?? '',
       attachedFiles: json['첨부파일']?.toString() ?? '',
+      mapImage: json['지도']?.toString() ?? '',
     );
   }
 }

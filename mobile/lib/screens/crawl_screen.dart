@@ -283,17 +283,31 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
 
                   // 2. 크롤링 방식
                   _sectionTitle('2. 크롤링 방식'),
-                  _radioTile('API 방식 (권장)', 'api', _crawlType,
-                      '빠르고 안정적',
-                      onChanged: (v) => setState(() {
-                            _crawlType = v!;
-                            if (v == 'api' && _crawlMode == 'min') {
-                              _crawlMode = 'full';
-                            }
-                          })),
-                  _radioTile('웹 크롤링 방식 (레거시)', 'web', _crawlType,
-                      '웹페이지 직접 읽기',
-                      onChanged: (v) => setState(() => _crawlType = v!)),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: DropdownButtonFormField<String>(
+                      value: _crawlType,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(value: 'api', child: Text('API 방식 (권장) — 빠르고 안정적')),
+                        DropdownMenuItem(value: 'web', child: Text('웹 크롤링 방식 (레거시) — 직접 읽기')),
+                      ],
+                      onChanged: (v) {
+                        if (v == null) return;
+                        setState(() {
+                          _crawlType = v;
+                          if (v == 'api' && _crawlMode == 'min') {
+                            _crawlMode = 'full';
+                          }
+                        });
+                        _api()?.saveCrawlType(v);
+                      },
+                    ),
+                  ),
 
                   const SizedBox(height: 12),
 
