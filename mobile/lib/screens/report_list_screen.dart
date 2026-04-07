@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../providers/report_provider.dart';
 import '../models/report.dart';
 import '../widgets/report_detail_sheet.dart';
@@ -107,16 +106,6 @@ class _ReportListScreenState extends State<ReportListScreen>
                   ),
                   tooltip: '검색/필터',
                   onPressed: () => _showSearchPopup(context),
-                ),
-                IconButton(
-                  icon: const Icon(FontAwesomeIcons.wordpress),
-                  tooltip: '제작자 블로그',
-                  onPressed: () async {
-                    final url =
-                        Uri.parse('https://hb.worklazy.net/mysafetyreport/');
-                    await launchUrl(url,
-                        mode: LaunchMode.externalApplication);
-                  },
                 ),
                 IconButton(
                   icon: const Icon(Icons.settings),

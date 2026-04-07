@@ -217,14 +217,6 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                   }
                 },
               ),
-            IconButton(
-              icon: const Icon(Icons.refresh),
-              tooltip: '새로고침',
-              onPressed: () {
-                provider.load();
-                _fetchServerResults();
-              },
-            ),
           ],
           bottom: TabBar(
             labelColor: Colors.white,
@@ -288,44 +280,61 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold)),
       );
 
+  Future<void> _refresh() async {
+    context.read<NotificationHistoryProvider>().load();
+    await _fetchServerResults();
+  }
+
   Widget _buildList({
     required List<NotificationItem> items,
     required String emptyMessage,
     required String emptySubMessage,
   }) {
     if (items.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+      return RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
           children: [
-            Icon(Icons.notifications_none,
-                size: 72, color: Colors.grey.shade300),
-            const SizedBox(height: 16),
-            Text(emptyMessage,
-                style: const TextStyle(color: Colors.grey, fontSize: 15)),
-            const SizedBox(height: 8),
-            Text(
-              emptySubMessage,
-              textAlign: TextAlign.center,
-              style:
-                  const TextStyle(color: Colors.grey, fontSize: 12, height: 1.5),
+            SizedBox(
+              height: 300,
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.notifications_none,
+                        size: 72, color: Colors.grey.shade300),
+                    const SizedBox(height: 16),
+                    Text(emptyMessage,
+                        style: const TextStyle(color: Colors.grey, fontSize: 15)),
+                    const SizedBox(height: 8),
+                    Text(
+                      emptySubMessage,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.grey, fontSize: 12, height: 1.5),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: items.length,
-      separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
-      itemBuilder: (context, index) {
-        final item = items[index];
-        return _NotifTile(
-          item: item,
-          onTap: () => _showDetail(context, item),
-        );
-      },
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const Divider(height: 1, indent: 16),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          return _NotifTile(
+            item: item,
+            onTap: () => _showDetail(context, item),
+          );
+        },
+      ),
     );
   }
 }

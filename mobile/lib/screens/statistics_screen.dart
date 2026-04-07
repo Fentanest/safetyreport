@@ -49,9 +49,6 @@ class _StatisticsScreenState extends State<StatisticsScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('통계'),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _load),
-        ],
         bottom: _GroupedTabBar(controller: _tab),
       ),
       body: _loading
@@ -61,18 +58,18 @@ class _StatisticsScreenState extends State<StatisticsScreen>
               : TabBarView(
                   controller: _tab,
                   children: [
-                    _StatsTable(rows: _stats!.traffic.byAgency,       showPerson: false, category: 'traffic'),
-                    _StatsTable(rows: _stats!.traffic.byPerson,       showPerson: true,  category: 'traffic'),
-                    _StatsTable(rows: _stats!.traffic.policeByAgency, showPerson: false, category: 'traffic'),
-                    _StatsTable(rows: _stats!.traffic.policeByPerson, showPerson: true,  category: 'traffic'),
-                    _StatsTable(rows: _stats!.traffic.otherByAgency,  showPerson: false, category: 'traffic'),
-                    _StatsTable(rows: _stats!.traffic.otherByPerson,  showPerson: true,  category: 'traffic'),
-                    _StatsTable(rows: _stats!.other.byAgency,         showPerson: false, category: 'other'),
-                    _StatsTable(rows: _stats!.other.byPerson,         showPerson: true,  category: 'other'),
-                    _StatsTable(rows: _stats!.other.policeByAgency,   showPerson: false, category: 'other'),
-                    _StatsTable(rows: _stats!.other.policeByPerson,   showPerson: true,  category: 'other'),
-                    _StatsTable(rows: _stats!.other.otherByAgency,    showPerson: false, category: 'other'),
-                    _StatsTable(rows: _stats!.other.otherByPerson,    showPerson: true,  category: 'other'),
+                    _StatsTable(rows: _stats!.traffic.byAgency,       showPerson: false, category: 'traffic', onRefresh: _load),
+                    _StatsTable(rows: _stats!.traffic.byPerson,       showPerson: true,  category: 'traffic', onRefresh: _load),
+                    _StatsTable(rows: _stats!.traffic.policeByAgency, showPerson: false, category: 'traffic', onRefresh: _load),
+                    _StatsTable(rows: _stats!.traffic.policeByPerson, showPerson: true,  category: 'traffic', onRefresh: _load),
+                    _StatsTable(rows: _stats!.traffic.otherByAgency,  showPerson: false, category: 'traffic', onRefresh: _load),
+                    _StatsTable(rows: _stats!.traffic.otherByPerson,  showPerson: true,  category: 'traffic', onRefresh: _load),
+                    _StatsTable(rows: _stats!.other.byAgency,         showPerson: false, category: 'other',   onRefresh: _load),
+                    _StatsTable(rows: _stats!.other.byPerson,         showPerson: true,  category: 'other',   onRefresh: _load),
+                    _StatsTable(rows: _stats!.other.policeByAgency,   showPerson: false, category: 'other',   onRefresh: _load),
+                    _StatsTable(rows: _stats!.other.policeByPerson,   showPerson: true,  category: 'other',   onRefresh: _load),
+                    _StatsTable(rows: _stats!.other.otherByAgency,    showPerson: false, category: 'other',   onRefresh: _load),
+                    _StatsTable(rows: _stats!.other.otherByPerson,    showPerson: true,  category: 'other',   onRefresh: _load),
                   ],
                 ),
     );
@@ -103,8 +100,9 @@ class _StatsTable extends StatelessWidget {
   final List<AgencyStatRow> rows;
   final bool showPerson;
   final String category; // 'traffic' or 'other'
+  final Future<void> Function() onRefresh;
 
-  const _StatsTable({required this.rows, required this.showPerson, required this.category});
+  const _StatsTable({required this.rows, required this.showPerson, required this.category, required this.onRefresh});
 
   @override
   Widget build(BuildContext context) {
@@ -115,7 +113,7 @@ class _StatsTable extends StatelessWidget {
     }
 
     return RefreshIndicator(
-      onRefresh: () async {},
+      onRefresh: onRefresh,
       child: ListView.builder(
         padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
         itemCount: rows.length,

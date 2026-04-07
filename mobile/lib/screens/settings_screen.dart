@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/report_provider.dart';
 import '../services/api_service.dart';
 import '../services/permission_service.dart';
@@ -602,6 +603,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
             ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: const Icon(Icons.language, size: 18),
+                label: const Text('홈페이지 바로가기'),
+                onPressed: () async {
+                  final url = Uri.parse('https://hb.worklazy.net/mysafetyreport/');
+                  await launchUrl(url, mode: LaunchMode.externalApplication);
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
           ],
         ),
       ),

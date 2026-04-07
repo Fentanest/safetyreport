@@ -116,10 +116,6 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
               style: TextButton.styleFrom(foregroundColor: Colors.white),
               onPressed: _removeAll,
             ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _load,
-          ),
         ],
       ),
       body: _loading
