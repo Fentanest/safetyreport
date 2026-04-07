@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import '../models/report.dart';
 
@@ -232,9 +231,21 @@ class ReportDetailSheet extends StatelessWidget {
               const SizedBox(height: 8),
               ...imageUrls.map((url) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: GestureDetector(
-                  onTap: () => _openUrl(context, url),
-                  child: _RetryableImage(url: url),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _RetryableImage(url: url),
+                    const SizedBox(height: 4),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.open_in_new, size: 14),
+                      label: const Text('다른 앱으로 열기', style: TextStyle(fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      ),
+                      onPressed: () => _openExternal(url),
+                    ),
+                  ],
                 ),
               )),
             ],
@@ -245,7 +256,22 @@ class ReportDetailSheet extends StatelessWidget {
               const SizedBox(height: 8),
               ...videoUrls.map((url) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: _VideoPlayer(url: url),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _VideoPlayer(url: url),
+                    const SizedBox(height: 4),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.open_in_new, size: 14),
+                      label: const Text('다른 앱으로 열기', style: TextStyle(fontSize: 12)),
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      ),
+                      onPressed: () => _openExternal(url),
+                    ),
+                  ],
+                ),
               )),
             ],
             // 기타 첨부파일 — 인라인 동영상 재생 시도
@@ -284,18 +310,14 @@ class ReportDetailSheet extends StatelessWidget {
     );
   }
 
-  void _openUrl(BuildContext context, String url) async {
+  Future<void> _openExternal(String url) async {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
     try {
-      // 인앱 브라우저로 열기 — Content-Disposition: attachment여도 다운로드 대신 뷰어로 표시
-      final ok = await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
-      if (!ok) await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {
-      try {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } catch (_) {}
-    }
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        await launchUrl(uri, mode: LaunchMode.inAppBrowserView);
+      }
+    } catch (_) {}
   }
 
   Widget _sectionLabel(String text) => Text(text,
@@ -364,115 +386,100 @@ class _RetryableImage extends StatefulWidget {
 }
 
 class _RetryableImageState extends State<_RetryableImage> {
-  static const _maxAutoRetry = 3;   // 자동 재시도 최대 횟수
-  static const _autoRetryDelay = Duration(milliseconds: 800);
-  static const _timeoutDuration = Duration(seconds: 12);
+  static const _maxAutoRetry = 5;
+  static const _retryDelay = Duration(seconds: 1);
 
   int _attempt = 0;
-  bool _scheduled = false; // 재시도 예약 중
+  bool _failed = false;   // 최종 실패 (수동 버튼 표시)
+  bool _retrying = false; // 재시도 대기 중 (스피너 표시)
   Timer? _retryTimer;
-  Timer? _timeoutTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _scheduleTimeout();
-  }
 
   @override
   void dispose() {
     _retryTimer?.cancel();
-    _timeoutTimer?.cancel();
     super.dispose();
   }
 
-  void _scheduleTimeout() {
-    _timeoutTimer?.cancel();
-    // 타임아웃 시 자동 재시도 (버튼 없이)
-    _timeoutTimer = Timer(_timeoutDuration, () {
-      if (!mounted || _scheduled) return;
-      _scheduleRetry();
-    });
-  }
-
-  // 에러/타임아웃 발생 시 자동 재시도 예약
-  void _scheduleRetry() {
-    if (_scheduled) return;
-    if (_attempt >= _maxAutoRetry) {
-      // 최대 재시도 초과 → 수동 버튼만 보여줌 (setState로 errorWidget 유지)
-      if (mounted) setState(() {});
-      return;
-    }
-    _scheduled = true;
-    _retryTimer?.cancel();
-    _retryTimer = Timer(_autoRetryDelay, () async {
-      if (!mounted) return;
-      await CachedNetworkImage.evictFromCache(widget.url);
-      if (!mounted) return;
-      setState(() {
-        _attempt++;
-        _scheduled = false;
-      });
-      _scheduleTimeout();
-    });
-  }
-
-  void _manualRetry() async {
-    _retryTimer?.cancel();
-    await CachedNetworkImage.evictFromCache(widget.url);
+  void _onError() {
     if (!mounted) return;
-    setState(() {
-      _attempt++;
-      _scheduled = false;
-    });
-    _scheduleTimeout();
+    if (_attempt < _maxAutoRetry) {
+      setState(() => _retrying = true);
+      _retryTimer = Timer(_retryDelay, () {
+        if (!mounted) return;
+        setState(() {
+          _attempt++;
+          _retrying = false;
+        });
+      });
+    } else {
+      setState(() { _failed = true; _retrying = false; });
+    }
+  }
+
+  void _manualRetry() {
+    if (!mounted) return;
+    setState(() { _attempt++; _failed = false; _retrying = false; });
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_failed) {
+      return Container(
+        height: 80,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.broken_image_outlined, color: Colors.grey),
+              TextButton(
+                onPressed: _manualRetry,
+                child: const Text('다시 시도', style: TextStyle(fontSize: 12)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
-      child: CachedNetworkImage(
+      child: Image.network(
+        widget.url,
         key: ValueKey('${widget.url}_$_attempt'),
-        imageUrl: widget.url,
         fit: BoxFit.cover,
-        placeholder: (_, __) => Container(
-          height: 160,
-          color: Colors.grey.shade100,
-          child: const Center(child: CircularProgressIndicator()),
-        ),
-        imageBuilder: (_, provider) {
-          _timeoutTimer?.cancel();
-          _retryTimer?.cancel();
-          return Image(image: provider, fit: BoxFit.cover);
-        },
-        errorWidget: (_, __, ___) {
-          _timeoutTimer?.cancel();
-          // 최대 재시도 미만이면 자동 재시도 예약
-          if (_attempt < _maxAutoRetry) {
-            _scheduleRetry();
+        loadingBuilder: (_, child, progress) {
+          if (progress == null) return child; // 로드 완료
+          if (_retrying) {
             return Container(
-              height: 80,
+              height: 160,
               color: Colors.grey.shade100,
               child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
             );
           }
-          // 최대 재시도 초과: 수동 버튼
+          return Container(
+            height: 160,
+            color: Colors.grey.shade100,
+            child: Center(
+              child: CircularProgressIndicator(
+                value: progress.expectedTotalBytes != null
+                    ? progress.cumulativeBytesLoaded / progress.expectedTotalBytes!
+                    : null,
+              ),
+            ),
+          );
+        },
+        errorBuilder: (_, __, ___) {
+          // errorBuilder는 동기적으로 호출되므로 addPostFrameCallback으로 상태 변경
+          WidgetsBinding.instance.addPostFrameCallback((_) => _onError());
           return Container(
             height: 80,
             color: Colors.grey.shade100,
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.broken_image_outlined, color: Colors.grey),
-                  const SizedBox(height: 4),
-                  TextButton(
-                    onPressed: _manualRetry,
-                    child: const Text('다시 시도', style: TextStyle(fontSize: 12)),
-                  ),
-                ],
-              ),
+            child: const Center(
+              child: CircularProgressIndicator(strokeWidth: 2),
             ),
           );
         },
@@ -495,10 +502,17 @@ class _VideoPlayerState extends State<_VideoPlayer> {
   late VideoPlayerController _ctrl;
   bool _initialized = false;
   bool _error = false;
+  bool _seeking = false;
+  bool _wasPlaying = false;
+  Duration _seekPosition = Duration.zero;
 
   @override
   void initState() {
     super.initState();
+    _initController();
+  }
+
+  void _initController() {
     _ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.url))
       ..initialize().then((_) {
         if (mounted) setState(() => _initialized = true);
@@ -511,6 +525,12 @@ class _VideoPlayerState extends State<_VideoPlayer> {
   void dispose() {
     _ctrl.dispose();
     super.dispose();
+  }
+
+  String _fmt(Duration d) {
+    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 
   @override
@@ -536,14 +556,9 @@ class _VideoPlayerState extends State<_VideoPlayer> {
             TextButton(
               style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
               onPressed: () {
-                if (mounted) setState(() { _error = false; _initialized = false; });
+                if (mounted) setState(() { _error = false; _initialized = false; _seeking = false; _seekPosition = Duration.zero; });
                 _ctrl.dispose();
-                _ctrl = VideoPlayerController.networkUrl(Uri.parse(widget.url))
-                  ..initialize().then((_) {
-                    if (mounted) setState(() => _initialized = true);
-                  }).catchError((_) {
-                    if (mounted) setState(() => _error = true);
-                  });
+                _initController();
               },
               child: const Text('재시도', style: TextStyle(fontSize: 12)),
             ),
@@ -565,35 +580,83 @@ class _VideoPlayerState extends State<_VideoPlayer> {
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Stack(
-        alignment: Alignment.center,
+        alignment: Alignment.bottomCenter,
         children: [
           AspectRatio(
             aspectRatio: _ctrl.value.aspectRatio,
-            child: VideoPlayer(_ctrl),
-          ),
-          GestureDetector(
-            onTap: () {
-              setState(() {
+            child: GestureDetector(
+              onTap: () => setState(() {
                 _ctrl.value.isPlaying ? _ctrl.pause() : _ctrl.play();
-              });
-            },
-            child: Container(
-              color: Colors.transparent,
-              child: ValueListenableBuilder(
-                valueListenable: _ctrl,
-                builder: (_, value, __) => value.isPlaying
-                    ? const SizedBox.shrink()
-                    : Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(Icons.play_arrow,
-                            color: Colors.white, size: 36),
-                      ),
-              ),
+              }),
+              child: VideoPlayer(_ctrl),
             ),
+          ),
+          // 하단 컨트롤 바
+          ValueListenableBuilder<VideoPlayerValue>(
+            valueListenable: _ctrl,
+            builder: (_, value, __) {
+              final pos = _seeking ? _seekPosition : value.position;
+              final dur = value.duration;
+              final maxMs = dur.inMilliseconds > 0 ? dur.inMilliseconds.toDouble() : 1.0;
+              final posMs = pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
+              return Container(
+                color: Colors.black54,
+                padding: const EdgeInsets.only(left: 4, right: 8, bottom: 2),
+                child: Row(
+                  children: [
+                    // 재생/일시정지 버튼
+                    IconButton(
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                      icon: Icon(
+                        value.isPlaying ? Icons.pause : Icons.play_arrow,
+                        color: Colors.white, size: 22,
+                      ),
+                      onPressed: () => setState(() {
+                        value.isPlaying ? _ctrl.pause() : _ctrl.play();
+                      }),
+                    ),
+                    // 현재 위치
+                    Text(_fmt(pos),
+                        style: const TextStyle(color: Colors.white, fontSize: 11)),
+                    // 시크 바
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
+                          trackHeight: 2,
+                          activeTrackColor: Colors.white,
+                          inactiveTrackColor: Colors.white30,
+                          thumbColor: Colors.white,
+                          overlayColor: Colors.white24,
+                        ),
+                        child: Slider(
+                          value: posMs,
+                          min: 0,
+                          max: maxMs,
+                          onChangeStart: (_) {
+                            _wasPlaying = value.isPlaying;
+                            if (_wasPlaying) _ctrl.pause();
+                            setState(() { _seeking = true; _seekPosition = pos; });
+                          },
+                          onChanged: (v) => setState(() =>
+                              _seekPosition = Duration(milliseconds: v.toInt())),
+                          onChangeEnd: (v) {
+                            _ctrl.seekTo(Duration(milliseconds: v.toInt()));
+                            if (_wasPlaying) _ctrl.play();
+                            setState(() => _seeking = false);
+                          },
+                        ),
+                      ),
+                    ),
+                    // 전체 길이
+                    Text(_fmt(dur),
+                        style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                  ],
+                ),
+              );
+            },
           ),
         ],
       ),
