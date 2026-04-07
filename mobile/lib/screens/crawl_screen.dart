@@ -257,9 +257,12 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
           // ── 옵션 패널 ──
           Expanded(
             flex: _isRunning ? 2 : 5,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
+            child: RefreshIndicator(
+              onRefresh: _init,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // 크롤링 방식 표시
@@ -380,6 +383,7 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
                 ],
               ),
             ),
+          ),
           ),
 
           // ── 실시간 로그 ──
