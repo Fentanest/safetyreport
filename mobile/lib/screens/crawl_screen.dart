@@ -251,12 +251,6 @@ class _CrawlScreenState extends State<CrawlScreen> with WidgetsBindingObserver {
     return Scaffold(
       appBar: AppBar(
         title: const Text('크롤링 제어'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _init,
-          ),
-        ],
       ),
       body: Column(
         children: [

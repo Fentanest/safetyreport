@@ -51,12 +51,6 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('파일 브라우저'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () => _load(''),
-          ),
-        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -81,14 +75,17 @@ class _FileBrowserScreenState extends State<FileBrowserScreen> {
                     ),
                   ),
                 )
-              : ListView.builder(
-                  itemCount: _rootItems?.length ?? 0,
-                  itemBuilder: (context, i) => _TreeNode(
-                    item: _rootItems![i],
-                    api: _api,
-                    depth: 0,
-                    baseUrl: _baseUrl,
-                    apiKey: _apiKey,
+              : RefreshIndicator(
+                  onRefresh: () => _load(''),
+                  child: ListView.builder(
+                    itemCount: _rootItems?.length ?? 0,
+                    itemBuilder: (context, i) => _TreeNode(
+                      item: _rootItems![i],
+                      api: _api,
+                      depth: 0,
+                      baseUrl: _baseUrl,
+                      apiKey: _apiKey,
+                    ),
                   ),
                 ),
     );
