@@ -433,17 +433,9 @@ async def list_files(path: str = "", _: str = Depends(_require_api_key)):
     return {"status": "success", "current_path": path, "data": items}
 
 
-async def _require_api_key_flex(request: Request, api_key: str = "", header_key: str = Depends(_api_key_header)):
-    """X-API-Key 헤더 또는 api_key 쿼리 파라미터 중 하나로 인증 (다운로드용)."""
-    key = header_key or api_key
-    if not key or not database.validate_api_key(engine, key):
-        raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
-    return key
-
 @router.get("/files/download")
-async def download_file(path: str = "", _: str = Depends(_require_api_key_flex)):
-    """서버 파일 다운로드 — logs / results 폴더의 파일만 허용.
-    X-API-Key 헤더 또는 api_key 쿼리 파라미터 모두 허용."""
+async def download_file(path: str = "", _: str = Depends(_require_api_key)):
+    """서버 파일 다운로드 — logs / results 폴더의 파일만 허용. X-API-Key 헤더 인증."""
     from fastapi.responses import FileResponse
     import os
 
