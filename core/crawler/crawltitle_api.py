@@ -89,6 +89,8 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
                 state = "일부수용"
             elif c_now == 14:
                 state = "불수용"
+            elif c_now == 12:
+                state = "검토중"
             elif c_now == 15:
                 state = "기타"
             elif c_now == 20:
