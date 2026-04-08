@@ -211,9 +211,29 @@ async def auth_middleware(request: Request, call_next):
 
 # SessionMiddleware는 마지막에 추가해야 가장 바깥에서(먼저) 실행됨
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 from core.utils.security import get_or_create_session_key
 _session_key = get_or_create_session_key(settings.datapath)
-app.add_middleware(SessionMiddleware, secret_key=_session_key, session_cookie="safetyreport_session", max_age=settings.session_max_age)
+
+class _WebSocketSafeSessionMiddleware:
+    """WebSocket 연결에서 SessionMiddleware가 세션 쿠키를 덮어쓰는 것을 방지합니다.
+    WS 비정상 종료(1011 등) 시 빈 Set-Cookie가 발급되어 기존 세션이 소멸하는 버그 수정."""
+    def __init__(self, app: ASGIApp, **kwargs):
+        self._session_mw = SessionMiddleware(app, **kwargs)
+        self._app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] == "websocket":
+            await self._app(scope, receive, send)
+        else:
+            await self._session_mw(scope, receive, send)
+
+app.add_middleware(
+    _WebSocketSafeSessionMiddleware,
+    secret_key=_session_key,
+    session_cookie="safetyreport_session",
+    max_age=settings.session_max_age,
+)
 
 
 def start_server():
