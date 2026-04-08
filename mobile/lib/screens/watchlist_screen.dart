@@ -220,6 +220,8 @@ class _WatchCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
+            if (report.carNumber.isNotEmpty)
+              _row(Icons.directions_car_outlined, '차량번호', report.carNumber),
             if (report.reportNumber.isNotEmpty)
               _row(Icons.tag, '신고번호', report.reportNumber),
             if (report.date.isNotEmpty)
