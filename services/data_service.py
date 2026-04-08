@@ -72,8 +72,9 @@ def get_dashboard_stats(engine):
                         "처리내용": row.get('처리내용', ''),
                         "첨부사진": row.get('첨부사진', ''),
                         "첨부파일": row.get('첨부파일', ''),
+                        "지도": row.get('지도', ''),
                     })
-        
+
         # Watchlist
         df_watch = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
         watch_ids = df_watch['신고번호'].tolist()
@@ -104,6 +105,7 @@ def get_dashboard_stats(engine):
                         "처리내용": row.get('처리내용', ''),
                         "첨부사진": row.get('첨부사진', ''),
                         "첨부파일": row.get('첨부파일', ''),
+                        "지도": row.get('지도', ''),
                     })
 
     recent_answers.sort(key=lambda x: x['답변일'], reverse=True)
