@@ -26,10 +26,12 @@ def format_report_list(results, title: str):
 
         part = (
             f"--- [결과 {i+1}] ---\n"
+            f"신고명: {row.get('신고명', 'N/A')}\n"
             f"차량번호: {row.get('차량번호', 'N/A')}\n"
             f"신고번호: {row.get('신고번호', 'N/A')}\n"
             f"신고일: {row.get('신고일', 'N/A')}\n"
             f"발생일: {row.get('발생일자', 'N/A')}\n"
+            f"위반장소: {row.get('위반장소', 'N/A')}\n"
             f"답변일: {row.get('답변일', 'N/A')}\n"
             f"위반법규: {row.get('위반법규', 'N/A')}\n"
             f"처리상태: {row.get('처리상태', 'N/A')}\n"
