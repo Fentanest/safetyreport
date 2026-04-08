@@ -365,16 +365,20 @@ def parse_json_details(result_data):
             else:
                 ext = f.get("FILE_EXTSN", f.get("EXT", "")).lower()
                 
-            if file_ty in ["1", "3", "8"] or ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp']:
+            if "MAPIMG" in file_url:
+                # 지도 이미지 — STTEMNT_IMAGE_URL이 없을 때만 fallback으로 사용
+                if not map_image:
+                    map_image = file_url
+                # img_links/other_links에 포함하지 않음 (레거시 파서와 동일)
+            elif file_ty in ["1", "3", "8"] or ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp']:
                 img_links.append(file_url)
             else:
                 other_links.append(file_url)
-            
+
     if map_image:
-        # 지도 URL이 파일 목록에 포함된 경우 제거 (지도는 별도 컬럼에만 저장)
+        # STTEMNT_IMAGE_URL이 ARR_C_FILES에도 포함된 경우 제거 (안전망)
         if map_image in img_links:
             img_links.remove(map_image)
-        # img_links에 삽입하지 않음 — 지도는 map_image 필드로 별도 관리
 
     attached_photos = "\n".join(img_links)
     attachment_files = "\n".join(other_links)
