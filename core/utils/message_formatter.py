@@ -21,6 +21,9 @@ def format_report_list(results, title: str):
         files_str  = _format_links(row.get('첨부파일', ''), '📎 첨부파일')
         attachments = photos_str + files_str
 
+        map_str = str(row.get('지도', '') or '')
+        map_line = f"지도: {map_str}\n" if map_str.strip() not in ('', 'nan', 'None', '6개월 초과') else ""
+
         part = (
             f"--- [결과 {i+1}] ---\n"
             f"차량번호: {row.get('차량번호', 'N/A')}\n"
@@ -33,6 +36,7 @@ def format_report_list(results, title: str):
             f"범칙금/과태료: {row.get('범칙금_과태료', 'N/A')}\n"
             f"처리기관: {row.get('처리기관', 'N/A')}\n"
             f"담당자: {row.get('담당자', 'N/A')}\n"
+            + map_line
             + (attachments if attachments else "")
             + "\n"
         )
