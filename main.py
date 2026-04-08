@@ -213,15 +213,7 @@ async def auth_middleware(request: Request, call_next):
 from starlette.middleware.sessions import SessionMiddleware
 from core.utils.security import get_or_create_session_key
 _session_key = get_or_create_session_key(settings.datapath)
-_use_https = bool(settings.trusted_proxies)
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=_session_key,
-    session_cookie="safetyreport_session",
-    max_age=settings.session_max_age,
-    https_only=_use_https,
-    same_site="none" if _use_https else "lax",
-)
+app.add_middleware(SessionMiddleware, secret_key=_session_key, session_cookie="safetyreport_session", max_age=settings.session_max_age)
 
 
 def start_server():
