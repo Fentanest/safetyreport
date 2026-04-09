@@ -223,6 +223,32 @@ def get_all_records(engine, filters=None):
     combined.sort(key=lambda x: x.get('신고번호', '') or '', reverse=True)
     return combined
 
+def search_by_vehicle(engine, vehicle_number: str):
+    """차량번호로 전체 카테고리 검색 (부분 일치). 신고번호 역순 정렬."""
+    vehicle_number = vehicle_number.strip()
+    if not vehicle_number:
+        return []
+
+    results = []
+    with engine.connect() as conn:
+        df_watch = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
+        watch_ids = set(df_watch['신고번호'].tolist())
+
+        for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
+            if '차량번호' not in t.c:
+                continue
+            query = select(t).where(t.c.차량번호.contains(vehicle_number)).order_by(desc(t.c.신고번호))
+            df = pd.read_sql_query(query, conn)
+            if df.empty:
+                continue
+            df = df.fillna('')
+            df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
+            results.extend(df.to_dict(orient='records'))
+
+    results.sort(key=lambda x: x.get('신고번호', '') or '', reverse=True)
+    return results
+
+
 def get_duplicate_records(engine):
     with engine.connect() as conn:
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
