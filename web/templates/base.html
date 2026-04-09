@@ -117,6 +117,7 @@
                   <span>데이터 조회</span>
                 </h6>
                 <a href="/data/traffic" class="{% if request.url.path == '/data/traffic' %}active{% endif %}"><i class="fas fa-car fa-fw me-2"></i>교통위반 내역</a>
+                <a href="/data/parking" class="{% if request.url.path == '/data/parking' %}active{% endif %}"><i class="fas fa-parking fa-fw me-2"></i>주정차위반 내역</a>
                 <a href="/data/other" class="{% if request.url.path == '/data/other' %}active{% endif %}"><i class="fas fa-exclamation-triangle fa-fw me-2"></i>기타 위반 조회</a>
                 <a href="/data/duplicates" class="{% if request.url.path == '/data/duplicates' %}active{% endif %}"><i class="fas fa-clone fa-fw me-2"></i>중복차량 내역</a>
                 <a href="/stats" class="{% if request.url.path == '/stats' %}active{% endif %}"><i class="fas fa-chart-pie fa-fw me-2"></i>처리 부서 통계</a>

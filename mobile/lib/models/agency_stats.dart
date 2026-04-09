@@ -72,14 +72,17 @@ class CategoryStats {
 
 class AgencyStats {
   final CategoryStats traffic;
+  final CategoryStats parking;
   final CategoryStats other;
 
-  const AgencyStats({required this.traffic, required this.other});
+  const AgencyStats({required this.traffic, required this.parking, required this.other});
 
   factory AgencyStats.fromJson(Map<String, dynamic> json) {
     return AgencyStats(
       traffic: CategoryStats.fromJson(
           (json['traffic'] as Map<String, dynamic>?) ?? {}),
+      parking: CategoryStats.fromJson(
+          (json['parking'] as Map<String, dynamic>?) ?? {}),
       other: CategoryStats.fromJson(
           (json['other'] as Map<String, dynamic>?) ?? {}),
     );

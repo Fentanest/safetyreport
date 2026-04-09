@@ -109,7 +109,9 @@ class ReportProvider with ChangeNotifier {
   String? _errorMessage;
   DashboardStats? _stats;
   List<Report> _trafficReports = [];
+  List<Report> _parkingReports = [];
   List<Report> _otherReports = [];
+  List<Report> _duplicateReports = [];
   Set<String> _watchlistNumbers = {};
 
   ReportFilter _filter = const ReportFilter();
@@ -122,14 +124,19 @@ class ReportProvider with ChangeNotifier {
   String? get errorMessage => _errorMessage;
   DashboardStats? get stats => _stats;
   List<Report> get trafficReports => _trafficReports;
+  List<Report> get parkingReports => _parkingReports;
   List<Report> get otherReports => _otherReports;
+  List<Report> get duplicateReports => _duplicateReports;
   Set<String> get watchlistNumbers => _watchlistNumbers;
   bool isInWatchlist(String reportNumber) => _watchlistNumbers.contains(reportNumber);
   ReportFilter get filter => _filter;
   bool get hasFilter => !_filter.isEmpty;
 
   List<Report> get filteredTrafficReports => _applyFilter(_trafficReports);
+  List<Report> get filteredParkingReports => _applyFilter(_parkingReports);
   List<Report> get filteredOtherReports => _applyFilter(_otherReports);
+  // 중복차량은 서버에서 이미 그룹/정렬되므로 필터 미적용
+  List<Report> get filteredDuplicateReports => _duplicateReports;
 
   bool _contains(String source, String query) =>
       query.isEmpty || source.toLowerCase().contains(query.toLowerCase());
@@ -233,6 +240,20 @@ class ReportProvider with ChangeNotifier {
     }
   }
 
+  Future<void> fetchParkingReports() async {
+    if (!isConfigured) return;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      _parkingReports = await _api.getReports('parking');
+    } catch (e) {
+      _errorMessage = '주정차위반 내역 로드 실패: $e';
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> fetchOtherReports() async {
     if (!isConfigured) return;
     _isLoading = true;
@@ -241,6 +262,20 @@ class ReportProvider with ChangeNotifier {
       _otherReports = await _api.getReports('other');
     } catch (e) {
       _errorMessage = '기타위반 내역 로드 실패: $e';
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> fetchDuplicateReports() async {
+    if (!isConfigured) return;
+    _isLoading = true;
+    notifyListeners();
+    try {
+      _duplicateReports = await _api.getReports('duplicates');
+    } catch (e) {
+      _errorMessage = '중복차량 내역 로드 실패: $e';
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -297,6 +332,7 @@ class ReportProvider with ChangeNotifier {
     await Future.wait([
       fetchSummary(),
       fetchTrafficReports(),
+      fetchParkingReports(),
       fetchOtherReports(),
       fetchWatchlistNumbers(),
     ]);

@@ -51,6 +51,25 @@ async def view_traffic(
     })
 
 
+@router.get("/parking")
+async def view_parking(
+    request: Request,
+    status: Optional[str] = Query(None),
+    fine: Optional[str] = Query(None),
+    agency: Optional[str] = Query(None),
+    person: Optional[str] = Query(None),
+    agencyExact: bool = Query(False),
+):
+    filters = _build_filters(status, fine, agency, person, agencyExact)
+    records = data_service.get_parking_records(engine, filters)
+    title = _filter_title("주정차위반 내역", status, fine, agency, person)
+    return templates.TemplateResponse(request, "data_table.html", {
+        "title": title,
+        "records": records, "table_id": "parkingTable",
+        "order_col": '[ 4, "desc" ]'
+    })
+
+
 @router.get("/other")
 async def view_other(
     request: Request,

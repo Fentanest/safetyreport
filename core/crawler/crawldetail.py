@@ -84,7 +84,13 @@ def crawl_details(driver, list):
             
             logger.LoggerFactory.logbot.info(detaillist)
             df = pd.DataFrame([detaillist], columns=cols)
-            category = "traffic" if "자동차·교통위반" in details.get("entry_value", "") else "other"
+            entry_value = details.get("entry_value", "")
+            if "자동차·교통위반" in entry_value:
+                category = "traffic"
+            elif "불법주정차신고" in entry_value:
+                category = "parking"
+            else:
+                category = "other"
             yield (df, category)
 
         except Exception as e:

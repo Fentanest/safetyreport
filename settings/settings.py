@@ -19,8 +19,10 @@ class AppSettings:
         
         self.table_title = "mysafety"
         self.table_detail_traffic = "mysafetydetail_traffic"
+        self.table_detail_parking = "mysafetydetail_parking"
         self.table_detail_other = "mysafetydetail_other"
         self.table_merge_traffic = "mysafetymerge_traffic"
+        self.table_merge_parking = "mysafetymerge_parking"
         self.table_merge_other = "mysafetymerge_other"
         
         self.loginurl = "https://www.safetyreport.go.kr/#/main/login/login"

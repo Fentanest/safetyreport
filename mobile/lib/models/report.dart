@@ -20,6 +20,8 @@ class Report {
   final String attachedPhotos;  // 첨부사진 (줄바꿈 구분 URL 목록)
   final String attachedFiles;   // 첨부파일 (줄바꿈 구분 URL 목록)
   final String mapImage;        // 지도 이미지 URL
+  final int totalCount;         // 중복차량 전체 신고 횟수
+  final int validCount;         // 중복차량 유효 신고 횟수 (취하 제외)
 
   Report({
     required this.id,
@@ -43,6 +45,8 @@ class Report {
     this.attachedPhotos = '',
     this.attachedFiles = '',
     this.mapImage = '',
+    this.totalCount = 0,
+    this.validCount = 0,
   });
 
   factory Report.fromJson(Map<String, dynamic> json) {
@@ -68,6 +72,8 @@ class Report {
       attachedPhotos: json['첨부사진']?.toString() ?? '',
       attachedFiles: json['첨부파일']?.toString() ?? '',
       mapImage: json['지도']?.toString() ?? '',
+      totalCount: (json['total_count'] as num?)?.toInt() ?? 0,
+      validCount: (json['valid_count'] as num?)?.toInt() ?? 0,
     );
   }
 }

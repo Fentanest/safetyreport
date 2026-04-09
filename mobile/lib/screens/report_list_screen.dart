@@ -24,10 +24,12 @@ class _ReportListScreenState extends State<ReportListScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ReportProvider>().fetchTrafficReports();
+      context.read<ReportProvider>().fetchParkingReports();
       context.read<ReportProvider>().fetchOtherReports();
+      context.read<ReportProvider>().fetchDuplicateReports();
     });
   }
 
@@ -51,9 +53,13 @@ class _ReportListScreenState extends State<ReportListScreen>
 
   void _selectAllCurrentTab() {
     final provider = context.read<ReportProvider>();
-    final currentReports = _tabController.index == 0
-        ? provider.filteredTrafficReports
-        : provider.filteredOtherReports;
+    final List<Report> currentReports;
+    switch (_tabController.index) {
+      case 0: currentReports = provider.filteredTrafficReports; break;
+      case 1: currentReports = provider.filteredParkingReports; break;
+      case 2: currentReports = provider.filteredOtherReports; break;
+      default: currentReports = []; break;
+    }
     setState(() {
       for (final r in currentReports) {
         _selected.add(r.reportNumber);
@@ -67,6 +73,7 @@ class _ReportListScreenState extends State<ReportListScreen>
 
     final allReports = [
       ...provider.filteredTrafficReports,
+      ...provider.filteredParkingReports,
       ...provider.filteredOtherReports,
     ];
     final selectedReports =
@@ -125,7 +132,9 @@ class _ReportListScreenState extends State<ReportListScreen>
                 indicatorWeight: 3,
                 tabs: const [
                   Tab(text: '교통위반'),
+                  Tab(text: '주정차'),
                   Tab(text: '기타위반'),
+                  Tab(text: '중복차량'),
                 ],
               ),
             ),
@@ -136,8 +145,11 @@ class _ReportListScreenState extends State<ReportListScreen>
             children: [
               _buildTab(provider, provider.filteredTrafficReports,
                   provider.fetchTrafficReports),
+              _buildTab(provider, provider.filteredParkingReports,
+                  provider.fetchParkingReports),
               _buildTab(provider, provider.filteredOtherReports,
                   provider.fetchOtherReports),
+              _buildDuplicateTab(provider),
             ],
           ),
           if (_selectionMode)
@@ -219,6 +231,185 @@ class _ReportListScreenState extends State<ReportListScreen>
         padding: EdgeInsets.fromLTRB(12, 10, 12, _selectionMode ? 100 : 20),
         itemCount: reports.length,
         itemBuilder: (context, index) => _buildReportCard(reports[index]),
+      ),
+    );
+  }
+
+  Widget _buildDuplicateTab(ReportProvider provider) {
+    final reports = provider.filteredDuplicateReports;
+    if (provider.isLoading && reports.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (reports.isEmpty) {
+      return LayoutBuilder(
+        builder: (context, constraints) => RefreshIndicator(
+          onRefresh: provider.fetchDuplicateReports,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.content_copy, size: 56, color: Colors.grey),
+                    SizedBox(height: 12),
+                    Text('중복 신고 차량이 없습니다.',
+                        style: TextStyle(color: Colors.grey, fontSize: 15)),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: provider.fetchDuplicateReports,
+      child: ListView.builder(
+        padding: EdgeInsets.fromLTRB(12, 10, 12, _selectionMode ? 100 : 20),
+        itemCount: reports.length,
+        itemBuilder: (context, index) => _buildDuplicateCard(reports[index]),
+      ),
+    );
+  }
+
+  Widget _buildDuplicateCard(Report report) {
+    final color = _statusColor(report.status);
+    final isSelected = _selected.contains(report.reportNumber);
+    final count = report.totalCount > 0 ? report.totalCount : report.validCount;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isSelected
+              ? Theme.of(context).colorScheme.primary
+              : Colors.grey.shade200,
+          width: isSelected ? 2 : 1,
+        ),
+      ),
+      color: isSelected
+          ? Theme.of(context).colorScheme.primaryContainer.withOpacity(0.3)
+          : null,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: _selectionMode
+            ? () => _toggleSelect(report.reportNumber)
+            : () => showReportDetailSheet(context, report),
+        onLongPress: () {
+          if (!_selectionMode) setState(() => _selected.add(report.reportNumber));
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_selectionMode)
+                Padding(
+                  padding: const EdgeInsets.only(right: 10, top: 2),
+                  child: Icon(
+                    isSelected ? Icons.check_circle : Icons.radio_button_unchecked,
+                    size: 20,
+                    color: isSelected
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.grey.shade400,
+                  ),
+                ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(report.name,
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              overflow: TextOverflow.ellipsis),
+                        ),
+                        const SizedBox(width: 8),
+                        _statusChip(report.status, color),
+                        if (count > 0) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: Colors.deepOrange.shade50,
+                              border: Border.all(color: Colors.deepOrange.shade200),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text('$count회',
+                                style: TextStyle(
+                                    color: Colors.deepOrange.shade700,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold)),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.tag, size: 13, color: Colors.grey),
+                        const SizedBox(width: 3),
+                        Text(report.reportNumber,
+                            style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                      ],
+                    ),
+                    const Divider(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _metaRow(Icons.calendar_today,
+                                  report.date.isNotEmpty ? '신고: ${report.date}' : ''),
+                              if (report.responseDate.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                _metaRow(Icons.event_available, '답변: ${report.responseDate}'),
+                              ],
+                              const SizedBox(height: 3),
+                              _metaRow(Icons.business, report.agency),
+                              if (report.manager.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                _metaRow(Icons.person_outline, report.manager),
+                              ],
+                              if (report.fineInfo.isNotEmpty && report.fineInfo != '미확인') ...[
+                                const SizedBox(height: 3),
+                                _metaRow(Icons.monetization_on_outlined, report.fineInfo),
+                              ],
+                              if (report.location.isNotEmpty) ...[
+                                const SizedBox(height: 3),
+                                _metaRow(Icons.location_on_outlined, report.location),
+                              ],
+                            ],
+                          ),
+                        ),
+                        if (report.carNumber.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: Colors.blueGrey.shade50,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.blueGrey.shade200),
+                            ),
+                            child: Text(report.carNumber,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    letterSpacing: 0.5)),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

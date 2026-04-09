@@ -6,8 +6,8 @@ from core.utils import logger
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 
-from .models import (metadata, title_table, detail_traffic_table, detail_other_table,
-                     merge_traffic_table, merge_other_table, watchlist_table, admin_users_table,
+from .models import (metadata, title_table, detail_traffic_table, detail_parking_table, detail_other_table,
+                     merge_traffic_table, merge_parking_table, merge_other_table, watchlist_table, admin_users_table,
                      api_keys_table)
 
 def upgrade_schema(engine):
@@ -65,9 +65,11 @@ def _get_new_and_incomplete_ids(conn):
     query_new = select(title_table.c.ID).where(
         ~exists().where(title_table.c.ID == detail_traffic_table.c.ID)
     ).where(
+        ~exists().where(title_table.c.ID == detail_parking_table.c.ID)
+    ).where(
         ~exists().where(title_table.c.ID == detail_other_table.c.ID)
     )
-    
+
     # items where state has changed between title and detail
     query_changed_traffic = select(title_table.c.ID).select_from(
         title_table.join(detail_traffic_table, title_table.c.ID == detail_traffic_table.c.ID)
@@ -76,18 +78,26 @@ def _get_new_and_incomplete_ids(conn):
         (detail_traffic_table.c.종결여부 != 'Y')
     )
 
+    query_changed_parking = select(title_table.c.ID).select_from(
+        title_table.join(detail_parking_table, title_table.c.ID == detail_parking_table.c.ID)
+    ).where(
+        (title_table.c.상태 != detail_parking_table.c.처리상태) &
+        (detail_parking_table.c.종결여부 != 'Y')
+    )
+
     query_changed_other = select(title_table.c.ID).select_from(
         title_table.join(detail_other_table, title_table.c.ID == detail_other_table.c.ID)
     ).where(
         (title_table.c.상태 != detail_other_table.c.처리상태) &
         (detail_other_table.c.종결여부 != 'Y')
     )
-    
+
     df_new = pd.read_sql_query(query_new, conn)
     df_changed_t = pd.read_sql_query(query_changed_traffic, conn)
+    df_changed_p = pd.read_sql_query(query_changed_parking, conn)
     df_changed_o = pd.read_sql_query(query_changed_other, conn)
-    
-    merged = pd.concat([df_new, df_changed_t, df_changed_o]).drop_duplicates()
+
+    merged = pd.concat([df_new, df_changed_t, df_changed_p, df_changed_o]).drop_duplicates()
     return merged
 
 def get_cNo(engine, force=False):
@@ -171,7 +181,12 @@ def deatil_to_sql(dataframes_with_category, engine, conn=None):
 
     with engine.connect() as conn:
         for df, category in dataframes_with_category:
-            target_table = detail_traffic_table if category == "traffic" else detail_other_table
+            if category == "traffic":
+                target_table = detail_traffic_table
+            elif category == "parking":
+                target_table = detail_parking_table
+            else:
+                target_table = detail_other_table
             
             records = df.to_dict('records')
             if not records:
@@ -250,16 +265,17 @@ def _merge_for_table(conn, merge_target, detail_source):
 def merge_final(engine, conn=None):
     with engine.connect() as conn:
         _merge_for_table(conn, merge_traffic_table, detail_traffic_table)
+        _merge_for_table(conn, merge_parking_table, detail_parking_table)
         _merge_for_table(conn, merge_other_table, detail_other_table)
         conn.commit()
-        logger.LoggerFactory.logbot.info("최종 데이터 병합 완료 (Traffic/Other 분리)")
+        logger.LoggerFactory.logbot.info("최종 데이터 병합 완료 (Traffic/Parking/Other 분리)")
 
 def clear_old_attachments(engine):
     six_months_ago = datetime.now() - relativedelta(months=6)
     six_months_ago_str = six_months_ago.strftime('%Y-%m-%d')
 
     with engine.connect() as conn:
-        for t in [merge_traffic_table, merge_other_table]:
+        for t in [merge_traffic_table, merge_parking_table, merge_other_table]:
             stmt = (
                 update(t)
                 .where(t.c.신고일 < six_months_ago_str)
@@ -275,10 +291,12 @@ def clear_old_attachments(engine):
 def load_results(engine, conn=None):
     with engine.connect() as conn:
         query_t = select(merge_traffic_table)
+        query_p = select(merge_parking_table)
         query_o = select(merge_other_table)
         df_t = pd.DataFrame(pd.read_sql_query(query_t, conn))
+        df_p = pd.DataFrame(pd.read_sql_query(query_p, conn))
         df_o = pd.DataFrame(pd.read_sql_query(query_o, conn))
-        df = pd.concat([df_t, df_o]) if not df_t.empty or not df_o.empty else pd.DataFrame()
+        df = pd.concat([df_t, df_p, df_o]) if not (df_t.empty and df_p.empty and df_o.empty) else pd.DataFrame()
         
         if not df.empty:
             # 엑셀/구글 시트 내보내기 시에도 감시목록 '★' 여부를 정확히 렌더링하기 위한 조인 복구
@@ -304,7 +322,7 @@ def get_merged_records_by_ids(engine, id_list):
         return []
     res = []
     with engine.connect() as conn:
-        for t in [merge_traffic_table, merge_other_table]:
+        for t in [merge_traffic_table, merge_parking_table, merge_other_table]:
             query = select(t).where(t.c.ID.in_(id_list))
             result = conn.execute(query)
             rows = result.fetchall()
@@ -316,7 +334,7 @@ def get_merged_records_by_ids(engine, id_list):
 def search_by_car_number(engine, car_number: str):
     res = []
     with engine.connect() as conn:
-        for t in [merge_traffic_table, merge_other_table]:
+        for t in [merge_traffic_table, merge_parking_table, merge_other_table]:
             query = select(t).where(t.c.차량번호.like(f"%{car_number}%"))
             result = conn.execute(query)
             rows = result.fetchall()
@@ -328,7 +346,7 @@ def search_by_car_number(engine, car_number: str):
 def search_by_report_number(engine, report_number: str):
     res = []
     with engine.connect() as conn:
-        for t in [merge_traffic_table, merge_other_table]:
+        for t in [merge_traffic_table, merge_parking_table, merge_other_table]:
             query = select(t).where(t.c.신고번호.like(f"%{report_number}%"))
             result = conn.execute(query)
             rows = result.fetchall()
@@ -382,7 +400,11 @@ def sync_rating_status(engine, report_id, status_str="참여 완료"):
         conn.execute(update(merge_traffic_table)
                      .where(merge_traffic_table.c.신고번호 == report_id)
                      .values(만족도조사여부=status_str))
-                     
+
+        conn.execute(update(merge_parking_table)
+                     .where(merge_parking_table.c.신고번호 == report_id)
+                     .values(만족도조사여부=status_str))
+
         conn.execute(update(merge_other_table)
                      .where(merge_other_table.c.신고번호 == report_id)
                      .values(만족도조사여부=status_str))

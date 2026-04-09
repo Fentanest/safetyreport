@@ -32,6 +32,8 @@ async def get_reports(category: str, _: str = Depends(_require_api_key)):
     try:
         if category == "traffic":
             records = data_service.get_traffic_records(engine)
+        elif category == "parking":
+            records = data_service.get_parking_records(engine)
         elif category == "other":
             records = data_service.get_other_records(engine)
         elif category == "duplicates":

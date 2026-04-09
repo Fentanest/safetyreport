@@ -35,6 +35,7 @@ def get_detail_columns():
     ]
 
 detail_traffic_table = Table(settings.table_detail_traffic, metadata, *get_detail_columns())
+detail_parking_table = Table(settings.table_detail_parking, metadata, *get_detail_columns())
 detail_other_table = Table(settings.table_detail_other, metadata, *get_detail_columns())
 
 def get_merge_columns():
@@ -66,6 +67,7 @@ def get_merge_columns():
     ]
 
 merge_traffic_table = Table(settings.table_merge_traffic, metadata, *get_merge_columns())
+merge_parking_table = Table(settings.table_merge_parking, metadata, *get_merge_columns())
 merge_other_table = Table(settings.table_merge_other, metadata, *get_merge_columns())
 
 watchlist_table = Table('mysafety_watchlist', metadata,

@@ -29,7 +29,7 @@ def get_dashboard_stats(engine):
         last_crawl_time = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
 
     with engine.connect() as conn:
-        for t in [database.merge_traffic_table, database.merge_other_table]:
+        for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
             df = pd.read_sql_query(select(t), conn)
             if not df.empty:
                 total += len(df)
@@ -78,9 +78,9 @@ def get_dashboard_stats(engine):
         # Watchlist
         df_watch = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
         watch_ids = df_watch['신고번호'].tolist()
-        
+
         if watch_ids:
-            for t in [database.merge_traffic_table, database.merge_other_table]:
+            for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
                 query = select(t).where(t.c.신고번호.in_(watch_ids))
                 df_watch_part = pd.read_sql_query(query, conn)
                 for _, row in df_watch_part.iterrows():
@@ -209,21 +209,26 @@ def _get_records_from_table(engine, table_obj, filters=None):
 def get_traffic_records(engine, filters=None):
     return _get_records_from_table(engine, database.merge_traffic_table, filters)
 
+def get_parking_records(engine, filters=None):
+    return _get_records_from_table(engine, database.merge_parking_table, filters)
+
 def get_other_records(engine, filters=None):
     return _get_records_from_table(engine, database.merge_other_table, filters)
 
 def get_all_records(engine, filters=None):
     traffic = _get_records_from_table(engine, database.merge_traffic_table, filters)
+    parking = _get_records_from_table(engine, database.merge_parking_table, filters)
     other = _get_records_from_table(engine, database.merge_other_table, filters)
-    combined = traffic + other
+    combined = traffic + parking + other
     combined.sort(key=lambda x: x.get('신고번호', '') or '', reverse=True)
     return combined
 
 def get_duplicate_records(engine):
     with engine.connect() as conn:
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
+        df_p = pd.read_sql_query(select(database.merge_parking_table), conn)
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
-        df_all = pd.concat([df_t, df_o])
+        df_all = pd.concat([df_t, df_p, df_o])
         
         if df_all.empty:
             return []
@@ -270,6 +275,7 @@ def get_duplicate_records(engine):
 def get_agency_stats(engine, filters=None):
     with engine.connect() as conn:
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
+        df_p = pd.read_sql_query(select(database.merge_parking_table), conn)
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
 
     def calc_stats(df):
@@ -401,19 +407,22 @@ def get_agency_stats(engine, filters=None):
         }
 
     res_t = calc_stats(df_t)
+    res_p = calc_stats(df_p)
     res_o = calc_stats(df_o)
-    
+
     return {
         "traffic": res_t,
-        "other": res_o
+        "parking": res_p,
+        "other": res_o,
     }
 
 def resolve_to_report_numbers(engine, mixed_list):
     final_rnums = set()
     with engine.connect() as conn:
         df_t = pd.read_sql_query(select(database.merge_traffic_table.c.ID, database.merge_traffic_table.c.신고번호), conn)
+        df_p = pd.read_sql_query(select(database.merge_parking_table.c.ID, database.merge_parking_table.c.신고번호), conn)
         df_o = pd.read_sql_query(select(database.merge_other_table.c.ID, database.merge_other_table.c.신고번호), conn)
-        df = pd.concat([df_t, df_o])
+        df = pd.concat([df_t, df_p, df_o])
         
         if df.empty:
             return []
@@ -435,7 +444,7 @@ def get_unrated_records(engine):
     """별점 주기 페이지용: 참여 완료/불가이거나 처리상태가 취하인 건은 제외"""
     with engine.connect() as conn:
         results = []
-        for t in [database.merge_traffic_table, database.merge_other_table]:
+        for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
             df = pd.read_sql_query(select(t), conn)
             if df.empty:
                 continue
@@ -457,11 +466,12 @@ def get_all_watchlist(engine):
         if df_watch.empty:
             return []
         watch_ids = set(df_watch['신고번호'].tolist())
-        
+
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
+        df_p = pd.read_sql_query(select(database.merge_parking_table), conn)
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
-        
-        df = pd.concat([df_t, df_o], ignore_index=True)
+
+        df = pd.concat([df_t, df_p, df_o], ignore_index=True)
         if df.empty:
             return []
             
