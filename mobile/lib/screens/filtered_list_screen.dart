@@ -8,7 +8,7 @@ import '../widgets/selection_action_bar.dart';
 /// 대시보드/통계 카드 탭 시 해당 조건에 맞는 신고만 보여주는 화면
 class FilteredListScreen extends StatefulWidget {
   final String title;
-  /// 'all', 'traffic', 'other'
+  /// 'all', 'traffic', 'parking', 'other'
   final String category;
   final bool Function(Report) filter;
 
@@ -32,10 +32,9 @@ class _FilteredListScreenState extends State<FilteredListScreen> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final p = context.read<ReportProvider>();
-      if (p.trafficReports.isEmpty && p.otherReports.isEmpty) {
-        p.fetchTrafficReports();
-        p.fetchOtherReports();
-      }
+      if (p.trafficReports.isEmpty) p.fetchTrafficReports();
+      if (p.parkingReports.isEmpty) p.fetchParkingReports();
+      if (p.otherReports.isEmpty) p.fetchOtherReports();
     });
   }
 
@@ -49,10 +48,12 @@ class _FilteredListScreenState extends State<FilteredListScreen> {
     final List<Report> base;
     if (widget.category == 'traffic') {
       base = provider.trafficReports;
+    } else if (widget.category == 'parking') {
+      base = provider.parkingReports;
     } else if (widget.category == 'other') {
       base = provider.otherReports;
     } else {
-      base = [...provider.trafficReports, ...provider.otherReports];
+      base = [...provider.trafficReports, ...provider.parkingReports, ...provider.otherReports];
     }
     return base.where(widget.filter).toList();
   }
