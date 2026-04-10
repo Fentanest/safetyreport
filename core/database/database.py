@@ -248,64 +248,66 @@ def deatil_to_sql(dataframes_with_category, engine, conn=None):
     changed_item_ids = []
     total_records = 0
 
-    with engine.connect() as conn:
-        for item in dataframes_with_category:
-            # (df, category) 또는 (df, category, entry_value) 형태 모두 지원
-            if len(item) == 3:
-                df, category, entry_value = item
-            else:
-                df, category = item
-                entry_value = None
+    for item in dataframes_with_category:
+        # (df, category) 또는 (df, category, entry_value) 형태 모두 지원
+        if len(item) == 3:
+            df, category, entry_value = item
+        else:
+            df, category = item
+            entry_value = None
 
-            if category == "traffic":
-                target_table = detail_traffic_table
-            elif category == "parking":
-                target_table = detail_parking_table
-            else:
-                target_table = detail_other_table
+        if category == "traffic":
+            target_table = detail_traffic_table
+        elif category == "parking":
+            target_table = detail_parking_table
+        else:
+            target_table = detail_other_table
 
-            records = df.to_dict('records')
-            if not records:
-                continue
+        records = df.to_dict('records')
+        if not records:
+            continue
 
-            new_record = records[0]
-            record_id = new_record['ID']
+        new_record = records[0]
+        record_id = new_record['ID']
 
-            # entry_value 저장
-            if entry_value is not None:
-                ev_stmt = insert(entry_value_table).values(ID=record_id, entry_value=entry_value)
-                ev_stmt = ev_stmt.on_conflict_do_update(index_elements=['ID'], set_={'entry_value': entry_value})
-                conn.execute(ev_stmt)
-            total_records += 1
+        try:
+            with engine.begin() as conn:
+                # entry_value 저장
+                if entry_value is not None:
+                    ev_stmt = insert(entry_value_table).values(ID=record_id, entry_value=entry_value)
+                    ev_stmt = ev_stmt.on_conflict_do_update(index_elements=['ID'], set_={'entry_value': entry_value})
+                    conn.execute(ev_stmt)
+                total_records += 1
 
-            select_stmt = select(target_table).where(target_table.c.ID == record_id)
-            existing_record_proxy = conn.execute(select_stmt).first()
+                select_stmt = select(target_table).where(target_table.c.ID == record_id)
+                existing_record_proxy = conn.execute(select_stmt).first()
 
-            is_new = existing_record_proxy is None
-            is_changed = False
+                is_new = existing_record_proxy is None
+                is_changed = False
 
-            if is_new:
-                changed_item_ids.append({"id": record_id, "change_type": "신규"})
-            else:
-                existing_record = dict(existing_record_proxy._mapping)
-                for key, new_value in new_record.items():
-                    if key in existing_record and str(existing_record[key]) != str(new_value):
-                        is_changed = True
-                        break
+                if is_new:
+                    changed_item_ids.append({"id": record_id, "change_type": "신규"})
+                else:
+                    existing_record = dict(existing_record_proxy._mapping)
+                    for key, new_value in new_record.items():
+                        if key in existing_record and str(existing_record[key]) != str(new_value):
+                            is_changed = True
+                            break
 
-                if is_changed:
-                    changed_item_ids.append({"id": record_id, "change_type": "변경"})
-            
-            insert_stmt = insert(target_table).values(new_record)
-            update_dict = {col.name: getattr(insert_stmt.excluded, col.name) for col in target_table.c if col.name != 'ID'}
-            
-            upsert_query = insert_stmt.on_conflict_do_update(
-                index_elements=['ID'],
-                set_=update_dict
-            )
-            conn.execute(upsert_query)
-        
-        conn.commit()
+                    if is_changed:
+                        changed_item_ids.append({"id": record_id, "change_type": "변경"})
+
+                insert_stmt = insert(target_table).values(new_record)
+                update_dict = {col.name: getattr(insert_stmt.excluded, col.name) for col in target_table.c if col.name != 'ID'}
+
+                upsert_query = insert_stmt.on_conflict_do_update(
+                    index_elements=['ID'],
+                    set_=update_dict
+                )
+                conn.execute(upsert_query)
+                # engine.begin() 블록 종료 시 자동 commit
+        except Exception as e:
+            logger.LoggerFactory.logbot.error(f"ID {record_id} upsert 실패, 건너뜀: {e}")
 
     logger.LoggerFactory.logbot.info(f"총 {total_records}건 detail 테이블 upsert 완료. (변경/신규: {len(changed_item_ids)}건)")
     return changed_item_ids
