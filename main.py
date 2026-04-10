@@ -236,13 +236,41 @@ app.add_middleware(
 )
 
 
+_UVICORN_LOG_CONFIG = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "access": {
+            "()": "uvicorn.logging.AccessFormatter",
+            "fmt": '[%(asctime)s] %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s',
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+            "use_colors": False,
+        },
+        "default": {
+            "()": "uvicorn.logging.DefaultFormatter",
+            "fmt": "[%(asctime)s] %(levelprefix)s %(message)s",
+            "datefmt": "%Y-%m-%d %H:%M:%S",
+            "use_colors": False,
+        },
+    },
+    "handlers": {
+        "access": {"class": "logging.StreamHandler", "formatter": "access", "stream": "ext://sys.stdout"},
+        "default": {"class": "logging.StreamHandler", "formatter": "default", "stream": "ext://sys.stderr"},
+    },
+    "loggers": {
+        "uvicorn": {"handlers": ["default"], "level": "INFO", "propagate": False},
+        "uvicorn.error": {"handlers": ["default"], "level": "INFO", "propagate": False},
+        "uvicorn.access": {"handlers": ["access"], "level": "INFO", "propagate": False},
+    },
+}
+
 def start_server():
     # Use app object for frozen binary (no reload), but use "main:app" string for dev mode (with reload)
     try:
         if is_frozen:
-            uvicorn.run(app, host="0.0.0.0", port=6819)
+            uvicorn.run(app, host="0.0.0.0", port=6819, log_config=_UVICORN_LOG_CONFIG)
         else:
-            uvicorn.run("main:app", host="0.0.0.0", port=6819, reload=True)
+            uvicorn.run("main:app", host="0.0.0.0", port=6819, reload=True, log_config=_UVICORN_LOG_CONFIG)
     except Exception as e:
         logger.LoggerFactory.get_logger().error(f"서버 시작 오류: {e}")
         if not is_frozen:
