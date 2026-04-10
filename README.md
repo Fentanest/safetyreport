@@ -5,6 +5,7 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/Fentanest/safetyreport)](https://github.com/Fentanest/safetyreport/releases)
 [![GitHub Container Registry](https://img.shields.io/badge/Docker-ghcr.io-blue)](https://github.com/Fentanest/safetyreport/pkgs/container/safetyreport)
+[![Docker Hub](https://img.shields.io/docker/pulls/fentanest/safetyreport)](https://hub.docker.com/r/fentanest/safetyreport)
 
 ---
 
