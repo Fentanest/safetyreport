@@ -310,8 +310,9 @@ def load_results(engine, conn=None):
             if settings.normalize_police and '처리기관' in df.columns:
                 def norm_police(x):
                     x = str(x)
-                    if '경찰서' in x:
-                        return x.split('경찰서')[0].split()[-1] + '경찰서'
+                    idx = x.find('경찰서')
+                    if idx != -1:
+                        return x[:idx + 3]
                     return x
                 df['처리기관'] = df['처리기관'].apply(norm_police)
             
