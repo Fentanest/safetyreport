@@ -97,113 +97,43 @@
             </div>
         </div>
 
-        <!-- Nav tabs -->
-        <ul class="nav nav-tabs mb-3 flex-wrap" id="statsTabs" role="tablist">
-            <li class="d-flex align-items-center pe-2 pb-1" style="pointer-events:none;">
-                <span class="badge bg-primary fs-6 px-2 py-1"><i class="fas fa-road me-1"></i>교통위반</span>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link active fw-bold text-primary" id="traffic-agency-tab" data-bs-toggle="tab"
-                    data-bs-target="#traffic-agency" type="button" role="tab" aria-selected="true"><i
-                        class="fas fa-building me-1"></i> 기관별</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold text-primary" id="traffic-person-tab" data-bs-toggle="tab"
-                    data-bs-target="#traffic-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-tie me-1"></i> 담당자별</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#1565C0;" id="traffic-police-agency-tab" data-bs-toggle="tab"
-                    data-bs-target="#traffic-police-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-shield-alt me-1"></i> 경찰 기관</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#1565C0;" id="traffic-police-person-tab" data-bs-toggle="tab"
-                    data-bs-target="#traffic-police-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-shield me-1"></i> 경찰 담당자</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#1B5E20;" id="traffic-other-agency-tab" data-bs-toggle="tab"
-                    data-bs-target="#traffic-other-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-building me-1"></i> 비경찰 기관</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#1B5E20;" id="traffic-other-person-tab" data-bs-toggle="tab"
-                    data-bs-target="#traffic-other-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-tie me-1"></i> 비경찰 담당자</button>
-            </li>
-            <li class="w-100" style="height:4px;"></li>
-            <li class="d-flex align-items-center pe-2 pb-1" style="pointer-events:none;">
-                <span class="badge bg-warning text-dark fs-6 px-2 py-1"><i class="fas fa-parking me-1"></i>주정차위반</span>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold text-warning" id="parking-agency-tab" data-bs-toggle="tab"
-                    data-bs-target="#parking-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-building me-1"></i> 기관별</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold text-warning" id="parking-person-tab" data-bs-toggle="tab"
-                    data-bs-target="#parking-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-tie me-1"></i> 담당자별</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#E65100;" id="parking-police-agency-tab" data-bs-toggle="tab"
-                    data-bs-target="#parking-police-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-shield-alt me-1"></i> 경찰 기관</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#E65100;" id="parking-police-person-tab" data-bs-toggle="tab"
-                    data-bs-target="#parking-police-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-shield me-1"></i> 경찰 담당자</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#BF360C;" id="parking-other-agency-tab" data-bs-toggle="tab"
-                    data-bs-target="#parking-other-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-building me-1"></i> 비경찰 기관</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#BF360C;" id="parking-other-person-tab" data-bs-toggle="tab"
-                    data-bs-target="#parking-other-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-tie me-1"></i> 비경찰 담당자</button>
-            </li>
-            <li class="w-100" style="height:4px;"></li>
-            <li class="d-flex align-items-center pe-2 pb-1" style="pointer-events:none;">
-                <span class="badge bg-success fs-6 px-2 py-1"><i class="fas fa-list me-1"></i>기타위반</span>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold text-success" id="other-agency-tab" data-bs-toggle="tab"
-                    data-bs-target="#other-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-building me-1"></i> 기관별</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold text-success" id="other-person-tab" data-bs-toggle="tab"
-                    data-bs-target="#other-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-tie me-1"></i> 담당자별</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#0277BD;" id="other-police-agency-tab" data-bs-toggle="tab"
-                    data-bs-target="#other-police-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-shield-alt me-1"></i> 경찰 기관</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#0277BD;" id="other-police-person-tab" data-bs-toggle="tab"
-                    data-bs-target="#other-police-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-shield me-1"></i> 경찰 담당자</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#2E7D32;" id="other-other-agency-tab" data-bs-toggle="tab"
-                    data-bs-target="#other-other-agency" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-building me-1"></i> 비경찰 기관</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold" style="color:#2E7D32;" id="other-other-person-tab" data-bs-toggle="tab"
-                    data-bs-target="#other-other-person" type="button" role="tab" aria-selected="false"><i
-                        class="fas fa-user-tie me-1"></i> 비경찰 담당자</button>
-            </li>
-        </ul>
+        <!-- Stats navigation: 2-row button UI -->
+        <div class="mb-3">
+            <div class="d-flex gap-2 mb-2" id="statsCatGroup">
+                <button type="button" class="btn btn-outline-primary flex-fill stats-cat-btn" data-cat="traffic">
+                    <i class="fas fa-road me-1"></i>교통위반
+                </button>
+                <button type="button" class="btn btn-outline-warning flex-fill stats-cat-btn" data-cat="parking">
+                    <i class="fas fa-parking me-1"></i>주정차위반
+                </button>
+                <button type="button" class="btn btn-outline-success flex-fill stats-cat-btn" data-cat="other">
+                    <i class="fas fa-list me-1"></i>기타위반
+                </button>
+            </div>
+            <div class="d-flex gap-2 flex-wrap" id="statsTypeGroup">
+                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="agency">
+                    <i class="fas fa-building me-1"></i>기관별
+                </button>
+                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="person">
+                    <i class="fas fa-user-tie me-1"></i>담당자별
+                </button>
+                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="police-agency">
+                    <i class="fas fa-shield-alt me-1"></i>경찰 기관
+                </button>
+                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="police-person">
+                    <i class="fas fa-user-shield me-1"></i>경찰 담당자
+                </button>
+                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="other-agency">
+                    <i class="fas fa-building me-1"></i>비경찰 기관
+                </button>
+                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="other-person">
+                    <i class="fas fa-user-tie me-1"></i>비경찰 담당자
+                </button>
+            </div>
+        </div>
 
-        <!-- Tab panes -->
-        <div class="tab-content" id="statsTabsContent">
+        <!-- Stats panes -->
+        <div id="statsTabsContent">
             {% macro agency_rows(records, base_url) %}
                 {% for r in records %}
                 <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&agencyExact=true'">
@@ -236,9 +166,8 @@
             {% set agency_thead %}<tr><th>처리기관</th><th class="text-center">총 처리건수</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th></tr>{% endset %}
             {% set person_thead %}<tr><th>처리기관</th><th class="text-center">담당자</th><th class="text-center">총 처리건수</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th></tr>{% endset %}
 
-            <!-- Traffic Agency Tab -->
-            <div class="tab-pane fade show active" id="traffic-agency" role="tabpanel"
-                aria-labelledby="traffic-agency-tab">
+            <!-- Traffic Agency -->
+            <div class="stats-pane" id="traffic-agency" style="display:none">
                 <table id="statsTableTrafficAgency" class="table table-striped table-hover table-bordered nowrap"
                     style="width:100%">
                     <thead>
@@ -268,8 +197,8 @@
                 </table>
             </div>
 
-            <!-- Traffic Person Tab -->
-            <div class="tab-pane fade" id="traffic-person" role="tabpanel" aria-labelledby="traffic-person-tab">
+            <!-- Traffic Person -->
+            <div class="stats-pane" id="traffic-person" style="display:none">
                 <table id="statsTableTrafficPerson" class="table table-striped table-hover table-bordered nowrap"
                     style="width:100%">
                     <thead>
@@ -301,52 +230,52 @@
                 </table>
             </div>
 
-            <!-- Parking Agency Tab -->
-            <div class="tab-pane fade" id="parking-agency" role="tabpanel" aria-labelledby="parking-agency-tab">
+            <!-- Parking Agency -->
+            <div class="stats-pane" id="parking-agency" style="display:none">
                 <table id="statsTableParkingAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_parking_agency, '/data/parking') }}</tbody>
                 </table>
             </div>
 
-            <!-- Parking Person Tab -->
-            <div class="tab-pane fade" id="parking-person" role="tabpanel" aria-labelledby="parking-person-tab">
+            <!-- Parking Person -->
+            <div class="stats-pane" id="parking-person" style="display:none">
                 <table id="statsTableParkingPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_parking_person, '/data/parking') }}</tbody>
                 </table>
             </div>
             <!-- Parking Police Agency -->
-            <div class="tab-pane fade" id="parking-police-agency" role="tabpanel">
+            <div class="stats-pane" id="parking-police-agency" style="display:none">
                 <table id="statsTableParkingPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_parking_police_agency, '/data/parking') }}</tbody>
                 </table>
             </div>
             <!-- Parking Police Person -->
-            <div class="tab-pane fade" id="parking-police-person" role="tabpanel">
+            <div class="stats-pane" id="parking-police-person" style="display:none">
                 <table id="statsTableParkingPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_parking_police_person, '/data/parking') }}</tbody>
                 </table>
             </div>
             <!-- Parking Other Agency -->
-            <div class="tab-pane fade" id="parking-other-agency" role="tabpanel">
+            <div class="stats-pane" id="parking-other-agency" style="display:none">
                 <table id="statsTableParkingOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_parking_other_agency, '/data/parking') }}</tbody>
                 </table>
             </div>
             <!-- Parking Other Person -->
-            <div class="tab-pane fade" id="parking-other-person" role="tabpanel">
+            <div class="stats-pane" id="parking-other-person" style="display:none">
                 <table id="statsTableParkingOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_parking_other_person, '/data/parking') }}</tbody>
                 </table>
             </div>
 
-            <!-- Other Agency Tab -->
-            <div class="tab-pane fade" id="other-agency" role="tabpanel" aria-labelledby="other-agency-tab">
+            <!-- Other Agency -->
+            <div class="stats-pane" id="other-agency" style="display:none">
                 <table id="statsTableOtherAgency" class="table table-striped table-hover table-bordered nowrap"
                     style="width:100%">
                     <thead>
@@ -375,8 +304,8 @@
                 </table>
             </div>
 
-            <!-- Other Person Tab -->
-            <div class="tab-pane fade" id="other-person" role="tabpanel" aria-labelledby="other-person-tab">
+            <!-- Other Person -->
+            <div class="stats-pane" id="other-person" style="display:none">
                 <table id="statsTableOtherPerson" class="table table-striped table-hover table-bordered nowrap"
                     style="width:100%">
                     <thead>
@@ -409,56 +338,56 @@
             </div>
 
             <!-- Traffic Police Agency -->
-            <div class="tab-pane fade" id="traffic-police-agency" role="tabpanel">
+            <div class="stats-pane" id="traffic-police-agency" style="display:none">
                 <table id="statsTableTrafficPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_traffic_police_agency, '/data/traffic') }}</tbody>
                 </table>
             </div>
             <!-- Traffic Police Person -->
-            <div class="tab-pane fade" id="traffic-police-person" role="tabpanel">
+            <div class="stats-pane" id="traffic-police-person" style="display:none">
                 <table id="statsTableTrafficPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_traffic_police_person, '/data/traffic') }}</tbody>
                 </table>
             </div>
             <!-- Traffic Other Agency -->
-            <div class="tab-pane fade" id="traffic-other-agency" role="tabpanel">
+            <div class="stats-pane" id="traffic-other-agency" style="display:none">
                 <table id="statsTableTrafficOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_traffic_other_agency, '/data/traffic') }}</tbody>
                 </table>
             </div>
             <!-- Traffic Other Person -->
-            <div class="tab-pane fade" id="traffic-other-person" role="tabpanel">
+            <div class="stats-pane" id="traffic-other-person" style="display:none">
                 <table id="statsTableTrafficOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_traffic_other_person, '/data/traffic') }}</tbody>
                 </table>
             </div>
             <!-- Other Police Agency -->
-            <div class="tab-pane fade" id="other-police-agency" role="tabpanel">
+            <div class="stats-pane" id="other-police-agency" style="display:none">
                 <table id="statsTableOtherPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_other_police_agency, '/data/other') }}</tbody>
                 </table>
             </div>
             <!-- Other Police Person -->
-            <div class="tab-pane fade" id="other-police-person" role="tabpanel">
+            <div class="stats-pane" id="other-police-person" style="display:none">
                 <table id="statsTableOtherPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_other_police_person, '/data/other') }}</tbody>
                 </table>
             </div>
             <!-- Other Other Agency -->
-            <div class="tab-pane fade" id="other-other-agency" role="tabpanel">
+            <div class="stats-pane" id="other-other-agency" style="display:none">
                 <table id="statsTableOtherOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_other_other_agency, '/data/other') }}</tbody>
                 </table>
             </div>
             <!-- Other Other Person -->
-            <div class="tab-pane fade" id="other-other-person" role="tabpanel">
+            <div class="stats-pane" id="other-other-person" style="display:none">
                 <table id="statsTableOtherOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_other_other_person, '/data/other') }}</tbody>
@@ -473,67 +402,75 @@
 <script>
     $(document).ready(function () {
         var dtOptionsAgency = {
-            "order": [[1, "desc"]], // Sort by total descending in Agency view (col index 1)
+            "order": [[1, "desc"]],
             "pageLength": 50,
-            "language": {
-                "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json"
-            }
+            "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" }
         };
-        $('#statsTableTrafficAgency').DataTable(dtOptionsAgency);
-        $('#statsTableParkingAgency').DataTable(dtOptionsAgency);
-        $('#statsTableOtherAgency').DataTable(dtOptionsAgency);
-        $('#statsTableTrafficPoliceAgency').DataTable(dtOptionsAgency);
-        $('#statsTableTrafficOtherAgency').DataTable(dtOptionsAgency);
-        $('#statsTableParkingPoliceAgency').DataTable(dtOptionsAgency);
-        $('#statsTableParkingOtherAgency').DataTable(dtOptionsAgency);
-        $('#statsTableOtherPoliceAgency').DataTable(dtOptionsAgency);
-        $('#statsTableOtherOtherAgency').DataTable(dtOptionsAgency);
-
         var dtOptionsPerson = {
-            "order": [[2, "desc"]], // Sort by total descending in Person view (col index 2)
+            "order": [[2, "desc"]],
             "pageLength": 50,
-            "language": {
-                "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json"
-            }
+            "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" }
         };
-        $('#statsTableTrafficPerson').DataTable(dtOptionsPerson);
-        $('#statsTableParkingPerson').DataTable(dtOptionsPerson);
-        $('#statsTableOtherPerson').DataTable(dtOptionsPerson);
-        $('#statsTableTrafficPolicePerson').DataTable(dtOptionsPerson);
-        $('#statsTableTrafficOtherPerson').DataTable(dtOptionsPerson);
-        $('#statsTableParkingPolicePerson').DataTable(dtOptionsPerson);
-        $('#statsTableParkingOtherPerson').DataTable(dtOptionsPerson);
-        $('#statsTableOtherPolicePerson').DataTable(dtOptionsPerson);
-        $('#statsTableOtherOtherPerson').DataTable(dtOptionsPerson);
 
-        // Refresh column sizing when switching tabs
-        $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
+        // Initialize all 18 DataTables
+        var agencyTables = [
+            '#statsTableTrafficAgency', '#statsTableParkingAgency', '#statsTableOtherAgency',
+            '#statsTableTrafficPoliceAgency', '#statsTableTrafficOtherAgency',
+            '#statsTableParkingPoliceAgency', '#statsTableParkingOtherAgency',
+            '#statsTableOtherPoliceAgency', '#statsTableOtherOtherAgency'
+        ];
+        var personTables = [
+            '#statsTableTrafficPerson', '#statsTableParkingPerson', '#statsTableOtherPerson',
+            '#statsTableTrafficPolicePerson', '#statsTableTrafficOtherPerson',
+            '#statsTableParkingPolicePerson', '#statsTableParkingOtherPerson',
+            '#statsTableOtherPolicePerson', '#statsTableOtherOtherPerson'
+        ];
+        agencyTables.forEach(function(id) { $(id).DataTable(dtOptionsAgency); });
+        personTables.forEach(function(id) { $(id).DataTable(dtOptionsPerson); });
+
+        // 2-row navigation state
+        var currentCat = sessionStorage.getItem('stats_cat') || 'traffic';
+        var currentType = sessionStorage.getItem('stats_type') || 'agency';
+
+        function showPane() {
+            $('.stats-pane').hide();
+            $('#' + currentCat + '-' + currentType).show();
             $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust();
-            // 뒤로가기 시 탭 복원을 위해 현재 탭 ID 저장
-            sessionStorage.setItem('stats_active_tab', e.target.id);
+            sessionStorage.setItem('stats_cat', currentCat);
+            sessionStorage.setItem('stats_type', currentType);
+        }
+
+        function updateButtons() {
+            $('.stats-cat-btn').removeClass('active');
+            $('.stats-cat-btn[data-cat="' + currentCat + '"]').addClass('active');
+            $('.stats-type-btn').removeClass('active');
+            $('.stats-type-btn[data-type="' + currentType + '"]').addClass('active');
+        }
+
+        $('.stats-cat-btn').on('click', function () {
+            currentCat = $(this).data('cat');
+            updateButtons();
+            showPane();
         });
 
-        // 이전 탭 복원 (뒤로가기 등)
-        var savedTab = sessionStorage.getItem('stats_active_tab');
-        if (savedTab) {
-            var btn = document.getElementById(savedTab);
-            if (btn) {
-                var bsTab = new bootstrap.Tab(btn);
-                bsTab.show();
-            }
-        }
+        $('.stats-type-btn').on('click', function () {
+            currentType = $(this).data('type');
+            updateButtons();
+            showPane();
+        });
+
+        updateButtons();
+        showPane();
 
         // 발생시간 24시간제 유효성 검사 및 자동 포맷팅
         function validateTimeFormat(input) {
             let val = $(input).val().trim();
             const timeRegex = /^([01]\d|2[0-3]):?([0-5]\d)$/;
-
             if (val) {
                 if (!timeRegex.test(val)) {
                     alert("발생시간 형식이 올바르지 않습니다. (예: 14:30)");
                     $(input).val('');
                 } else if (val.length === 4 && !val.includes(':')) {
-                    // 4자리 숫자만 입력 시 콜론 자동 삽입
                     $(input).val(val.slice(0, 2) + ':' + val.slice(2));
                 }
             }
@@ -544,13 +481,13 @@
         });
 
         // 경찰기관 필터 상호 배타적 선택
-        $('.filter-police').on('change', function() {
+        $('.filter-police').on('change', function () {
             if ($(this).is(':checked')) {
                 $('.filter-police').not(this).prop('checked', false);
             }
         });
 
-        // 폼 제출 시 빈 값 제외 및 체크박스 처리
+        // 폼 제출 시 빈 값 제외
         $('form').on('submit', function () {
             $(this).find('input').each(function () {
                 if (!$(this).val()) {
