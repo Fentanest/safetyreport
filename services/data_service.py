@@ -1,9 +1,17 @@
 import pandas as pd
 from sqlalchemy import select, desc
+from sqlalchemy.exc import OperationalError
 from core.database import database
 import settings.settings as app_settings
 from datetime import datetime, timedelta
 import os
+
+def _safe_read(conn, table):
+    """테이블이 아직 생성되지 않은 경우 빈 DataFrame 반환"""
+    try:
+        return pd.read_sql_query(select(table), conn)
+    except OperationalError:
+        return pd.DataFrame()
 
 def get_dashboard_stats(engine):
     total = 0
@@ -30,7 +38,10 @@ def get_dashboard_stats(engine):
 
     with engine.connect() as conn:
         for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
-            df = pd.read_sql_query(select(t), conn)
+            try:
+                df = pd.read_sql_query(select(t), conn)
+            except OperationalError:
+                continue
             if not df.empty:
                 total += len(df)
                 accept_count += len(df[df['처리상태'] == '수용'])
@@ -82,7 +93,10 @@ def get_dashboard_stats(engine):
         if watch_ids:
             for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
                 query = select(t).where(t.c.신고번호.in_(watch_ids))
-                df_watch_part = pd.read_sql_query(query, conn)
+                try:
+                    df_watch_part = pd.read_sql_query(query, conn)
+                except OperationalError:
+                    continue
                 for _, row in df_watch_part.iterrows():
                     watchlist_items.append({
                         "ID": str(row.get('ID', '')),
@@ -238,7 +252,10 @@ def search_by_vehicle(engine, vehicle_number: str):
             if '차량번호' not in t.c:
                 continue
             query = select(t).where(t.c.차량번호.contains(vehicle_number)).order_by(desc(t.c.신고번호))
-            df = pd.read_sql_query(query, conn)
+            try:
+                df = pd.read_sql_query(query, conn)
+            except OperationalError:
+                continue
             if df.empty:
                 continue
             df = df.fillna('')
@@ -252,7 +269,7 @@ def search_by_vehicle(engine, vehicle_number: str):
 def get_duplicate_records(engine):
     with engine.connect() as conn:
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
-        df_p = pd.read_sql_query(select(database.merge_parking_table), conn)
+        df_p = _safe_read(conn, database.merge_parking_table)
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
         df_all = pd.concat([df_t, df_p, df_o])
         
@@ -301,7 +318,7 @@ def get_duplicate_records(engine):
 def get_agency_stats(engine, filters=None):
     with engine.connect() as conn:
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
-        df_p = pd.read_sql_query(select(database.merge_parking_table), conn)
+        df_p = _safe_read(conn, database.merge_parking_table)
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
 
     def calc_stats(df):
@@ -446,7 +463,8 @@ def resolve_to_report_numbers(engine, mixed_list):
     final_rnums = set()
     with engine.connect() as conn:
         df_t = pd.read_sql_query(select(database.merge_traffic_table.c.ID, database.merge_traffic_table.c.신고번호), conn)
-        df_p = pd.read_sql_query(select(database.merge_parking_table.c.ID, database.merge_parking_table.c.신고번호), conn)
+        _df_p = _safe_read(conn, database.merge_parking_table)
+        df_p = _df_p[['ID', '신고번호']] if not _df_p.empty else pd.DataFrame(columns=['ID', '신고번호'])
         df_o = pd.read_sql_query(select(database.merge_other_table.c.ID, database.merge_other_table.c.신고번호), conn)
         df = pd.concat([df_t, df_p, df_o])
         
@@ -471,7 +489,10 @@ def get_unrated_records(engine):
     with engine.connect() as conn:
         results = []
         for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
-            df = pd.read_sql_query(select(t), conn)
+            try:
+                df = pd.read_sql_query(select(t), conn)
+            except OperationalError:
+                continue
             if df.empty:
                 continue
             # 이미 참여 완료 또는 참여 불가(취하)인 항목 제외
@@ -494,7 +515,7 @@ def get_all_watchlist(engine):
         watch_ids = set(df_watch['신고번호'].tolist())
 
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
-        df_p = pd.read_sql_query(select(database.merge_parking_table), conn)
+        df_p = _safe_read(conn, database.merge_parking_table)
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
 
         df = pd.concat([df_t, df_p, df_o], ignore_index=True)
