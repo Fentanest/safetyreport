@@ -60,8 +60,10 @@ def _prepare_database(engine, reset=False):
         data_tables = [
             database.title_table,
             database.detail_traffic_table,
+            database.detail_parking_table,
             database.detail_other_table,
             database.merge_traffic_table,
+            database.merge_parking_table,
             database.merge_other_table,
         ]
         database.metadata.drop_all(engine, tables=data_tables)

@@ -80,6 +80,23 @@ def _checkpoint_wal():
 async def lifespan(app: FastAPI):
     global bot_process
     # ── startup ──────────────────────────────────────────────────────────────
+    # uvicorn 접근 로그에 타임스탬프 추가 (log_config 적용 여부와 무관하게 보장)
+    try:
+        import logging as _logging
+        from uvicorn.logging import AccessFormatter as _AF, DefaultFormatter as _DF
+        _ts = "%Y-%m-%d %H:%M:%S"
+        _fmts = [
+            ("uvicorn.access", _AF, '[%(asctime)s] %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'),
+            ("uvicorn", _DF, "[%(asctime)s] %(levelprefix)s %(message)s"),
+            ("uvicorn.error", _DF, "[%(asctime)s] %(levelprefix)s %(message)s"),
+        ]
+        for _name, _cls, _fmt in _fmts:
+            _log = _logging.getLogger(_name)
+            for _h in _log.handlers:
+                _h.setFormatter(_cls(fmt=_fmt, datefmt=_ts, use_colors=False))
+    except Exception:
+        pass
+
     from services.ws_manager import ws_manager as _ws_manager
     _ws_manager.set_main_loop(asyncio.get_event_loop())
     database.upgrade_schema(engine)
