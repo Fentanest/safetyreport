@@ -85,13 +85,9 @@ def crawl_details(driver, list):
             logger.LoggerFactory.logbot.info(detaillist)
             df = pd.DataFrame([detaillist], columns=cols)
             entry_value = details.get("entry_value", "")
-            if "자동차·교통위반" in entry_value:
-                category = "traffic"
-            elif "불법주정차신고" in entry_value:
-                category = "parking"
-            else:
-                category = "other"
-            yield (df, category)
+            from core.database.database import category_from_entry_value
+            category = category_from_entry_value(entry_value)
+            yield (df, category, entry_value)
 
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"Error processing link {link}: {e}")

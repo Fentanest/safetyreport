@@ -8,7 +8,74 @@ from dateutil.relativedelta import relativedelta
 
 from .models import (metadata, title_table, detail_traffic_table, detail_parking_table, detail_other_table,
                      merge_traffic_table, merge_parking_table, merge_other_table, watchlist_table, admin_users_table,
-                     api_keys_table)
+                     api_keys_table, entry_value_table)
+
+def category_from_entry_value(entry_value: str) -> str:
+    """entry_value 문자열로부터 카테고리를 결정합니다."""
+    if "자동차·교통위반" in entry_value:
+        return "traffic"
+    elif "불법주정차신고" in entry_value:
+        return "parking"
+    else:
+        return "other"
+
+def migrate_by_entry_value(engine):
+    """entry_value 테이블 기반으로 잘못 분류된 신고를 올바른 detail 테이블로 이동합니다."""
+    detail_tables = {
+        "traffic": detail_traffic_table,
+        "other":   detail_other_table,
+        "parking": detail_parking_table,
+    }
+
+    with engine.connect() as conn:
+        rows = conn.execute(select(entry_value_table)).fetchall()
+        if not rows:
+            return
+
+        moved = 0
+        for row in rows:
+            record_id = row.ID
+            correct_cat = category_from_entry_value(row.entry_value)
+            correct_table = detail_tables[correct_cat]
+
+            # 현재 어느 테이블에 있는지 찾기
+            current_table = None
+            current_cat = None
+            for cat, tbl in detail_tables.items():
+                try:
+                    res = conn.execute(select(tbl).where(tbl.c.ID == record_id)).first()
+                    if res:
+                        current_table = tbl
+                        current_cat = cat
+                        break
+                except Exception:
+                    continue
+
+            if current_table is None or current_cat == correct_cat:
+                continue  # 이미 올바른 테이블이거나 DB에 없음
+
+            # 올바른 테이블로 이동
+            record = dict(conn.execute(select(current_table).where(current_table.c.ID == record_id)).first()._mapping)
+            ins = insert(correct_table).values(record)
+            ins = ins.on_conflict_do_update(
+                index_elements=['ID'],
+                set_={col.name: getattr(ins.excluded, col.name) for col in correct_table.c if col.name != 'ID'}
+            )
+            conn.execute(ins)
+            conn.execute(current_table.delete().where(current_table.c.ID == record_id))
+            moved += 1
+            logger.LoggerFactory.logbot.info(
+                f"[migrate] ID={record_id} {current_cat} → {correct_cat} (entry_value: {row.entry_value[:40]})"
+            )
+
+        conn.commit()
+
+    if moved:
+        logger.LoggerFactory.logbot.info(f"[migrate] entry_value 기반 {moved}건 재분류 완료. merge_final 재실행.")
+        merge_final(engine)
+    else:
+        logger.LoggerFactory.logbot.debug("[migrate] entry_value 기반 재분류: 이동할 항목 없음.")
+
 
 def upgrade_schema(engine):
     inspector = inspect(engine)
@@ -49,6 +116,8 @@ def upgrade_schema(engine):
                         except Exception as e:
                             logger.LoggerFactory.logbot.error(f"스키마 업그레이드 오류: {e}")
         connection.commit()
+
+    migrate_by_entry_value(engine)
 
 def _get_all_title_ids(conn):
     logger.LoggerFactory.logbot.info("전체 신고 건을 다시 스캔합니다.")
@@ -180,20 +249,33 @@ def deatil_to_sql(dataframes_with_category, engine, conn=None):
     total_records = 0
 
     with engine.connect() as conn:
-        for df, category in dataframes_with_category:
+        for item in dataframes_with_category:
+            # (df, category) 또는 (df, category, entry_value) 형태 모두 지원
+            if len(item) == 3:
+                df, category, entry_value = item
+            else:
+                df, category = item
+                entry_value = None
+
             if category == "traffic":
                 target_table = detail_traffic_table
             elif category == "parking":
                 target_table = detail_parking_table
             else:
                 target_table = detail_other_table
-            
+
             records = df.to_dict('records')
             if not records:
                 continue
-            
+
             new_record = records[0]
             record_id = new_record['ID']
+
+            # entry_value 저장
+            if entry_value is not None:
+                ev_stmt = insert(entry_value_table).values(ID=record_id, entry_value=entry_value)
+                ev_stmt = ev_stmt.on_conflict_do_update(index_elements=['ID'], set_={'entry_value': entry_value})
+                conn.execute(ev_stmt)
             total_records += 1
 
             select_stmt = select(target_table).where(target_table.c.ID == record_id)

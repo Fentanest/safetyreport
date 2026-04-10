@@ -82,3 +82,7 @@ api_keys_table = Table('api_keys', metadata,
                        Column('key', String, primary_key=True),
                        Column('name', String, nullable=False),
                        Column('created_at', String, nullable=False))
+
+entry_value_table = Table('mysafety_entry_value', metadata,
+                          Column('ID', String, primary_key=True),
+                          Column('entry_value', String, nullable=False))
