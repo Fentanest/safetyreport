@@ -72,7 +72,7 @@
             </div>
             <div class="card-body">
                 <p class="text-muted small mb-3">
-                    서버에 WebSocket으로 실시간 연결된 모바일 앱 기기 목록입니다.
+                    WebSocket 실시간 연결 및 최근 HTTP API 요청 기기 목록입니다.
                 </p>
                 <div id="connectedClientsContainer">
                     <div id="connectedCount" class="fw-bold mb-2 text-success">
@@ -111,12 +111,18 @@
                     listEl.innerHTML = '<p class="text-muted small">현재 연결된 기기가 없습니다.</p>';
                 } else {
                     countEl.innerHTML = '<i class="fas fa-circle text-success me-1"></i>' + clients.length + '개 기기 연결됨';
-                    var html = '<table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr><th>ID</th><th>IP</th><th>연결 시각</th></tr></thead><tbody>';
+                    var html = '<table class="table table-sm table-bordered mb-0"><thead class="table-light"><tr><th>기기</th><th>연결 방식</th><th>IP</th><th>시각</th></tr></thead><tbody>';
                     clients.forEach(function (c) {
+                        var isWs = c.connection_type === 'WebSocket';
+                        var badge = isWs
+                            ? '<span class="badge bg-success">WebSocket</span>'
+                            : '<span class="badge bg-primary">HTTP API</span>';
+                        var time = c.connected_at || c.last_used || '-';
                         html += '<tr>';
-                        html += '<td><code class="small">' + (c.client_id || '-') + '</code></td>';
+                        html += '<td><code class="small">' + (c.device_name || c.client_id || '-') + '</code></td>';
+                        html += '<td>' + badge + '</td>';
                         html += '<td class="small">' + (c.ip || '-') + '</td>';
-                        html += '<td class="text-muted small">' + (c.connected_at || '-') + '</td>';
+                        html += '<td class="text-muted small">' + time + '</td>';
                         html += '</tr>';
                     });
                     html += '</tbody></table>';

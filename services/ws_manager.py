@@ -22,6 +22,7 @@ class WsManager:
             cls._instance = super().__new__(cls)
             cls._instance._connections: Dict[str, WebSocket] = {}
             cls._instance._connection_meta: Dict[str, dict] = {}
+            cls._instance._api_clients: Dict[str, dict] = {}   # HTTP API 최근 사용 추적
             cls._instance._main_loop: asyncio.AbstractEventLoop | None = None
         return cls._instance
 
@@ -86,11 +87,23 @@ class WsManager:
             # 폴백: 연결된 클라이언트가 없거나 루프 미설정
             logger.debug(f"[WS] 메인 루프 없음, 브로드캐스트 스킵: {event_type}")
 
+    def track_api_request(self, api_key: str, device_name: str, ip: str = ""):
+        """HTTP API 요청 시 최근 사용 기록 (in-memory)"""
+        self._api_clients[api_key] = {
+            "device_name": device_name or "알 수 없는 기기",
+            "api_key": api_key,
+            "last_used": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "ip": ip,
+            "connection_type": "HTTP API",
+        }
+
     def get_connected_clients(self) -> list:
-        return [
-            {"client_id": meta.get("device_name", cid[:8] + "..."), **meta}
+        ws_clients = [
+            {"client_id": meta.get("device_name", cid[:8] + "..."), "connection_type": "WebSocket", **meta}
             for cid, meta in self._connection_meta.items()
         ]
+        api_clients = list(self._api_clients.values())
+        return ws_clients + api_clients
 
     def connected_count(self) -> int:
         return len(self._connections)

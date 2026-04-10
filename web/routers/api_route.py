@@ -12,9 +12,12 @@ engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_sam
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-def _require_api_key(api_key: str = Depends(_api_key_header)):
+def _require_api_key(request: Request, api_key: str = Depends(_api_key_header)):
     if not api_key or not database.validate_api_key(engine, api_key):
         raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
+    device_name = database.get_api_key_name(engine, api_key)
+    ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "")
+    ws_manager.track_api_request(api_key, device_name, ip)
     return api_key
 
 @router.get("/summary")
