@@ -207,35 +207,49 @@ def title_to_sql(dataframes, engine, conn=None):
     incoming_ids = combined_df['ID'].tolist()
     new_report_numbers = []
 
+    # SQLite SQLITE_MAX_VARIABLE_NUMBER 한계 대응 (구버전 999, 신버전 32766)
+    # mysafety 테이블 컬럼 수 = 7 → 배치당 최대 100행 (700 변수)
+    TITLE_COLS = 7
+    BATCH_SIZE = 100
+    ID_CHUNK = 500  # in_() 쿼리용
+
     with engine.connect() as conn:
-        existing_ids_query = select(title_table.c.ID).where(title_table.c.ID.in_(incoming_ids))
-        existing_ids = set(pd.read_sql(existing_ids_query, conn)['ID'])
+        # 기존 ID 조회 - in_() 변수 한계 대응을 위해 청크로 분할
+        existing_ids = set()
+        for i in range(0, len(incoming_ids), ID_CHUNK):
+            chunk_ids = incoming_ids[i:i + ID_CHUNK]
+            q = select(title_table.c.ID).where(title_table.c.ID.in_(chunk_ids))
+            chunk_result = pd.read_sql(q, conn)
+            existing_ids.update(chunk_result['ID'].tolist())
 
         new_df = combined_df[~combined_df['ID'].isin(existing_ids)]
         if not new_df.empty:
             new_report_numbers = new_df['신고번호'].tolist()
 
-        records = combined_df.to_dict('records')
-        insert_stmt = insert(title_table).values(records)
-
         from sqlalchemy import case as sa_case
-        # 만족도조사여부: 새 값이 비어있으면 기존 값을 유지 (재크롤링 시 덮어쓰기 방지)
-        poll_update = sa_case(
-            (insert_stmt.excluded.만족도조사여부 != '', insert_stmt.excluded.만족도조사여부),
-            else_=title_table.c.만족도조사여부
-        )
-        update_dict = {
-            '상태': insert_stmt.excluded.상태,
-            '신고번호': insert_stmt.excluded.신고번호,
-            '신고명': insert_stmt.excluded.신고명,
-            '신고일': insert_stmt.excluded.신고일,
-            '만족도조사여부': poll_update,
-        }
-        upsert_query = insert_stmt.on_conflict_do_update(
-            index_elements=['ID'],
-            set_=update_dict
-        )
-        conn.execute(upsert_query)
+        records = combined_df.to_dict('records')
+
+        # 배치 단위로 upsert (too many SQL variables 방지)
+        for i in range(0, len(records), BATCH_SIZE):
+            batch = records[i:i + BATCH_SIZE]
+            insert_stmt = insert(title_table).values(batch)
+            # 만족도조사여부: 새 값이 비어있으면 기존 값을 유지 (재크롤링 시 덮어쓰기 방지)
+            poll_update = sa_case(
+                (insert_stmt.excluded.만족도조사여부 != '', insert_stmt.excluded.만족도조사여부),
+                else_=title_table.c.만족도조사여부
+            )
+            update_dict = {
+                '상태': insert_stmt.excluded.상태,
+                '신고번호': insert_stmt.excluded.신고번호,
+                '신고명': insert_stmt.excluded.신고명,
+                '신고일': insert_stmt.excluded.신고일,
+                '만족도조사여부': poll_update,
+            }
+            upsert_query = insert_stmt.on_conflict_do_update(
+                index_elements=['ID'],
+                set_=update_dict
+            )
+            conn.execute(upsert_query)
         conn.commit()
 
     logger.LoggerFactory.logbot.info(f"총 {len(combined_df)}건 title 테이블 upsert 완료. (신규: {len(new_report_numbers)}건)")
