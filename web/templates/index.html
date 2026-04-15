@@ -195,8 +195,8 @@
                     <tbody id="watchlistBody">
                         {% for item in watchlist %}
                         <tr>
-                            <td><a href="https://www.safetyreport.go.kr/#mypage/mysafereport/{{ item.ID }}"
-                                    target="_blank">{{ item.신고번호 }}</a></td>
+                            <td><a href="#" class="report-detail-link"
+                                    data-report="{{ item | tojson | e }}">{{ item.신고번호 }}</a></td>
                             <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{
                                 item.신고명 }}</td>
                             <td>{{ item.신고일 }}</td>
@@ -251,8 +251,8 @@
                     <tbody id="recentAnswersBody">
                         {% for item in recent_answers %}
                         <tr>
-                            <td><a href="https://www.safetyreport.go.kr/#mypage/mysafereport/{{ item.ID }}"
-                                    target="_blank">{{ item.신고번호 }}</a></td>
+                            <td><a href="#" class="report-detail-link"
+                                    data-report="{{ item | tojson | e }}">{{ item.신고번호 }}</a></td>
                             <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{
                                 item.신고명 }}</td>
                             <td>{{ item.신고일 }}</td>

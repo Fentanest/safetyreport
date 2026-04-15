@@ -255,6 +255,213 @@ document.addEventListener('click', function(e) {
             window.open(href, '_blank');
         });
 });
+
+// ── 신고 상세 팝업 ─────────────────────────────────────────────
+(function() {
+    var _modal = null;
+    function getModal() {
+        if (!_modal) _modal = new bootstrap.Modal(document.getElementById('reportDetailModal'));
+        return _modal;
+    }
+
+    function esc(v) {
+        return String(v == null ? '' : v)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function splitUrls(raw) {
+        if (!raw || raw === '6개월 초과') return [];
+        return raw.split(/\n|%0A|%0a/).map(function(s){return s.trim();}).filter(Boolean);
+    }
+
+    function isVideo(url) {
+        try { var p = new URL(url, location.href).pathname.toLowerCase(); return /\.(mp4|mov|avi|webm|mkv)$/.test(p); } catch(e) { return false; }
+    }
+    function isImage(url) {
+        try { var p = new URL(url, location.href).pathname.toLowerCase(); return /\.(jpg|jpeg|png|gif|webp|bmp)$/.test(p); } catch(e) { return false; }
+    }
+
+    function statusBadge(s) {
+        if (!s) return '';
+        var cls = 'bg-secondary';
+        if (s === '수용') cls = 'bg-success';
+        else if (s === '일부수용') cls = 'bg-warning text-dark';
+        else if (s === '불수용' || s === '기타') cls = 'bg-danger';
+        else if (s === '처리중') cls = 'bg-primary';
+        else if (s === '취하') cls = 'bg-secondary';
+        return '<span class="badge ' + cls + '">' + esc(s) + '</span>';
+    }
+
+    function field(icon, label, value) {
+        if (!value || value === '' || value === '미확인') return '';
+        return '<div class="d-flex align-items-start mb-2">' +
+            '<i class="' + icon + ' text-muted me-2" style="width:14px;font-size:.82rem;margin-top:2px"></i>' +
+            '<span class="text-muted me-2 flex-shrink-0" style="min-width:78px;font-size:.82rem">' + label + '</span>' +
+            '<span class="fw-medium" style="font-size:.82rem;word-break:break-all">' + esc(value) + '</span>' +
+            '</div>';
+    }
+
+    function safetyUrl(id) {
+        return 'https://www.safetyreport.go.kr/#mypage/mysafereport/' + encodeURIComponent(id || '');
+    }
+
+    window.showReportDetail = function(d) {
+        // 헤더
+        document.getElementById('rdName').textContent = d['신고명'] || '';
+        var status = d['처리상태'] || d['결과'] || d['상태'] || '';
+        document.getElementById('rdStatusBadge').innerHTML = statusBadge(status);
+
+        // 필드 목록
+        var occur = d['발생일자'] || '';
+        if (occur && d['발생시각']) occur += '  ' + d['발생시각'];
+
+        document.getElementById('rdFields').innerHTML =
+            field('fas fa-tag',              '신고번호',    d['신고번호']) +
+            field('fas fa-calendar',         '신고일',      d['신고일']) +
+            field('fas fa-check-circle',     '답변일',      d['답변일']) +
+            field('fas fa-building',         '처리기관',    d['처리기관']) +
+            field('fas fa-user',             '담당자',      d['담당자']) +
+            field('fas fa-coins',            '과태료/범칙금', d['범칙금_과태료']) +
+            field('fas fa-exclamation-triangle','벌점',     d['벌점']) +
+            field('fas fa-car',              '차량번호',    d['차량번호']) +
+            field('fas fa-gavel',            '위반법규',    d['위반법규']) +
+            field('fas fa-map-marker-alt',   '위반장소',    d['위반장소']) +
+            field('fas fa-calendar-day',     '발생일자',    occur);
+
+        // 신고내용
+        var rc = document.getElementById('rdReportContent');
+        var reportContent = d['신고내용'] || '';
+        if (reportContent) {
+            document.getElementById('rdReportContentText').textContent = reportContent;
+            rc.style.display = '';
+        } else { rc.style.display = 'none'; }
+
+        // 처리내용
+        var pc = document.getElementById('rdProcessContent');
+        var processContent = d['처리내용'] || '';
+        if (processContent) {
+            document.getElementById('rdProcessContentText').textContent = processContent;
+            pc.style.display = '';
+        } else { pc.style.display = 'none'; }
+
+        // 미디어 분류
+        var mapUrls   = splitUrls(d['지도'] || '');
+        var photoUrls = splitUrls(d['첨부사진'] || '');
+        var fileUrls  = splitUrls(d['첨부파일'] || '');
+
+        var imageUrls = [], videoUrls = [], otherFiles = [];
+        mapUrls.forEach(function(u){ if(imageUrls.indexOf(u)<0) imageUrls.push(u); });
+        photoUrls.forEach(function(u){
+            if(isVideo(u)){ if(videoUrls.indexOf(u)<0) videoUrls.push(u); }
+            else { if(imageUrls.indexOf(u)<0) imageUrls.push(u); }
+        });
+        fileUrls.forEach(function(u){
+            if(isImage(u) && imageUrls.indexOf(u)<0) imageUrls.push(u);
+            else if(isVideo(u) && videoUrls.indexOf(u)<0) videoUrls.push(u);
+            else otherFiles.push(u);
+        });
+
+        // 이미지 섹션
+        var mediaDiv = document.getElementById('rdMedia');
+        if (imageUrls.length > 0) {
+            document.getElementById('rdMediaList').innerHTML = imageUrls.map(function(url) {
+                return '<div class="mb-3 border rounded p-2 bg-light">' +
+                    '<img src="' + url + '" class="img-fluid rounded mb-2" style="max-height:340px;width:100%;object-fit:contain;background:#000" ' +
+                    'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'\'">' +
+                    '<div class="text-muted small" style="display:none">이미지를 불러올 수 없습니다.</div>' +
+                    '<a href="' + url + '" target="_blank" class="btn btn-sm btn-outline-secondary mt-1"><i class="fas fa-external-link-alt me-1"></i>새 탭으로 열기</a>' +
+                    '</div>';
+            }).join('');
+            mediaDiv.style.display = '';
+        } else { mediaDiv.style.display = 'none'; }
+
+        // 동영상 섹션
+        var videoDiv = document.getElementById('rdVideos');
+        if (videoUrls.length > 0) {
+            document.getElementById('rdVideoList').innerHTML = videoUrls.map(function(url) {
+                return '<div class="mb-3 border rounded p-2 bg-light">' +
+                    '<video controls class="w-100 rounded mb-1" style="max-height:340px;background:#000">' +
+                    '<source src="' + url + '">브라우저가 동영상 재생을 지원하지 않습니다.</video>' +
+                    '<a href="' + url + '" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="fas fa-external-link-alt me-1"></i>새 탭으로 열기</a>' +
+                    '</div>';
+            }).join('');
+            videoDiv.style.display = '';
+        } else { videoDiv.style.display = 'none'; }
+
+        // 기타 파일 섹션
+        var filesDiv = document.getElementById('rdFiles');
+        if (otherFiles.length > 0) {
+            document.getElementById('rdFileList').innerHTML = otherFiles.map(function(url, i) {
+                var fname = url.split('?')[0].split('/').filter(Boolean).pop() || ('파일 ' + (i+1));
+                return '<div class="mb-2 border rounded p-2 bg-light d-flex align-items-center gap-2">' +
+                    '<i class="fas fa-file text-muted"></i>' +
+                    '<span class="text-truncate flex-grow-1 small">' + esc(fname) + '</span>' +
+                    '<a href="' + url + '" target="_blank" class="btn btn-sm btn-outline-primary flex-shrink-0">열기</a>' +
+                    '</div>';
+            }).join('');
+            filesDiv.style.display = '';
+        } else { filesDiv.style.display = 'none'; }
+
+        // 안전신문고 버튼
+        document.getElementById('rdViewBtn').onclick = function() {
+            var id = d['ID'] || '';
+            var url = safetyUrl(id);
+            fetch('https://www.safetyreport.go.kr/', { mode: 'no-cors', cache: 'no-store' })
+                .catch(function(){}).finally(function(){ window.open(url, '_blank'); });
+        };
+
+        getModal().show();
+    };
+
+    // index.html / watchlist.html 등 Jinja2 렌더 링크 처리
+    $(document).on('click', 'a.report-detail-link[data-report]', function(e) {
+        e.preventDefault();
+        try { window.showReportDetail(JSON.parse($(this).attr('data-report'))); } catch(_) {}
+    });
+})();
 </script>
+
+<!-- 신고 상세 팝업 모달 -->
+<div class="modal fade" id="reportDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header pb-2">
+        <div class="flex-grow-1 me-2">
+          <h6 class="modal-title fw-bold mb-1" id="rdName"></h6>
+          <div id="rdStatusBadge"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body py-3">
+        <div id="rdFields" class="mb-2"></div>
+        <div id="rdReportContent" class="mb-3" style="display:none">
+          <div class="fw-bold text-muted small mb-1">신고내용</div>
+          <div class="bg-light rounded p-2 border" style="font-size:.83rem;line-height:1.7;white-space:pre-wrap" id="rdReportContentText"></div>
+        </div>
+        <div id="rdProcessContent" class="mb-3" style="display:none">
+          <div class="fw-bold text-muted small mb-1">처리내용</div>
+          <div class="bg-light rounded p-2 border" style="font-size:.83rem;line-height:1.7;white-space:pre-wrap" id="rdProcessContentText"></div>
+        </div>
+        <div id="rdMedia" class="mb-3" style="display:none">
+          <div class="fw-bold text-muted small mb-2">첨부 사진</div>
+          <div id="rdMediaList"></div>
+        </div>
+        <div id="rdVideos" class="mb-3" style="display:none">
+          <div class="fw-bold text-muted small mb-2">첨부 동영상</div>
+          <div id="rdVideoList"></div>
+        </div>
+        <div id="rdFiles" class="mb-2" style="display:none">
+          <div class="fw-bold text-muted small mb-2">첨부파일</div>
+          <div id="rdFileList"></div>
+        </div>
+      </div>
+      <div class="modal-footer pt-2">
+        <button type="button" class="btn btn-primary w-100" id="rdViewBtn">
+          <i class="fas fa-external-link-alt me-1"></i>안전신문고에서 보기
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>

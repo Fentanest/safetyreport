@@ -156,10 +156,13 @@
             deferRender: true,
             processing: true,
             columns: [
-                { data: 'ID' },
+                { data: 'ID', render: function(v, t) {
+                    if (t === 'display') return '<a href="https://www.safetyreport.go.kr/#mypage/mysafereport/' + esc(v) + '" target="_blank">' + esc(v) + '</a>';
+                    return v == null ? '' : String(v);
+                }},
                 {
-                    data: '신고번호', render: function (v, t, row) {
-                        if (t === 'display') return '<a href="https://www.safetyreport.go.kr/#mypage/mysafereport/' + esc(row['ID']) + '" target="_blank">' + esc(v) + '</a>';
+                    data: '신고번호', render: function (v, t) {
+                        if (t === 'display') return '<a href="#" class="report-detail-link">' + esc(v) + '</a>';
                         return v == null ? '' : String(v);
                     }
                 },
@@ -193,6 +196,13 @@
                 { targets: 6, width: '50px' },
                 { targets: 7, width: '100px' }
             ]
+        });
+
+        // 신고번호 클릭 → 상세 팝업
+        $('#ratingTable').on('click', 'a.report-detail-link', function(e) {
+            e.preventDefault();
+            var rowData = table.row($(this).closest('tr')).data();
+            if (rowData) showReportDetail(rowData);
         });
 
         const logConsole = document.getElementById('ratingLogConsole');

@@ -274,11 +274,14 @@ $(document).ready(function() {
     const columns = [
         { data: '신고번호', orderable: false, searchable: false, className: 'text-center',
           render: (d) => `<input type="checkbox" class="row-checkbox" value="${esc(d)}">` },
-        { data: 'ID' },
+        { data: 'ID', className: 'text-center',
+          render: (d, t, r) => t === 'display'
+              ? `<a href="https://www.safetyreport.go.kr/#mypage/mysafereport/${esc(d)}" target="_blank">${esc(d)}</a>`
+              : (d || '') },
         { data: '상태', className: 'text-center' },
         { data: '신고번호', className: 'text-center',
-          render: (d, t, r) => t === 'display'
-              ? `<a href="https://www.safetyreport.go.kr/#mypage/mysafereport/${esc(r.ID)}" target="_blank">${esc(d)}</a>`
+          render: (d, t) => t === 'display'
+              ? `<a href="#" class="report-detail-link">${esc(d)}</a>`
               : (d || '') },
         { data: '신고명',
           render: (d, t) => t === 'display' ? renderEllipsis(d, t, 225) : (d || '') },
@@ -847,6 +850,13 @@ $(document).ready(function() {
     `);
 
     var _attachModal = new bootstrap.Modal(document.getElementById('attachModal'));
+
+    // 신고번호 클릭 → 상세 팝업
+    $('#{{ table_id }}').on('click', 'a.report-detail-link', function(e) {
+        e.preventDefault();
+        var rowData = table.row($(this).closest('tr')).data();
+        if (rowData) showReportDetail(rowData);
+    });
 
     $('#{{ table_id }} tbody').on('dblclick', 'td', function() {
         var cellIdx = table.cell(this).index();
