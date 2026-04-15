@@ -253,15 +253,21 @@ def parse_json_details(result_data):
         violation_location = str(result_data.get("C_A_ADDR_HEAD", "")) + " " + str(result_data.get("C_A_ADDR_TAIL", ""))
     violation_location = violation_location.strip()
     
-    # 2. Progress Status Mapping
     c_now = result_data.get("C_NOW", 0)
+    try:
+        c_now = int(float(c_now))
+    except:
+        pass
+        
     process_status = "진행"
-    if str(c_now) == "10": process_status = "답변완료"
-    elif str(c_now) == "11": process_status = "일부수용"
-    elif str(c_now) == "14": process_status = "불수용"
-    elif str(c_now) == "15": process_status = "기타"
-    elif str(c_now) == "20": process_status = "취하"
-    elif str(c_now) == "30": process_status = "이송"
+    if c_now == 10: process_status = "답변완료"
+    elif c_now == 11: process_status = "일부수용"
+    elif c_now == 12: process_status = "검토중"
+    elif c_now == 14: process_status = "불수용"
+    elif c_now == 15: process_status = "기타"
+    elif c_now == 20: process_status = "취하"
+    elif c_now == 30: process_status = "이송"
+    elif c_now > 0: process_status = str(c_now)
     
     report_content = ""
     if content_text_clean:
@@ -280,8 +286,16 @@ def parse_json_details(result_data):
     answers = result_data.get("answers", [])
     if answers:
         latest_ans = answers[-1]
-        processing_status = latest_ans.get("C_MANAGER_TYPE_NM", latest_ans.get("C_R_PROC_STAT_NM", ""))
-        if processing_status in ["수용", "불수용", "일부수용", "기타", "검토중"]:
+        processing_status = latest_ans.get("C_MANAGER_TYPE_NM")
+        if not processing_status or processing_status in ["진행", "처리중"]:
+            processing_status = latest_ans.get("C_R_PROC_STAT_NM", processing_status)
+            
+        if not processing_status or processing_status in ["진행", "처리중"]:
+            # If C_NOW indicates completion but agency left status as 진행
+            if process_status in ["답변완료", "수용", "불수용", "일부수용", "기타"]:
+                processing_status = process_status
+                
+        if processing_status in ["수용", "불수용", "일부수용", "기타", "검토중", "답변완료"]:
             processing_finish = "Y"
         processing_agency = latest_ans.get("C_MANAGE_ORG_NAME", latest_ans.get("C_MANAGER_TYPE_NM", ""))
         person_in_charge = latest_ans.get("C_MANAGE_MAN", latest_ans.get("C_R_MOD_ID", ""))

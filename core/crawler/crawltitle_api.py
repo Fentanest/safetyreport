@@ -79,7 +79,11 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
             date = item.get("C_DATE", "")
             c_now = item.get("C_NOW", 0)
             score = int(item.get("STSFDG_SCORE", 0))
-            
+            try:
+                c_now = int(float(c_now))
+            except:
+                pass
+                
             if c_now == 0:
                 state = "진행"
                 found_in_progress = True

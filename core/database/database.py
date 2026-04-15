@@ -360,11 +360,46 @@ def _merge_for_table(conn, merge_target, detail_source):
     insert_stmt = merge_target.insert().from_select([c.name for c in merge_target.c], select_stmt)
     conn.execute(insert_stmt)
 
+def _sync_title_status_from_detail(conn):
+    """
+    안전신문고 목록 API는 완료된 건을 반환하지 않아 title.상태가 '진행'으로 고착되는 문제 수정.
+    상세 크롤링 결과(detail → merge 테이블)의 처리상태를 기준으로 title.상태를 동기화.
+    완료 상태인 경우에만 업데이트하고, 아직 처리중인 건에는 영향 없음.
+    """
+    STATUS_MAP = {
+        '수용': '답변완료',
+        '불수용': '불수용',
+        '일부수용': '일부수용',
+        '기타': '기타',
+        '취하': '취하',
+        '답변완료': '답변완료',
+    }
+    synced = 0
+    for detail_table in [detail_traffic_table, detail_parking_table, detail_other_table]:
+        for proc_status, title_status in STATUS_MAP.items():
+            stmt = (
+                update(title_table)
+                .where(title_table.c.상태 == '진행')
+                .where(
+                    exists(
+                        select(detail_table.c.ID)
+                        .where(detail_table.c.ID == title_table.c.ID)
+                        .where(detail_table.c.처리상태 == proc_status)
+                    )
+                )
+                .values(상태=title_status)
+            )
+            result = conn.execute(stmt)
+            synced += result.rowcount
+    if synced > 0:
+        logger.LoggerFactory.logbot.info(f"[sync] 목록 API 미갱신 종결건 {synced}건 title.상태 동기화 완료")
+
 def merge_final(engine, conn=None):
     with engine.connect() as conn:
         _merge_for_table(conn, merge_traffic_table, detail_traffic_table)
         _merge_for_table(conn, merge_parking_table, detail_parking_table)
         _merge_for_table(conn, merge_other_table, detail_other_table)
+        _sync_title_status_from_detail(conn)
         conn.commit()
         logger.LoggerFactory.logbot.info("최종 데이터 병합 완료 (Traffic/Parking/Other 분리)")
 
