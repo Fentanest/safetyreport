@@ -87,7 +87,7 @@ def crawl_details(driver, list):
             entry_value = details.get("entry_value", "")
             from core.database.database import category_from_entry_value
             category = category_from_entry_value(entry_value)
-            yield (df, category, entry_value)
+            yield (df, category, entry_value, progress_status)
 
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"Error processing link {link}: {e}")

@@ -61,7 +61,7 @@ def crawl_details(driver, list):
             entry_value = details.get("entry_value", "")
             from core.database.database import category_from_entry_value
             category = category_from_entry_value(entry_value)
-            yield (df, category, entry_value)
+            yield (df, category, entry_value, details.get("progress_status", ""))
             sleep(0.3)
             
         except Exception as e:

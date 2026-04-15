@@ -255,6 +255,16 @@ def title_to_sql(dataframes, engine, conn=None):
     logger.LoggerFactory.logbot.info(f"총 {len(combined_df)}건 title 테이블 upsert 완료. (신규: {len(new_report_numbers)}건)")
     return new_report_numbers
 
+_TITLE_STATUS_FROM_PROGRESS = {
+    '답변완료': '답변완료',
+    '수용':     '답변완료',  # 레거시 HTML '진행상황' 텍스트
+    '불수용':   '불수용',
+    '일부수용': '일부수용',
+    '기타':     '기타',
+    '취하':     '취하',
+    '이송':     '이송',
+}
+
 def deatil_to_sql(dataframes_with_category, engine, conn=None):
     if not dataframes_with_category:
         return []
@@ -263,8 +273,11 @@ def deatil_to_sql(dataframes_with_category, engine, conn=None):
     total_records = 0
 
     for item in dataframes_with_category:
-        # (df, category) 또는 (df, category, entry_value) 형태 모두 지원
-        if len(item) == 3:
+        # (df, category), (df, category, entry_value), (df, category, entry_value, progress_status) 모두 지원
+        progress_status = None
+        if len(item) == 4:
+            df, category, entry_value, progress_status = item
+        elif len(item) == 3:
             df, category, entry_value = item
         else:
             df, category = item
@@ -319,6 +332,18 @@ def deatil_to_sql(dataframes_with_category, engine, conn=None):
                     set_=update_dict
                 )
                 conn.execute(upsert_query)
+
+                # detail 크롤링 시 확인된 C_NOW(API) / 진행상황(레거시) 기반으로
+                # title.상태가 '진행'으로 고착된 경우 동기화
+                # (큐 크롤 시 title_to_sql 스킵으로 인해 상태 미갱신되는 케이스 대응)
+                title_status = _TITLE_STATUS_FROM_PROGRESS.get(progress_status)
+                if title_status:
+                    conn.execute(
+                        update(title_table)
+                        .where(title_table.c.ID == record_id)
+                        .where(title_table.c.상태 == '진행')
+                        .values(상태=title_status)
+                    )
                 # engine.begin() 블록 종료 시 자동 commit
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"ID {record_id} upsert 실패, 건너뜀: {e}")
@@ -360,46 +385,11 @@ def _merge_for_table(conn, merge_target, detail_source):
     insert_stmt = merge_target.insert().from_select([c.name for c in merge_target.c], select_stmt)
     conn.execute(insert_stmt)
 
-def _sync_title_status_from_detail(conn):
-    """
-    안전신문고 목록 API는 완료된 건을 반환하지 않아 title.상태가 '진행'으로 고착되는 문제 수정.
-    상세 크롤링 결과(detail → merge 테이블)의 처리상태를 기준으로 title.상태를 동기화.
-    완료 상태인 경우에만 업데이트하고, 아직 처리중인 건에는 영향 없음.
-    """
-    STATUS_MAP = {
-        '수용': '답변완료',
-        '불수용': '불수용',
-        '일부수용': '일부수용',
-        '기타': '기타',
-        '취하': '취하',
-        '답변완료': '답변완료',
-    }
-    synced = 0
-    for detail_table in [detail_traffic_table, detail_parking_table, detail_other_table]:
-        for proc_status, title_status in STATUS_MAP.items():
-            stmt = (
-                update(title_table)
-                .where(title_table.c.상태 == '진행')
-                .where(
-                    exists(
-                        select(detail_table.c.ID)
-                        .where(detail_table.c.ID == title_table.c.ID)
-                        .where(detail_table.c.처리상태 == proc_status)
-                    )
-                )
-                .values(상태=title_status)
-            )
-            result = conn.execute(stmt)
-            synced += result.rowcount
-    if synced > 0:
-        logger.LoggerFactory.logbot.info(f"[sync] 목록 API 미갱신 종결건 {synced}건 title.상태 동기화 완료")
-
 def merge_final(engine, conn=None):
     with engine.connect() as conn:
         _merge_for_table(conn, merge_traffic_table, detail_traffic_table)
         _merge_for_table(conn, merge_parking_table, detail_parking_table)
         _merge_for_table(conn, merge_other_table, detail_other_table)
-        _sync_title_status_from_detail(conn)
         conn.commit()
         logger.LoggerFactory.logbot.info("최종 데이터 병합 완료 (Traffic/Parking/Other 분리)")
 
