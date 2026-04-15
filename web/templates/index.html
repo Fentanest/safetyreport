@@ -196,7 +196,7 @@
                         {% for item in watchlist %}
                         <tr>
                             <td><a href="#" class="report-detail-link"
-                                    data-report="{{ item | tojson | e }}">{{ item.신고번호 }}</a></td>
+                                    data-report='{{ item | tojson }}'>{{ item.신고번호 }}</a></td>
                             <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{
                                 item.신고명 }}</td>
                             <td>{{ item.신고일 }}</td>
@@ -252,7 +252,7 @@
                         {% for item in recent_answers %}
                         <tr>
                             <td><a href="#" class="report-detail-link"
-                                    data-report="{{ item | tojson | e }}">{{ item.신고번호 }}</a></td>
+                                    data-report='{{ item | tojson }}'>{{ item.신고번호 }}</a></td>
                             <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{
                                 item.신고명 }}</td>
                             <td>{{ item.신고일 }}</td>
