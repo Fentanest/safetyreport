@@ -195,12 +195,18 @@ def _apply_linux(current_exe: str, install_dir: str, extract_dir: str,
     """
     셸 스크립트를 백그라운드로 실행한 뒤 현재 프로세스를 종료합니다.
     스크립트가 모든 파일을 교체하고 프로그램을 재시작합니다.
+    shlex.quote()로 경로를 이스케이프하므로 한글·공백·특수문자 경로에 안전합니다.
     """
     import subprocess
     import stat
+    import shlex
 
     sh_path = os.path.join(tmp_dir, "_apply_update.sh")
-    args_str = " ".join(f'"{a}"' for a in sys.argv)
+
+    # 모든 경로를 shlex.quote로 이스케이프 (한글, 공백, 특수문자 대응)
+    q = shlex.quote
+    # sys.argv[0]은 새 바이너리로 대체되므로 제외하고 나머지 인수만 전달
+    extra_args = " ".join(q(a) for a in sys.argv[1:])
 
     with open(sh_path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(
@@ -208,13 +214,13 @@ def _apply_linux(current_exe: str, install_dir: str, extract_dir: str,
             "sleep 2\n"
             # rsync가 있으면 --delete로 깔끔하게, 없으면 cp -rT
             f"if command -v rsync &>/dev/null; then\n"
-            f"  rsync -a --delete '{extract_dir}/' '{install_dir}/'\n"
+            f"  rsync -a --delete {q(extract_dir + '/')} {q(install_dir + '/')}\n"
             f"else\n"
-            f"  cp -rT '{extract_dir}' '{install_dir}'\n"
+            f"  cp -rT {q(extract_dir)} {q(install_dir)}\n"
             f"fi\n"
-            f"chmod +x '{current_exe}'\n"
-            f"rm -rf '{tmp_dir}'\n"
-            f"exec '{current_exe}' {args_str}\n"
+            f"chmod +x {q(current_exe)}\n"
+            f"rm -rf {q(tmp_dir)}\n"
+            f"exec {q(current_exe)} {extra_args}\n"
         )
 
     os.chmod(sh_path, os.stat(sh_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -228,31 +234,46 @@ def _apply_linux(current_exe: str, install_dir: str, extract_dir: str,
     sys.exit(0)
 
 
+def _ps_escape(path: str) -> str:
+    """PowerShell 단일 인용 문자열 안에서 홑따옴표를 이스케이프합니다 (' → '')."""
+    return path.replace("'", "''")
+
+
 def _apply_windows(current_exe: str, install_dir: str, extract_dir: str,
                    tmp_dir: str, new_version: str):
     """
-    bat 스크립트를 새 콘솔 창에서 실행한 뒤 현재 프로세스를 종료합니다.
-    스크립트가 모든 파일을 교체하고 프로그램을 재시작합니다.
+    PowerShell 스크립트를 새 창에서 실행한 뒤 현재 프로세스를 종료합니다.
+    cmd.exe/bat 대신 PowerShell을 사용해 한글·공백 경로를 안전하게 처리합니다.
+    UTF-8 BOM으로 저장하므로 PowerShell이 유니코드를 올바르게 읽습니다.
     """
     import subprocess
 
-    bat_path = os.path.join(tmp_dir, "_apply_update.bat")
-    with open(bat_path, 'w', encoding='mbcs') as f:
-        f.write(
-            "@echo off\n"
-            "echo 업데이트 적용 중...\n"
-            "timeout /t 2 /nobreak > nul\n"
-            # xcopy /E: 하위 디렉토리 포함, /Y: 덮어쓰기 확인 없음, /I: 대상을 디렉토리로 강제
-            f"xcopy /E /Y /I \"{extract_dir}\\*\" \"{install_dir}\\\"\n"
-            f"echo v{new_version} 업데이트 완료!\n"
-            f"start \"\" \"{current_exe}\"\n"
-            f"rmdir /S /Q \"{tmp_dir}\"\n"
-            "del \"%~f0\"\n"
-        )
+    ps_path = os.path.join(tmp_dir, "_apply_update.ps1")
+
+    # PowerShell 단일 인용 문자열: 홑따옴표만 '' 로 이스케이프하면 됨
+    # (이중 인용과 달리 $, `, \ 등은 리터럴로 처리됨)
+    e = _ps_escape
+    ps_content = (
+        "Start-Sleep -Seconds 2\n"
+        # -LiteralPath: 와일드카드 해석 없이 경로를 그대로 처리
+        f"Copy-Item -LiteralPath '{e(extract_dir)}' -Destination '{e(install_dir)}' -Recurse -Force\n"
+        f"Write-Host 'v{e(new_version)} 업데이트 완료!'\n"
+        f"Start-Process -FilePath '{e(current_exe)}'\n"
+        f"Remove-Item -LiteralPath '{e(tmp_dir)}' -Recurse -Force -ErrorAction SilentlyContinue\n"
+    )
+
+    # UTF-8 BOM: PowerShell이 비ASCII 문자를 올바르게 읽도록 보장
+    with open(ps_path, 'w', encoding='utf-8-sig', newline='\r\n') as f:
+        f.write(ps_content)
 
     print(f"v{new_version} 업데이트가 준비되었습니다. 재시작합니다...")
     subprocess.Popen(
-        ["cmd", "/c", bat_path],
+        [
+            "powershell",
+            "-ExecutionPolicy", "Bypass",
+            "-NonInteractive",
+            "-File", ps_path,
+        ],
         creationflags=subprocess.CREATE_NEW_CONSOLE,
         close_fds=True,
     )
