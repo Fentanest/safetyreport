@@ -163,6 +163,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("작업을 취소했습니다.")
     return ConversationHandler.END
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """NetworkError 등 일시적 오류는 DEBUG로 기록하고 무시."""
+    from telegram.error import NetworkError, TimedOut
+    if isinstance(context.error, (NetworkError, TimedOut)):
+        logger.LoggerFactory.get_logger().debug(f"텔레그램 일시적 네트워크 오류 (자동 재시도): {context.error}")
+    else:
+        logger.LoggerFactory.get_logger().error(f"텔레그램 봇 오류: {context.error}", exc_info=context.error)
+
 def main() -> None:
     """Run the bot."""
     logger.LoggerFactory.create_logger()
@@ -204,6 +212,7 @@ def main() -> None:
     )
 
     application.add_handler(conv_handler)
+    application.add_error_handler(error_handler)
 
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
