@@ -267,7 +267,7 @@ $(document).ready(function() {
         if (!d || d === '') return '';
         if (d === '6개월 초과') return '만료';
         const first = esc(d.split('\n')[0]);
-        return `<a href="${first}" download target="_blank">다운로드</a>`;
+        return `<a href="${first}" target="_blank">다운로드</a>`;
     }
 
     // ── 컬럼 정의 ──────────────────────────────────────────────────
