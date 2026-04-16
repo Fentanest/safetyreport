@@ -107,7 +107,8 @@
                     <img src="/static/logo.png" alt="Logo" style="width: 80px; height: auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
                 </div>
                 <h5 class="text-center mb-0 text-white fw-bold">나만의<br>안전신문고</h5>
-                <div class="text-center text-white fw-bold mb-4" style="font-size: 0.8rem;">프로젝트 버전: v{{ request.state.app_version }}</div>
+                <div class="text-center text-white fw-bold" style="font-size: 0.8rem;">프로젝트 버전: v{{ request.state.app_version }}</div>
+                <div class="text-center mb-4" id="sidebarVersionStatus" style="font-size: 0.72rem; min-height: 1.2em;"></div>
                 <a href="/" class="{% if request.url.path == '/' %}active{% endif %}"><i class="fas fa-tachometer-alt fa-fw me-2"></i>대시보드</a>
                 <a href="/crawl" class="{% if request.url.path.startswith('/crawl') %}active{% endif %}"><i class="fas fa-spider fa-fw me-2"></i>크롤링 제어</a>
                 <a href="/rating" class="{% if request.url.path.startswith('/rating') %}active{% endif %}"><i class="fas fa-star fa-fw text-warning me-2"></i>자동 별점 주기</a>
@@ -150,6 +151,28 @@
         </main>
     </div>
 </div>
+
+<!-- 최신 버전 상태 표시 -->
+<script>
+(function() {
+    var el = document.getElementById('sidebarVersionStatus');
+    if (!el) return;
+    fetch('/version/latest')
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.status === 'up_to_date') {
+                el.innerHTML = '<span style="color:#6ee7a0;">&#10003; 최신 버전</span>';
+            } else if (d.status === 'outdated') {
+                el.innerHTML = '<span style="color:#ffc107;">&#9650; 최신: v' + d.latest + '</span>';
+            } else {
+                el.innerHTML = '<span style="color:#6c757d;">버전 확인 불가</span>';
+            }
+        })
+        .catch(function() {
+            el.innerHTML = '<span style="color:#6c757d;">버전 확인 불가</span>';
+        });
+})();
+</script>
 
 <!-- jQuery -->
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>

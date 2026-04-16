@@ -24,6 +24,26 @@ GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
 
 
+_latest_version_cache: dict = {}   # {"version": str, "expires": float}
+
+
+def get_latest_version_cached() -> str | None:
+    """
+    GitHub 최신 버전을 반환합니다. 1시간 캐시.
+    네트워크 오류 시 None 반환.
+    """
+    import time
+    now = time.monotonic()
+    if _latest_version_cache.get("expires", 0) > now:
+        return _latest_version_cache["version"]
+
+    release = _fetch_latest_release()
+    ver = release.get("tag_name", "").lstrip("v") if release else None
+    _latest_version_cache["version"] = ver
+    _latest_version_cache["expires"] = now + 3600
+    return ver
+
+
 def get_current_version() -> str | None:
     from core.utils.path_utils import resource_path
     try:
