@@ -297,7 +297,13 @@ if __name__ == "__main__":
     def open_browser():
         time.sleep(2)
         webbrowser.open("http://127.0.0.1:6819")
-    
+
+    try:
+        from core.utils.updater import check_and_prompt_update
+        check_and_prompt_update()
+    except Exception:
+        pass
+
     try:
         if not os.path.exists('/.dockerenv'):
             threading.Thread(target=open_browser, daemon=True).start()
