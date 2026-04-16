@@ -92,8 +92,7 @@
 **안전신문고 앱에서 보기** 버튼으로 공식 앱으로 바로 이동할 수도 있습니다.
 
 ### 앱 설치 방법
-[릴리즈 페이지](https://github.com/Fentanest/safetyreport/releases)에서 최신 `mysafetyreport.apk` 를 다운로드 후 설치합니다.
-(기기 설정에서 "알 수 없는 앱 설치" 허용 필요)
+[Google Play 스토어](https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport)에서 설치할 수 있습니다.
 
 앱 설치 후 **설정** 탭에서 서버 주소와 API 키를 입력하면 바로 연결됩니다.
 API 키는 웹 관리 페이지의 **기기 연동** 메뉴에서 발급할 수 있습니다.
@@ -207,6 +206,15 @@ A. Google Cloud Console에서 서비스 계정을 생성하고 `Service Account 
 
 **Q. 앱 알림이 오지 않아요.**
 A. 앱 설정에서 WsService(백그라운드 연결)가 실행 중인지 확인하세요. Android 배터리 최적화 설정에서 이 앱을 예외로 등록하면 백그라운드 연결이 더 안정적으로 유지됩니다.
+
+---
+
+## 유관 프로젝트
+
+| 프로젝트 | 설명 |
+|----------|------|
+| [safetyreport-mobile](https://github.com/Fentanest/safetyreport-mobile) | 이 서버와 연동하는 Android 앱 (Flutter) |
+| [safetyreport-chromeextension](https://github.com/Fentanest/safetyreport-chromeextension) | 차량번호 조회 등 브라우저 연동 크롬 확장 프로그램 |
 
 ---
 
