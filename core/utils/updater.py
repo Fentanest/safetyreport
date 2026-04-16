@@ -2,21 +2,22 @@
 자동 업데이트 모듈.
 
 - Docker 환경: 새 버전 안내 메시지만 출력 (docker pull 안내)
-- 컴파일 바이너리(is_frozen): 대화형 프롬프트 → 다운로드 → 교체 → 재시작
-  - Linux: os.replace + os.execv (즉시 재시작)
-  - Windows: bat 스크립트로 프로세스 종료 후 파일 교체 + 재시작
+- 컴파일 바이너리(is_frozen): 대화형 프롬프트 → ZIP 다운로드 → 압축 해제 → 전체 교체 → 재시작
+  - Linux: 셸 스크립트로 프로세스 종료 후 rsync(없으면 cp) + exec 재시작
+  - Windows: bat 스크립트로 프로세스 종료 후 xcopy + 재시작
 - 개발 환경: git pull 안내 메시지만 출력
 
-GitHub Releases 에셋 명명 규칙:
-  mysafetyreport-windows-x64.exe
-  mysafetyreport-linux-x64
-  mysafetyreport-linux-arm64
+GitHub Releases 에셋 명명 규칙 (build.yml 기준):
+  mysafetyreport-win.zip        ← Windows x64
+  mysafetyreport-linux.zip      ← Linux x64
+  # mysafetyreport-linux-arm64.zip  ← ARM64 (빌드 비활성화)
 """
 
 import os
 import sys
-import platform
 import tempfile
+import zipfile
+import shutil
 
 GITHUB_REPO = "Fentanest/safetyreport"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -32,15 +33,16 @@ def get_current_version() -> str | None:
         return None
 
 
-def _get_asset_name() -> str:
-    machine = platform.machine().lower()
-    is_arm = 'arm' in machine or 'aarch64' in machine
+def _get_asset_name() -> str | None:
+    """현재 플랫폼에 해당하는 릴리스 에셋 파일명을 반환합니다."""
     if sys.platform == "win32":
-        return "mysafetyreport-windows-x64.exe"
-    elif is_arm:
-        return "mysafetyreport-linux-arm64"
-    else:
-        return "mysafetyreport-linux-x64"
+        return "mysafetyreport-win.zip"
+    # import platform
+    # machine = platform.machine().lower()
+    # is_arm = 'arm' in machine or 'aarch64' in machine
+    # if is_arm:
+    #     return "mysafetyreport-linux-arm64.zip"  # ARM64 빌드 비활성화
+    return "mysafetyreport-linux.zip"
 
 
 def _fetch_latest_release() -> dict | None:
@@ -73,7 +75,7 @@ def _version_gt(v1: str, v2: str) -> bool:
 def check_and_prompt_update():
     """
     프로그램 시작 시 업데이트를 확인하고, 환경에 따라 안내 또는 대화형 업데이트를 수행합니다.
-    Windows에서 업데이트 적용 후 sys.exit(0)으로 종료됩니다.
+    업데이트 적용 후 sys.exit(0)으로 종료됩니다.
     """
     current = get_current_version()
     if not current:
@@ -110,7 +112,7 @@ def check_and_prompt_update():
         return
 
     if not is_frozen:
-        print(f"개발 환경입니다. git pull 로 업데이트하세요.")
+        print("개발 환경입니다. git pull 로 업데이트하세요.")
         print()
         return
 
@@ -143,18 +145,21 @@ def check_and_prompt_update():
 
 
 def _perform_update(download_url: str, new_version: str):
-    """바이너리를 다운로드하고 교체합니다."""
+    """ZIP을 다운로드하고 압축을 해제한 뒤 설치 디렉토리 전체를 교체합니다."""
     import urllib.request
 
     current_exe = os.path.abspath(sys.executable)
-    exe_dir = os.path.dirname(current_exe)
-    suffix = ".exe" if sys.platform == "win32" else ""
+    install_dir = os.path.dirname(current_exe)
 
-    print("다운로드 중...")
-    tmp_path = None
+    # 임시 디렉토리는 설치 디렉토리와 같은 파티션에 생성해야
+    # Linux에서 os.replace (atomic rename) 사용 가능
+    tmp_dir = tempfile.mkdtemp(dir=install_dir, prefix="_update_")
+    zip_path = os.path.join(tmp_dir, "update.zip")
+    extract_dir = os.path.join(tmp_dir, "extracted")
+
     try:
-        tmp_fd, tmp_path = tempfile.mkstemp(suffix=f"_update{suffix}", dir=exe_dir)
-        os.close(tmp_fd)
+        # ── 1. 다운로드 ──────────────────────────────────────────────
+        print("다운로드 중...")
 
         def _reporthook(block_num, block_size, total_size):
             if total_size > 0:
@@ -164,47 +169,88 @@ def _perform_update(download_url: str, new_version: str):
                 mb_total = total_size / 1024 / 1024
                 print(f"\r  {pct}% ({mb_done:.1f} / {mb_total:.1f} MB)", end='', flush=True)
 
-        urllib.request.urlretrieve(download_url, tmp_path, _reporthook)
+        urllib.request.urlretrieve(download_url, zip_path, _reporthook)
         print()
 
+        # ── 2. 압축 해제 ──────────────────────────────────────────────
+        print("압축 해제 중...")
+        os.makedirs(extract_dir, exist_ok=True)
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            zf.extractall(extract_dir)
+        os.unlink(zip_path)
+
+        # ── 3. 플랫폼별 교체 + 재시작 ─────────────────────────────────
         if sys.platform == "win32":
-            _apply_windows(current_exe, tmp_path, new_version, exe_dir)
+            _apply_windows(current_exe, install_dir, extract_dir, tmp_dir, new_version)
         else:
-            _apply_linux(current_exe, tmp_path, new_version)
+            _apply_linux(current_exe, install_dir, extract_dir, tmp_dir, new_version)
 
     except Exception as e:
         print(f"\n업데이트 실패: {e}")
-        if tmp_path:
-            try:
-                os.unlink(tmp_path)
-            except Exception:
-                pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def _apply_linux(current_exe: str, tmp_path: str, new_version: str):
-    import stat
-    os.chmod(tmp_path, os.stat(tmp_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    os.replace(tmp_path, current_exe)
-    print(f"v{new_version} 업데이트 완료! 재시작합니다...")
-    os.execv(current_exe, sys.argv)
-
-
-def _apply_windows(current_exe: str, tmp_path: str, new_version: str, exe_dir: str):
+def _apply_linux(current_exe: str, install_dir: str, extract_dir: str,
+                 tmp_dir: str, new_version: str):
+    """
+    셸 스크립트를 백그라운드로 실행한 뒤 현재 프로세스를 종료합니다.
+    스크립트가 모든 파일을 교체하고 프로그램을 재시작합니다.
+    """
     import subprocess
-    bat_path = os.path.join(exe_dir, "_update.bat")
+    import stat
+
+    sh_path = os.path.join(tmp_dir, "_apply_update.sh")
+    args_str = " ".join(f'"{a}"' for a in sys.argv)
+
+    with open(sh_path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(
+            "#!/bin/bash\n"
+            "sleep 2\n"
+            # rsync가 있으면 --delete로 깔끔하게, 없으면 cp -rT
+            f"if command -v rsync &>/dev/null; then\n"
+            f"  rsync -a --delete '{extract_dir}/' '{install_dir}/'\n"
+            f"else\n"
+            f"  cp -rT '{extract_dir}' '{install_dir}'\n"
+            f"fi\n"
+            f"chmod +x '{current_exe}'\n"
+            f"rm -rf '{tmp_dir}'\n"
+            f"exec '{current_exe}' {args_str}\n"
+        )
+
+    os.chmod(sh_path, os.stat(sh_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    print(f"v{new_version} 업데이트가 준비되었습니다. 재시작합니다...")
+    subprocess.Popen(
+        ["bash", sh_path],
+        start_new_session=True,
+        close_fds=True,
+    )
+    sys.exit(0)
+
+
+def _apply_windows(current_exe: str, install_dir: str, extract_dir: str,
+                   tmp_dir: str, new_version: str):
+    """
+    bat 스크립트를 새 콘솔 창에서 실행한 뒤 현재 프로세스를 종료합니다.
+    스크립트가 모든 파일을 교체하고 프로그램을 재시작합니다.
+    """
+    import subprocess
+
+    bat_path = os.path.join(tmp_dir, "_apply_update.bat")
     with open(bat_path, 'w', encoding='mbcs') as f:
         f.write(
             "@echo off\n"
             "echo 업데이트 적용 중...\n"
             "timeout /t 2 /nobreak > nul\n"
-            ":retry\n"
-            f"move /y \"{tmp_path}\" \"{current_exe}\" > nul 2>&1\n"
-            "if errorlevel 1 (timeout /t 1 /nobreak > nul & goto retry)\n"
+            # xcopy /E: 하위 디렉토리 포함, /Y: 덮어쓰기 확인 없음, /I: 대상을 디렉토리로 강제
+            f"xcopy /E /Y /I \"{extract_dir}\\*\" \"{install_dir}\\\"\n"
             f"echo v{new_version} 업데이트 완료!\n"
             f"start \"\" \"{current_exe}\"\n"
+            f"rmdir /S /Q \"{tmp_dir}\"\n"
             "del \"%~f0\"\n"
         )
-    print(f"v{new_version} 업데이트가 준비되었습니다. 프로그램을 재시작합니다...")
+
+    print(f"v{new_version} 업데이트가 준비되었습니다. 재시작합니다...")
     subprocess.Popen(
         ["cmd", "/c", bat_path],
         creationflags=subprocess.CREATE_NEW_CONSOLE,
