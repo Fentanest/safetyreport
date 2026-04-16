@@ -174,7 +174,7 @@ docker-compose up -d
    chmod +x run.sh
    ./run.sh
    ```
-3. 브라우저에서 `http://localhost:6819` 으로 접속
+3. 데스크톱 환경이면 브라우저가 자동으로 열립니다. 서버(헤드리스) 환경이면 `http://서버IP:6819` 로 직접 접속하세요.
 
 ---
 
