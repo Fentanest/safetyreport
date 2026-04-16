@@ -578,6 +578,16 @@ def save_crawl_changes(engine, changed_item_ids):
         json.dump(changes, f, ensure_ascii=False)
 
 
+def clear_crawl_changes():
+    """변경사항 없는 크롤링 완료 시 이전 결과 파일 삭제 (재브로드캐스트 방지)"""
+    changes_file = os.path.join(app_settings.datapath, 'crawl_changes.json')
+    try:
+        if os.path.exists(changes_file):
+            os.remove(changes_file)
+    except Exception:
+        pass
+
+
 def peek_crawl_changes():
     """크롤링 변경 결과 조회 (파일 삭제 없음 — WS 브로드캐스트용)"""
     import json

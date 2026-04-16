@@ -203,9 +203,11 @@ def _process_and_save_results(engine, changed_item_ids):
     database.clear_old_attachments(engine=engine)
 
     # 모바일 개별 알림용 변경 목록 파일 저장 + 완료 마커
-    from services.data_service import save_crawl_changes, save_crawl_done
+    from services.data_service import save_crawl_changes, save_crawl_done, clear_crawl_changes
     if changed_item_ids:
         save_crawl_changes(engine, changed_item_ids)
+    else:
+        clear_crawl_changes()  # 이전 크롤링 결과가 남아 재브로드캐스트되지 않도록 삭제
     save_crawl_done(len(changed_item_ids))
 
     # get_merged_records_by_ids에 전달할 순수 ID 목록
