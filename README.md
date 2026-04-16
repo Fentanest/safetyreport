@@ -125,6 +125,8 @@ curl -O https://raw.githubusercontent.com/Fentanest/safetyreport/main/docker-com
 docker-compose up -d
 ```
 
+브라우저에서 `http://서버IP:6819` 으로 접속합니다.
+
 실행 후 설정 → 크롬 구동 방식을 **로컬 데스크톱 크롬**, **Headless 모드** 활성화로 설정하세요.
 
 ---
@@ -145,10 +147,9 @@ curl -o docker-compose.yml https://raw.githubusercontent.com/Fentanest/safetyrep
 docker-compose up -d
 ```
 
-실행 후 설정 → 크롬 구동 방식을 **Selenium Hub**, 주소를 `http://selenium-hub:4444/wd/hub` 로 설정하세요.
-
 브라우저에서 `http://서버IP:6819` 으로 접속합니다.
-설정 → 크롬 구동 방식을 **Selenium Hub**로 선택하고 주소 `http://selenium-hub:4444/wd/hub` 를 입력하세요.
+
+실행 후 설정 → 크롬 구동 방식을 **Selenium Hub**, 주소를 `http://selenium-hub:4444/wd/hub` 로 설정하세요.
 
 ---
 
