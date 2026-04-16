@@ -152,9 +152,10 @@ def _perform_update(download_url: str, new_version: str):
     current_exe = os.path.abspath(sys.executable)
     install_dir = os.path.dirname(current_exe)
 
-    # 임시 디렉토리는 설치 디렉토리와 같은 파티션에 생성해야
-    # Linux에서 os.replace (atomic rename) 사용 가능
-    tmp_dir = tempfile.mkdtemp(dir=install_dir, prefix="_update_")
+    # install_dir 밖의 시스템 임시 디렉토리 사용.
+    # install_dir 안에 두면 rsync --delete 실행 시 tmp_dir 자신을 삭제하려다
+    # "vanished source files" (종료코드 24) 오류가 발생함.
+    tmp_dir = tempfile.mkdtemp(prefix="safetyreport_update_")
     zip_path = os.path.join(tmp_dir, "update.zip")
     extract_dir = os.path.join(tmp_dir, "extracted")
 
