@@ -202,30 +202,39 @@ def _apply_linux(current_exe: str, install_dir: str, extract_dir: str,
     import shlex
 
     sh_path = os.path.join(tmp_dir, "_apply_update.sh")
+    log_path = os.path.join(install_dir, "_update_log.txt")
 
-    # 모든 경로를 shlex.quote로 이스케이프 (한글, 공백, 특수문자 대응)
     q = shlex.quote
-    # sys.argv[0]은 새 바이너리로 대체되므로 제외하고 나머지 인수만 전달
     extra_args = " ".join(q(a) for a in sys.argv[1:])
 
     with open(sh_path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(
             "#!/bin/bash\n"
+            f"LOG={q(log_path)}\n"
+            'log() { echo "[$(date "+%Y-%m-%d %H:%M:%S")] $*" | tee -a "$LOG"; }\n'
+            f'log "업데이트 시작: v{new_version}"\n'
+            f'log "설치 경로: {install_dir}"\n'
+            f'log "임시 경로: {extract_dir}"\n'
             "sleep 2\n"
-            # rsync가 있으면 --delete로 깔끔하게, 없으면 cp -rT
+            'log "파일 복사 시작..."\n'
             f"if command -v rsync &>/dev/null; then\n"
-            f"  rsync -a --delete {q(extract_dir + '/')} {q(install_dir + '/')}\n"
+            f"  rsync -a --delete {q(extract_dir + '/')} {q(install_dir + '/')} 2>&1 | tee -a \"$LOG\"\n"
             f"else\n"
-            f"  cp -rT {q(extract_dir)} {q(install_dir)}\n"
+            f"  cp -rT {q(extract_dir)} {q(install_dir)} 2>&1 | tee -a \"$LOG\"\n"
             f"fi\n"
+            'RC=${PIPESTATUS[0]}\n'
+            'if [ $RC -ne 0 ]; then log "오류: 파일 복사 실패 (종료코드 $RC)"; exit 1; fi\n'
             f"chmod +x {q(current_exe)}\n"
+            f'log "파일 복사 완료. 임시 폴더 정리..."\n'
             f"rm -rf {q(tmp_dir)}\n"
+            f'log "재시작: {current_exe}"\n'
             f"exec {q(current_exe)} {extra_args}\n"
         )
 
     os.chmod(sh_path, os.stat(sh_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
     print(f"v{new_version} 업데이트가 준비되었습니다. 재시작합니다...")
+    print(f"업데이트 로그: {log_path}")
     subprocess.Popen(
         ["bash", sh_path],
         start_new_session=True,
@@ -245,33 +254,59 @@ def _apply_windows(current_exe: str, install_dir: str, extract_dir: str,
     PowerShell 스크립트를 새 창에서 실행한 뒤 현재 프로세스를 종료합니다.
     cmd.exe/bat 대신 PowerShell을 사용해 한글·공백 경로를 안전하게 처리합니다.
     UTF-8 BOM으로 저장하므로 PowerShell이 유니코드를 올바르게 읽습니다.
+
+    Copy-Item 주의: 디렉토리를 -LiteralPath로 지정하면 디렉토리 자체가 대상 안으로 복사됨.
+    내용물을 덮어쓰려면 -Path 'dir\\*' (와일드카드) 방식을 사용해야 함.
     """
     import subprocess
 
     ps_path = os.path.join(tmp_dir, "_apply_update.ps1")
+    log_path = os.path.join(install_dir, "_update_log.txt")
 
-    # PowerShell 단일 인용 문자열: 홑따옴표만 '' 로 이스케이프하면 됨
-    # (이중 인용과 달리 $, `, \ 등은 리터럴로 처리됨)
     e = _ps_escape
+    # Copy-Item 주의:
+    #   -LiteralPath 'dir' → 디렉토리 자체가 대상 안으로 복사됨 (잘못된 동작)
+    #   -Path 'dir\*'      → 디렉토리 내용물을 대상으로 복사 (올바른 동작)
     ps_content = (
+        "$ErrorActionPreference = 'Stop'\n"
+        f"$LogFile = '{e(log_path)}'\n"
+        "function Log($msg) {\n"
+        "    $line = \"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $msg\"\n"
+        "    Write-Host $line\n"
+        "    Add-Content -LiteralPath $LogFile -Value $line -Encoding UTF8\n"
+        "}\n"
+        f"Log '업데이트 시작: v{e(new_version)}'\n"
+        f"Log '설치 경로: {e(install_dir)}'\n"
+        f"Log '임시 경로: {e(extract_dir)}'\n"
         "Start-Sleep -Seconds 2\n"
-        # -LiteralPath: 와일드카드 해석 없이 경로를 그대로 처리
-        f"Copy-Item -LiteralPath '{e(extract_dir)}' -Destination '{e(install_dir)}' -Recurse -Force\n"
-        f"Write-Host 'v{e(new_version)} 업데이트 완료!'\n"
+        "try {\n"
+        "    Log '파일 복사 시작...'\n"
+        f"    Copy-Item -Path '{e(extract_dir)}\\*' -Destination '{e(install_dir)}' -Recurse -Force\n"
+        "    Log '파일 복사 완료'\n"
+        "} catch {\n"
+        "    Log \"오류: $_\"\n"
+        "    Write-Host ''\n"
+        "    Write-Host '업데이트 실패. 10초 후 창이 닫힙니다.'\n"
+        "    Start-Sleep -Seconds 10\n"
+        "    exit 1\n"
+        "}\n"
+        # tmp_dir은 이 스크립트가 실행 중인 폴더이므로 Start-Process 후 별도 정리
+        f"Log '재시작: {e(current_exe)}'\n"
         f"Start-Process -FilePath '{e(current_exe)}'\n"
+        "Log '업데이트 완료'\n"
+        "Start-Sleep -Seconds 2\n"
         f"Remove-Item -LiteralPath '{e(tmp_dir)}' -Recurse -Force -ErrorAction SilentlyContinue\n"
     )
 
-    # UTF-8 BOM: PowerShell이 비ASCII 문자를 올바르게 읽도록 보장
     with open(ps_path, 'w', encoding='utf-8-sig', newline='\r\n') as f:
         f.write(ps_content)
 
     print(f"v{new_version} 업데이트가 준비되었습니다. 재시작합니다...")
+    print(f"업데이트 로그: {log_path}")
     subprocess.Popen(
         [
             "powershell",
             "-ExecutionPolicy", "Bypass",
-            "-NonInteractive",
             "-File", ps_path,
         ],
         creationflags=subprocess.CREATE_NEW_CONSOLE,
