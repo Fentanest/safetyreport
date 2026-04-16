@@ -267,7 +267,7 @@ $(document).ready(function() {
         if (!d || d === '') return '';
         if (d === '6개월 초과') return '만료';
         const first = esc(d.split('\n')[0]);
-        return `<a href="${first}" target="_blank">지도보기</a>`;
+        return `<a href="${first}" download target="_blank">다운로드</a>`;
     }
 
     // ── 컬럼 정의 ──────────────────────────────────────────────────
@@ -314,7 +314,7 @@ $(document).ready(function() {
         { data: '첨부사진',
           render: (d, t) => renderAttach(d, t, '일괄확인', 'btn-outline-secondary') },
         { data: '첨부파일',
-          render: (d, t) => renderAttach(d, t, '일괄다운', 'btn-outline-primary') },
+          render: (d, t) => renderAttach(d, t, '일괄확인', 'btn-outline-primary') },
         { data: '만족도조사여부' },
         { data: '감시목록' },
     ];

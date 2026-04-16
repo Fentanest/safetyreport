@@ -392,7 +392,7 @@ document.addEventListener('click', function(e) {
                     '<img src="' + url + '" class="img-fluid rounded mb-2" style="max-height:340px;width:100%;object-fit:contain;background:#000" ' +
                     'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'\'">' +
                     '<div class="text-muted small" style="display:none">이미지를 불러올 수 없습니다.</div>' +
-                    '<a href="' + url + '" target="_blank" class="btn btn-sm btn-outline-secondary mt-1"><i class="fas fa-external-link-alt me-1"></i>새 탭으로 열기</a>' +
+                    '<a href="' + url + '" download target="_blank" class="btn btn-sm btn-outline-secondary mt-1"><i class="fas fa-download me-1"></i>다운로드</a>' +
                     '</div>';
             }).join('');
             mediaDiv.style.display = '';
@@ -405,7 +405,7 @@ document.addEventListener('click', function(e) {
                 return '<div class="mb-3 border rounded p-2 bg-light">' +
                     '<video controls class="w-100 rounded mb-1" style="max-height:340px;background:#000">' +
                     '<source src="' + url + '">브라우저가 동영상 재생을 지원하지 않습니다.</video>' +
-                    '<a href="' + url + '" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="fas fa-external-link-alt me-1"></i>새 탭으로 열기</a>' +
+                    '<a href="' + url + '" download target="_blank" class="btn btn-sm btn-outline-secondary"><i class="fas fa-download me-1"></i>다운로드</a>' +
                     '</div>';
             }).join('');
             videoDiv.style.display = '';
