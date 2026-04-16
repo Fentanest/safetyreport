@@ -33,6 +33,7 @@ def build():
         # Exclude unused stdlib & packages to reduce bundle size
         '--exclude-module=tkinter',
         '--exclude-module=setuptools',
+        '--exclude-module=pytest',
         '--exclude-module=unittest',
         '--exclude-module=doctest',
         '--exclude-module=pdb',
