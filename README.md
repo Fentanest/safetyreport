@@ -105,42 +105,15 @@ API 키는 웹 관리 페이지의 **기기 연동** 메뉴에서 발급할 수 
 
 **사전 조건**: Docker 및 Docker Compose 설치 필요
 
-`docker-compose.yml` 파일을 생성하고 아래 내용을 붙여넣기 합니다.
-
-```yaml
-services:
-  mysafetyreport:
-    container_name: safetyreport
-    image: ghcr.io/fentanest/safetyreport:latest
-    ports:
-      - 6819:6819
-    environment:
-      - TZ=Asia/Seoul
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped
-
-  selenium-hub:
-    image: selenium/hub:latest
-    container_name: selenium-hub
-    ports:
-      - 4444:4444
-    restart: always
-
-  chrome:
-    container_name: chrome
-    image: selenium/node-chrome:latest
-    platform: linux/amd64
-    shm_size: 2gb
-    depends_on:
-      - selenium-hub
-    environment:
-      - SE_EVENT_BUS_HOST=selenium-hub
-      - SE_JAVA_OPTS=-Xmx512m
-    restart: always
+**Windows (PowerShell)**
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Fentanest/safetyreport/main/docker-compose.yml" -OutFile "docker-compose.yml"
+docker-compose up -d
 ```
 
+**Linux / macOS**
 ```bash
+curl -O https://raw.githubusercontent.com/Fentanest/safetyreport/main/docker-compose.yml
 docker-compose up -d
 ```
 
