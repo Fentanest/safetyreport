@@ -301,8 +301,8 @@ if __name__ == "__main__":
     try:
         from core.utils.updater import check_and_prompt_update
         check_and_prompt_update()
-    except Exception:
-        pass
+    except Exception as _ue:
+        print(f"업데이트 확인 중 오류: {_ue}")
 
     try:
         if not os.path.exists('/.dockerenv'):

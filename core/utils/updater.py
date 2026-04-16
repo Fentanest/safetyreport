@@ -79,6 +79,7 @@ def check_and_prompt_update():
     """
     current = get_current_version()
     if not current:
+        print("업데이트 확인 건너뜀: VERSION 파일을 읽을 수 없습니다.")
         return
 
     print("업데이트 확인 중...", end=" ", flush=True)
