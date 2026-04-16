@@ -105,6 +105,14 @@ API 키는 웹 관리 페이지의 **기기 연동** 메뉴에서 발급할 수 
 
 **사전 조건**: Docker 및 Docker Compose 설치 필요
 
+두 가지 구성 중 환경에 맞는 것을 선택하세요.
+
+---
+
+#### 옵션 A. 기본 구성 (크로미움 내장, 간단 설치 추천)
+
+Docker 이미지에 크로미움이 포함되어 있어 별도 설치 없이 바로 사용할 수 있습니다.
+
 **Windows (PowerShell)**
 ```powershell
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Fentanest/safetyreport/main/docker-compose.yml" -OutFile "docker-compose.yml"
@@ -116,6 +124,29 @@ docker-compose up -d
 curl -O https://raw.githubusercontent.com/Fentanest/safetyreport/main/docker-compose.yml
 docker-compose up -d
 ```
+
+실행 후 설정 → 크롬 구동 방식을 **로컬 데스크톱 크롬**, **Headless 모드** 활성화로 설정하세요.
+
+---
+
+#### 옵션 B. Selenium Hub 포함 구성 (안정적인 크롤링이 필요한 경우)
+
+Selenium Hub + Chrome 노드를 별도 컨테이너로 운영합니다.
+
+**Windows (PowerShell)**
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/Fentanest/safetyreport/main/docker-compose-selenium-hub.yml" -OutFile "docker-compose.yml"
+docker-compose up -d
+```
+
+**Linux / macOS**
+```bash
+curl -O https://raw.githubusercontent.com/Fentanest/safetyreport/main/docker-compose-selenium-hub.yml
+mv docker-compose-selenium-hub.yml docker-compose.yml
+docker-compose up -d
+```
+
+실행 후 설정 → 크롬 구동 방식을 **Selenium Hub**, 주소를 `http://selenium-hub:4444/wd/hub` 로 설정하세요.
 
 브라우저에서 `http://서버IP:6819` 으로 접속합니다.
 설정 → 크롬 구동 방식을 **Selenium Hub**로 선택하고 주소 `http://selenium-hub:4444/wd/hub` 를 입력하세요.
