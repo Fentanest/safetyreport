@@ -141,8 +141,7 @@ docker-compose up -d
 
 **Linux / macOS**
 ```bash
-curl -O https://raw.githubusercontent.com/Fentanest/safetyreport/main/docker-compose-selenium-hub.yml
-mv docker-compose-selenium-hub.yml docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/Fentanest/safetyreport/main/docker-compose-selenium-hub.yml
 docker-compose up -d
 ```
 
