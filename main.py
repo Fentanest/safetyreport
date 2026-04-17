@@ -97,6 +97,10 @@ async def lifespan(app: FastAPI):
     except Exception:
         pass
 
+    # websockets 라이브러리 내부 ping timeout 로그 노이즈 억제
+    import logging as _logging
+    _logging.getLogger("websockets").setLevel(_logging.ERROR)
+
     from services.ws_manager import ws_manager as _ws_manager
     _ws_manager.set_main_loop(asyncio.get_event_loop())
     database.upgrade_schema(engine)
@@ -300,9 +304,11 @@ def start_server():
     # Use app object for frozen binary (no reload), but use "main:app" string for dev mode (with reload)
     try:
         if is_frozen:
-            uvicorn.run(app, host="0.0.0.0", port=6819, log_config=_UVICORN_LOG_CONFIG)
+            uvicorn.run(app, host="0.0.0.0", port=6819, log_config=_UVICORN_LOG_CONFIG,
+                        ws_ping_interval=None, ws_ping_timeout=None)
         else:
-            uvicorn.run("main:app", host="0.0.0.0", port=6819, reload=True, log_config=_UVICORN_LOG_CONFIG)
+            uvicorn.run("main:app", host="0.0.0.0", port=6819, reload=True, log_config=_UVICORN_LOG_CONFIG,
+                        ws_ping_interval=None, ws_ping_timeout=None)
     except Exception as e:
         logger.LoggerFactory.get_logger().error(f"서버 시작 오류: {e}")
         if not is_frozen:
