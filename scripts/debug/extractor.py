@@ -24,13 +24,21 @@ import platform, shutil
 import time
 
 
+_CHROMIUM_BINS = ['/usr/bin/chromium', '/usr/bin/chromium-browser']
+_CHROMEDRIVER_BINS = ['/usr/bin/chromedriver', '/usr/bin/chromium-driver',
+                      '/usr/lib/chromium/chromedriver', '/usr/lib/chromium-browser/chromedriver']
+
+def _is_docker():
+    return os.path.isfile('/.dockerenv')
+
 def _create_debug_driver():
-    """디버그 전용 경량 드라이버.
-    Hub/remote/desktop 설정을 그대로 따르되, whatismybrowser.com 로딩을 건너뜁니다.
-    불필요한 외부 페이지 로드가 없어 CPU 스파이크를 최소화합니다."""
+    """디버그 전용 드라이버.
+
+    - Docker: 내장 Chromium 헤드리스 직접 사용 (Hub 미사용 → 네트워크 트래픽 없음)
+    - 그 외: chrome_mode 설정을 따르되 whatismybrowser.com 로딩 생략
+    """
     options = webdriver.ChromeOptions()
-    if settings.headless:
-        options.add_argument("--headless=new")
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--incognito")
     options.add_argument("--disable-gpu")
@@ -40,8 +48,17 @@ def _create_debug_driver():
     options.add_experimental_option('useAutomationExtension', False)
     options.add_argument('--disable-blink-features=AutomationControlled')
 
-    machine = platform.machine().lower()
-    is_arm = ('aarch64' in machine or 'arm64' in machine) and platform.system() != 'Windows'
+    if _is_docker():
+        # Docker: 이미지 내장 Chromium + 시스템 chromedriver 직접 사용
+        chromium = next((p for p in _CHROMIUM_BINS if os.path.isfile(p)), None)
+        chromedriver = next((p for p in _CHROMEDRIVER_BINS if os.path.isfile(p)), None) \
+                       or shutil.which('chromedriver')
+        if not chromedriver:
+            raise RuntimeError("시스템 chromedriver를 찾을 수 없습니다.")
+        if chromium:
+            options.binary_location = chromium
+        print(f"  [Docker] Chromium: {chromium or '기본값'}, chromedriver: {chromedriver}")
+        return ChromeWebDriver(service=Service(chromedriver), options=options)
 
     mode = getattr(settings, 'chrome_mode', 'hub')
 
@@ -49,32 +66,16 @@ def _create_debug_driver():
         remote_val = str(settings.remote_debug_port).strip()
         debug_addr = remote_val if ':' in remote_val else f"127.0.0.1:{remote_val}"
         options.add_experimental_option("debuggerAddress", debug_addr)
-        if is_arm:
-            candidates = ['/usr/bin/chromedriver', '/usr/lib/chromium/chromedriver',
-                          '/usr/bin/chromium-driver']
-            cd_path = next((p for p in candidates if os.path.isfile(p)), None) or shutil.which('chromedriver')
-            service = Service(cd_path) if cd_path else Service(shutil.which('chromedriver'))
-        else:
-            from webdriver_manager.chrome import ChromeDriverManager
-            service = Service(ChromeDriverManager().install())
+        from webdriver_manager.chrome import ChromeDriverManager
+        service = Service(ChromeDriverManager().install())
         return ChromeWebDriver(service=service, options=options)
 
     elif mode == 'hub':
         return webdriver.Remote(command_executor=settings.remotepath, options=options)
 
     else:  # desktop
-        if is_arm:
-            candidates = ['/usr/bin/chromedriver', '/usr/lib/chromium/chromedriver',
-                          '/usr/bin/chromium-driver']
-            cd_path = next((p for p in candidates if os.path.isfile(p)), None) or shutil.which('chromedriver')
-            for bin_path in ['/usr/bin/chromium', '/usr/bin/chromium-browser']:
-                if os.path.isfile(bin_path):
-                    options.binary_location = bin_path
-                    break
-            service = Service(cd_path) if cd_path else Service(shutil.which('chromedriver'))
-        else:
-            from webdriver_manager.chrome import ChromeDriverManager
-            service = Service(ChromeDriverManager().install())
+        from webdriver_manager.chrome import ChromeDriverManager
+        service = Service(ChromeDriverManager().install())
         return ChromeWebDriver(service=service, options=options)
 
 
@@ -253,7 +254,7 @@ if __name__ == "__main__":
     finally:
         if driver:
             mode = getattr(settings, 'chrome_mode', 'hub')
-            if mode == 'remote':
+            if not _is_docker() and mode == 'remote':
                 # debuggerAddress 모드: quit()이 Chrome 자체를 종료시키므로 호출하지 않음
                 print("\n드라이버 분리 (remote 모드 - Chrome 유지).")
             else:
