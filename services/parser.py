@@ -199,6 +199,40 @@ def _parse_processing_result_table(result_soup, entry_value):
         "processing_finish": processing_finish_text,
     }
 
+def _extract_supplement_overrides_from_html(page_soup):
+    """splmntDivBody의 마지막 보완 테이블이 완료 확정이면 수정 필드 반환, 아니면 None."""
+    if not page_soup:
+        return None
+    splmnt_div = page_soup.find('div', id='splmntDivBody')
+    if not splmnt_div:
+        return None
+    tables = splmnt_div.find_all('table')
+    if not tables:
+        return None
+    last_text = tables[-1].get_text(' ', strip=True)
+    import re as _re
+    if not _re.search(r'보완 완료 일시\s+\d{4}-\d{2}-\d{2}', last_text):
+        return None
+    opinion_match = _re.search(r'신고자 보완 의견\s+(.+?)(?:신고자 보완 첨부파일|$)', last_text, _re.DOTALL)
+    if not opinion_match:
+        return None
+    opinion = opinion_match.group(1).strip()
+    result = {}
+    m = _re.search(r'차량번호\s*:\s*(.*?)(?=\*|\Z|\n)', opinion)
+    if m:
+        result['car_number'] = _re.sub(r'\s+', '', m.group(1))
+    m = _re.search(r'발생일자\s*:\s*(\d{4})\.(\d{1,2})\.(\d{1,2})\.?', opinion)
+    if m:
+        result['occurrence_date'] = f"{m.group(1)}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}"
+    m = _re.search(r'발생시각\s*:\s*(\d{2}:\d{2})', opinion)
+    if m:
+        result['occurrence_time'] = m.group(1)
+    m = _re.search(r'위반장소\s*:\s*(.+?)(?=\*|\Z|\n)', opinion)
+    if m:
+        result['violation_location'] = m.group(1).strip()
+    return result if result else None
+
+
 def _extract_poll_status_from_html(page_soup, progress_status):
     """btnArea 버튼 id와 진행상황으로 만족도조사여부 결정."""
     if page_soup:
@@ -241,6 +275,13 @@ def parse_details(driver, report_soup, result_soup=None, page_soup=None):
 
     all_details = {**report_details, **processing_details}
     all_details.pop("progress_status", None)
+
+    # 보완 완료 확정 시 신고 정보 갱신 (레거시 HTML 방식)
+    splmnt = _extract_supplement_overrides_from_html(page_soup)
+    if splmnt:
+        for field in ('car_number', 'occurrence_date', 'occurrence_time', 'violation_location'):
+            if field in splmnt:
+                all_details[field] = splmnt[field]
 
     # title 갱신용 필드 구성
     report_number = all_details.pop("_report_number_raw", "")
