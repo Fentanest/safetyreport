@@ -272,19 +272,14 @@ def parse_json_details(result_data):
     car_number_match = re.search(r'차량번호\s*:\s*(.*?)(?=\n|\(위)', content_text_clean)
     car_number = re.sub(r'\s+', '', car_number_match.group(1)) if car_number_match else ""
 
-    # 보완 완료(SPLMNT_CMPTN_YN == 'Y') 시 기관 확인된 최종 차량번호로 갱신
-    if result_data.get('SPLMNT_CMPTN_YN') == 'Y' and result_data.get('SPLMNT_VHRNO'):
-        car_number = re.sub(r'\s+', '', result_data.get('SPLMNT_VHRNO', ''))
-    
     occurrence_date_match = re.search(r'발생일자\s*:\s*(\d{4}.\d{1,2}.\d{1,2})', content_text_clean)
     occurrence_date = occurrence_date_match.group(1).strip().replace('.', '-') if occurrence_date_match else ""
-    
+
     occurrence_time_match = re.search(r'발생시각\s*:\s*(\d{2}:\d{2})', content_text_clean)
     occurrence_time = occurrence_time_match.group(1).strip() if occurrence_time_match else ""
-    
+
     # Extract Violation Location from text or fallback to JSON fields
     violation_location = ""
-    # Usually address isn't structured easily in text, fallback to API fields if available
     if result_data.get("RN_ADRES"):
         violation_location = result_data.get("RN_ADRES")
     elif result_data.get("C_A_ADD2"):
@@ -292,6 +287,20 @@ def parse_json_details(result_data):
     else:
         violation_location = str(result_data.get("C_A_ADDR_HEAD", "")) + " " + str(result_data.get("C_A_ADDR_TAIL", ""))
     violation_location = violation_location.strip()
+
+    # 보완 완료(SPLMNT_CMPTN_YN == 'Y') 시 기관 확인된 최종 신고 정보로 갱신
+    if result_data.get('SPLMNT_CMPTN_YN') == 'Y':
+        if result_data.get('SPLMNT_VHRNO'):
+            car_number = re.sub(r'\s+', '', result_data['SPLMNT_VHRNO'])
+        raw_date = str(result_data.get('SPLMNT_DEVEL_DATE') or '')
+        if len(raw_date) == 8:
+            occurrence_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+        raw_time = str(result_data.get('SPLMNT_DEVEL_TIME') or '')
+        if len(raw_time) >= 4:
+            occurrence_time = f"{raw_time[:2]}:{raw_time[2:4]}"
+        splmnt_loc = (result_data.get('SPLMNT_RN_ADRES') or result_data.get('SPLMNT_C_A_ADD2') or '').strip()
+        if splmnt_loc:
+            violation_location = splmnt_loc
     
     c_now = result_data.get("C_NOW", 0)
     try:
