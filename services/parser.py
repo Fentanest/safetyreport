@@ -292,7 +292,7 @@ def parse_details(driver, report_soup, result_soup=None, page_soup=None):
         "상태": progress_status,
         "신고번호": report_number,
         "신고명": title_text,
-        "신고일": date_raw,
+        "신고일": date_raw.split()[0] if date_raw else "",
         "만족도조사여부": _extract_poll_status_from_html(page_soup, progress_status),
     }
 
@@ -328,8 +328,8 @@ def parse_json_details(result_data):
         violation_location = str(result_data.get("C_A_ADDR_HEAD", "")) + " " + str(result_data.get("C_A_ADDR_TAIL", ""))
     violation_location = violation_location.strip()
 
-    # 보완 완료(SPLMNT_CMPTN_YN == 'Y') 시 기관 확인된 최종 신고 정보로 갱신
-    if result_data.get('SPLMNT_CMPTN_YN') == 'Y':
+    # 신고자가 보완 제출 완료(SPLMNT_CMPTN_DT 설정)하고 2차 요청 없음(SPLMNT_CMPTN_YN != 'N') 시 갱신
+    if result_data.get('SPLMNT_CMPTN_DT') and result_data.get('SPLMNT_CMPTN_YN') != 'N':
         if result_data.get('SPLMNT_VHRNO'):
             car_number = re.sub(r'\s+', '', result_data['SPLMNT_VHRNO'])
         raw_date = str(result_data.get('SPLMNT_DEVEL_DATE') or '')
@@ -516,7 +516,7 @@ def parse_json_details(result_data):
         '상태': process_status,
         '신고번호': result_data.get('STTEMNT_NO', ''),
         '신고명': title_text,
-        '신고일': result_data.get('C_DATE', ''),
+        '신고일': (result_data.get('C_DATE', '') or '').split()[0],
         '만족도조사여부': poll_status,
     }
 
