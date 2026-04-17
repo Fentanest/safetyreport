@@ -274,7 +274,6 @@ def parse_details(driver, report_soup, result_soup=None, page_soup=None):
         processing_details["penalty_points"] = ""
 
     all_details = {**report_details, **processing_details}
-    all_details.pop("progress_status", None)
 
     # 보완 완료 확정 시 신고 정보 갱신 (레거시 HTML 방식)
     splmnt = _extract_supplement_overrides_from_html(page_soup)
