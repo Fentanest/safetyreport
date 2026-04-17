@@ -191,6 +191,11 @@ async def version_latest():
     except Exception:
         return JSONResponse({"status": "unknown"})
 
+@app.get("/health")
+async def health_check():
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"status": "ok"})
+
 @app.middleware("http")
 async def inject_version_middleware(request: Request, call_next):
     request.state.app_version = APP_VERSION
@@ -218,7 +223,7 @@ def _login_redirect(request: Request):
 
 # ── 인증 미들웨어 ──────────────────────────────────────────────────────────────
 
-_PUBLIC_PATHS = {"/login", "/setup", "/logout"}
+_PUBLIC_PATHS = {"/login", "/setup", "/logout", "/health"}
 _PUBLIC_PREFIXES = ("/static/", "/api/v1/", "/ws/")
 
 @app.middleware("http")
