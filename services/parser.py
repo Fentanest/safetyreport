@@ -1,5 +1,21 @@
 import re
 
+_C_NOW_STATUS = {0: "진행", 10: "답변완료", 11: "일부수용", 12: "검토중",
+                 14: "불수용", 15: "기타", 20: "취하", 30: "이송"}
+
+_REJECT_KEYWORDS = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
+_WARNING_KEYWORDS = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
+
+def _apply_penalty_corrections(processing_status, processing_finish, penalty_amount, penalty_points, entry_value, text):
+    """불수용 강제 교정 및 경고/미확인 설정. text는 담당자 처리내용(processing_content)만 넘길 것."""
+    if processing_status not in ("수용", "일부수용") and any(kw in text for kw in _REJECT_KEYWORDS):
+        return "불수용", "Y", "", ""
+    if not penalty_amount and any(kw in text for kw in _WARNING_KEYWORDS):
+        return processing_status, processing_finish, "경고", penalty_points
+    if not penalty_amount and "자동차·교통위반" in entry_value and processing_status in ("수용", "일부수용", "기타"):
+        return processing_status, processing_finish, "미확인", penalty_points
+    return processing_status, processing_finish, penalty_amount, penalty_points
+
 def _parse_report_content_table(driver, report_soup):
     content_th = report_soup.find('th', string='내용')
     content_text = ""
@@ -106,16 +122,15 @@ def _parse_report_content_table(driver, report_soup):
     }
 
 def _parse_processing_result_table(result_soup, entry_value):
-    result_text = result_soup.get_text().translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
-
     processing_content_th = result_soup.find('th', string='처리내용')
     processing_content = ""
     if processing_content_th:
         processing_content_td = processing_content_th.find_next_sibling('td')
         if processing_content_td:
             processing_content = processing_content_td.get_text(separator='\n').strip()
+    processing_content = processing_content.translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
 
-    violation_law_match = re.search(r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?', result_text)
+    violation_law_match = re.search(r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?', processing_content)
     if violation_law_match:
         violation_law_value = re.sub(r'\s+', '', violation_law_match.group(0)).replace('법제', '법 제')
     else:
@@ -127,9 +142,9 @@ def _parse_processing_result_table(result_soup, entry_value):
         processing_status_td = processing_status_th.find_next_sibling('td')
         if processing_status_td:
             processing_status_text = processing_status_td.get_text(strip=True)
-    
+
     processing_finish_text = "N"
-    if processing_status_text in ["수용", "불수용", "일부수용", "기타", "검토중"]:
+    if processing_status_text in ["수용", "불수용", "일부수용", "기타", "검토중", "답변완료"]:
         processing_finish_text = "Y"
 
     processing_agency_th = result_soup.find('th', string='처리기관')
@@ -157,40 +172,28 @@ def _parse_processing_result_table(result_soup, entry_value):
     if ("버스전용차로 위반" in entry_value or "쓰레기, 폐기물" in entry_value or "불법주정차신고" in entry_value) and processing_status_text == "수용":
         fine_entry = "과태료"
 
-    penalty_matches = re.search(r'범칙금\s*([\d,.]+)\s*원, 벌점\s*(\d{0,4})\s*점', result_text)
-    fine_matches = re.search(r'과태료\s*([\d,.]+)\s*원', result_text)
+    penalty_matches = re.search(r'범칙금\s*([\d,.]+)\s*원[,\s]*벌점\s*(\d{0,4})\s*점', processing_content)
+    fine_matches = re.search(r'과태료\s*([\d,.]+)\s*원', processing_content)
 
     penalty_amount = ""
     penalty_points = ""
-    fine_amount = ""
 
     if penalty_matches:
         penalty_amount = "범칙금: " + penalty_matches.group(1) + "원"
         penalty_points = "벌점: " + penalty_matches.group(2) + "점"
     elif fine_matches:
-        fine_amount = "과태료: " + fine_matches.group(1) + "원"
-    
-    final_penalty = penalty_amount or fine_amount or fine_entry
+        penalty_amount = "과태료: " + fine_matches.group(1) + "원"
+    else:
+        penalty_amount = fine_entry
 
-    reject_keywords = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
-    is_rejected = any(kw in processing_content or kw in result_text for kw in reject_keywords)
-
-    warning_keywords = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
-
-    if is_rejected and processing_status_text not in ("수용", "일부수용"):
-        processing_status_text = "불수용"
-        processing_finish_text = "Y"
-        final_penalty = ""
-    elif not final_penalty and any(kw in processing_content or kw in result_text for kw in warning_keywords):
-        final_penalty = '경고'
-    elif not final_penalty and "자동차·교통위반" in entry_value and processing_status_text in ("수용", "일부수용", "기타"):
-        # 교통위반 답변 완료 후 과태료/범칙금을 파싱할 수 없는 경우 → 미확인
-        final_penalty = "미확인"
+    processing_status_text, processing_finish_text, penalty_amount, penalty_points = \
+        _apply_penalty_corrections(processing_status_text, processing_finish_text,
+                                   penalty_amount, penalty_points, entry_value, processing_content)
 
     return {
         "processing_status": processing_status_text,
         "violation_law": violation_law_value,
-        "penalty_amount": final_penalty,
+        "penalty_amount": penalty_amount,
         "penalty_points": penalty_points,
         "processing_agency": processing_agency_text,
         "person_in_charge": person_in_charge_text,
@@ -348,15 +351,7 @@ def parse_json_details(result_data):
     except:
         pass
         
-    process_status = "진행"
-    if c_now == 10: process_status = "답변완료"
-    elif c_now == 11: process_status = "일부수용"
-    elif c_now == 12: process_status = "검토중"
-    elif c_now == 14: process_status = "불수용"
-    elif c_now == 15: process_status = "기타"
-    elif c_now == 20: process_status = "취하"
-    elif c_now == 30: process_status = "이송"
-    elif c_now > 0: process_status = str(c_now)
+    process_status = _C_NOW_STATUS.get(c_now, str(c_now) if c_now > 0 else "진행")
     
     report_content = ""
     if content_text_clean:
@@ -401,15 +396,12 @@ def parse_json_details(result_data):
         if violation_law_match:
             violation_law = re.sub(r'\s+', '', violation_law_match.group(0)).replace('법제', '법 제')
 
-    # 범칙금/과태료: 레거시와 동일하게 실제 금액 정규식 추출
-    full_text = processing_content + "\n" + content_text_clean
-
     fine_entry = ""
     if ("버스전용차로 위반" in entry_value or "쓰레기, 폐기물" in entry_value or "불법주정차신고" in entry_value) and processing_status == "수용":
         fine_entry = "과태료"
 
-    penalty_matches = re.search(r'범칙금\s*([\d,.]+)\s*원[,\s]*벌점\s*(\d{0,4})\s*점', full_text)
-    fine_matches = re.search(r'과태료\s*([\d,.]+)\s*원', full_text)
+    penalty_matches = re.search(r'범칙금\s*([\d,.]+)\s*원[,\s]*벌점\s*(\d{0,4})\s*점', processing_content)
+    fine_matches = re.search(r'과태료\s*([\d,.]+)\s*원', processing_content)
 
     penalty_amount = ""
     penalty_points = ""
@@ -422,20 +414,9 @@ def parse_json_details(result_data):
     else:
         penalty_amount = fine_entry
 
-    # 불수용 키워드 감지 → 상태 강제 교정 + 범칙금 초기화
-    reject_keywords = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
-    warning_keywords = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
-
-    if processing_status not in ("수용", "일부수용") and any(kw in full_text for kw in reject_keywords):
-        processing_status = "불수용"
-        processing_finish = "Y"
-        penalty_amount = ""
-        penalty_points = ""
-    elif not penalty_amount and any(kw in full_text for kw in warning_keywords):
-        penalty_amount = "경고"
-    elif not penalty_amount and "자동차·교통위반" in entry_value and processing_status in ("수용", "일부수용", "기타"):
-        # 교통위반 답변 완료 후 과태료/범칙금을 파싱할 수 없는 경우 → 미확인
-        penalty_amount = "미확인"
+    processing_status, processing_finish, penalty_amount, penalty_points = \
+        _apply_penalty_corrections(processing_status, processing_finish,
+                                   penalty_amount, penalty_points, entry_value, processing_content)
 
     # 4. Attachments Mapping
     map_image = ""

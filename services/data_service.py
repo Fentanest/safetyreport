@@ -6,6 +6,20 @@ import settings.settings as app_settings
 from datetime import datetime, timedelta
 import os
 
+def _normalize_police_agency(x: str) -> str:
+    idx = x.find('경찰서')
+    return x[:idx + 3] if idx != -1 else x
+
+_REPORT_FIELDS = ["ID", "신고번호", "신고명", "신고일", "답변일", "처리기관", "담당자",
+                  "처리상태", "범칙금_과태료", "벌점", "차량번호", "위반법규", "위반장소",
+                  "발생일자", "발생시각", "신고내용", "처리내용", "첨부사진", "첨부파일", "지도"]
+
+def _row_to_dict(row) -> dict:
+    d = {f: row.get(f, '') for f in _REPORT_FIELDS}
+    d["ID"] = str(d["ID"])
+    d["결과"] = d["처리상태"]
+    return d
+
 def _safe_read(conn, table):
     """테이블이 아직 생성되지 않은 경우 빈 DataFrame 반환"""
     try:
@@ -62,29 +76,7 @@ def get_dashboard_stats(engine):
                 if app_settings.exclude_withdraw:
                     recent_df = recent_df[recent_df['처리상태'] != '취하']
                 for _, row in recent_df.iterrows():
-                    recent_answers.append({
-                        "ID": str(row.get('ID', '')),
-                        "신고번호": row.get('신고번호', ''),
-                        "신고명": row.get('신고명', ''),
-                        "신고일": row.get('신고일', ''),
-                        "처리기관": row.get('처리기관', ''),
-                        "담당자": row.get('담당자', ''),
-                        "처리상태": row.get('처리상태', ''),
-                        "결과": row.get('처리상태', ''),
-                        "범칙금_과태료": row.get('범칙금_과태료', ''),
-                        "벌점": row.get('벌점', ''),
-                        "답변일": row.get('답변일', ''),
-                        "차량번호": row.get('차량번호', ''),
-                        "위반법규": row.get('위반법규', ''),
-                        "위반장소": row.get('위반장소', ''),
-                        "발생일자": row.get('발생일자', ''),
-                        "발생시각": row.get('발생시각', ''),
-                        "신고내용": row.get('신고내용', ''),
-                        "처리내용": row.get('처리내용', ''),
-                        "첨부사진": row.get('첨부사진', ''),
-                        "첨부파일": row.get('첨부파일', ''),
-                        "지도": row.get('지도', ''),
-                    })
+                    recent_answers.append(_row_to_dict(row))
 
         # Watchlist
         df_watch = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
@@ -98,29 +90,7 @@ def get_dashboard_stats(engine):
                 except OperationalError:
                     continue
                 for _, row in df_watch_part.iterrows():
-                    watchlist_items.append({
-                        "ID": str(row.get('ID', '')),
-                        "신고번호": row.get('신고번호', ''),
-                        "신고명": row.get('신고명', ''),
-                        "신고일": row.get('신고일', ''),
-                        "답변일": row.get('답변일', ''),
-                        "처리기관": row.get('처리기관', ''),
-                        "담당자": row.get('담당자', ''),
-                        "처리상태": row.get('처리상태', ''),
-                        "결과": row.get('처리상태', ''),
-                        "범칙금_과태료": row.get('범칙금_과태료', ''),
-                        "벌점": row.get('벌점', ''),
-                        "차량번호": row.get('차량번호', ''),
-                        "위반법규": row.get('위반법규', ''),
-                        "위반장소": row.get('위반장소', ''),
-                        "발생일자": row.get('발생일자', ''),
-                        "발생시각": row.get('발생시각', ''),
-                        "신고내용": row.get('신고내용', ''),
-                        "처리내용": row.get('처리내용', ''),
-                        "첨부사진": row.get('첨부사진', ''),
-                        "첨부파일": row.get('첨부파일', ''),
-                        "지도": row.get('지도', ''),
-                    })
+                    watchlist_items.append(_row_to_dict(row))
 
     recent_answers.sort(key=lambda x: x['답변일'], reverse=True)
     watchlist_items.sort(key=lambda x: x['신고번호'] or '', reverse=True)
@@ -174,13 +144,7 @@ def _get_records_from_table(engine, table_obj, filters=None):
             df = df[df['처리상태'] != '취하']
 
         if app_settings.normalize_police and not df.empty and '처리기관' in df.columns:
-            def norm_police(x):
-                x = str(x)
-                idx = x.find('경찰서')
-                if idx != -1:
-                    return x[:idx + 3]
-                return x
-            df['처리기관'] = df['처리기관'].apply(norm_police)
+            df['처리기관'] = df['처리기관'].apply(_normalize_police_agency)
 
         if filters and not df.empty:
             status = filters.get('status')

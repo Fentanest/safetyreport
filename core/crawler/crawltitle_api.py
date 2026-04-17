@@ -3,6 +3,7 @@ from time import sleep
 import pandas as pd
 import settings.settings as settings
 from core.utils import logger
+from services.parser import _C_NOW_STATUS
 
 def _fetch_api_page(driver, start_row, end_row):
     script = f"""
@@ -22,7 +23,7 @@ def _fetch_api_page(driver, start_row, end_row):
     """
     return driver.execute_async_script(script)
 
-def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
+def crawl_titles(driver, page_range=None):
     logger.LoggerFactory.logbot.info("API 방식으로 목록 데이터를 호출합니다.")
     
     if "safetyreport.go.kr" not in driver.current_url:
@@ -46,9 +47,7 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
     last_page_num = (tot_cnt + page_size - 1) // page_size
     logger.LoggerFactory.logbot.info(f"API 확인됨: 총 {tot_cnt}건 ({last_page_num}페이지 분량)")
 
-    empty_page_count = 0
     last_crawled_page = 0
-    
     pages_to_crawl = []
     if page_range:
         pages_to_crawl = page_range
@@ -69,8 +68,6 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
             break
             
         page_dfs = []
-        found_in_progress = False
-        
         for item in results:
             c_no = str(item.get("C_NO", ""))
             spp_no = item.get("STTEMNT_NO", "")
@@ -84,25 +81,7 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
             except:
                 pass
                 
-            if c_now == 0:
-                state = "진행"
-                found_in_progress = True
-            elif c_now == 10:
-                state = "답변완료"
-            elif c_now == 11:
-                state = "일부수용"
-            elif c_now == 14:
-                state = "불수용"
-            elif c_now == 12:
-                state = "검토중"
-            elif c_now == 15:
-                state = "기타"
-            elif c_now == 20:
-                state = "취하"
-            elif c_now == 30:
-                state = "이송"
-            else:
-                state = str(c_now)
+            state = _C_NOW_STATUS.get(c_now, str(c_now))
                 
             poll_status = ""
             if score > 0:
@@ -120,17 +99,6 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
             page_dfs.append(df)
             
         all_title_dfs.extend(page_dfs)
-        
-        if use_minimal_crawl and not page_range:
-            if not found_in_progress:
-                empty_page_count += 1
-            else:
-                empty_page_count = 0 
-                
-            if empty_page_count >= int(settings.max_empty_pages):
-                logger.LoggerFactory.logbot.info(f"{settings.max_empty_pages} 페이지 연속으로 '진행' 상태가 없어 조기 종료합니다.")
-                break
-                
         sleep(0.5) 
         
     return all_title_dfs, last_crawled_page

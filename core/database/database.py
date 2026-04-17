@@ -10,6 +10,10 @@ from .models import (metadata, title_table, detail_traffic_table, detail_parking
                      merge_traffic_table, merge_parking_table, merge_other_table, watchlist_table, admin_users_table,
                      api_keys_table, entry_value_table)
 
+def _normalize_police_agency(x: str) -> str:
+    idx = x.find('경찰서')
+    return x[:idx + 3] if idx != -1 else x
+
 def category_from_entry_value(entry_value: str) -> str:
     """entry_value 문자열로부터 카테고리를 결정합니다."""
     if "자동차·교통위반" in entry_value:
@@ -456,13 +460,7 @@ def load_results(engine, conn=None):
                 df = df[df['처리상태'] != '취하']
             
             if settings.normalize_police and '처리기관' in df.columns:
-                def norm_police(x):
-                    x = str(x)
-                    idx = x.find('경찰서')
-                    if idx != -1:
-                        return x[:idx + 3]
-                    return x
-                df['처리기관'] = df['처리기관'].apply(norm_police)
+                df['처리기관'] = df['처리기관'].apply(_normalize_police_agency)
             
         return df
 
@@ -541,22 +539,10 @@ def update_admin_user(engine, old_username: str, new_username: str, new_password
 
 
 def sync_rating_status(engine, report_id, status_str="참여 완료"):
+    tables = [title_table, merge_traffic_table, merge_parking_table, merge_other_table]
     with engine.begin() as conn:
-        conn.execute(update(title_table)
-                     .where(title_table.c.신고번호 == report_id)
-                     .values(만족도조사여부=status_str))
-        
-        conn.execute(update(merge_traffic_table)
-                     .where(merge_traffic_table.c.신고번호 == report_id)
-                     .values(만족도조사여부=status_str))
-
-        conn.execute(update(merge_parking_table)
-                     .where(merge_parking_table.c.신고번호 == report_id)
-                     .values(만족도조사여부=status_str))
-
-        conn.execute(update(merge_other_table)
-                     .where(merge_other_table.c.신고번호 == report_id)
-                     .values(만족도조사여부=status_str))
+        for t in tables:
+            conn.execute(update(t).where(t.c.신고번호 == report_id).values(만족도조사여부=status_str))
 
 
 # ── API Key CRUD ──────────────────────────────────────────────────────────────

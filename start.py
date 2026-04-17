@@ -99,9 +99,9 @@ def _run_crawling_process(driver, engine, args):
         if settings.crawl_type == 'api':
             logger.LoggerFactory.logbot.info("[API 방식]으로 신고 목록 크롤링 시작.")
             if args["page_range"]:
-                titlelist, last_page = crawltitle_api.crawl_titles(driver=driver, use_minimal_crawl=args["min"], page_range=args["page_range"])
+                titlelist, last_page = crawltitle_api.crawl_titles(driver=driver, page_range=args["page_range"])
             else:
-                titlelist, last_page = crawltitle_api.crawl_titles(driver=driver, use_minimal_crawl=args["min"])
+                titlelist, last_page = crawltitle_api.crawl_titles(driver=driver)
         else:
             logger.LoggerFactory.logbot.info("[웹 방식(레거시)]으로 신고 목록 크롤링 시작.")
             if args["page_range"]:
