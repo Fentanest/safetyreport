@@ -1,90 +1,199 @@
-import settings.settings as settings
 import os
 import sys
+import json
 
-# Add project root to sys.path
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
-from core.crawler import driv
-from core.crawler import login
+
+import settings.settings as settings
+from core.utils import logger
+from core.crawler import driv, login
+import services.parser as doc_parser
+from sqlalchemy import create_engine, select
+from core.database.models import title_table, metadata
+
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 import time
-from core.utils import logger
-from core.crawler import crawldetail
-from services import parser as doc_parser
+
+
+def lookup_id_by_report_number(engine, report_number: str):
+    with engine.connect() as conn:
+        result = conn.execute(
+            select(title_table.c.ID).where(title_table.c.신고번호 == report_number)
+        ).first()
+        return result[0] if result else None
+
+
+def crawl_via_api(driver, record_id):
+    """API 방식으로 원시 JSON과 파싱 결과 반환."""
+    script = f"""
+    var callback = arguments[arguments.length - 1];
+    $.get('/api/v1/portal/mypage/mysafereport/{record_id}')
+     .done(function(data) {{ callback(data); }})
+     .fail(function(jqXHR, textStatus, errorThrown) {{ callback({{error: textStatus + ' ' + errorThrown}}); }});
+    """
+    if "safetyreport.go.kr" not in driver.current_url:
+        driver.get(settings.myreporturl)
+        time.sleep(2)
+
+    raw = driver.execute_async_script(script)
+
+    if "error" in raw or "result" not in raw:
+        return raw, None, None
+
+    result_data = raw["result"]
+    parsed = doc_parser.parse_json_details(result_data)
+    entry_value = parsed.get("entry_value", "")
+    return raw, result_data, parsed
+
+
+def crawl_via_selenium(driver, record_id):
+    """Selenium 방식으로 원시 HTML과 파싱 결과 반환."""
+    url = f"{settings.mysafereporturl}/{record_id}"
+    driver.get(url)
+    driver.refresh()
+    WebDriverWait(driver, 20).until(
+        lambda d: d.execute_script('return document.readyState') == 'complete'
+    )
+
+    report_table_xpath = "//div[contains(@class, 'singo') and .//th[text()='신고번호']]"
+    report_table_element = WebDriverWait(driver, 20).until(
+        EC.presence_of_element_located((By.XPATH, report_table_xpath))
+    )
+    report_soup = BeautifulSoup(report_table_element.get_attribute('outerHTML'), 'html.parser')
+
+    progress_status_th = report_soup.find('th', string='진행상황')
+    progress_status = ""
+    if progress_status_th:
+        td = progress_status_th.find_next_sibling('td')
+        if td:
+            progress_status = td.get_text(strip=True)
+
+    result_soup = None
+    if progress_status not in ['진행', '취하']:
+        try:
+            result_table_xpath = "//div[contains(@class, 'singo') and .//th[text()='처리내용']]"
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.XPATH, result_table_xpath))
+            )
+            result_table_elements = driver.find_elements(By.XPATH, result_table_xpath)
+            result_soup = BeautifulSoup(result_table_elements[-1].get_attribute('outerHTML'), 'html.parser')
+        except Exception:
+            pass
+
+    raw_html = driver.page_source
+    parsed = doc_parser.parse_details(driver, report_soup, result_soup)
+    return raw_html, parsed
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("사용법: python extractor.py <신고번호>")
+        print("사용법: python extractor.py <신고번호|내부ID>")
+        print("  예: python extractor.py SPP-2604-1234567")
+        print("  예: python extractor.py 59216726")
         sys.exit(1)
-    report_id = sys.argv[1]
+
+    input_arg = sys.argv[1]
 
     logger.LoggerFactory.create_logger()
     print("--- 디버그 스크립트 시작 ---")
-    print(f"대상 신고번호: {report_id}")
 
+    engine = create_engine(f"sqlite:///{settings.db_path}", connect_args={"check_same_thread": False})
+
+    if not input_arg.lstrip('-').isdigit():
+        report_number = input_arg
+        record_id = lookup_id_by_report_number(engine, report_number)
+        if record_id is None:
+            print(f"[오류] DB에서 신고번호 '{report_number}'를 찾을 수 없습니다.")
+            sys.exit(1)
+        print(f"신고번호 {report_number} → 내부 ID: {record_id}")
+    else:
+        record_id = input_arg
+        print(f"내부 ID: {record_id}")
+
+    out = settings.logpath
     driver = None
+
     try:
         print("드라이버 생성 및 로그인...")
         driver = driv.create_driver()
         login.login_mysafety(driver=driver)
         print("로그인 완료.")
 
-        url = f"https://www.safetyreport.go.kr/#mypage/mysafereport/{report_id}"
-        print(f"URL로 이동 중: {url}...")
-        driver.get(url)
-        
-        print("페이지 콘텐츠 로딩 대기 중...")
-        time.sleep(5)
+        # --- API 방식 ---
+        print("\n[1/2] API 방식 크롤링 중...")
+        raw_json, result_data, api_parsed = crawl_via_api(driver, record_id)
 
-        # Find the mandatory report content table
-        report_table_element = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'singo') and .//th[text()='신고번호']]"))
-        )
-        report_soup = BeautifulSoup(report_table_element.get_attribute('outerHTML'), 'html.parser')
-        print("--- [성공] 1번 테이블 '신고내용' 찾음 ---")
+        api_raw_path = os.path.join(out, f"{record_id}_api_raw.json")
+        with open(api_raw_path, 'w', encoding='utf-8') as f:
+            json.dump(raw_json, f, ensure_ascii=False, indent=2)
+        print(f"  원시 JSON 저장: {api_raw_path}")
 
-        # Find the optional result table
-        result_soup = None
-        try:
-            result_table_element = WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'singo') and .//th[text()='처리내용']]"))
-            )
-            result_soup = BeautifulSoup(result_table_element.get_attribute('outerHTML'), 'html.parser')
-            print("--- [성공] 2번 테이블 '처리결과' 찾음 ---")
-        except Exception:
-            print("--- [정보] 2번 테이블 '처리결과' 없음 ---")
+        if api_parsed:
+            api_parsed_path = os.path.join(out, f"{record_id}_api_parsed.txt")
+            with open(api_parsed_path, 'w', encoding='utf-8') as f:
+                for k, v in api_parsed.items():
+                    f.write(f"{k}: {v}\n")
+            print(f"  파싱 결과 저장: {api_parsed_path}")
+        else:
+            print(f"  [경고] API 파싱 실패: {raw_json.get('error', '알 수 없음')}")
 
-        # Call the centralized parsing function from services.parser
-        print("\n--- 파싱 결과 ---")
-        details = doc_parser.parse_details(driver, report_soup, result_soup)
-        
-        # Define the output file path
-        output_file_path = os.path.join(settings.logpath, f"{report_id}.txt")
+        # --- Selenium 방식 ---
+        print("\n[2/2] Selenium 방식 크롤링 중...")
+        raw_html, legacy_parsed = crawl_via_selenium(driver, record_id)
 
-        # Write the results to the file
-        with open(output_file_path, 'w', encoding='utf-8') as f:
-            for key, value in details.items():
-                f.write(f"{key}: {value}\n")
-        
-        print(f"결과가 다음 파일에 저장되었습니다: {output_file_path}")
+        legacy_html_path = os.path.join(out, f"{record_id}_legacy_raw.html")
+        with open(legacy_html_path, 'w', encoding='utf-8') as f:
+            f.write(raw_html)
+        print(f"  원시 HTML 저장: {legacy_html_path}")
+
+        legacy_parsed_path = os.path.join(out, f"{record_id}_legacy_parsed.txt")
+        with open(legacy_parsed_path, 'w', encoding='utf-8') as f:
+            for k, v in legacy_parsed.items():
+                f.write(f"{k}: {v}\n")
+        print(f"  파싱 결과 저장: {legacy_parsed_path}")
+
+        # --- 차이 비교 ---
+        if api_parsed and legacy_parsed:
+            print("\n--- [비교] API vs Selenium 차이 ---")
+            all_keys = set(api_parsed) | set(legacy_parsed)
+            diffs = []
+            for k in sorted(all_keys):
+                a = str(api_parsed.get(k, ""))
+                b = str(legacy_parsed.get(k, ""))
+                if a != b:
+                    diffs.append((k, a, b))
+                    print(f"  {k}:")
+                    print(f"    API     : {a[:120]}")
+                    print(f"    Selenium: {b[:120]}")
+            if not diffs:
+                print("  차이 없음.")
+
+            diff_path = os.path.join(out, f"{record_id}_diff.txt")
+            with open(diff_path, 'w', encoding='utf-8') as f:
+                if diffs:
+                    for k, a, b in diffs:
+                        f.write(f"[{k}]\nAPI     : {a}\nSelenium: {b}\n\n")
+                else:
+                    f.write("차이 없음.\n")
+            print(f"\n  비교 결과 저장: {diff_path}")
 
     except Exception as e:
-        print(f"\nAn unexpected error occurred: {e}")
+        import traceback
+        print(f"\n예기치 않은 오류: {e}")
+        traceback.print_exc()
         if driver:
-            print("\n--- FULL PAGE SOURCE ON ERROR ---")
-            # Save the full page source to a file for debugging
-            error_file_path = os.path.join(settings.logpath, f"{report_id}_error.html")
-            with open(error_file_path, 'w', encoding='utf-8') as f:
+            err_path = os.path.join(out, f"{record_id}_error.html")
+            with open(err_path, 'w', encoding='utf-8') as f:
                 f.write(driver.page_source)
-            print(f"오류 발생 시점의 전체 페이지 소스가 다음 파일에 저장되었습니다: {error_file_path}")
+            print(f"에러 페이지 소스 저장: {err_path}")
 
     finally:
         if driver:
             driver.quit()
-            print("\nDriver closed.")
+            print("\n드라이버 종료.")
         print("--- 디버그 스크립트 종료 ---")
