@@ -177,6 +177,21 @@ except Exception:
     APP_VERSION = "Unknown"
 
 
+@app.get("/version/latest")
+async def version_latest():
+    from fastapi.responses import JSONResponse
+    from core.utils.updater import get_latest_version_cached, _version_gt
+    try:
+        latest = get_latest_version_cached()
+        if latest is None:
+            return JSONResponse({"status": "unknown"})
+        if _version_gt(latest, APP_VERSION):
+            return JSONResponse({"status": "outdated", "latest": latest})
+        return JSONResponse({"status": "up_to_date", "latest": latest})
+    except Exception:
+        return JSONResponse({"status": "unknown"})
+
+
 @app.get("/health")
 async def health_check():
     from fastapi.responses import JSONResponse
