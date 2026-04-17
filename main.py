@@ -191,6 +191,11 @@ async def version_latest():
     except Exception:
         return JSONResponse({"status": "unknown"})
 
+@app.get("/version")
+async def version_info():
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"version": APP_VERSION})
+
 @app.get("/health")
 async def health_check():
     from fastapi.responses import JSONResponse
