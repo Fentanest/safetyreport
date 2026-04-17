@@ -134,11 +134,12 @@ def _run_after_crawl(proc, log_file: str):
         changed_count = done["changed_count"] if done else 0
         ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
     except Exception:
-        pass
+        changed_count = 0
     try:
         changes = data_service.peek_crawl_changes()
         if changes:
             ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
+        data_service.save_crawl_done_ext(changed_count, changes or [])
     except Exception:
         pass
 
@@ -256,6 +257,39 @@ async def get_crawl_status(_: str = Depends(_require_api_key)):
     """크롤링 실행 중 여부 확인"""
     from services.crawl_manager import crawl_manager
     return {"status": "success", "running": crawl_manager.is_crawling()}
+
+
+@router.get("/server/version")
+async def get_server_version(_: str = Depends(_require_api_key)):
+    """서버 버전 및 최신 버전 정보 (크롬 확장용)"""
+    from core.utils.updater import get_current_version, get_latest_version_cached
+    current = get_current_version() or "unknown"
+    latest = get_latest_version_cached()
+    up_to_date = (latest is None) or (current == latest)
+    return {
+        "status": "success",
+        "version": current,
+        "latest_version": latest,
+        "up_to_date": up_to_date,
+    }
+
+
+@router.get("/crawl/done/ext")
+async def get_crawl_done_ext(_: str = Depends(_require_api_key)):
+    """크롤링 완료 여부 및 변경 목록 조회 (크롬 확장용, 확인 후 자동 삭제)"""
+    try:
+        done = data_service.get_and_clear_crawl_done_ext()
+        if done is None:
+            return {"status": "success", "done": False}
+        return {
+            "status": "success",
+            "done": True,
+            "timestamp": done["timestamp"],
+            "changed_count": done["changed_count"],
+            "changes": done.get("changes", []),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/crawl/done")
