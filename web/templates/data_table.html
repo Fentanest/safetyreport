@@ -410,6 +410,18 @@ $(document).ready(function() {
         syncScroll();
     }, 100);
 
+    // ?open=신고번호 파라미터: 자동 검색 후 상세 모달 오픈 (크롬 확장 연동)
+    setTimeout(function() {
+        var openReport = new URLSearchParams(window.location.search).get('open');
+        if (!openReport) return;
+        $('#searchReport').val(openReport);
+        table.one('draw', function() {
+            var d = table.row(':eq(0)').data();
+            if (d) setTimeout(function() { window.showReportDetail(d); }, 150);
+        });
+        table.column(3).search(orSearch(openReport), true, false).draw();
+    }, 200);
+
     table.on('draw', function() {
         syncScroll();
     });
