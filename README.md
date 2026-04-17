@@ -1,7 +1,7 @@
 # 나만의 안전신문고 (MySafetyReport Manager)
 
 > 안전신문고에 신고한 내역을 자동으로 수집하고, 강력한 검색·통계·알림 기능을 제공하는 개인용 통합 관리 시스템입니다.
-> 웹 대시보드와 Android 앱을 함께 사용할 수 있습니다.
+> 웹 대시보드, Android 앱, Chrome 확장 프로그램을 함께 사용할 수 있습니다.
 
 [![GitHub Release](https://img.shields.io/github/v/release/Fentanest/safetyreport)](https://github.com/Fentanest/safetyreport/releases)
 [![GitHub Container Registry](https://img.shields.io/badge/Docker-ghcr.io-blue)](https://github.com/Fentanest/safetyreport/pkgs/container/safetyreport)
@@ -43,7 +43,7 @@
 내 신고를 어느 기관·담당자가 어떻게 처리했는지 한눈에 파악합니다.
 
 - **대시보드**: 전체 신고 수, 처리상태별 현황, 교통위반 과태료·범칙금·불수용 요약
-- **통계 탭**: 교통위반·기타위반 각각 기관별 / 담당자별 / 경찰기관 / 비경찰기관 총 12가지 뷰
+- **통계 탭**: 교통위반·주정차위반·기타위반 각각 기관별 / 담당자별 / 경찰기관 / 경찰담당자 / 비경찰기관 / 비경찰담당자 총 18가지 뷰
 - 통계 항목 클릭 시 해당 기관·담당자의 신고 목록으로 바로 이동
 - 최근 3일 내 답변 완료된 신고 목록 대시보드 표시
 
@@ -76,8 +76,8 @@
 | 탭 | 기능 |
 |----|------|
 | 대시보드 | 처리 현황 요약, 감시 목록, 최근 답변 신고 확인 |
-| 신고리스트 | 교통위반·기타위반 목록 조회, 검색·필터, 상세 보기 |
-| 통계 | 기관별·담당자별·경찰/비경찰 분류 통계 (12가지 뷰) |
+| 신고리스트 | 교통위반·주정차위반·기타위반 목록 조회, 검색·필터, 상세 보기 |
+| 통계 | 기관별·담당자별·경찰/비경찰 분류 통계 (18가지 뷰) |
 | 알림 | 크롤링 현황 알림 / 개별 신고 처리 결과 알림 분리 표시 |
 | 파일 | 서버의 로그·결과 파일 직접 확인 |
 | 크롤링 | 크롤링 시작·중지 및 실시간 로그 확인 |
@@ -96,6 +96,18 @@
 
 앱 설치 후 **설정** 탭에서 서버 주소와 API 키를 입력하면 바로 연결됩니다.
 API 키는 웹 관리 페이지의 **기기 연동** 메뉴에서 발급할 수 있습니다.
+
+---
+
+## Chrome 확장 프로그램 연동
+
+[Chrome 웹 스토어](https://chromewebstore.google.com/detail/나만의-안전신문고/pfoigdedcddegilmjmgojohalkighpgh)에서 설치할 수 있습니다.
+
+안전신문고 사이트를 브라우저에서 열어 신고 내역을 볼 때 차량번호를 클릭하면 수집된 데이터베이스에서 해당 차량의 이전 신고 이력을 바로 조회할 수 있습니다.
+
+확장 프로그램 설정에서 서버 주소와 API 키를 입력하면 연결됩니다. API 키는 웹 관리 페이지의 **기기 연동** 메뉴에서 발급할 수 있습니다.
+
+또한 크롤링이 완료되면 확장 프로그램에 알림이 표시되며, 변경된 신고 건수와 내역을 확인할 수 있습니다.
 
 ---
 
@@ -198,7 +210,7 @@ docker-compose up -d
 ## 자주 묻는 질문
 
 **Q. 크롤링하면 안전신문고 계정이 차단되지 않나요?**
-A. 사람이 직접 클릭하는 것과 동일한 방식으로 동작하며, 요청 사이에 자연스러운 대기 시간이 포함되어 있습니다. 다만 과도하게 짧은 간격으로 반복 실행하는 것은 권장하지 않습니다.
+A. 기본 크롤링 방식은 안전신문고 공식 앱도 사용하는 API를 동일하게 호출하는 방식입니다. 화면을 직접 조작하지 않아 비교적 부하가 적습니다. 다만 과도하게 짧은 간격으로 반복 실행하는 것은 권장하지 않습니다.
 
 **Q. 기존 데이터는 보존되나요?**
 A. 모든 데이터는 `data/` 폴더의 SQLite 파일에 저장됩니다. Docker 환경에서는 볼륨 마운트(`./data:/app/data`)를 통해 컨테이너를 재시작하거나 업데이트해도 데이터가 유지됩니다.
@@ -219,7 +231,7 @@ A. 앱 설정에서 WsService(백그라운드 연결)가 실행 중인지 확인
 | 프로젝트 | 설명 |
 |----------|------|
 | [safetyreport-mobile](https://github.com/Fentanest/safetyreport-mobile) | 이 서버와 연동하는 Android 앱 (Flutter) |
-| [safetyreport-chromeextension](https://github.com/Fentanest/safetyreport-chromeextension) | 차량번호 조회 등 브라우저 연동 크롬 확장 프로그램 |
+| [safetyreport-chromeextension](https://github.com/Fentanest/safetyreport-chromeextension) | 차량번호 조회 등 브라우저 연동 크롬 확장 프로그램 ([Chrome 웹 스토어](https://chromewebstore.google.com/detail/나만의-안전신문고/pfoigdedcddegilmjmgojohalkighpgh)) |
 
 ---
 
