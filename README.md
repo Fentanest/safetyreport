@@ -230,7 +230,7 @@ A. 앱 설정에서 WsService(백그라운드 연결)가 실행 중인지 확인
 
 | 프로젝트 | 설명 |
 |----------|------|
-| [safetyreport-mobile](https://github.com/Fentanest/safetyreport-mobile) | 이 서버와 연동하는 Android 앱 (Flutter) |
+| [safetyreport-mobile](https://github.com/Fentanest/safetyreport-mobile) | 이 서버와 연동하는 Android 앱 ([Google Play 스토어](https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport)) |
 | [safetyreport-chromeextension](https://github.com/Fentanest/safetyreport-chromeextension) | 차량번호 조회 등 브라우저 연동 크롬 확장 프로그램 ([Chrome 웹 스토어](https://chromewebstore.google.com/detail/나만의-안전신문고/pfoigdedcddegilmjmgojohalkighpgh)) |
 
 ---
