@@ -8,16 +8,54 @@ if root_dir not in sys.path:
 
 import settings.settings as settings
 from core.utils import logger
-from core.crawler import driv, login
+from core.crawler import login
 import services.parser as doc_parser
 from sqlalchemy import create_engine, select
 from core.database.models import title_table, metadata
 
+from selenium import webdriver
+from selenium.webdriver.chrome.webdriver import WebDriver as ChromeWebDriver
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
+import platform, shutil
 import time
+
+
+def _create_isolated_driver():
+    """프로덕션 Chrome 설정과 완전히 분리된 독립 headless 드라이버를 생성합니다.
+    remote/hub 모드를 사용하지 않으므로 실행 중인 서버에 영향을 주지 않습니다."""
+    options = webdriver.ChromeOptions()
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--incognito")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--enable-javascript")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option('useAutomationExtension', False)
+    options.add_argument('--disable-blink-features=AutomationControlled')
+
+    machine = platform.machine().lower()
+    if ('aarch64' in machine or 'arm64' in machine) and platform.system() != 'Windows':
+        candidates = ['/usr/bin/chromedriver', '/usr/lib/chromium/chromedriver']
+        cd_path = next((p for p in candidates if shutil.which(p) or __import__('os').path.isfile(p)), None)
+        if cd_path:
+            service = Service(cd_path)
+        else:
+            from webdriver_manager.chrome import ChromeDriverManager
+            service = Service(ChromeDriverManager().install())
+        for bin_path in ['/usr/bin/chromium', '/usr/bin/chromium-browser']:
+            if __import__('os').path.isfile(bin_path):
+                options.binary_location = bin_path
+                break
+    else:
+        from webdriver_manager.chrome import ChromeDriverManager
+        service = Service(ChromeDriverManager().install())
+
+    return ChromeWebDriver(service=service, options=options)
 
 
 def lookup_id_by_report_number(engine, report_number: str):
@@ -119,8 +157,8 @@ if __name__ == "__main__":
     driver = None
 
     try:
-        print("드라이버 생성 및 로그인...")
-        driver = driv.create_driver()
+        print("드라이버 생성 및 로그인... (독립 headless 세션, 서버 무영향)")
+        driver = _create_isolated_driver()
         login.login_mysafety(driver=driver)
         print("로그인 완료.")
 
