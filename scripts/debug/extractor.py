@@ -24,11 +24,13 @@ import platform, shutil
 import time
 
 
-def _create_isolated_driver():
-    """프로덕션 Chrome 설정과 완전히 분리된 독립 headless 드라이버를 생성합니다.
-    remote/hub 모드를 사용하지 않으므로 실행 중인 서버에 영향을 주지 않습니다."""
+def _create_debug_driver():
+    """디버그 전용 경량 드라이버.
+    Hub/remote/desktop 설정을 그대로 따르되, whatismybrowser.com 로딩을 건너뜁니다.
+    불필요한 외부 페이지 로드가 없어 CPU 스파이크를 최소화합니다."""
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")
+    if settings.headless:
+        options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--incognito")
     options.add_argument("--disable-gpu")
@@ -39,23 +41,41 @@ def _create_isolated_driver():
     options.add_argument('--disable-blink-features=AutomationControlled')
 
     machine = platform.machine().lower()
-    if ('aarch64' in machine or 'arm64' in machine) and platform.system() != 'Windows':
-        candidates = ['/usr/bin/chromedriver', '/usr/lib/chromium/chromedriver']
-        cd_path = next((p for p in candidates if shutil.which(p) or __import__('os').path.isfile(p)), None)
-        if cd_path:
-            service = Service(cd_path)
+    is_arm = ('aarch64' in machine or 'arm64' in machine) and platform.system() != 'Windows'
+
+    mode = getattr(settings, 'chrome_mode', 'hub')
+
+    if mode == 'remote':
+        remote_val = str(settings.remote_debug_port).strip()
+        debug_addr = remote_val if ':' in remote_val else f"127.0.0.1:{remote_val}"
+        options.add_experimental_option("debuggerAddress", debug_addr)
+        if is_arm:
+            candidates = ['/usr/bin/chromedriver', '/usr/lib/chromium/chromedriver',
+                          '/usr/bin/chromium-driver']
+            cd_path = next((p for p in candidates if os.path.isfile(p)), None) or shutil.which('chromedriver')
+            service = Service(cd_path) if cd_path else Service(shutil.which('chromedriver'))
         else:
             from webdriver_manager.chrome import ChromeDriverManager
             service = Service(ChromeDriverManager().install())
-        for bin_path in ['/usr/bin/chromium', '/usr/bin/chromium-browser']:
-            if __import__('os').path.isfile(bin_path):
-                options.binary_location = bin_path
-                break
-    else:
-        from webdriver_manager.chrome import ChromeDriverManager
-        service = Service(ChromeDriverManager().install())
+        return ChromeWebDriver(service=service, options=options)
 
-    return ChromeWebDriver(service=service, options=options)
+    elif mode == 'hub':
+        return webdriver.Remote(command_executor=settings.remotepath, options=options)
+
+    else:  # desktop
+        if is_arm:
+            candidates = ['/usr/bin/chromedriver', '/usr/lib/chromium/chromedriver',
+                          '/usr/bin/chromium-driver']
+            cd_path = next((p for p in candidates if os.path.isfile(p)), None) or shutil.which('chromedriver')
+            for bin_path in ['/usr/bin/chromium', '/usr/bin/chromium-browser']:
+                if os.path.isfile(bin_path):
+                    options.binary_location = bin_path
+                    break
+            service = Service(cd_path) if cd_path else Service(shutil.which('chromedriver'))
+        else:
+            from webdriver_manager.chrome import ChromeDriverManager
+            service = Service(ChromeDriverManager().install())
+        return ChromeWebDriver(service=service, options=options)
 
 
 def lookup_id_by_report_number(engine, report_number: str):
@@ -157,8 +177,8 @@ if __name__ == "__main__":
     driver = None
 
     try:
-        print("드라이버 생성 및 로그인... (독립 headless 세션, 서버 무영향)")
-        driver = _create_isolated_driver()
+        print(f"드라이버 생성 및 로그인... (mode: {getattr(settings, 'chrome_mode', 'hub')})")
+        driver = _create_debug_driver()
         login.login_mysafety(driver=driver)
         print("로그인 완료.")
 
@@ -232,6 +252,11 @@ if __name__ == "__main__":
 
     finally:
         if driver:
-            driver.quit()
-            print("\n드라이버 종료.")
+            mode = getattr(settings, 'chrome_mode', 'hub')
+            if mode == 'remote':
+                # debuggerAddress 모드: quit()이 Chrome 자체를 종료시키므로 호출하지 않음
+                print("\n드라이버 분리 (remote 모드 - Chrome 유지).")
+            else:
+                driver.quit()
+                print("\n드라이버 종료.")
         print("--- 디버그 스크립트 종료 ---")
