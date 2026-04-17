@@ -145,117 +145,145 @@ def crawl_via_selenium(driver, record_id):
             pass
 
     raw_html = driver.page_source
-    parsed = doc_parser.parse_details(driver, report_soup, result_soup)
+    page_soup = BeautifulSoup(raw_html, 'html.parser')
+    parsed = doc_parser.parse_details(driver, report_soup, result_soup, page_soup=page_soup)
     return raw_html, parsed
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("사용법: python extractor.py <신고번호|내부ID>")
-        print("  예: python extractor.py SPP-2604-1234567")
-        print("  예: python extractor.py 59216726")
-        sys.exit(1)
+def _resolve_id(engine, input_arg: str):
+    if not input_arg.lstrip('-').isdigit():
+        rid = lookup_id_by_report_number(engine, input_arg)
+        if rid is None:
+            print(f"[오류] DB에서 신고번호 '{input_arg}'를 찾을 수 없습니다.")
+            return None
+        print(f"신고번호 {input_arg} → 내부 ID: {rid}")
+        return str(rid)
+    print(f"내부 ID: {input_arg}")
+    return input_arg
 
-    input_arg = sys.argv[1]
+
+def _process_one(driver, record_id, out):
+    print(f"\n{'='*50}")
+    print(f"[처리] ID: {record_id}")
+
+    # --- API 방식 ---
+    print("\n  [1/2] API 방식 크롤링 중...")
+    raw_json, result_data, api_parsed = crawl_via_api(driver, record_id)
+
+    api_raw_path = os.path.join(out, f"{record_id}_api_raw.json")
+    with open(api_raw_path, 'w', encoding='utf-8') as f:
+        json.dump(raw_json, f, ensure_ascii=False, indent=2)
+    print(f"    원시 JSON 저장: {api_raw_path}")
+
+    if api_parsed:
+        api_parsed_path = os.path.join(out, f"{record_id}_api_parsed.txt")
+        with open(api_parsed_path, 'w', encoding='utf-8') as f:
+            for k, v in api_parsed.items():
+                f.write(f"{k}: {v}\n")
+        print(f"    파싱 결과 저장: {api_parsed_path}")
+    else:
+        print(f"    [경고] API 파싱 실패: {raw_json.get('error', '알 수 없음')}")
+
+    # --- Selenium 방식 ---
+    print("\n  [2/2] Selenium 방식 크롤링 중...")
+    raw_html, legacy_parsed = crawl_via_selenium(driver, record_id)
+
+    legacy_html_path = os.path.join(out, f"{record_id}_legacy_raw.html")
+    with open(legacy_html_path, 'w', encoding='utf-8') as f:
+        f.write(raw_html)
+    print(f"    원시 HTML 저장: {legacy_html_path}")
+
+    legacy_parsed_path = os.path.join(out, f"{record_id}_legacy_parsed.txt")
+    with open(legacy_parsed_path, 'w', encoding='utf-8') as f:
+        for k, v in legacy_parsed.items():
+            f.write(f"{k}: {v}\n")
+    print(f"    파싱 결과 저장: {legacy_parsed_path}")
+
+    # --- 차이 비교 ---
+    if api_parsed and legacy_parsed:
+        all_keys = set(api_parsed) | set(legacy_parsed)
+        diffs = []
+        for k in sorted(all_keys):
+            a = str(api_parsed.get(k, ""))
+            b = str(legacy_parsed.get(k, ""))
+            if a != b:
+                diffs.append((k, a, b))
+
+        if diffs:
+            print("\n  --- [비교] API vs Selenium 차이 ---")
+            for k, a, b in diffs:
+                print(f"    {k}:")
+                print(f"      API     : {a[:120]}")
+                print(f"      Selenium: {b[:120]}")
+        else:
+            print("\n  차이 없음.")
+
+        diff_path = os.path.join(out, f"{record_id}_diff.txt")
+        with open(diff_path, 'w', encoding='utf-8') as f:
+            if diffs:
+                for k, a, b in diffs:
+                    f.write(f"[{k}]\nAPI     : {a}\nSelenium: {b}\n\n")
+            else:
+                f.write("차이 없음.\n")
+        print(f"    비교 결과 저장: {diff_path}")
+
+
+if __name__ == "__main__":
+    input_args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    if not input_args:
+        print("사용법: python extractor.py <신고번호|내부ID> [신고번호|내부ID ...]")
+        print("  예: python extractor.py SPP-2604-1234567")
+        print("  예: python extractor.py 59216726 40871819")
+        sys.exit(1)
 
     logger.LoggerFactory.create_logger()
     print("--- 디버그 스크립트 시작 ---")
 
     engine = create_engine(f"sqlite:///{settings.db_path}", connect_args={"check_same_thread": False})
 
-    if not input_arg.lstrip('-').isdigit():
-        report_number = input_arg
-        record_id = lookup_id_by_report_number(engine, report_number)
-        if record_id is None:
-            print(f"[오류] DB에서 신고번호 '{report_number}'를 찾을 수 없습니다.")
-            sys.exit(1)
-        print(f"신고번호 {report_number} → 내부 ID: {record_id}")
-    else:
-        record_id = input_arg
-        print(f"내부 ID: {record_id}")
+    record_ids = []
+    for arg in input_args:
+        rid = _resolve_id(engine, arg)
+        if rid:
+            record_ids.append(rid)
+
+    if not record_ids:
+        print("[오류] 처리할 ID가 없습니다.")
+        sys.exit(1)
 
     out = settings.logpath
     driver = None
+    last_id = record_ids[-1]
 
     try:
-        print(f"드라이버 생성 및 로그인... (mode: {getattr(settings, 'chrome_mode', 'hub')})")
+        print(f"\n드라이버 생성 및 로그인... (mode: {getattr(settings, 'chrome_mode', 'hub')})")
         driver = _create_debug_driver()
         login.login_mysafety(driver=driver)
         print("로그인 완료.")
+        print(f"총 {len(record_ids)}건 처리 예정: {record_ids}")
 
-        # --- API 방식 ---
-        print("\n[1/2] API 방식 크롤링 중...")
-        raw_json, result_data, api_parsed = crawl_via_api(driver, record_id)
-
-        api_raw_path = os.path.join(out, f"{record_id}_api_raw.json")
-        with open(api_raw_path, 'w', encoding='utf-8') as f:
-            json.dump(raw_json, f, ensure_ascii=False, indent=2)
-        print(f"  원시 JSON 저장: {api_raw_path}")
-
-        if api_parsed:
-            api_parsed_path = os.path.join(out, f"{record_id}_api_parsed.txt")
-            with open(api_parsed_path, 'w', encoding='utf-8') as f:
-                for k, v in api_parsed.items():
-                    f.write(f"{k}: {v}\n")
-            print(f"  파싱 결과 저장: {api_parsed_path}")
-        else:
-            print(f"  [경고] API 파싱 실패: {raw_json.get('error', '알 수 없음')}")
-
-        # --- Selenium 방식 ---
-        print("\n[2/2] Selenium 방식 크롤링 중...")
-        raw_html, legacy_parsed = crawl_via_selenium(driver, record_id)
-
-        legacy_html_path = os.path.join(out, f"{record_id}_legacy_raw.html")
-        with open(legacy_html_path, 'w', encoding='utf-8') as f:
-            f.write(raw_html)
-        print(f"  원시 HTML 저장: {legacy_html_path}")
-
-        legacy_parsed_path = os.path.join(out, f"{record_id}_legacy_parsed.txt")
-        with open(legacy_parsed_path, 'w', encoding='utf-8') as f:
-            for k, v in legacy_parsed.items():
-                f.write(f"{k}: {v}\n")
-        print(f"  파싱 결과 저장: {legacy_parsed_path}")
-
-        # --- 차이 비교 ---
-        if api_parsed and legacy_parsed:
-            print("\n--- [비교] API vs Selenium 차이 ---")
-            all_keys = set(api_parsed) | set(legacy_parsed)
-            diffs = []
-            for k in sorted(all_keys):
-                a = str(api_parsed.get(k, ""))
-                b = str(legacy_parsed.get(k, ""))
-                if a != b:
-                    diffs.append((k, a, b))
-                    print(f"  {k}:")
-                    print(f"    API     : {a[:120]}")
-                    print(f"    Selenium: {b[:120]}")
-            if not diffs:
-                print("  차이 없음.")
-
-            diff_path = os.path.join(out, f"{record_id}_diff.txt")
-            with open(diff_path, 'w', encoding='utf-8') as f:
-                if diffs:
-                    for k, a, b in diffs:
-                        f.write(f"[{k}]\nAPI     : {a}\nSelenium: {b}\n\n")
-                else:
-                    f.write("차이 없음.\n")
-            print(f"\n  비교 결과 저장: {diff_path}")
+        for rid in record_ids:
+            try:
+                _process_one(driver, rid, out)
+            except Exception as e:
+                import traceback
+                print(f"\n[오류] ID {rid} 처리 중 오류: {e}")
+                traceback.print_exc()
+                if driver:
+                    err_path = os.path.join(out, f"{rid}_error.html")
+                    with open(err_path, 'w', encoding='utf-8') as f:
+                        f.write(driver.page_source)
+                    print(f"  에러 페이지 소스 저장: {err_path}")
 
     except Exception as e:
         import traceback
         print(f"\n예기치 않은 오류: {e}")
         traceback.print_exc()
-        if driver:
-            err_path = os.path.join(out, f"{record_id}_error.html")
-            with open(err_path, 'w', encoding='utf-8') as f:
-                f.write(driver.page_source)
-            print(f"에러 페이지 소스 저장: {err_path}")
 
     finally:
         if driver:
             mode = getattr(settings, 'chrome_mode', 'hub')
             if not _is_docker() and mode == 'remote':
-                # debuggerAddress 모드: quit()이 Chrome 자체를 종료시키므로 호출하지 않음
                 print("\n드라이버 분리 (remote 모드 - Chrome 유지).")
             else:
                 driver.quit()

@@ -273,9 +273,16 @@ def deatil_to_sql(dataframes_with_category, engine, conn=None):
     total_records = 0
 
     for item in dataframes_with_category:
-        # (df, category), (df, category, entry_value), (df, category, entry_value, progress_status) 모두 지원
+        # 2~5-tuple 모두 지원
+        # (df, category)
+        # (df, category, entry_value)
+        # (df, category, entry_value, progress_status)
+        # (df, category, entry_value, progress_status, title_fields)
         progress_status = None
-        if len(item) == 4:
+        title_fields = None
+        if len(item) == 5:
+            df, category, entry_value, progress_status, title_fields = item
+        elif len(item) == 4:
             df, category, entry_value, progress_status = item
         elif len(item) == 3:
             df, category, entry_value = item
@@ -333,17 +340,35 @@ def deatil_to_sql(dataframes_with_category, engine, conn=None):
                 )
                 conn.execute(upsert_query)
 
-                # detail 크롤링 시 확인된 C_NOW(API) / 진행상황(레거시) 기반으로
-                # title.상태가 '진행'으로 고착된 경우 동기화
-                # (큐 크롤 시 title_to_sql 스킵으로 인해 상태 미갱신되는 케이스 대응)
-                title_status = _TITLE_STATUS_FROM_PROGRESS.get(progress_status)
-                if title_status:
+                if title_fields:
+                    from sqlalchemy import case as sa_case
+                    # 만족도조사여부: '참여 완료' → 다운그레이드 금지
+                    poll = title_fields.get('만족도조사여부', '')
+                    poll_expr = sa_case(
+                        (title_table.c.만족도조사여부 == '참여 완료', title_table.c.만족도조사여부),
+                        else_=poll
+                    ) if poll else title_table.c.만족도조사여부
                     conn.execute(
                         update(title_table)
                         .where(title_table.c.ID == record_id)
-                        .where(title_table.c.상태 == '진행')
-                        .values(상태=title_status)
+                        .values(
+                            상태=title_fields['상태'],
+                            신고번호=title_fields['신고번호'],
+                            신고명=title_fields['신고명'],
+                            신고일=title_fields['신고일'],
+                            만족도조사여부=poll_expr,
+                        )
                     )
+                else:
+                    # title_fields 없을 때 기존 동작: 상태=='진행'인 경우만 동기화
+                    title_status = _TITLE_STATUS_FROM_PROGRESS.get(progress_status)
+                    if title_status:
+                        conn.execute(
+                            update(title_table)
+                            .where(title_table.c.ID == record_id)
+                            .where(title_table.c.상태 == '진행')
+                            .values(상태=title_status)
+                        )
                 # engine.begin() 블록 종료 시 자동 commit
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"ID {record_id} upsert 실패, 건너뜀: {e}")

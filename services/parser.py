@@ -96,6 +96,13 @@ def _parse_report_content_table(driver, report_soup):
         "attachment_files": attachment_files,
         "attached_photos": attached_photos,
         "map_image": map_image,
+        # title 갱신용 원시 데이터 (신고번호, 신고명, 신고일은 page_soup에서)
+        "_report_number_raw": report_soup.find('th', string='신고번호').find_next_sibling('td').get_text(strip=True)
+            if report_soup.find('th', string='신고번호') else "",
+        "_title_raw": report_soup.find('th', string='제목').find_next_sibling('td').get_text(strip=True)
+            if report_soup.find('th', string='제목') else "",
+        "_date_raw": report_soup.find('th', string='신고일시').find_next_sibling('td').get_text(strip=True)
+            if report_soup.find('th', string='신고일시') else "",
     }
 
 def _parse_processing_result_table(result_soup, entry_value):
@@ -192,9 +199,24 @@ def _parse_processing_result_table(result_soup, entry_value):
         "processing_finish": processing_finish_text,
     }
 
-def parse_details(driver, report_soup, result_soup=None):
+def _extract_poll_status_from_html(page_soup, progress_status):
+    """btnArea 버튼 id와 진행상황으로 만족도조사여부 결정."""
+    if page_soup:
+        btn_area = page_soup.find('div', id='btnArea')
+        if btn_area:
+            if btn_area.find('button', id='comptStfnLink'):
+                return '참여 완료'
+            if btn_area.find('button', id='stfnLink'):
+                return '참여 가능'
+    if progress_status in ('취하', '이송'):
+        return '참여 불가'
+    return '답변 대기'
+
+
+def parse_details(driver, report_soup, result_soup=None, page_soup=None):
     report_details = _parse_report_content_table(driver, report_soup)
-    
+    progress_status = report_details.get("progress_status", "")
+
     processing_details = {}
     if result_soup:
         processing_details = _parse_processing_result_table(result_soup, report_details["entry_value"])
@@ -211,7 +233,7 @@ def parse_details(driver, report_soup, result_soup=None):
             "processing_finish": "N",
         }
 
-    if report_details["progress_status"] == "취하":
+    if progress_status == "취하":
         processing_details["processing_finish"] = "Y"
         processing_details["processing_status"] = "취하"
         processing_details["penalty_amount"] = ""
@@ -219,6 +241,20 @@ def parse_details(driver, report_soup, result_soup=None):
 
     all_details = {**report_details, **processing_details}
     all_details.pop("progress_status", None)
+
+    # title 갱신용 필드 구성
+    report_number = all_details.pop("_report_number_raw", "")
+    title_raw = all_details.pop("_title_raw", "")
+    date_raw = all_details.pop("_date_raw", "")
+    title_text = title_raw.split(')', 1)[-1].strip() if ')' in title_raw else title_raw
+
+    all_details["title_fields"] = {
+        "상태": progress_status,
+        "신고번호": report_number,
+        "신고명": title_text,
+        "신고일": date_raw,
+        "만족도조사여부": _extract_poll_status_from_html(page_soup, progress_status),
+    }
 
     return all_details
 
@@ -235,6 +271,10 @@ def parse_json_details(result_data):
     
     car_number_match = re.search(r'차량번호\s*:\s*(.*?)(?=\n|\(위)', content_text_clean)
     car_number = re.sub(r'\s+', '', car_number_match.group(1)) if car_number_match else ""
+
+    # 보완 완료(SPLMNT_CMPTN_YN == 'Y') 시 기관 확인된 최종 차량번호로 갱신
+    if result_data.get('SPLMNT_CMPTN_YN') == 'Y' and result_data.get('SPLMNT_VHRNO'):
+        car_number = re.sub(r'\s+', '', result_data.get('SPLMNT_VHRNO', ''))
     
     occurrence_date_match = re.search(r'발생일자\s*:\s*(\d{4}.\d{1,2}.\d{1,2})', content_text_clean)
     occurrence_date = occurrence_date_match.group(1).strip().replace('.', '-') if occurrence_date_match else ""
@@ -406,6 +446,31 @@ def parse_json_details(result_data):
         penalty_amount = ""
         penalty_points = ""
 
+    # title 갱신용 필드 구성
+    c_now_int = result_data.get('C_NOW', 0)
+    try:
+        c_now_int = int(float(c_now_int))
+    except Exception:
+        c_now_int = 0
+    stsfdg = int(result_data.get('STSFDG_SCORE', 0) or 0)
+    if stsfdg > 0:
+        poll_status = '참여 완료'
+    elif c_now_int in (10, 11, 14, 15):
+        poll_status = '참여 가능'
+    elif c_now_int in (20, 30):
+        poll_status = '참여 불가'
+    else:
+        poll_status = '답변 대기'
+    title_raw = result_data.get('C_A_TITLE', '')
+    title_text = title_raw.split(')', 1)[-1].strip() if ')' in title_raw else title_raw.strip()
+    title_fields = {
+        '상태': process_status,
+        '신고번호': result_data.get('STTEMNT_NO', ''),
+        '신고명': title_text,
+        '신고일': result_data.get('C_DATE', ''),
+        '만족도조사여부': poll_status,
+    }
+
     return {
         "entry_value": entry_value,
         "car_number": car_number,
@@ -426,4 +491,5 @@ def parse_json_details(result_data):
         "attachment_files": attachment_files,
         "attached_photos": attached_photos,
         "map_image": map_image,
+        "title_fields": title_fields,
     }

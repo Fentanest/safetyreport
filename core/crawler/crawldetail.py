@@ -56,7 +56,8 @@ def crawl_details(driver, list):
                 logger.LoggerFactory.logbot.debug(f"Skipping result table wait for status: {progress_status}")
 
             # Parse all details using the helper function
-            details = doc_parser.parse_details(driver, report_soup, result_soup)
+            page_soup = BeautifulSoup(driver.page_source, 'html.parser')
+            details = doc_parser.parse_details(driver, report_soup, result_soup, page_soup=page_soup)
 
             # Create DataFrame
             cols = ["ID", "처리상태", "차량번호", "위반법규", "범칙금_과태료", "벌점", "처리기관", "담당자", "답변일", "발생일자", "발생시각", "위반장소", "종결여부", "신고내용", "처리내용", "지도", "첨부사진", "첨부파일"]
@@ -87,7 +88,7 @@ def crawl_details(driver, list):
             entry_value = details.get("entry_value", "")
             from core.database.database import category_from_entry_value
             category = category_from_entry_value(entry_value)
-            yield (df, category, entry_value, progress_status)
+            yield (df, category, entry_value, progress_status, details.get("title_fields"))
 
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"Error processing link {link}: {e}")
