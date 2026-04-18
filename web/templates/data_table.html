@@ -35,6 +35,10 @@
         text-align: center !important;
         white-space: nowrap;
     }
+    /* 체크박스 선택된 행 강조 */
+    tr.row-selected td {
+        background-color: #fff3cd !important;
+    }
 </style>
 {% endblock %}
 
@@ -370,6 +374,55 @@ $(document).ready(function() {
         }
     });
 
+    // 선택된 신고번호 추적 Set (페이지 전환에도 유지)
+    var selectedRows = new Set();
+
+    function applyRowHighlights() {
+        table.rows({ page: 'current' }).every(function () {
+            var d = this.data();
+            if (!d) return;
+            var rnum = String(d['신고번호'] || '');
+            var node = this.node();
+            var $tr = $(node);
+            var $cb = $tr.find('.row-checkbox');
+            if (rnum && selectedRows.has(rnum)) {
+                $cb.prop('checked', true);
+                $tr.addClass('row-selected');
+            } else {
+                $cb.prop('checked', false);
+                $tr.removeClass('row-selected');
+            }
+        });
+        var pageTotal = table.rows({ page: 'current' }).count();
+        var pageChecked = table.rows({ page: 'current' }).nodes().toArray()
+            .filter(function (n) { return $(n).find('.row-checkbox').is(':checked'); }).length;
+        $('#selectAll').prop('indeterminate', pageChecked > 0 && pageChecked < pageTotal);
+        $('#selectAll').prop('checked', pageTotal > 0 && pageChecked === pageTotal);
+    }
+
+    table.on('draw', function () {
+        syncScroll();
+        applyRowHighlights();
+    });
+
+    // 개별 체크박스 토글
+    $('#{{ table_id }} tbody').on('change', '.row-checkbox', function () {
+        var rnum = String($(this).val() || '');
+        var $tr = $(this).closest('tr');
+        if ($(this).is(':checked')) {
+            selectedRows.add(rnum);
+            $tr.addClass('row-selected');
+        } else {
+            selectedRows.delete(rnum);
+            $tr.removeClass('row-selected');
+        }
+        var pageTotal = table.rows({ page: 'current' }).count();
+        var pageChecked = table.rows({ page: 'current' }).nodes().toArray()
+            .filter(function (n) { return $(n).find('.row-checkbox').is(':checked'); }).length;
+        $('#selectAll').prop('indeterminate', pageChecked > 0 && pageChecked < pageTotal);
+        $('#selectAll').prop('checked', pageTotal > 0 && pageChecked === pageTotal);
+    });
+
     // 경찰기관 필터 상호 배타적 선택
     $('.filter-police').on('change', function() {
         if ($(this).is(':checked')) {
@@ -422,9 +475,7 @@ $(document).ready(function() {
         table.column(3).search(orSearch(openReport), true, false).draw();
     }, 200);
 
-    table.on('draw', function() {
-        syncScroll();
-    });
+    // draw 핸들러는 selectedRows 블록 내에서 등록하므로 여기선 제거
 
     $.fn.dataTable.ext.search.push(
         function(settings, data, dataIndex) {
@@ -560,10 +611,10 @@ $(document).ready(function() {
     }
 
     $('#btnReset').on('click', function() {
+        selectedRows.clear();
         setTimeout(function() {
             table.search('').columns().search('').draw();
-            $('.row-checkbox').prop('checked', false);
-            $('#selectAll').prop('checked', false);
+            $('#selectAll').prop('checked', false).prop('indeterminate', false);
         }, 10);
     });
 
@@ -710,12 +761,8 @@ $(document).ready(function() {
 
     // 선택된 신고번호 클립보드 복사
     $('.btn-copy-selected-ids').on('click', function() {
-        let text = [];
-        $('.row-checkbox:checked').each(function() {
-            let val = $(this).val();
-            if(val) text.push(val);
-        });
-        
+        let text = [...selectedRows].filter(Boolean);
+
         if(text.length === 0) {
              alert('먼저 복사할 신고번호를 체크박스로 선택해주세요.');
              return;
@@ -885,16 +932,28 @@ $(document).ready(function() {
 
     $('#selectAll').on('change', function() {
         var isChecked = $(this).prop('checked');
-        $('.row-checkbox').prop('checked', isChecked);
+        $(this).prop('indeterminate', false);
+        table.rows({ page: 'current' }).every(function () {
+            var d = this.data();
+            if (!d) return;
+            var rnum = String(d['신고번호'] || '');
+            var node = this.node();
+            var $tr = $(node);
+            var $cb = $tr.find('.row-checkbox');
+            $cb.prop('checked', isChecked);
+            if (isChecked) {
+                selectedRows.add(rnum);
+                $tr.addClass('row-selected');
+            } else {
+                selectedRows.delete(rnum);
+                $tr.removeClass('row-selected');
+            }
+        });
     });
 
     $('.btn-add-watchlist').on('click', function() {
-        var selected = [];
-        $('.row-checkbox:checked').each(function() {
-            var val = $(this).val();
-            if(val) selected.push(val);
-        });
-        
+        var selected = [...selectedRows].filter(Boolean);
+
         if(selected.length === 0) {
             alert('감시목록에 추가할 항목을 선택해주세요.');
             return;

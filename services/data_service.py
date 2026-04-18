@@ -285,6 +285,24 @@ def get_agency_stats(engine, filters=None):
         df_p = _safe_read(conn, database.merge_parking_table)
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
 
+    # available_years: 필터 무관하게 전체 데이터의 답변일 연도 목록
+    _all_years = set()
+    for _df in [df_t, df_p, df_o]:
+        if not _df.empty and '답변일' in _df.columns:
+            _ys = _df['답변일'].dropna().str[:4]
+            _all_years.update(_ys[_ys.str.match(r'^\d{4}$', na=False)].unique())
+    available_years = sorted(_all_years, reverse=True)
+
+    def _calc_avg_days(group_df):
+        try:
+            d_end = pd.to_datetime(group_df['답변일'], errors='coerce')
+            d_start = pd.to_datetime(group_df['신고일'], errors='coerce')
+            days = (d_end - d_start).dt.days.dropna()
+            days = days[days >= 0]
+            return round(float(days.mean()), 1) if len(days) > 0 else None
+        except Exception:
+            return None
+
     def calc_stats(df):
         _empty = {
             "by_agency": [], "by_person": [],
@@ -295,39 +313,44 @@ def get_agency_stats(engine, filters=None):
             return _empty
 
         if filters:
+            # 연도 필터 (답변일 기준)
+            if filters.get('year') and filters['year'] not in ('all', '', None):
+                if '답변일' in df.columns:
+                    df = df[df['답변일'].str.startswith(filters['year'], na=False)]
+
             if filters.get('reportName') and '신고명' in df.columns:
                 df = df[df['신고명'].str.contains(filters['reportName'], na=False, regex=False)]
             if filters.get('law') and '위반법규' in df.columns:
                 df = df[df['위반법규'].str.contains(filters['law'], na=False, regex=False)]
             if filters.get('location') and '위반장소' in df.columns:
                 df = df[df['위반장소'].str.contains(filters['location'], na=False, regex=False)]
-            
+
             if filters.get('reportDateStart') and '신고일' in df.columns:
                 df = df[df['신고일'] >= filters['reportDateStart']]
             if filters.get('reportDateEnd') and '신고일' in df.columns:
                 df = df[df['신고일'] <= filters['reportDateEnd'] + ' 23:59:59']
-                
+
             if filters.get('occurDateStart') and '발생일자' in df.columns:
                 df = df[df['발생일자'] >= filters['occurDateStart']]
             if filters.get('occurDateEnd') and '발생일자' in df.columns:
                 df = df[df['발생일자'] <= filters['occurDateEnd']]
-                
+
             if filters.get('responseDateStart') and '답변일' in df.columns:
                 df = df[df['답변일'] >= filters['responseDateStart']]
             if filters.get('responseDateEnd') and '답변일' in df.columns:
                 df = df[df['답변일'] <= filters['responseDateEnd']]
-                
+
             if filters.get('occurTimeStart') and '발생시각' in df.columns:
                 df = df[df['발생시각'] >= filters['occurTimeStart']]
             if filters.get('occurTimeEnd') and '발생시각' in df.columns:
                 df = df[df['발생시각'] <= filters['occurTimeEnd']]
-            
+
             if filters.get('agency') and '처리기관' in df.columns:
                 if filters.get('agencyExact'):
                     df = df[df['처리기관'] == filters['agency']]
                 else:
                     df = df[df['처리기관'].str.contains(filters['agency'], na=False, regex=False)]
-            
+
             if filters.get('excludePolice') and '처리기관' in df.columns:
                 df = df[~df['처리기관'].str.contains('경찰', na=False)]
             if filters.get('onlyPolice') and '처리기관' in df.columns:
@@ -344,29 +367,29 @@ def get_agency_stats(engine, filters=None):
                     return x[:idx + 3]
                 return x
             df['처리기관'] = df['처리기관'].apply(norm_police)
-            
+
         df['처리기관'] = df.get('처리기관', pd.Series()).fillna('알수없음')
         df['담당자'] = df.get('담당자', pd.Series()).fillna('미지정')
         df['처리상태'] = df.get('처리상태', pd.Series()).fillna('진행중')
         df['범칙금_과태료'] = df.get('범칙금_과태료', pd.Series()).fillna('')
-        
+
         # 아직 담당자가 배정되지 않아 데이터가 없는 '처리중'이나 '취하' 건 제외
         df = df[~((df['담당자'].isin(['', '미지정'])) & (df['처리상태'].isin(['처리중', '진행', '진행중', '취하'])))]
-        
+
         stats_person = []
         for name, group in df.groupby(['처리기관', '담당자']):
             agency, person = name
             total = len(group)
-            
             rejects = len(group[group['처리상태'].isin(['불수용', '기타'])])
-            
             fines = len(group[group['범칙금_과태료'].str.contains('과태료', na=False)])
             warnings = len(group[group['범칙금_과태료'].str.contains('경고|범칙금', na=False)])
-            
+            avg = _calc_avg_days(group)
+
             stats_person.append({
                 "agency": agency,
                 "person": person,
                 "total": total,
+                "avg_days": avg,
                 "fines": fines,
                 "fines_pct": round((fines / total) * 100, 1) if total > 0 else 0,
                 "warnings": warnings,
@@ -374,20 +397,20 @@ def get_agency_stats(engine, filters=None):
                 "rejects": rejects,
                 "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0
             })
-            
+
         stats_agency = []
         for agency, group in df.groupby('처리기관'):
             agency = agency[0] if isinstance(agency, tuple) else agency
             total = len(group)
-            
             rejects = len(group[group['처리상태'].isin(['불수용', '기타'])])
-            
             fines = len(group[group['범칙금_과태료'].str.contains('과태료', na=False)])
             warnings = len(group[group['범칙금_과태료'].str.contains('경고|범칙금', na=False)])
-            
+            avg = _calc_avg_days(group)
+
             stats_agency.append({
                 "agency": agency,
                 "total": total,
+                "avg_days": avg,
                 "fines": fines,
                 "fines_pct": round((fines / total) * 100, 1) if total > 0 else 0,
                 "warnings": warnings,
@@ -421,6 +444,7 @@ def get_agency_stats(engine, filters=None):
         "traffic": res_t,
         "parking": res_p,
         "other": res_o,
+        "available_years": available_years,
     }
 
 def resolve_to_report_numbers(engine, mixed_list):

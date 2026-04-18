@@ -26,6 +26,7 @@ async def view_stats(
     agencyExact: bool = False,
     excludePolice: bool = False,
     onlyPolice: bool = False,
+    year: str = None,
 ):
     filters = {
         'reportName': reportName,
@@ -43,11 +44,14 @@ async def view_stats(
         'agencyExact': agencyExact,
         'excludePolice': excludePolice,
         'onlyPolice': onlyPolice,
+        'year': year,
     }
     records = data_service.get_agency_stats(engine, filters)
-        
+
     return templates.TemplateResponse(request, "stats.html", {
         "title": "부서 통계",
+        "available_years": records.get("available_years", []),
+        "current_year": year or "all",
         "records_traffic_agency":         records["traffic"]["by_agency"],
         "records_traffic_person":         records["traffic"]["by_person"],
         "records_traffic_police_agency":  records["traffic"]["police_by_agency"],
