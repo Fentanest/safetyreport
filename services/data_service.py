@@ -322,6 +322,7 @@ def get_agency_stats(engine, filters=None):
             "police_by_agency": [], "police_by_person": [],
             "other_by_agency": [], "other_by_person": [],
             "by_law": [], "total_fine_amount": 0,
+            "available_laws": [],
         }
         if df.empty:
             return _empty
@@ -334,8 +335,6 @@ def get_agency_stats(engine, filters=None):
 
             if filters.get('reportName') and '신고명' in df.columns:
                 df = df[df['신고명'].str.contains(filters['reportName'], na=False, regex=False)]
-            if filters.get('law') and '위반법규' in df.columns:
-                df = df[df['위반법규'].str.contains(filters['law'], na=False, regex=False)]
             if filters.get('location') and '위반장소' in df.columns:
                 df = df[df['위반장소'].str.contains(filters['location'], na=False, regex=False)]
 
@@ -369,6 +368,18 @@ def get_agency_stats(engine, filters=None):
                 df = df[~df['처리기관'].str.contains('경찰', na=False)]
             if filters.get('onlyPolice') and '처리기관' in df.columns:
                 df = df[df['처리기관'].str.contains('경찰', na=False)]
+
+        # law 필터 적용 전에 사용 가능한 법규 목록 추출
+        if '위반법규' in df.columns:
+            _l = df['위반법규'].dropna().astype(str)
+            _l = _l[_l.str.strip() != '']
+            available_laws = sorted(_l.unique().tolist())
+        else:
+            available_laws = []
+
+        # law 필터 적용
+        if filters and filters.get('law') and '위반법규' in df.columns:
+            df = df[df['위반법규'].str.contains(filters['law'], na=False, regex=False)]
 
         if df.empty:
             return _empty
@@ -481,6 +492,7 @@ def get_agency_stats(engine, filters=None):
             "other_by_person":   other_person,
             "by_law":            all_law,
             "total_fine_amount": category_total_fine,
+            "available_laws":    available_laws,
         }
 
     res_t = calc_stats(df_t)
