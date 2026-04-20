@@ -191,6 +191,10 @@ def _get_records_from_table(engine, table_obj, filters=None):
             if person and '담당자' in df.columns:
                 df = df[df['담당자'] == person]
 
+            law = filters.get('law')
+            if law and '위반법규' in df.columns:
+                df = df[df['위반법규'].str.contains(law, na=False, regex=False)]
+
         if not df.empty:
             df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
             df = df.fillna('')

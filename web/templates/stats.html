@@ -11,7 +11,6 @@
         </div>
 
         <!-- 교통위반 총 과태료 -->
-        {% if traffic_total_fine > 0 %}
         <div class="alert alert-warning d-flex align-items-center gap-3 py-2 mb-3">
             <i class="fas fa-won-sign fa-lg text-warning"></i>
             <div>
@@ -19,7 +18,6 @@
                 <span class="ms-2 text-muted">총 과태료 <small class="text-secondary">(교통위반 한정)</small></span>
             </div>
         </div>
-        {% endif %}
 
 <!-- 플로팅 상세 검색 버튼 -->
         <button class="btn btn-primary floating-search-btn shadow-lg" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasSearch">
@@ -168,9 +166,9 @@
 
             {% macro fine_amt(val) %}{{ "{:,}원".format(val) if val > 0 else '-' }}{% endmacro %}
 
-            {% macro agency_rows(records, base_url) %}
+            {% macro agency_rows(records, base_url, law_filter='') %}
                 {% for r in records %}
-                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&agencyExact=true'">
+                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&agencyExact=true{% if law_filter %}&law={{ law_filter }}{% endif %}'">
                     <td>{{ r.agency }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
@@ -184,9 +182,9 @@
                 </tr>
                 {% endfor %}
             {% endmacro %}
-            {% macro person_rows(records, base_url) %}
+            {% macro person_rows(records, base_url, law_filter='') %}
                 {% for r in records %}
-                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&person={{ r.person }}&agencyExact=true'">
+                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&person={{ r.person }}&agencyExact=true{% if law_filter %}&law={{ law_filter }}{% endif %}'">
                     <td>{{ r.agency }}</td>
                     <td class="text-center">{{ r.person }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
@@ -220,12 +218,17 @@
             {% set agency_thead %}<tr><th>처리기관</th><th class="text-center">총 처리건수</th><th class="text-center">답변 소요 평균</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th></tr>{% endset %}
             {% set person_thead %}<tr><th>처리기관</th><th class="text-center">담당자</th><th class="text-center">총 처리건수</th><th class="text-center">답변 소요 평균</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th></tr>{% endset %}
             {% set law_thead %}<tr><th>위반법규</th><th class="text-center">총 처리건수</th><th class="text-center">답변 소요 평균</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th></tr>{% endset %}
+            {% set agency_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td></tr>{% endset %}
+            {% set person_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td></td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td></tr>{% endset %}
+
+            {% set lf = f.law or '' %}
 
             <!-- Traffic Agency -->
             <div class="stats-pane" id="traffic-agency" style="display:none">
                 <table id="statsTableTrafficAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_traffic_agency, '/data/traffic') }}</tbody>
+                    <tbody>{{ agency_rows(records_traffic_agency, '/data/traffic', lf) }}</tbody>
+                    <tfoot>{{ agency_tfoot }}</tfoot>
                 </table>
             </div>
 
@@ -233,7 +236,8 @@
             <div class="stats-pane" id="traffic-person" style="display:none">
                 <table id="statsTableTrafficPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_traffic_person, '/data/traffic') }}</tbody>
+                    <tbody>{{ person_rows(records_traffic_person, '/data/traffic', lf) }}</tbody>
+                    <tfoot>{{ person_tfoot }}</tfoot>
                 </table>
             </div>
 
@@ -241,7 +245,8 @@
             <div class="stats-pane" id="parking-agency" style="display:none">
                 <table id="statsTableParkingAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_parking_agency, '/data/parking') }}</tbody>
+                    <tbody>{{ agency_rows(records_parking_agency, '/data/parking', lf) }}</tbody>
+                    <tfoot>{{ agency_tfoot }}</tfoot>
                 </table>
             </div>
 
@@ -249,35 +254,40 @@
             <div class="stats-pane" id="parking-person" style="display:none">
                 <table id="statsTableParkingPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_parking_person, '/data/parking') }}</tbody>
+                    <tbody>{{ person_rows(records_parking_person, '/data/parking', lf) }}</tbody>
+                    <tfoot>{{ person_tfoot }}</tfoot>
                 </table>
             </div>
             <!-- Parking Police Agency -->
             <div class="stats-pane" id="parking-police-agency" style="display:none">
                 <table id="statsTableParkingPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_parking_police_agency, '/data/parking') }}</tbody>
+                    <tbody>{{ agency_rows(records_parking_police_agency, '/data/parking', lf) }}</tbody>
+                    <tfoot>{{ agency_tfoot }}</tfoot>
                 </table>
             </div>
             <!-- Parking Police Person -->
             <div class="stats-pane" id="parking-police-person" style="display:none">
                 <table id="statsTableParkingPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_parking_police_person, '/data/parking') }}</tbody>
+                    <tbody>{{ person_rows(records_parking_police_person, '/data/parking', lf) }}</tbody>
+                    <tfoot>{{ person_tfoot }}</tfoot>
                 </table>
             </div>
             <!-- Parking Other Agency -->
             <div class="stats-pane" id="parking-other-agency" style="display:none">
                 <table id="statsTableParkingOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_parking_other_agency, '/data/parking') }}</tbody>
+                    <tbody>{{ agency_rows(records_parking_other_agency, '/data/parking', lf) }}</tbody>
+                    <tfoot>{{ agency_tfoot }}</tfoot>
                 </table>
             </div>
             <!-- Parking Other Person -->
             <div class="stats-pane" id="parking-other-person" style="display:none">
                 <table id="statsTableParkingOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_parking_other_person, '/data/parking') }}</tbody>
+                    <tbody>{{ person_rows(records_parking_other_person, '/data/parking', lf) }}</tbody>
+                    <tfoot>{{ person_tfoot }}</tfoot>
                 </table>
             </div>
 
@@ -285,7 +295,8 @@
             <div class="stats-pane" id="other-agency" style="display:none">
                 <table id="statsTableOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_other_agency, '/data/other') }}</tbody>
+                    <tbody>{{ agency_rows(records_other_agency, '/data/other', lf) }}</tbody>
+                    <tfoot>{{ agency_tfoot }}</tfoot>
                 </table>
             </div>
 
@@ -293,7 +304,8 @@
             <div class="stats-pane" id="other-person" style="display:none">
                 <table id="statsTableOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_other_person, '/data/other') }}</tbody>
+                    <tbody>{{ person_rows(records_other_person, '/data/other', lf) }}</tbody>
+                    <tfoot>{{ person_tfoot }}</tfoot>
                 </table>
             </div>
 
@@ -301,56 +313,64 @@
             <div class="stats-pane" id="traffic-police-agency" style="display:none">
                 <table id="statsTableTrafficPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_traffic_police_agency, '/data/traffic') }}</tbody>
+                    <tbody>{{ agency_rows(records_traffic_police_agency, '/data/traffic', lf) }}</tbody>
+                    <tfoot>{{ agency_tfoot }}</tfoot>
                 </table>
             </div>
             <!-- Traffic Police Person -->
             <div class="stats-pane" id="traffic-police-person" style="display:none">
                 <table id="statsTableTrafficPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_traffic_police_person, '/data/traffic') }}</tbody>
+                    <tbody>{{ person_rows(records_traffic_police_person, '/data/traffic', lf) }}</tbody>
+                    <tfoot>{{ person_tfoot }}</tfoot>
                 </table>
             </div>
             <!-- Traffic Other Agency -->
             <div class="stats-pane" id="traffic-other-agency" style="display:none">
                 <table id="statsTableTrafficOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_traffic_other_agency, '/data/traffic') }}</tbody>
+                    <tbody>{{ agency_rows(records_traffic_other_agency, '/data/traffic', lf) }}</tbody>
+                    <tfoot>{{ agency_tfoot }}</tfoot>
                 </table>
             </div>
             <!-- Traffic Other Person -->
             <div class="stats-pane" id="traffic-other-person" style="display:none">
                 <table id="statsTableTrafficOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_traffic_other_person, '/data/traffic') }}</tbody>
+                    <tbody>{{ person_rows(records_traffic_other_person, '/data/traffic', lf) }}</tbody>
+                    <tfoot>{{ person_tfoot }}</tfoot>
                 </table>
             </div>
             <!-- Other Police Agency -->
             <div class="stats-pane" id="other-police-agency" style="display:none">
                 <table id="statsTableOtherPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_other_police_agency, '/data/other') }}</tbody>
+                    <tbody>{{ agency_rows(records_other_police_agency, '/data/other', lf) }}</tbody>
+                    <tfoot>{{ agency_tfoot }}</tfoot>
                 </table>
             </div>
             <!-- Other Police Person -->
             <div class="stats-pane" id="other-police-person" style="display:none">
                 <table id="statsTableOtherPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_other_police_person, '/data/other') }}</tbody>
+                    <tbody>{{ person_rows(records_other_police_person, '/data/other', lf) }}</tbody>
+                    <tfoot>{{ person_tfoot }}</tfoot>
                 </table>
             </div>
             <!-- Other Other Agency -->
             <div class="stats-pane" id="other-other-agency" style="display:none">
                 <table id="statsTableOtherOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_other_other_agency, '/data/other') }}</tbody>
+                    <tbody>{{ agency_rows(records_other_other_agency, '/data/other', lf) }}</tbody>
+                    <tfoot>{{ agency_tfoot }}</tfoot>
                 </table>
             </div>
             <!-- Other Other Person -->
             <div class="stats-pane" id="other-other-person" style="display:none">
                 <table id="statsTableOtherOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_other_other_person, '/data/other') }}</tbody>
+                    <tbody>{{ person_rows(records_other_other_person, '/data/other', lf) }}</tbody>
+                    <tfoot>{{ person_tfoot }}</tfoot>
                 </table>
             </div>
 
@@ -362,15 +382,63 @@
 {% block extra_js %}
 <script>
     $(document).ready(function () {
+        // 합계 행 계산 콜백 생성기
+        // cfg: { total, avg, fine, fines, warn, rejects } — 컬럼 인덱스 (0-based)
+        function makeDrawCallback(cfg) {
+            return function () {
+                var api = this.api();
+                var sumTotal = 0, sumFine = 0, sumFines = 0, sumWarn = 0, sumRejects = 0;
+                var wDays = 0, wBase = 0;
+
+                api.rows({ search: 'applied' }).nodes().each(function (tr) {
+                    var cells = $(tr).find('td');
+                    var total   = parseInt($(cells[cfg.total]).attr('data-order'))   || 0;
+                    var avgD    = parseFloat($(cells[cfg.avg]).attr('data-order'));
+                    var fine    = parseInt($(cells[cfg.fine]).attr('data-order'))    || 0;
+                    var fines   = parseInt($(cells[cfg.fines]).attr('data-order'))   || 0;
+                    var warn    = parseInt($(cells[cfg.warn]).attr('data-order'))    || 0;
+                    var rejects = parseInt($(cells[cfg.rejects]).attr('data-order')) || 0;
+                    sumTotal   += total;
+                    sumFine    += fine;
+                    sumFines   += fines;
+                    sumWarn    += warn;
+                    sumRejects += rejects;
+                    if (!isNaN(avgD) && avgD >= 0) { wDays += avgD * total; wBase += total; }
+                });
+
+                var avgStr  = wBase > 0 ? (wDays / wBase).toFixed(1) + '일' : '-';
+                var fineStr = sumFine > 0 ? sumFine.toLocaleString() + '원' : '-';
+                var fp  = sumTotal > 0 ? (sumFines   / sumTotal * 100).toFixed(1) + '%' : '-';
+                var wp  = sumTotal > 0 ? (sumWarn    / sumTotal * 100).toFixed(1) + '%' : '-';
+                var rp  = sumTotal > 0 ? (sumRejects / sumTotal * 100).toFixed(1) + '%' : '-';
+
+                var $ft = $(api.table().node()).find('tfoot tr').first().find('td');
+                $ft.eq(cfg.total).html('<b>' + sumTotal + '</b>건');
+                $ft.eq(cfg.avg).text(avgStr);
+                $ft.eq(cfg.fine).text(fineStr);
+                $ft.eq(cfg.fines).html('<span class="text-danger fw-bold">' + sumFines + '</span>');
+                $ft.eq(cfg.fines + 1).text(fp);
+                $ft.eq(cfg.warn).text(sumWarn);
+                $ft.eq(cfg.warn + 1).text(wp);
+                $ft.eq(cfg.rejects).text(sumRejects);
+                $ft.eq(cfg.rejects + 1).text(rp);
+            };
+        }
+
+        var agencyCb = makeDrawCallback({ total:1, avg:2, fine:3, fines:4, warn:6, rejects:8 });
+        var personCb = makeDrawCallback({ total:2, avg:3, fine:4, fines:5, warn:7, rejects:9 });
+
         var dtOptionsAgency = {
             "order": [[1, "desc"]],
             "pageLength": 50,
-            "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" }
+            "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" },
+            "drawCallback": agencyCb
         };
         var dtOptionsPerson = {
             "order": [[2, "desc"]],
             "pageLength": 50,
-            "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" }
+            "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" },
+            "drawCallback": personCb
         };
 
         // Initialize all DataTables
