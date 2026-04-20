@@ -482,7 +482,18 @@
         function renderLawButtons(cat) {
             var $sb = $('#statsLawSidebar');
             $sb.empty();
-            var laws = (lawMap[cat] || []).slice().sort(function(a, b) { return a.localeCompare(b, 'ko'); });
+            var laws = (lawMap[cat] || []).slice().sort(function(a, b) {
+                var ax = [], bx = [];
+                a.replace(/(\d+)|(\D+)/g, function(_, n, s) { ax.push(n ? [+n, ''] : [Infinity, s]); });
+                b.replace(/(\d+)|(\D+)/g, function(_, n, s) { bx.push(n ? [+n, ''] : [Infinity, s]); });
+                for (var i = 0; i < Math.max(ax.length, bx.length); i++) {
+                    if (!ax[i]) return -1;
+                    if (!bx[i]) return 1;
+                    var d = ax[i][0] !== bx[i][0] ? ax[i][0] - bx[i][0] : ax[i][1].localeCompare(bx[i][1], 'ko');
+                    if (d !== 0) return d;
+                }
+                return 0;
+            });
 
             function mkBtn(label, isActive, colorClass, onClick) {
                 return $('<button type="button" class="btn btn-sm w-100 text-start mb-1"></button>')
