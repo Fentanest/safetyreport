@@ -29,11 +29,11 @@ class CrawlManager:
                 return False
 
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
-            
+
             # Force UTF-8 for subprocesses on Windows to avoid encoding issues in log streaming
             env = os.environ.copy()
             env["PYTHONUTF8"] = "1"
-            
+
             self._active_process = subprocess.Popen(
                 cmd,
                 cwd=cwd,
@@ -82,5 +82,95 @@ class CrawlManager:
     def pending_count(self) -> int:
         with self._state_lock:
             return len(self._pending_queue)
+
+    # ── 크롤링 완료 후 공통 처리 ──────────────────────────────────────────────
+
+    def _rotate_log(self, log_file: str):
+        """현재 로그를 타임스탬프 파일로 백업."""
+        import datetime, shutil
+        if os.path.exists(log_file):
+            try:
+                now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
+                dst = os.path.join(os.path.dirname(log_file), f"crawl_{now_str}.log")
+                shutil.copy2(log_file, dst)
+            except Exception:
+                pass
+
+    def run_after_crawl(self, proc, log_file: str):
+        """크롤링 프로세스 완료 후 공통 처리 (배경 스레드에서 호출).
+        로그 회전 → WS 브로드캐스트 → 대기 큐 자동 실행."""
+        import time
+        from services.ws_manager import ws_manager
+        from services import data_service
+
+        if proc:
+            proc.wait()
+        self.clear_process()
+        time.sleep(1)
+
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, 'a', encoding='utf-8') as f:
+                    f.write("\n[시스템] 크롤링 작업이 완료되었습니다.\n")
+                self._rotate_log(log_file)
+            except Exception:
+                pass
+
+        try:
+            done = data_service.get_and_clear_crawl_done()
+            changed_count = done["changed_count"] if done else 0
+            ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
+        except Exception:
+            changed_count = 0
+        try:
+            changes = data_service.peek_crawl_changes()
+            if changes:
+                ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
+            data_service.save_crawl_done_ext(changed_count, changes or [])
+        except Exception:
+            pass
+
+        pending = self.pop_pending()
+        if pending:
+            self.launch_pending_crawl(pending)
+
+    def launch_pending_crawl(self, pending: list):
+        """대기 큐의 신고번호로 새 크롤링을 즉시 시작 (배경 스레드에서 호출 가능)."""
+        import settings.settings as s
+        from services.ws_manager import ws_manager
+
+        if not pending:
+            return
+
+        is_frozen = getattr(sys, 'frozen', False)
+        cmd = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
+
+        queue_file = os.path.join(s.datapath, 'pending_queue.txt')
+        with open(queue_file, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(str(r) for r in pending))
+        cmd.extend(["--queue", queue_file])
+
+        log_dir = os.path.join(s.datapath, 'logs')
+        log_file = os.path.join(log_dir, 'current_crawl.log')
+        self._rotate_log(log_file)
+
+        with open(log_file, 'w', encoding='utf-8') as f:
+            f.write(f"=== [대기 큐 자동 시작] 신고번호 {len(pending)}건 ===\n")
+            f.write('\n'.join(f"  - {r}" for r in pending) + '\n')
+
+        work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        if self.start_crawl(cmd, cwd=work_dir, log_file=log_file):
+            ws_manager.broadcast_from_thread("crawl_started", {
+                "source": "pending_queue",
+                "count": len(pending),
+                "crawl_mode": s.crawl_mode,
+                "crawl_type": s.crawl_type,
+            })
+            proc = self.get_process()
+            if proc:
+                threading.Thread(
+                    target=self.run_after_crawl, args=(proc, log_file), daemon=True
+                ).start()
+
 
 crawl_manager = CrawlManager()

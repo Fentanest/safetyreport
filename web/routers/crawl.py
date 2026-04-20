@@ -2,86 +2,15 @@ from fastapi import APIRouter, Request, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 import asyncio
 import sys
-import subprocess
 import os
+import threading
 from services.crawl_manager import crawl_manager
 from services.ws_manager import ws_manager
 from core.utils.templating import templates
-from sqlalchemy import create_engine
 import settings.settings as settings
 
 router = APIRouter(prefix="/crawl")
 
-
-def _start_pending_crawl_from_queue(pending: list):
-    """대기 큐의 신고번호로 새 크롤링을 자동 시작 (스레드 내 호출용)."""
-    import datetime, shutil, threading
-    if not pending:
-        return
-    is_frozen = getattr(sys, 'frozen', False)
-    cmd = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
-
-    queue_file = os.path.join(settings.datapath, 'pending_queue.txt')
-    with open(queue_file, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(str(r) for r in pending))
-    cmd.extend(["--queue", queue_file])
-
-    log_dir = os.path.join(settings.datapath, 'logs')
-    log_file = os.path.join(log_dir, 'current_crawl.log')
-    if os.path.exists(log_file):
-        try:
-            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
-            shutil.copy2(log_file, os.path.join(log_dir, f"crawl_{now_str}.log"))
-        except Exception:
-            pass
-    with open(log_file, 'w', encoding='utf-8') as f:
-        f.write(f"=== [대기 큐 자동 시작] 신고번호 {len(pending)}건 ===\n")
-        f.write('\n'.join(f"  - {r}" for r in pending) + '\n')
-
-    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    if crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
-        import settings.settings as _ss
-        ws_manager.broadcast_from_thread("crawl_started", {
-            "source": "pending_queue",
-            "count": len(pending),
-            "crawl_mode": _ss.crawl_mode,
-            "crawl_type": _ss.crawl_type,
-        })
-        proc = crawl_manager.get_process()
-
-        def _wait(p, lpath):
-            if p:
-                p.wait()
-            crawl_manager.clear_process()
-            import time
-            time.sleep(1)
-            if os.path.exists(lpath):
-                try:
-                    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
-                    dst = os.path.join(os.path.dirname(lpath), f"crawl_{now_str}.log")
-                    with open(lpath, 'a', encoding='utf-8') as f:
-                        f.write("\n[시스템] 크롤링 작업이 완료되었습니다.\n")
-                    shutil.copy2(lpath, dst)
-                except Exception:
-                    pass
-            try:
-                from services.data_service import get_and_clear_crawl_done, peek_crawl_changes, save_crawl_done_ext
-                done = get_and_clear_crawl_done()
-                changed_count = done["changed_count"] if done else 0
-                ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
-                changes = peek_crawl_changes()
-                if changes:
-                    ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
-                save_crawl_done_ext(changed_count, changes)
-            except Exception:
-                pass
-            # 재귀적으로 대기 큐 처리
-            next_pending = crawl_manager.pop_pending()
-            if next_pending:
-                _start_pending_crawl_from_queue(next_pending)
-
-        if proc:
-            threading.Thread(target=_wait, args=(proc, log_file), daemon=True).start()
 
 @router.get("/")
 async def crawl_dashboard(request: Request):
@@ -118,10 +47,7 @@ async def start_crawl(
         f.write("=== 크롤링 작업 시작 ===\n")
 
     is_frozen = getattr(sys, 'frozen', False)
-    if is_frozen:
-        cmd = [sys.executable, "--mode", "crawl"]
-    else:
-        cmd = [sys.executable, "-u", "start.py"]
+    cmd = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
 
     if login_mode == "nonmember":
         cmd.append("--nonmember")
@@ -134,73 +60,27 @@ async def start_crawl(
         queue_file = os.path.join(settings.datapath, 'queue.txt')
         with open(queue_file, 'w', encoding='utf-8') as qf:
             qf.write(queue_list)
-        cmd.append("--queue")
-        cmd.append(queue_file)
+        cmd.extend(["--queue", queue_file])
 
     work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     if not crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
         return JSONResponse({"status": "error", "message": "크롤링이 이미 실행 중입니다. (수동 또는 스케줄러)."})
 
     proc = crawl_manager.get_process()
+    asyncio.create_task(ws_manager.broadcast("crawl_started", {
+        "login_mode": login_mode,
+        "crawl_mode": crawl_mode,
+        "crawl_type": crawl_type,
+    }))
 
-    # WS 브로드캐스트: 크롤링 시작
-    try:
-        import asyncio as _asyncio
-        loop = _asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(ws_manager.broadcast("crawl_started", {
-                "login_mode": login_mode,
-                "crawl_mode": crawl_mode,
-                "crawl_type": crawl_type,
-            }))
-    except Exception:
-        pass
-
-    def wait_and_rotate_log(p, lpath):
-        if p:
-            p.wait()
-        crawl_manager.clear_process()
-        import time, shutil, datetime
-        time.sleep(1)
-        if os.path.exists(lpath):
-            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
-            dst = os.path.join(os.path.dirname(lpath), f"crawl_{now_str}.log")
-            try:
-                with open(lpath, 'a', encoding='utf-8') as f:
-                    f.write(f"\n[시스템] 크롤링 작업이 성공적으로 종료되었습니다.\n전체 상세 로그는 {os.path.basename(dst)} 파일로 백업 보관되었습니다.\n")
-                shutil.copy2(lpath, dst)
-            except Exception:
-                pass
-        # WS 브로드캐스트: 크롤링 완료 + 변경 상세
-        try:
-            from services.data_service import get_and_clear_crawl_done, peek_crawl_changes, save_crawl_done_ext
-            done = get_and_clear_crawl_done()
-            changed_count = done["changed_count"] if done else 0
-            ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
-            changes = peek_crawl_changes()
-            if changes:
-                ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
-            save_crawl_done_ext(changed_count, changes)
-        except Exception:
-            pass
-        # 대기 큐에 쌓인 신고번호가 있으면 자동으로 다음 크롤링 시작
-        try:
-            pending = crawl_manager.pop_pending()
-            if pending:
-                import threading as _thr
-                _start_pending_crawl_from_queue(pending)
-        except Exception:
-            pass
-
-    import threading
     if proc:
-        threading.Thread(target=wait_and_rotate_log, args=(proc, log_file), daemon=True).start()
+        threading.Thread(target=crawl_manager.run_after_crawl, args=(proc, log_file), daemon=True).start()
 
-    return JSONResponse({"status": "success", "message": "크롤링이 \uc2dc\uc791\ub418\uc5c8\uc2b5\ub2c8\ub2e4."})
+    return JSONResponse({"status": "success", "message": "크롤링이 시작되었습니다."})
+
 
 @router.post("/resume")
 async def resume_crawl():
-    # Signal start.py to resume if it is waiting for manual login
     signal_file = os.path.join(settings.datapath, 'resume.sig')
     with open(signal_file, 'w', encoding='utf-8') as f:
         f.write("RESUME")
@@ -255,28 +135,26 @@ async def export_sheet():
 async def websocket_logs(websocket: WebSocket):
     await websocket.accept()
     log_file = os.path.join(settings.datapath, 'logs', 'current_crawl.log')
-    
+
     try:
         if not os.path.exists(log_file):
             await websocket.send_text("로그 파일을 대기 중입니다...\n")
             while not os.path.exists(log_file):
                 await asyncio.sleep(1)
-                
-        # Initial read
+
         if os.path.exists(log_file):
             with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
                 data = f.read()
                 if data:
                     await websocket.send_text(data)
-            
+
         last_size = os.path.getsize(log_file) if os.path.exists(log_file) else 0
-        
-        # Tail the file chunk by chunk asynchronously
+
         while True:
             await asyncio.sleep(0.5)
             if not os.path.exists(log_file):
                 continue
-                
+
             current_size = os.path.getsize(log_file)
             if current_size > last_size:
                 with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
@@ -286,9 +164,8 @@ async def websocket_logs(websocket: WebSocket):
                         await websocket.send_text(new_data)
                 last_size = current_size
             elif current_size < last_size:
-                # File was truncated (new crawl started)
                 last_size = 0
-                
+
     except WebSocketDisconnect:
         pass
     except Exception as e:

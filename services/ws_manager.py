@@ -30,9 +30,6 @@ class WsManager:
         """FastAPI lifespan startup 시 메인 이벤트 루프를 저장합니다."""
         self._main_loop = loop
 
-    def _all(self) -> list:
-        return list(self._connections.values())
-
     async def connect(self, client_id: str, ws: WebSocket, api_key: str = "", ip: str = "", device_name: str = ""):
         await ws.accept()
         self._connections[client_id] = ws
@@ -50,7 +47,7 @@ class WsManager:
         logger.info(f"[WS] 클라이언트 종료: {client_id} (남은 {len(self._connections)}개)")
 
     async def broadcast(self, event_type: str, data: dict | None = None):
-        """연결된 모든 클라이언트에게 이벤트를 전송합니다."""
+        """연결된 모든 클라이언트에게 이벤트를 병렬로 전송합니다."""
         if not self._connections:
             return
 
@@ -60,31 +57,26 @@ class WsManager:
             "data": data or {},
         }, ensure_ascii=False)
 
-        dead: list[str] = []
-        for client_id, ws in list(self._connections.items()):
-            try:
-                await ws.send_text(payload)
-            except Exception:
-                dead.append(client_id)
+        client_ids = list(self._connections.keys())
+        sockets = [self._connections[cid] for cid in client_ids]
 
-        for cid in dead:
-            self.disconnect(cid)
+        results = await asyncio.gather(
+            *[ws.send_text(payload) for ws in sockets],
+            return_exceptions=True,
+        )
+
+        for cid, result in zip(client_ids, results):
+            if isinstance(result, Exception):
+                self.disconnect(cid)
 
     def broadcast_from_thread(self, event_type: str, data: dict | None = None):
-        """백그라운드 스레드에서 안전하게 브로드캐스트합니다.
-        메인 이벤트 루프가 설정된 경우 run_coroutine_threadsafe를 사용하고,
-        그렇지 않은 경우 새 루프를 생성합니다."""
+        """백그라운드 스레드에서 안전하게 브로드캐스트합니다 (fire-and-forget)."""
         if self._main_loop and self._main_loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(
+            asyncio.run_coroutine_threadsafe(
                 self.broadcast(event_type, data),
-                self._main_loop
+                self._main_loop,
             )
-            try:
-                future.result(timeout=5)
-            except Exception as e:
-                logger.warning(f"[WS] 브로드캐스트 실패 ({event_type}): {e}")
         else:
-            # 폴백: 연결된 클라이언트가 없거나 루프 미설정
             logger.debug(f"[WS] 메인 루프 없음, 브로드캐스트 스킵: {event_type}")
 
     def track_api_request(self, api_key: str, device_name: str, ip: str = ""):
