@@ -192,9 +192,10 @@ async def get_crawl_status(_: str = Depends(_require_api_key)):
 async def get_server_version(_: str = Depends(_require_api_key)):
     """서버 버전 및 최신 버전 정보 (크롬 확장용)"""
     from core.utils.updater import get_current_version, get_latest_version_cached
+    from core.utils.updater import _version_gt
     current = get_current_version() or "unknown"
     latest = get_latest_version_cached()
-    up_to_date = (latest is None) or (current == latest)
+    up_to_date = (latest is None) or not _version_gt(latest, current)
     return {
         "status": "success",
         "version": current,

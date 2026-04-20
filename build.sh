@@ -13,7 +13,10 @@ if [ -z "$1" ]; then
 fi
 
 if [ "$1" == "--dev" ]; then
-    echo "Development build selected. Using 'dev' tag."
+    BASE_VERSION=$(cat "$VERSION_FILE" | tr -d '[:space:]' | sed 's/-dev$//')
+    DEV_VERSION="${BASE_VERSION}-dev"
+    echo "$DEV_VERSION" > "$VERSION_FILE"
+    echo "Development build selected. Version: $DEV_VERSION"
     TAG="dev"
     echo "Building and pushing multi-platform Docker image with tag: $IMAGE_NAME:$TAG"
     docker buildx build --platform linux/amd64,linux/arm64 \
@@ -43,6 +46,8 @@ if [ $? -eq 0 ]; then
     if [ "$1" != "--dev" ]; then
         echo "$NEW_VERSION" > "$VERSION_FILE"
         echo "Version updated to $NEW_VERSION"
+    else
+        echo "Version file set to $DEV_VERSION"
     fi
 else
     echo "Error: Docker build failed."

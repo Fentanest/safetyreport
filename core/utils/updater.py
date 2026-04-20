@@ -84,12 +84,27 @@ def _fetch_latest_release() -> dict | None:
 
 
 def _version_gt(v1: str, v2: str) -> bool:
-    """v1이 v2보다 최신이면 True."""
+    """v1이 v2보다 최신이면 True. -dev 등 pre-release 태그 지원."""
     try:
         from packaging.version import Version
         return Version(v1) > Version(v2)
     except Exception:
-        return v1 != v2
+        pass
+    # fallback: 숫자 튜플 비교
+    def _base_tuple(v: str):
+        base = v.split('-')[0].split('+')[0]
+        try:
+            return tuple(int(x) for x in base.split('.'))
+        except ValueError:
+            return (0,)
+    t1, t2 = _base_tuple(v1), _base_tuple(v2)
+    if t1 != t2:
+        return t1 > t2
+    # base가 같으면 pre-release(dev/alpha/beta/rc)는 정식보다 낮음
+    _PRE = ('dev', 'alpha', 'beta', 'rc')
+    is_pre1 = any(tag in v1.lower() for tag in _PRE)
+    is_pre2 = any(tag in v2.lower() for tag in _PRE)
+    return is_pre2 and not is_pre1
 
 
 def check_and_prompt_update():
