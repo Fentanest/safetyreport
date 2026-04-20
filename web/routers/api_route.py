@@ -67,11 +67,15 @@ async def get_vehicle_reports(vehicle_number: str, _: str = Depends(_require_api
 
 
 @router.get("/stats")
-async def get_stats(_: str = Depends(_require_api_key), year: str = None):
+async def get_stats(_: str = Depends(_require_api_key), year: str = None, law: str = None):
     """기관별/담당자별 처리 통계"""
     try:
-        filters = {'year': year} if year and year != 'all' else None
-        stats = data_service.get_agency_stats(engine, filters)
+        filters: dict = {}
+        if year and year != 'all':
+            filters['year'] = year
+        if law:
+            filters['law'] = law
+        stats = data_service.get_agency_stats(engine, filters or None)
         return {"status": "success", "data": stats}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
