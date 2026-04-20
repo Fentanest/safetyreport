@@ -155,9 +155,10 @@
                 <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="other-person">
                     <i class="fas fa-user-tie me-1"></i>비경찰 담당자
                 </button>
-                <button type="button" class="btn btn-outline-info stats-type-btn" data-type="law">
-                    <i class="fas fa-gavel me-1"></i>위반법규별
-                </button>
+            </div>
+            <!-- 3행: 위반법규 (선택된 카테고리 기준 동적 렌더링) -->
+            <div class="d-flex gap-1 flex-wrap mt-2" id="statsLawGroup" style="min-height:2rem;">
+                <!-- JS로 채워짐 -->
             </div>
         </div>
 
@@ -353,27 +354,6 @@
                 </table>
             </div>
 
-            <!-- Traffic Law -->
-            <div class="stats-pane" id="traffic-law" style="display:none">
-                <table id="statsTableTrafficLaw" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ law_thead }}</thead>
-                    <tbody>{{ law_rows(records_traffic_law, '/data/traffic') }}</tbody>
-                </table>
-            </div>
-            <!-- Parking Law -->
-            <div class="stats-pane" id="parking-law" style="display:none">
-                <table id="statsTableParkingLaw" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ law_thead }}</thead>
-                    <tbody>{{ law_rows(records_parking_law, '/data/parking') }}</tbody>
-                </table>
-            </div>
-            <!-- Other Law -->
-            <div class="stats-pane" id="other-law" style="display:none">
-                <table id="statsTableOtherLaw" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ law_thead }}</thead>
-                    <tbody>{{ law_rows(records_other_law, '/data/other') }}</tbody>
-                </table>
-            </div>
         </div>
     </div>
 </div>
@@ -393,12 +373,6 @@
             "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" }
         };
 
-        var dtOptionsLaw = {
-            "order": [[1, "desc"]],
-            "pageLength": 50,
-            "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" }
-        };
-
         // Initialize all DataTables
         var agencyTables = [
             '#statsTableTrafficAgency', '#statsTableParkingAgency', '#statsTableOtherAgency',
@@ -412,12 +386,50 @@
             '#statsTableParkingPolicePerson', '#statsTableParkingOtherPerson',
             '#statsTableOtherPolicePerson', '#statsTableOtherOtherPerson'
         ];
-        var lawTables = [
-            '#statsTableTrafficLaw', '#statsTableParkingLaw', '#statsTableOtherLaw'
-        ];
         agencyTables.forEach(function(id) { $(id).DataTable(dtOptionsAgency); });
         personTables.forEach(function(id) { $(id).DataTable(dtOptionsPerson); });
-        lawTables.forEach(function(id) { $(id).DataTable(dtOptionsLaw); });
+
+        // 카테고리별 위반법규 목록 (서버 렌더링)
+        var lawMap = {
+            traffic: {{ records_traffic_law | map(attribute='law') | list | tojson }},
+            parking: {{ records_parking_law | map(attribute='law') | list | tojson }},
+            other:   {{ records_other_law   | map(attribute='law') | list | tojson }}
+        };
+        var activeLaw = {{ (f.law | tojson) if f.law else 'null' }};
+
+        function renderLawButtons(cat) {
+            var $group = $('#statsLawGroup');
+            $group.empty();
+            var laws = lawMap[cat] || [];
+            if (laws.length === 0) return;
+
+            // "전체" 버튼
+            var allActive = !activeLaw;
+            $group.append(
+                $('<button type="button" class="btn btn-sm stats-law-btn"></button>')
+                    .addClass(allActive ? 'btn-secondary' : 'btn-outline-secondary')
+                    .text('전체')
+                    .on('click', function () {
+                        var params = new URLSearchParams(window.location.search);
+                        params.delete('law');
+                        var qs = params.toString();
+                        window.location.href = '/stats' + (qs ? '?' + qs : '');
+                    })
+            );
+
+            laws.forEach(function (law) {
+                var isActive = (activeLaw === law);
+                var $btn = $('<button type="button" class="btn btn-sm stats-law-btn"></button>')
+                    .addClass(isActive ? 'btn-info' : 'btn-outline-info')
+                    .text(law)
+                    .on('click', function () {
+                        var params = new URLSearchParams(window.location.search);
+                        params.set('law', law);
+                        window.location.href = '/stats?' + params.toString();
+                    });
+                $group.append($btn);
+            });
+        }
 
         // 2-row navigation state
         var currentCat = sessionStorage.getItem('stats_cat') || 'traffic';
@@ -436,6 +448,7 @@
             $('.stats-cat-btn[data-cat="' + currentCat + '"]').addClass('active');
             $('.stats-type-btn').removeClass('active');
             $('.stats-type-btn[data-type="' + currentType + '"]').addClass('active');
+            renderLawButtons(currentCat);
         }
 
         $('.stats-cat-btn').on('click', function () {
