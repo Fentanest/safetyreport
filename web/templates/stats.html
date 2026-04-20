@@ -10,6 +10,17 @@
             <i class="bi bi-info-circle"></i> 행을 클릭하면 해당 부서 및 담당자의 데이터 조회 페이지로 이동합니다.
         </div>
 
+        <!-- 교통위반 총 과태료 -->
+        {% if traffic_total_fine > 0 %}
+        <div class="alert alert-warning d-flex align-items-center gap-3 py-2 mb-3">
+            <i class="fas fa-won-sign fa-lg text-warning"></i>
+            <div>
+                <span class="fw-bold fs-5 text-danger">{{ "{:,}".format(traffic_total_fine) }}원</span>
+                <span class="ms-2 text-muted">총 과태료 <small class="text-secondary">(교통위반 한정)</small></span>
+            </div>
+        </div>
+        {% endif %}
+
 <!-- 플로팅 상세 검색 버튼 -->
         <button class="btn btn-primary floating-search-btn shadow-lg" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasSearch">
             <i class="fas fa-filter me-2"></i>상세 조건 검색
@@ -144,6 +155,9 @@
                 <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="other-person">
                     <i class="fas fa-user-tie me-1"></i>비경찰 담당자
                 </button>
+                <button type="button" class="btn btn-outline-info stats-type-btn" data-type="law">
+                    <i class="fas fa-gavel me-1"></i>위반법규별
+                </button>
             </div>
         </div>
 
@@ -151,12 +165,15 @@
         <div id="statsTabsContent">
             {% macro avg_display(val) %}{{ ('%.1f일' % val) if val is not none else '-' }}{% endmacro %}
 
+            {% macro fine_amt(val) %}{{ "{:,}원".format(val) if val > 0 else '-' }}{% endmacro %}
+
             {% macro agency_rows(records, base_url) %}
                 {% for r in records %}
                 <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&agencyExact=true'">
                     <td>{{ r.agency }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
+                    <td data-order="{{ r.total_fine_amount }}" class="text-center text-success fw-bold small">{{ fine_amt(r.total_fine_amount) }}</td>
                     <td data-order="{{ r.fines }}" class="text-center"><span class="text-danger fw-bold">{{ r.fines }}</span></td>
                     <td class="text-center text-muted">{{ r.fines_pct }}%</td>
                     <td data-order="{{ r.warnings }}" class="text-center">{{ r.warnings }}</td>
@@ -173,6 +190,7 @@
                     <td class="text-center">{{ r.person }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
+                    <td data-order="{{ r.total_fine_amount }}" class="text-center text-success fw-bold small">{{ fine_amt(r.total_fine_amount) }}</td>
                     <td data-order="{{ r.fines }}" class="text-center"><span class="text-danger fw-bold">{{ r.fines }}</span></td>
                     <td class="text-center text-muted">{{ r.fines_pct }}%</td>
                     <td data-order="{{ r.warnings }}" class="text-center">{{ r.warnings }}</td>
@@ -182,8 +200,25 @@
                 </tr>
                 {% endfor %}
             {% endmacro %}
-            {% set agency_thead %}<tr><th>처리기관</th><th class="text-center">총 처리건수</th><th class="text-center">답변 소요 평균</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th></tr>{% endset %}
-            {% set person_thead %}<tr><th>처리기관</th><th class="text-center">담당자</th><th class="text-center">총 처리건수</th><th class="text-center">답변 소요 평균</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th></tr>{% endset %}
+            {% macro law_rows(records, base_url) %}
+                {% for r in records %}
+                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?law={{ r.law }}'">
+                    <td>{{ r.law }}</td>
+                    <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
+                    <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
+                    <td data-order="{{ r.total_fine_amount }}" class="text-center text-success fw-bold small">{{ fine_amt(r.total_fine_amount) }}</td>
+                    <td data-order="{{ r.fines }}" class="text-center"><span class="text-danger fw-bold">{{ r.fines }}</span></td>
+                    <td class="text-center text-muted">{{ r.fines_pct }}%</td>
+                    <td data-order="{{ r.warnings }}" class="text-center">{{ r.warnings }}</td>
+                    <td class="text-center text-muted">{{ r.warnings_pct }}%</td>
+                    <td data-order="{{ r.rejects }}" class="text-center">{{ r.rejects }}</td>
+                    <td class="text-center text-muted">{{ r.rejects_pct }}%</td>
+                </tr>
+                {% endfor %}
+            {% endmacro %}
+            {% set agency_thead %}<tr><th>처리기관</th><th class="text-center">총 처리건수</th><th class="text-center">답변 소요 평균</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th></tr>{% endset %}
+            {% set person_thead %}<tr><th>처리기관</th><th class="text-center">담당자</th><th class="text-center">총 처리건수</th><th class="text-center">답변 소요 평균</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th></tr>{% endset %}
+            {% set law_thead %}<tr><th>위반법규</th><th class="text-center">총 처리건수</th><th class="text-center">답변 소요 평균</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th></tr>{% endset %}
 
             <!-- Traffic Agency -->
             <div class="stats-pane" id="traffic-agency" style="display:none">
@@ -317,6 +352,28 @@
                     <tbody>{{ person_rows(records_other_other_person, '/data/other') }}</tbody>
                 </table>
             </div>
+
+            <!-- Traffic Law -->
+            <div class="stats-pane" id="traffic-law" style="display:none">
+                <table id="statsTableTrafficLaw" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
+                    <thead>{{ law_thead }}</thead>
+                    <tbody>{{ law_rows(records_traffic_law, '/data/traffic') }}</tbody>
+                </table>
+            </div>
+            <!-- Parking Law -->
+            <div class="stats-pane" id="parking-law" style="display:none">
+                <table id="statsTableParkingLaw" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
+                    <thead>{{ law_thead }}</thead>
+                    <tbody>{{ law_rows(records_parking_law, '/data/parking') }}</tbody>
+                </table>
+            </div>
+            <!-- Other Law -->
+            <div class="stats-pane" id="other-law" style="display:none">
+                <table id="statsTableOtherLaw" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
+                    <thead>{{ law_thead }}</thead>
+                    <tbody>{{ law_rows(records_other_law, '/data/other') }}</tbody>
+                </table>
+            </div>
         </div>
     </div>
 </div>
@@ -336,7 +393,13 @@
             "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" }
         };
 
-        // Initialize all 18 DataTables
+        var dtOptionsLaw = {
+            "order": [[1, "desc"]],
+            "pageLength": 50,
+            "language": { "url": "//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" }
+        };
+
+        // Initialize all DataTables
         var agencyTables = [
             '#statsTableTrafficAgency', '#statsTableParkingAgency', '#statsTableOtherAgency',
             '#statsTableTrafficPoliceAgency', '#statsTableTrafficOtherAgency',
@@ -349,8 +412,12 @@
             '#statsTableParkingPolicePerson', '#statsTableParkingOtherPerson',
             '#statsTableOtherPolicePerson', '#statsTableOtherOtherPerson'
         ];
+        var lawTables = [
+            '#statsTableTrafficLaw', '#statsTableParkingLaw', '#statsTableOtherLaw'
+        ];
         agencyTables.forEach(function(id) { $(id).DataTable(dtOptionsAgency); });
         personTables.forEach(function(id) { $(id).DataTable(dtOptionsPerson); });
+        lawTables.forEach(function(id) { $(id).DataTable(dtOptionsLaw); });
 
         // 2-row navigation state
         var currentCat = sessionStorage.getItem('stats_cat') || 'traffic';

@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 from sqlalchemy import select, desc
 from sqlalchemy.exc import OperationalError
@@ -5,6 +6,18 @@ from core.database import database
 import settings.settings as app_settings
 from datetime import datetime, timedelta
 import os
+
+def _extract_fine_amount(s) -> int:
+    """'과태료: 40,000원' 형식에서 금액(정수) 추출. 과태료만 포함, 범칙금 제외. 없으면 0."""
+    if not s:
+        return 0
+    s = str(s)
+    if '과태료' not in s:
+        return 0
+    m = re.search(r'([\d,]+)\s*원', s)
+    if m:
+        return int(m.group(1).replace(',', ''))
+    return 0
 
 def _normalize_police_agency(x: str) -> str:
     idx = x.find('경찰서')
@@ -308,6 +321,7 @@ def get_agency_stats(engine, filters=None):
             "by_agency": [], "by_person": [],
             "police_by_agency": [], "police_by_person": [],
             "other_by_agency": [], "other_by_person": [],
+            "by_law": [], "total_fine_amount": 0,
         }
         if df.empty:
             return _empty
@@ -384,12 +398,14 @@ def get_agency_stats(engine, filters=None):
             fines = len(group[group['범칙금_과태료'].str.contains('과태료', na=False)])
             warnings = len(group[group['범칙금_과태료'].str.contains('경고|범칙금', na=False)])
             avg = _calc_avg_days(group)
+            total_fine = int(group['범칙금_과태료'].apply(_extract_fine_amount).sum())
 
             stats_person.append({
                 "agency": agency,
                 "person": person,
                 "total": total,
                 "avg_days": avg,
+                "total_fine_amount": total_fine,
                 "fines": fines,
                 "fines_pct": round((fines / total) * 100, 1) if total > 0 else 0,
                 "warnings": warnings,
@@ -406,11 +422,13 @@ def get_agency_stats(engine, filters=None):
             fines = len(group[group['범칙금_과태료'].str.contains('과태료', na=False)])
             warnings = len(group[group['범칙금_과태료'].str.contains('경고|범칙금', na=False)])
             avg = _calc_avg_days(group)
+            total_fine = int(group['범칙금_과태료'].apply(_extract_fine_amount).sum())
 
             stats_agency.append({
                 "agency": agency,
                 "total": total,
                 "avg_days": avg,
+                "total_fine_amount": total_fine,
                 "fines": fines,
                 "fines_pct": round((fines / total) * 100, 1) if total > 0 else 0,
                 "warnings": warnings,
@@ -419,9 +437,36 @@ def get_agency_stats(engine, filters=None):
                 "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0
             })
 
-        def _sort(lst): return pd.DataFrame(lst).sort_values(by=['total'], ascending=False).to_dict('records') if lst else []
+        stats_law = []
+        if '위반법규' in df.columns:
+            df_law = df.copy()
+            df_law['위반법규'] = df_law['위반법규'].fillna('').astype(str)
+            df_law = df_law[df_law['위반법규'].str.strip() != '']
+            for law, group in df_law.groupby('위반법규'):
+                total = len(group)
+                rejects = len(group[group['처리상태'].isin(['불수용', '기타'])])
+                fines = len(group[group['범칙금_과태료'].str.contains('과태료', na=False)])
+                warnings = len(group[group['범칙금_과태료'].str.contains('경고|범칙금', na=False)])
+                avg = _calc_avg_days(group)
+                total_fine = int(group['범칙금_과태료'].apply(_extract_fine_amount).sum())
+                stats_law.append({
+                    "law": law,
+                    "total": total,
+                    "avg_days": avg,
+                    "total_fine_amount": total_fine,
+                    "fines": fines,
+                    "fines_pct": round((fines / total) * 100, 1) if total > 0 else 0,
+                    "warnings": warnings,
+                    "warnings_pct": round((warnings / total) * 100, 1) if total > 0 else 0,
+                    "rejects": rejects,
+                    "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0,
+                })
+        category_total_fine = int(df['범칙금_과태료'].apply(_extract_fine_amount).sum())
+
+        def _sort(lst, key='total'): return pd.DataFrame(lst).sort_values(by=[key], ascending=False).to_dict('records') if lst else []
         all_agency = _sort(stats_agency)
         all_person = _sort(stats_person)
+        all_law = _sort(stats_law)
         # 경찰/비경찰 분리
         police_agency  = [r for r in all_agency if '경찰' in r['agency']]
         police_person  = [r for r in all_person if '경찰' in r['agency']]
@@ -434,6 +479,8 @@ def get_agency_stats(engine, filters=None):
             "police_by_person":  police_person,
             "other_by_agency":   other_agency,
             "other_by_person":   other_person,
+            "by_law":            all_law,
+            "total_fine_amount": category_total_fine,
         }
 
     res_t = calc_stats(df_t)
@@ -445,6 +492,7 @@ def get_agency_stats(engine, filters=None):
         "parking": res_p,
         "other": res_o,
         "available_years": available_years,
+        "traffic_total_fine": res_t.get("total_fine_amount", 0),
     }
 
 def resolve_to_report_numbers(engine, mixed_list):
