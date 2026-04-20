@@ -508,7 +508,7 @@ def get_agency_stats(engine, filters=None):
         "parking": res_p,
         "other": res_o,
         "available_years": available_years,
-        "traffic_total_fine": res_t.get("total_fine_amount", 0),
+        "traffic_total_fine": int(df_t['범칙금_과태료'].apply(_extract_fine_amount).sum()) if not df_t.empty else 0,
     }
 
 def resolve_to_report_numbers(engine, mixed_list):
