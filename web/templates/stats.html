@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 
 {% block content %}
+<div class="row g-3 align-items-start">
+<div class="col-xl-9 col-12">
 <div class="card card-custom">
     <div class="card-header bg-white fw-bold">
         기관별 / 담당자별 처리 통계
@@ -56,10 +58,7 @@
                         <label class="form-label fw-bold">신고명</label>
                         <input type="text" class="form-control" name="reportName" value="{{ f.reportName or '' }}">
                     </div>
-                    <div class="col-12">
-                        <label class="form-label fw-bold">위반법규명</label>
-                        <input type="text" class="form-control" name="law" value="{{ f.law or '' }}">
-                    </div>
+                    {% if f.law %}<input type="hidden" name="law" value="{{ f.law }}">{% endif %}
                     <div class="col-12">
                         <label class="form-label fw-bold">위반장소</label>
                         <input type="text" class="form-control" name="location" value="{{ f.location or '' }}">
@@ -153,10 +152,6 @@
                 <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="other-person">
                     <i class="fas fa-user-tie me-1"></i>비경찰 담당자
                 </button>
-            </div>
-            <!-- 3행: 위반법규 (선택된 카테고리 기준 동적 렌더링) -->
-            <div class="d-flex gap-1 flex-wrap mt-2" id="statsLawGroup" style="min-height:2rem;">
-                <!-- JS로 채워짐 -->
             </div>
         </div>
 
@@ -377,6 +372,20 @@
         </div>
     </div>
 </div>
+</div><!-- col-xl-9 -->
+
+<!-- 위반법규 사이드바 -->
+<div class="col-xl-3 col-12">
+    <div class="card sticky-top" style="top:1rem;">
+        <div class="card-header py-2 fw-bold small">
+            <i class="fas fa-gavel me-1 text-info"></i>위반법규
+        </div>
+        <div class="card-body p-2" id="statsLawSidebar" style="max-height:calc(100vh - 8rem);overflow-y:auto;">
+            <!-- JS로 채워짐 -->
+        </div>
+    </div>
+</div>
+</div><!-- row -->
 {% endblock %}
 
 {% block extra_js %}
@@ -457,45 +466,56 @@
         agencyTables.forEach(function(id) { $(id).DataTable(dtOptionsAgency); });
         personTables.forEach(function(id) { $(id).DataTable(dtOptionsPerson); });
 
-        // 카테고리별 위반법규 목록 (law 필터 제외한 서버 집계)
+        // 카테고리별 위반법규 목록 + 빈 법규 여부 (law 필터 제외한 서버 집계)
         var lawMap = {
             traffic: {{ traffic_available_laws | tojson }},
             parking: {{ parking_available_laws | tojson }},
             other:   {{ other_available_laws   | tojson }}
         };
+        var hasEmptyLaw = {
+            traffic: {{ traffic_has_empty_law | tojson }},
+            parking: {{ parking_has_empty_law | tojson }},
+            other:   {{ other_has_empty_law   | tojson }}
+        };
         var activeLaw = {{ (f.law | tojson) if f.law else 'null' }};
 
         function renderLawButtons(cat) {
-            var $group = $('#statsLawGroup');
-            $group.empty();
+            var $sb = $('#statsLawSidebar');
+            $sb.empty();
             var laws = (lawMap[cat] || []).slice().sort(function(a, b) { return a.localeCompare(b, 'ko'); });
-            if (laws.length === 0) return;
 
-            // "전체" 버튼
-            var allActive = !activeLaw;
-            $group.append(
-                $('<button type="button" class="btn btn-sm stats-law-btn"></button>')
-                    .addClass(allActive ? 'btn-secondary' : 'btn-outline-secondary')
-                    .text('전체')
-                    .on('click', function () {
-                        var params = new URLSearchParams(window.location.search);
-                        params.delete('law');
-                        var qs = params.toString();
-                        window.location.href = '/stats' + (qs ? '?' + qs : '');
-                    })
-            );
+            function mkBtn(label, isActive, colorClass, onClick) {
+                return $('<button type="button" class="btn btn-sm w-100 text-start mb-1"></button>')
+                    .addClass(isActive ? colorClass : 'btn-outline-secondary')
+                    .text(label)
+                    .on('click', onClick);
+            }
+
+            // 전체
+            $sb.append(mkBtn('전체', !activeLaw, 'btn-secondary', function () {
+                var p = new URLSearchParams(window.location.search);
+                p.delete('law');
+                var qs = p.toString();
+                window.location.href = '/stats' + (qs ? '?' + qs : '');
+            }));
+
+            // 없음
+            if (hasEmptyLaw[cat]) {
+                $sb.append(mkBtn('없음', activeLaw === '__없음__', 'btn-warning', function () {
+                    var p = new URLSearchParams(window.location.search);
+                    p.set('law', '__없음__');
+                    window.location.href = '/stats?' + p.toString();
+                }));
+            }
+
+            if (laws.length > 0) { $sb.append('<hr class="my-1">'); }
 
             laws.forEach(function (law) {
-                var isActive = (activeLaw === law);
-                var $btn = $('<button type="button" class="btn btn-sm stats-law-btn"></button>')
-                    .addClass(isActive ? 'btn-info' : 'btn-outline-info')
-                    .text(law)
-                    .on('click', function () {
-                        var params = new URLSearchParams(window.location.search);
-                        params.set('law', law);
-                        window.location.href = '/stats?' + params.toString();
-                    });
-                $group.append($btn);
+                $sb.append(mkBtn(law, activeLaw === law, 'btn-info', function () {
+                    var p = new URLSearchParams(window.location.search);
+                    p.set('law', law);
+                    window.location.href = '/stats?' + p.toString();
+                }));
             });
         }
 

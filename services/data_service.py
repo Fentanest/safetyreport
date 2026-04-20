@@ -193,7 +193,10 @@ def _get_records_from_table(engine, table_obj, filters=None):
 
             law = filters.get('law')
             if law and '위반법규' in df.columns:
-                df = df[df['위반법규'].str.contains(law, na=False, regex=False)]
+                if law == '__없음__':
+                    df = df[df['위반법규'].fillna('').astype(str).str.strip() == '']
+                else:
+                    df = df[df['위반법규'].str.contains(law, na=False, regex=False)]
 
         if not df.empty:
             df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
@@ -373,17 +376,22 @@ def get_agency_stats(engine, filters=None):
             if filters.get('onlyPolice') and '처리기관' in df.columns:
                 df = df[df['처리기관'].str.contains('경찰', na=False)]
 
-        # law 필터 적용 전에 사용 가능한 법규 목록 추출
+        # law 필터 적용 전에 사용 가능한 법규 목록 + 빈 법규 존재 여부 추출
         if '위반법규' in df.columns:
             _l = df['위반법규'].dropna().astype(str)
-            _l = _l[_l.str.strip() != '']
-            available_laws = sorted(_l.unique().tolist())
+            _nonempty = _l[_l.str.strip() != '']
+            available_laws = sorted(_nonempty.unique().tolist())
+            has_empty_law = bool((df['위반법규'].fillna('').astype(str).str.strip() == '').any())
         else:
             available_laws = []
+            has_empty_law = False
 
         # law 필터 적용
         if filters and filters.get('law') and '위반법규' in df.columns:
-            df = df[df['위반법규'].str.contains(filters['law'], na=False, regex=False)]
+            if filters['law'] == '__없음__':
+                df = df[df['위반법규'].fillna('').astype(str).str.strip() == '']
+            else:
+                df = df[df['위반법규'].str.contains(filters['law'], na=False, regex=False)]
 
         if df.empty:
             return _empty
@@ -497,6 +505,7 @@ def get_agency_stats(engine, filters=None):
             "by_law":            all_law,
             "total_fine_amount": category_total_fine,
             "available_laws":    available_laws,
+            "has_empty_law":     has_empty_law,
         }
 
     res_t = calc_stats(df_t)
