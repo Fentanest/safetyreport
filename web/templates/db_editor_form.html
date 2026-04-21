@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block extra_css %}
+<style>
+.field-group-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6c757d;
+  border-bottom: 1px solid #dee2e6;
+  padding-bottom: 4px;
+  margin-bottom: 12px;
+  margin-top: 20px;
+}
+.form-label { font-size: 0.82rem; font-weight: 600; margin-bottom: 2px; }
+textarea.form-control { font-size: 0.82rem; }
+input.form-control { font-size: 0.82rem; }
+.id-badge { font-size: 0.75rem; color: #adb5bd; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+  <a href="/db-editor?category={{ category }}" class="btn btn-sm btn-outline-secondary">
+    <i class="fas fa-arrow-left me-1"></i>목록으로
+  </a>
+  <span class="ms-3 id-badge">ID: {{ record.ID }}</span>
+</div>
+
+<form method="post" action="/db-editor/{{ category }}/{{ record.ID }}">
+  <!-- mysafety 필드 -->
+  <div class="field-group-title"><i class="fas fa-list-alt me-1"></i>신고 목록 (mysafety)</div>
+  <div class="row g-3">
+    <div class="col-md-3">
+      <label class="form-label">상태</label>
+      <select name="상태" class="form-select form-select-sm">
+        {% for opt in ['진행', '완료', '취하'] %}
+          <option value="{{ opt }}" {% if record.상태 == opt %}selected{% endif %}>{{ opt }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">신고번호</label>
+      <input type="text" name="신고번호" class="form-control" value="{{ record.신고번호 or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">신고명</label>
+      <input type="text" name="신고명" class="form-control" value="{{ record.신고명 or '' }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">신고일</label>
+      <input type="date" name="신고일" class="form-control" value="{{ record.신고일 or '' }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">만족도조사여부</label>
+      <select name="만족도조사여부" class="form-select form-select-sm">
+        {% for opt in ['', '참여 가능', '참여 완료', '참여 불가', '답변 대기'] %}
+          <option value="{{ opt }}" {% if record.만족도조사여부 == opt %}selected{% endif %}>{{ opt or '(없음)' }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">감시목록</label>
+      <select name="감시목록" class="form-select form-select-sm">
+        <option value="" {% if not record.감시목록 %}selected{% endif %}>(없음)</option>
+        <option value="Y" {% if record.감시목록 == 'Y' %}selected{% endif %}>Y</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- mysafetydetail 필드 -->
+  <div class="field-group-title mt-4"><i class="fas fa-file-alt me-1"></i>신고 상세 (mysafetydetail)</div>
+  <div class="row g-3">
+    <div class="col-md-3">
+      <label class="form-label">처리상태</label>
+      <select name="처리상태" class="form-select form-select-sm">
+        {% for opt in ['', '처리중', '수용', '일부수용', '불수용', '취하'] %}
+          <option value="{{ opt }}" {% if record.처리상태 == opt %}selected{% endif %}>{{ opt or '(없음)' }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">차량번호</label>
+      <input type="text" name="차량번호" class="form-control" value="{{ record.차량번호 or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">위반법규</label>
+      <input type="text" name="위반법규" class="form-control" value="{{ record.위반법규 or '' }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">범칙금_과태료</label>
+      <select name="범칙금_과태료" class="form-select form-select-sm">
+        {% for opt in ['', '과태료', '범칙금', '경고', '미확인'] %}
+          <option value="{{ opt }}" {% if record['범칙금_과태료'] == opt %}selected{% endif %}>{{ opt or '(없음)' }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">벌점</label>
+      <input type="text" name="벌점" class="form-control" value="{{ record.벌점 or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">처리기관</label>
+      <input type="text" name="처리기관" class="form-control" value="{{ record.처리기관 or '' }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">담당자</label>
+      <input type="text" name="담당자" class="form-control" value="{{ record.담당자 or '' }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">답변일</label>
+      <input type="date" name="답변일" class="form-control" value="{{ record.답변일 or '' }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">발생일자</label>
+      <input type="date" name="발생일자" class="form-control" value="{{ record.발생일자 or '' }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">발생시각</label>
+      <input type="text" name="발생시각" class="form-control" placeholder="예: 14:30" value="{{ record.발생시각 or '' }}">
+    </div>
+    <div class="col-md-5">
+      <label class="form-label">위반장소</label>
+      <input type="text" name="위반장소" class="form-control" value="{{ record.위반장소 or '' }}">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">종결여부</label>
+      <select name="종결여부" class="form-select form-select-sm">
+        {% for opt in ['', 'Y', 'N'] %}
+          <option value="{{ opt }}" {% if record.종결여부 == opt %}selected{% endif %}>{{ opt or '(없음)' }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12">
+      <label class="form-label">신고내용</label>
+      <textarea name="신고내용" class="form-control" rows="4">{{ record.신고내용 or '' }}</textarea>
+    </div>
+    <div class="col-12">
+      <label class="form-label">처리내용</label>
+      <textarea name="처리내용" class="form-control" rows="4">{{ record.처리내용 or '' }}</textarea>
+    </div>
+    <div class="col-12">
+      <label class="form-label">지도 URL</label>
+      <input type="text" name="지도" class="form-control" value="{{ record.지도 or '' }}">
+    </div>
+    <div class="col-12">
+      <label class="form-label">첨부사진 (줄바꿈으로 구분)</label>
+      <textarea name="첨부사진" class="form-control" rows="3">{{ record.첨부사진 or '' }}</textarea>
+    </div>
+    <div class="col-12">
+      <label class="form-label">첨부파일 (줄바꿈으로 구분)</label>
+      <textarea name="첨부파일" class="form-control" rows="3">{{ record.첨부파일 or '' }}</textarea>
+    </div>
+  </div>
+
+  <div class="mt-4 d-flex gap-2">
+    <button type="submit" class="btn btn-primary">
+      <i class="fas fa-save me-1"></i>저장
+    </button>
+    <a href="/db-editor?category={{ category }}" class="btn btn-outline-secondary">취소</a>
+  </div>
+</form>
+{% endblock %}

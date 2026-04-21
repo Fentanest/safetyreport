@@ -12,7 +12,7 @@ import os
 import signal
 
 from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route, devices_route
-from web.routers import auth_route, api_route, ws_route
+from web.routers import auth_route, api_route, ws_route, db_editor_route
 import subprocess
 import sys
 
@@ -166,6 +166,7 @@ app.include_router(stats.router)
 app.include_router(rating_route.router)
 app.include_router(watchlist_route.router)
 app.include_router(file_browser_route.router)
+app.include_router(db_editor_route.router)
 app.include_router(devices_route.router)
 app.include_router(api_route.router)
 app.include_router(ws_route.router)
