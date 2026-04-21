@@ -35,8 +35,7 @@ async def db_editor_list(request: Request, category: str = "traffic"):
             select(merge_tbl).order_by(merge_tbl.c["신고일"].desc())
         ).fetchall()
     records = [dict(r._mapping) for r in rows]
-    return templates.TemplateResponse("db_editor.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "db_editor.html", {
         "title": "데이터 수정",
         "records": records,
         "category": category,
@@ -55,8 +54,7 @@ async def db_editor_form(request: Request, category: str, record_id: str):
     if not row:
         return RedirectResponse(f"/db-editor?category={category}")
     record = dict(row._mapping)
-    return templates.TemplateResponse("db_editor_form.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "db_editor_form.html", {
         "title": f"데이터 수정 — {record.get('신고번호', record_id)}",
         "record": record,
         "category": category,
