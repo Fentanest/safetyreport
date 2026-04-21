@@ -1,11 +1,31 @@
 {% extends "base.html" %}
 {% block extra_css %}
 <style>
-.category-tabs .nav-link { color: #adb5bd; }
-.category-tabs .nav-link.active { color: #fff; background-color: #495057; border-color: #495057; }
-.table-sm td, .table-sm th { font-size: 0.82rem; }
-.status-badge { font-size: 0.75rem; }
-td.col-content { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .category-tabs .nav-link {
+    color: #adb5bd;
+  }
+
+  .category-tabs .nav-link.active {
+    color: #fff;
+    background-color: #495057;
+    border-color: #495057;
+  }
+
+  .table-sm td,
+  .table-sm th {
+    font-size: 0.82rem;
+  }
+
+  .status-badge {
+    font-size: 0.75rem;
+  }
+
+  td.col-content {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 </style>
 {% endblock %}
 
@@ -13,21 +33,18 @@ td.col-content { max-width: 200px; overflow: hidden; text-overflow: ellipsis; wh
 <div class="alert alert-danger py-2 mb-2" role="alert">
   <i class="fas fa-exclamation-triangle me-1"></i>
   <strong>주의:</strong> 이 페이지는 DB를 직접 수정합니다. 잘못된 수정은 데이터 불일치 또는 크롤링 오작동을 유발할 수 있습니다.
-  종결여부가 Y인 건만 크롤링 시 덮어쓰이지 않습니다.
+  종결여부가 N일 경우 다음 크롤링 시 덮어쓰기 되므로 유의하시기 바랍니다.
 </div>
 
 <ul class="nav nav-tabs category-tabs mb-3" id="categoryTab">
   <li class="nav-item">
-    <a class="nav-link {% if category == 'traffic' %}active{% endif %}"
-       href="/db-editor?category=traffic">교통위반</a>
+    <a class="nav-link {% if category == 'traffic' %}active{% endif %}" href="/db-editor?category=traffic">교통위반</a>
   </li>
   <li class="nav-item">
-    <a class="nav-link {% if category == 'parking' %}active{% endif %}"
-       href="/db-editor?category=parking">주정차위반</a>
+    <a class="nav-link {% if category == 'parking' %}active{% endif %}" href="/db-editor?category=parking">주정차위반</a>
   </li>
   <li class="nav-item">
-    <a class="nav-link {% if category == 'other' %}active{% endif %}"
-       href="/db-editor?category=other">기타위반</a>
+    <a class="nav-link {% if category == 'other' %}active{% endif %}" href="/db-editor?category=other">기타위반</a>
   </li>
 </ul>
 
@@ -54,23 +71,22 @@ td.col-content { max-width: 200px; overflow: hidden; text-overflow: ellipsis; wh
         <td>
           {% set s = r.처리상태 or '' %}
           {% if s == '수용' %}
-            <span class="badge bg-success status-badge">{{ s }}</span>
+          <span class="badge bg-success status-badge">{{ s }}</span>
           {% elif s == '불수용' %}
-            <span class="badge bg-danger status-badge">{{ s }}</span>
+          <span class="badge bg-danger status-badge">{{ s }}</span>
           {% elif s == '일부수용' %}
-            <span class="badge bg-warning text-dark status-badge">{{ s }}</span>
+          <span class="badge bg-warning text-dark status-badge">{{ s }}</span>
           {% elif s == '취하' %}
-            <span class="badge bg-secondary status-badge">{{ s }}</span>
+          <span class="badge bg-secondary status-badge">{{ s }}</span>
           {% else %}
-            <span class="badge bg-info text-dark status-badge">{{ s or '처리중' }}</span>
+          <span class="badge bg-info text-dark status-badge">{{ s or '처리중' }}</span>
           {% endif %}
         </td>
         <td>{{ r['범칙금_과태료'] or '' }}</td>
         <td>{{ r.차량번호 or '' }}</td>
         <td class="col-content" title="{{ r.처리기관 or '' }}">{{ r.처리기관 or '' }}</td>
         <td>
-          <a href="/db-editor/{{ category }}/{{ r.ID }}"
-             class="btn btn-sm btn-outline-primary py-0 px-2">
+          <a href="/db-editor/{{ category }}/{{ r.ID }}" class="btn btn-sm btn-outline-primary py-0 px-2">
             <i class="fas fa-edit"></i>
           </a>
         </td>
@@ -83,25 +99,25 @@ td.col-content { max-width: 200px; overflow: hidden; text-overflow: ellipsis; wh
 
 {% block extra_js %}
 <script>
-$(document).ready(function() {
-  var savedLength = parseInt(sessionStorage.getItem('dbEditorPageLength')) || 25;
-  var dt = $('#dbEditorTable').DataTable({
-    pageLength: savedLength,
-    order: [[1, 'desc']],
-    language: {
-      search: '검색:',
-      lengthMenu: '_MENU_ 건씩 보기',
-      info: '_TOTAL_ 건 중 _START_–_END_',
-      paginate: { previous: '이전', next: '다음' },
-      zeroRecords: '데이터 없음',
-    },
-    columnDefs: [
-      { orderable: false, targets: 7 }
-    ]
+  $(document).ready(function () {
+    var savedLength = parseInt(sessionStorage.getItem('dbEditorPageLength')) || 25;
+    var dt = $('#dbEditorTable').DataTable({
+      pageLength: savedLength,
+      order: [[1, 'desc']],
+      language: {
+        search: '검색:',
+        lengthMenu: '_MENU_ 건씩 보기',
+        info: '_TOTAL_ 건 중 _START_–_END_',
+        paginate: { previous: '이전', next: '다음' },
+        zeroRecords: '데이터 없음',
+      },
+      columnDefs: [
+        { orderable: false, targets: 7 }
+      ]
+    });
+    dt.on('length.dt', function (e, settings, len) {
+      sessionStorage.setItem('dbEditorPageLength', len);
+    });
   });
-  dt.on('length.dt', function(e, settings, len) {
-    sessionStorage.setItem('dbEditorPageLength', len);
-  });
-});
 </script>
 {% endblock %}
