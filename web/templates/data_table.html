@@ -469,8 +469,11 @@ $(document).ready(function() {
         if (!openReport) return;
         $('#searchReport').val(openReport);
         table.one('draw', function() {
-            var d = table.row(':eq(0)').data();
-            if (d) setTimeout(function() { window.showReportDetail(d); }, 150);
+            var rows = table.rows({search: 'applied'});
+            if (rows.count() > 0) {
+                var d = rows.data()[0];
+                if (d) setTimeout(function() { window.showReportDetail(d); }, 150);
+            }
         });
         table.column(3).search(orSearch(openReport), true, false).draw();
     }, 200);
