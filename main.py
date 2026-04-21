@@ -245,8 +245,10 @@ async def auth_middleware(request: Request, call_next):
         if not request.session.get("admin_logged_in"):
             return _login_redirect(request)
         return await call_next(request)
-    except Exception:
+    except Exception as e:
         # 미들웨어 예외가 ASGI 소켓을 닫아 nginx 502로 이어지는 것을 방지
+        import traceback
+        logger.LoggerFactory.logbot.error(f"[middleware] {request.url.path} 처리 중 예외: {e}\n{traceback.format_exc()}")
         if not request.session.get("admin_logged_in", False):
             return _login_redirect(request)
         from fastapi.responses import Response
