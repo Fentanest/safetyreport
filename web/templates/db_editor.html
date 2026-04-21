@@ -10,6 +10,12 @@ td.col-content { max-width: 200px; overflow: hidden; text-overflow: ellipsis; wh
 {% endblock %}
 
 {% block content %}
+<div class="alert alert-danger py-2 mb-2" role="alert">
+  <i class="fas fa-exclamation-triangle me-1"></i>
+  <strong>주의:</strong> 이 페이지는 DB를 직접 수정합니다. 잘못된 수정은 데이터 불일치 또는 크롤링 오작동을 유발할 수 있습니다.
+  종결여부가 Y인 건만 크롤링 시 덮어쓰이지 않습니다.
+</div>
+
 <ul class="nav nav-tabs category-tabs mb-3" id="categoryTab">
   <li class="nav-item">
     <a class="nav-link {% if category == 'traffic' %}active{% endif %}"
@@ -24,12 +30,6 @@ td.col-content { max-width: 200px; overflow: hidden; text-overflow: ellipsis; wh
        href="/db-editor?category=other">기타위반</a>
   </li>
 </ul>
-
-<div class="alert alert-warning py-2" role="alert">
-  <i class="fas fa-exclamation-triangle me-1"></i>
-  수정 사항은 <strong>mysafety</strong>, <strong>mysafetydetail</strong>, <strong>mysafetymerge</strong> 세 테이블에 모두 반영됩니다.
-  크롤링 후 데이터가 덮어쓰일 수 있습니다.
-</div>
 
 <div class="table-responsive">
   <table id="dbEditorTable" class="table table-sm table-hover table-bordered align-middle">
@@ -84,8 +84,9 @@ td.col-content { max-width: 200px; overflow: hidden; text-overflow: ellipsis; wh
 {% block extra_js %}
 <script>
 $(document).ready(function() {
-  $('#dbEditorTable').DataTable({
-    pageLength: 25,
+  var savedLength = parseInt(sessionStorage.getItem('dbEditorPageLength')) || 25;
+  var dt = $('#dbEditorTable').DataTable({
+    pageLength: savedLength,
     order: [[1, 'desc']],
     language: {
       search: '검색:',
@@ -97,6 +98,9 @@ $(document).ready(function() {
     columnDefs: [
       { orderable: false, targets: 7 }
     ]
+  });
+  dt.on('length.dt', function(e, settings, len) {
+    sessionStorage.setItem('dbEditorPageLength', len);
   });
 });
 </script>

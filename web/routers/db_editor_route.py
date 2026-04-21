@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from core.utils.templating import templates
 from core.database.models import (
-    title_table, merge_traffic_table, merge_parking_table, merge_other_table,
+    merge_traffic_table, merge_parking_table, merge_other_table,
     detail_traffic_table, detail_parking_table, detail_other_table
 )
 from sqlalchemy import create_engine, select, update
@@ -70,18 +70,12 @@ async def db_editor_save(request: Request, category: str, record_id: str):
     merge_tbl, detail_tbl = _CATEGORY_TABLES[category]
 
     form = await request.form()
-    values = {f: form.get(f, "") for f in _TITLE_FIELDS + _DETAIL_FIELDS}
+    detail_values = {f: form.get(f, "") for f in _DETAIL_FIELDS}
 
     with engine.begin() as conn:
-        # 1. mysafetymerge 갱신
-        conn.execute(update(merge_tbl).where(merge_tbl.c.ID == record_id).values(**values))
-        # 2. mysafety 역동기화
-        conn.execute(update(title_table).where(title_table.c.ID == record_id).values(
-            **{k: values[k] for k in _TITLE_FIELDS}
-        ))
-        # 3. mysafetydetail 역동기화
-        conn.execute(update(detail_tbl).where(detail_tbl.c.ID == record_id).values(
-            **{k: values[k] for k in _DETAIL_FIELDS}
-        ))
+        # mysafetydetail 갱신
+        conn.execute(update(detail_tbl).where(detail_tbl.c.ID == record_id).values(**detail_values))
+        # mysafetymerge의 detail 필드만 갱신 (title 필드는 크롤링 upsert에 맡김)
+        conn.execute(update(merge_tbl).where(merge_tbl.c.ID == record_id).values(**detail_values))
 
     return RedirectResponse(f"/db-editor?category={category}", status_code=303)
