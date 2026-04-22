@@ -40,7 +40,7 @@ def get_latest_version_cached() -> str | None:
     release = _fetch_latest_release()
     ver = release.get("tag_name", "").lstrip("v") if release else None
     _latest_version_cache["version"] = ver
-    _latest_version_cache["expires"] = now + 3600
+    _latest_version_cache["expires"] = now + 300
     return ver
 
 

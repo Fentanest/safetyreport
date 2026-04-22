@@ -159,20 +159,24 @@
 (function() {
     var el = document.getElementById('sidebarVersionStatus');
     if (!el) return;
-    fetch('/version/latest')
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.status === 'up_to_date') {
-                el.innerHTML = '<span style="color:#6ee7a0;">&#10003; 최신 버전</span>';
-            } else if (d.status === 'outdated') {
-                el.innerHTML = '<span style="color:#ffc107;">&#9650; 최신: v' + d.latest + '</span>';
-            } else {
+    function checkVersion() {
+        fetch('/version/latest')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.status === 'up_to_date') {
+                    el.innerHTML = '<span style="color:#6ee7a0;">&#10003; 최신 버전</span>';
+                } else if (d.status === 'outdated') {
+                    el.innerHTML = '<span style="color:#ffc107;">&#9650; 최신: v' + d.latest + '</span>';
+                } else {
+                    el.innerHTML = '<span style="color:#6c757d;">버전 확인 불가</span>';
+                }
+            })
+            .catch(function() {
                 el.innerHTML = '<span style="color:#6c757d;">버전 확인 불가</span>';
-            }
-        })
-        .catch(function() {
-            el.innerHTML = '<span style="color:#6c757d;">버전 확인 불가</span>';
-        });
+            });
+    }
+    checkVersion();
+    setInterval(checkVersion, 5 * 60 * 1000);
 })();
 </script>
 
