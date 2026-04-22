@@ -66,6 +66,16 @@ async def get_vehicle_reports(vehicle_number: str, _: str = Depends(_require_api
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/address")
+async def get_address_reports(q: str, _: str = Depends(_require_api_key)):
+    """위반장소로 전체 카테고리에서 신고 내역 조회 (크롬 확장 연동용)"""
+    try:
+        results = data_service.search_by_address(engine, q)
+        return {"status": "success", "address": q, "count": len(results), "data": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/stats")
 async def get_stats(_: str = Depends(_require_api_key), year: str = None, law: str = None):
     """기관별/담당자별 처리 통계"""
