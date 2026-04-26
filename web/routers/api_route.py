@@ -459,6 +459,20 @@ async def get_app_config(_: str = Depends(_require_api_key)):
     }
 
 
+@router.get("/settings/db")
+async def download_database(_: str = Depends(_require_api_key_flex)):
+    """로컬 DB 파일(data.db) 다운로드"""
+    from fastapi.responses import FileResponse
+    import os
+    db_path = os.path.abspath(settings.db_path)
+    if not os.path.exists(db_path):
+        raise HTTPException(status_code=404, detail="DB 파일을 찾을 수 없습니다")
+    return FileResponse(
+        db_path,
+        filename="data.db",
+        media_type="application/octet-stream"
+    )
+
 @router.post("/settings")
 async def update_settings(request: Request, _: str = Depends(_require_api_key)):
     """기타 데이터 필터 세팅 저장 (normalize_police, exclude_withdraw)"""
