@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File
 from fastapi.security import APIKeyHeader
 from sqlalchemy import create_engine
 import settings.settings as settings
@@ -461,17 +461,72 @@ async def get_app_config(_: str = Depends(_require_api_key)):
 
 @router.get("/settings/db")
 async def download_database(_: str = Depends(_require_api_key_flex)):
-    """로컬 DB 파일(data.db) 다운로드"""
+    """로컬 DB 파일 다운로드.
+    내부적으로 WAL/SHM을 머지한 일관성 있는 단일 .db 스냅샷을 생성해 전송."""
     from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
     import os
-    db_path = os.path.abspath(settings.db_path)
-    if not os.path.exists(db_path):
-        raise HTTPException(status_code=404, detail="DB 파일을 찾을 수 없습니다")
+    from services import db_backup
+
+    try:
+        tmp_path = db_backup.export_clean_db()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB 추출 실패: {e}")
+
+    def _cleanup(p):
+        try: os.remove(p)
+        except Exception: pass
+
     return FileResponse(
-        db_path,
+        tmp_path,
         filename="data.db",
-        media_type="application/octet-stream"
+        media_type="application/octet-stream",
+        background=BackgroundTask(_cleanup, tmp_path),
     )
+
+
+@router.post("/settings/db/upload")
+async def upload_database(file: UploadFile = File(...),
+                          _: str = Depends(_require_api_key_flex)):
+    """모바일/외부에서 DB 파일을 업로드해 복원.
+    서버/모바일 자동 감지. 모바일 DB는 서버 구조로 변환됨."""
+    import os, tempfile
+    from services import db_backup
+
+    if not file.filename or not file.filename.lower().endswith(".db"):
+        raise HTTPException(status_code=400, detail=".db 파일만 업로드 가능합니다.")
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".db", prefix="safetyreport_upload_")
+    try:
+        with os.fdopen(fd, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+
+        kind = db_backup.detect_db_kind(tmp_path)
+        if kind == "server":
+            backup, count = db_backup.restore_from_server_db(tmp_path)
+        elif kind == "mobile":
+            backup, count = db_backup.restore_from_mobile_db(tmp_path)
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="알 수 없는 DB 형식 — 서버(mysafety*) 또는 모바일(reports+sync_meta) DB만 허용됩니다.",
+            )
+
+        return {
+            "status": "ok",
+            "kind": kind,
+            "imported": count,
+            "backup": os.path.basename(backup) if backup else "",
+        }
+    finally:
+        try: os.remove(tmp_path)
+        except Exception: pass
 
 @router.post("/settings")
 async def update_settings(request: Request, _: str = Depends(_require_api_key)):

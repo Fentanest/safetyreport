@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card card-custom">
+      <div class="card-header bg-white fw-bold">
+        <i class="fas fa-download me-1 text-primary"></i> DB 다운로드
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">
+          현재 DB를 단일 <code>.db</code> 파일로 다운로드합니다.<br>
+          내부적으로 <code>WAL/SHM</code>을 정리한 일관성 있는 스냅샷을 만듭니다.
+        </p>
+        <a href="/backup/download" class="btn btn-primary">
+          <i class="fas fa-download me-1"></i> DB 다운로드
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card card-custom">
+      <div class="card-header bg-white fw-bold">
+        <i class="fas fa-upload me-1 text-warning"></i> DB 복원 (업로드)
+      </div>
+      <div class="card-body">
+        <p class="text-muted small">
+          업로드 된 <code>.db</code> 파일로 현재 DB를 복원합니다.<br>
+          업로드 직전의 DB는 자동으로 <code>data/backups/</code>에 백업됩니다.<br>
+          서버 형식과 모바일 형식 모두 자동 감지되며, 모바일 DB는 서버 구조로 변환됩니다.
+        </p>
+        <form id="uploadForm" enctype="multipart/form-data">
+          <div class="mb-3">
+            <input class="form-control" type="file" id="dbFile" name="file" accept=".db" required>
+          </div>
+          <button type="submit" class="btn btn-warning">
+            <i class="fas fa-upload me-1"></i> 복원 시작
+          </button>
+        </form>
+        <div id="result" class="mt-3"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="alert alert-info mb-0">
+      <strong>주의:</strong> 복원은 현재 DB를 덮어씁니다. 복원 후에는 서버를 재시작하는 것이 안전합니다.
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('uploadForm').addEventListener('submit', async function(e){
+  e.preventDefault();
+  const fileInput = document.getElementById('dbFile');
+  if(!fileInput.files[0]){ return; }
+  if(!confirm('현재 DB가 덮어써집니다. 진행하시겠습니까? (이전 DB는 자동 백업됩니다.)')){ return; }
+
+  const result = document.getElementById('result');
+  result.innerHTML = '<div class="alert alert-secondary">업로드 및 복원 진행 중...</div>';
+
+  const fd = new FormData();
+  fd.append('file', fileInput.files[0]);
+  try{
+    const res = await fetch('/backup/upload', { method: 'POST', body: fd });
+    const data = await res.json();
+    if(res.ok && data.status === 'ok'){
+      result.innerHTML = '<div class="alert alert-success">'
+        + '<i class="fas fa-check-circle me-1"></i> ' + data.message
+        + (data.backup ? '<br><small class="text-muted">이전 DB 백업: ' + data.backup + '</small>' : '')
+        + '</div>';
+    } else {
+      result.innerHTML = '<div class="alert alert-danger">실패: ' + (data.detail || data.message || res.status) + '</div>';
+    }
+  } catch(err){
+    result.innerHTML = '<div class="alert alert-danger">네트워크 오류: ' + err + '</div>';
+  }
+});
+</script>
+{% endblock %}

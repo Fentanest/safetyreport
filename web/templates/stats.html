@@ -224,7 +224,7 @@
             {% set lf = f.law or '' %}
 
             <!-- Traffic Agency -->
-            <div class="stats-pane" id="traffic-agency" style="display:none">
+            <div class="stats-pane" id="traffic-agency" style="display:none;overflow-x:auto">
                 <table id="statsTableTrafficAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_traffic_agency, '/data/traffic', lf) }}</tbody>
@@ -233,7 +233,7 @@
             </div>
 
             <!-- Traffic Person -->
-            <div class="stats-pane" id="traffic-person" style="display:none">
+            <div class="stats-pane" id="traffic-person" style="display:none;overflow-x:auto">
                 <table id="statsTableTrafficPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_traffic_person, '/data/traffic', lf) }}</tbody>
@@ -242,7 +242,7 @@
             </div>
 
             <!-- Parking Agency -->
-            <div class="stats-pane" id="parking-agency" style="display:none">
+            <div class="stats-pane" id="parking-agency" style="display:none;overflow-x:auto">
                 <table id="statsTableParkingAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_parking_agency, '/data/parking', lf) }}</tbody>
@@ -251,7 +251,7 @@
             </div>
 
             <!-- Parking Person -->
-            <div class="stats-pane" id="parking-person" style="display:none">
+            <div class="stats-pane" id="parking-person" style="display:none;overflow-x:auto">
                 <table id="statsTableParkingPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_parking_person, '/data/parking', lf) }}</tbody>
@@ -259,7 +259,7 @@
                 </table>
             </div>
             <!-- Parking Police Agency -->
-            <div class="stats-pane" id="parking-police-agency" style="display:none">
+            <div class="stats-pane" id="parking-police-agency" style="display:none;overflow-x:auto">
                 <table id="statsTableParkingPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_parking_police_agency, '/data/parking', lf) }}</tbody>
@@ -267,7 +267,7 @@
                 </table>
             </div>
             <!-- Parking Police Person -->
-            <div class="stats-pane" id="parking-police-person" style="display:none">
+            <div class="stats-pane" id="parking-police-person" style="display:none;overflow-x:auto">
                 <table id="statsTableParkingPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_parking_police_person, '/data/parking', lf) }}</tbody>
@@ -275,7 +275,7 @@
                 </table>
             </div>
             <!-- Parking Other Agency -->
-            <div class="stats-pane" id="parking-other-agency" style="display:none">
+            <div class="stats-pane" id="parking-other-agency" style="display:none;overflow-x:auto">
                 <table id="statsTableParkingOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_parking_other_agency, '/data/parking', lf) }}</tbody>
@@ -283,7 +283,7 @@
                 </table>
             </div>
             <!-- Parking Other Person -->
-            <div class="stats-pane" id="parking-other-person" style="display:none">
+            <div class="stats-pane" id="parking-other-person" style="display:none;overflow-x:auto">
                 <table id="statsTableParkingOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_parking_other_person, '/data/parking', lf) }}</tbody>
@@ -292,7 +292,7 @@
             </div>
 
             <!-- Other Agency -->
-            <div class="stats-pane" id="other-agency" style="display:none">
+            <div class="stats-pane" id="other-agency" style="display:none;overflow-x:auto">
                 <table id="statsTableOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_other_agency, '/data/other', lf) }}</tbody>
@@ -301,7 +301,7 @@
             </div>
 
             <!-- Other Person -->
-            <div class="stats-pane" id="other-person" style="display:none">
+            <div class="stats-pane" id="other-person" style="display:none;overflow-x:auto">
                 <table id="statsTableOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_other_person, '/data/other', lf) }}</tbody>
@@ -310,7 +310,7 @@
             </div>
 
             <!-- Traffic Police Agency -->
-            <div class="stats-pane" id="traffic-police-agency" style="display:none">
+            <div class="stats-pane" id="traffic-police-agency" style="display:none;overflow-x:auto">
                 <table id="statsTableTrafficPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_traffic_police_agency, '/data/traffic', lf) }}</tbody>
@@ -318,7 +318,7 @@
                 </table>
             </div>
             <!-- Traffic Police Person -->
-            <div class="stats-pane" id="traffic-police-person" style="display:none">
+            <div class="stats-pane" id="traffic-police-person" style="display:none;overflow-x:auto">
                 <table id="statsTableTrafficPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_traffic_police_person, '/data/traffic', lf) }}</tbody>
@@ -326,7 +326,7 @@
                 </table>
             </div>
             <!-- Traffic Other Agency -->
-            <div class="stats-pane" id="traffic-other-agency" style="display:none">
+            <div class="stats-pane" id="traffic-other-agency" style="display:none;overflow-x:auto">
                 <table id="statsTableTrafficOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_traffic_other_agency, '/data/traffic', lf) }}</tbody>
@@ -334,7 +334,7 @@
                 </table>
             </div>
             <!-- Traffic Other Person -->
-            <div class="stats-pane" id="traffic-other-person" style="display:none">
+            <div class="stats-pane" id="traffic-other-person" style="display:none;overflow-x:auto">
                 <table id="statsTableTrafficOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_traffic_other_person, '/data/traffic', lf) }}</tbody>
@@ -342,7 +342,7 @@
                 </table>
             </div>
             <!-- Other Police Agency -->
-            <div class="stats-pane" id="other-police-agency" style="display:none">
+            <div class="stats-pane" id="other-police-agency" style="display:none;overflow-x:auto">
                 <table id="statsTableOtherPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_other_police_agency, '/data/other', lf) }}</tbody>
@@ -350,7 +350,7 @@
                 </table>
             </div>
             <!-- Other Police Person -->
-            <div class="stats-pane" id="other-police-person" style="display:none">
+            <div class="stats-pane" id="other-police-person" style="display:none;overflow-x:auto">
                 <table id="statsTableOtherPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_other_police_person, '/data/other', lf) }}</tbody>
@@ -358,7 +358,7 @@
                 </table>
             </div>
             <!-- Other Other Agency -->
-            <div class="stats-pane" id="other-other-agency" style="display:none">
+            <div class="stats-pane" id="other-other-agency" style="display:none;overflow-x:auto">
                 <table id="statsTableOtherOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ agency_thead }}</thead>
                     <tbody>{{ agency_rows(records_other_other_agency, '/data/other', lf) }}</tbody>
@@ -366,7 +366,7 @@
                 </table>
             </div>
             <!-- Other Other Person -->
-            <div class="stats-pane" id="other-other-person" style="display:none">
+            <div class="stats-pane" id="other-other-person" style="display:none;overflow-x:auto">
                 <table id="statsTableOtherOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
                     <thead>{{ person_thead }}</thead>
                     <tbody>{{ person_rows(records_other_other_person, '/data/other', lf) }}</tbody>

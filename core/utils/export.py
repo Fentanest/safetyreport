@@ -58,15 +58,14 @@ def _process_dataframe(df):
                 attachment_cols.append(col_name)
         df_processed = df_processed.drop(columns=['첨부파일'])
 
-    # Reorder columns
+    # Reorder columns: 만족도조사여부 → 별점 → 별점사유 → 감시목록 순으로 끝에 배치
     original_cols = df.columns.tolist()
-    if '첨부파일' in original_cols: original_cols.remove('첨부파일')
-    if '첨부사진' in original_cols: original_cols.remove('첨부사진')
-    if '지도' in original_cols: original_cols.remove('지도')
-    if '만족도조사여부' in original_cols: original_cols.remove('만족도조사여부')
-    if '감시목록' in original_cols: original_cols.remove('감시목록')
+    for col in ('첨부파일', '첨부사진', '지도', '만족도조사여부', '별점', '별점사유', '감시목록'):
+        if col in original_cols:
+            original_cols.remove(col)
 
-    new_order = original_cols + ['지도'] + photo_cols + attachment_cols + ['만족도조사여부', '감시목록']
+    new_order = (original_cols + ['지도'] + photo_cols + attachment_cols
+                 + ['만족도조사여부', '별점', '별점사유', '감시목록'])
     new_order = [col for col in new_order if col in df_processed.columns]
     
     df_processed = df_processed[new_order]
