@@ -10,6 +10,7 @@ import settings.settings as settings
 from core.utils import logger
 
 import services.parser as doc_parser
+from services import satisfaction_fetcher
 
 def crawl_details(driver, list):
     """Crawls the detail page for each report link."""
@@ -88,7 +89,23 @@ def crawl_details(driver, list):
             entry_value = details.get("entry_value", "")
             from core.database.database import category_from_entry_value
             category = category_from_entry_value(entry_value)
-            yield (df, category, entry_value, progress_status, details.get("title_fields"))
+
+            # 만족도조사 점수+사유 보강 (참여 완료로 판정된 건 한정)
+            # 레거시 백업 경로: API 차단 대비 — 같은 driver로 팝업 페이지 진입
+            title_fields = details.get("title_fields") or {}
+            if title_fields.get("만족도조사여부") == "참여 완료" and settings.phone_number:
+                spp_no = title_fields.get("신고번호", "")
+                score, cause = satisfaction_fetcher.fetch_score_via_selenium_page(driver, spp_no)
+                if score:
+                    title_fields["별점"] = score
+                    title_fields["별점사유"] = cause
+                else:
+                    title_fields["만족도조사여부"] = "참여 가능"
+                    title_fields["별점"] = None
+                    title_fields["별점사유"] = ""
+                    logger.LoggerFactory.logbot.info(f"[satisfaction] {spp_no} 미참여 확인 → '참여 가능'으로 재분류")
+
+            yield (df, category, entry_value, progress_status, title_fields)
 
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"Error processing link {link}: {e}")

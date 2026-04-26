@@ -10,6 +10,8 @@ title_table = Table(settings.table_title, metadata,
                     Column('신고명', String),
                     Column('신고일', String),
                     Column('만족도조사여부', String),
+                    Column('별점', Integer),
+                    Column('별점사유', String),
                     Column('감시목록', String))
 
 def get_detail_columns():
@@ -46,6 +48,8 @@ def get_merge_columns():
         Column('신고명', String),
         Column('신고일', String),
         Column('만족도조사여부', String),
+        Column('별점', Integer),
+        Column('별점사유', String),
         Column('감시목록', String),
         Column('처리상태', String),
         Column('차량번호', String),

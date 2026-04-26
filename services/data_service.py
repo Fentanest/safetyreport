@@ -360,6 +360,15 @@ def get_agency_stats(engine, filters=None):
         except Exception:
             return None
 
+    def _calc_avg_rating(group_df):
+        if '별점' not in group_df.columns:
+            return None, 0
+        ratings = pd.to_numeric(group_df['별점'], errors='coerce').dropna()
+        ratings = ratings[(ratings >= 1) & (ratings <= 5)]
+        if len(ratings) == 0:
+            return None, 0
+        return round(float(ratings.mean()), 2), int(len(ratings))
+
     def calc_stats(df):
         _empty = {
             "by_agency": [], "by_person": [],
@@ -459,6 +468,7 @@ def get_agency_stats(engine, filters=None):
             warnings = len(group[group['범칙금_과태료'].str.contains('경고|범칙금', na=False)])
             avg = _calc_avg_days(group)
             total_fine = int(group['범칙금_과태료'].apply(_extract_fine_amount).sum())
+            avg_rating, rating_count = _calc_avg_rating(group)
 
             stats_person.append({
                 "agency": agency,
@@ -471,7 +481,9 @@ def get_agency_stats(engine, filters=None):
                 "warnings": warnings,
                 "warnings_pct": round((warnings / total) * 100, 1) if total > 0 else 0,
                 "rejects": rejects,
-                "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0
+                "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0,
+                "avg_rating": avg_rating,
+                "rating_count": rating_count,
             })
 
         stats_agency = []
@@ -483,6 +495,7 @@ def get_agency_stats(engine, filters=None):
             warnings = len(group[group['범칙금_과태료'].str.contains('경고|범칙금', na=False)])
             avg = _calc_avg_days(group)
             total_fine = int(group['범칙금_과태료'].apply(_extract_fine_amount).sum())
+            avg_rating, rating_count = _calc_avg_rating(group)
 
             stats_agency.append({
                 "agency": agency,
@@ -494,7 +507,9 @@ def get_agency_stats(engine, filters=None):
                 "warnings": warnings,
                 "warnings_pct": round((warnings / total) * 100, 1) if total > 0 else 0,
                 "rejects": rejects,
-                "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0
+                "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0,
+                "avg_rating": avg_rating,
+                "rating_count": rating_count,
             })
 
         stats_law = []
@@ -509,6 +524,7 @@ def get_agency_stats(engine, filters=None):
                 warnings = len(group[group['범칙금_과태료'].str.contains('경고|범칙금', na=False)])
                 avg = _calc_avg_days(group)
                 total_fine = int(group['범칙금_과태료'].apply(_extract_fine_amount).sum())
+                avg_rating, rating_count = _calc_avg_rating(group)
                 stats_law.append({
                     "law": law,
                     "total": total,
@@ -520,6 +536,8 @@ def get_agency_stats(engine, filters=None):
                     "warnings_pct": round((warnings / total) * 100, 1) if total > 0 else 0,
                     "rejects": rejects,
                     "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0,
+                    "avg_rating": avg_rating,
+                    "rating_count": rating_count,
                 })
         category_total_fine = int(df['범칙금_과태료'].apply(_extract_fine_amount).sum())
 

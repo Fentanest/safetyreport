@@ -346,22 +346,34 @@ def deatil_to_sql(dataframes_with_category, engine, conn=None):
 
                 if title_fields:
                     from sqlalchemy import case as sa_case
-                    # 만족도조사여부: '참여 완료' → 다운그레이드 금지
+                    # 만족도조사여부: '참여 완료' → 다운그레이드 금지 (단 별점 조회로 미참여 확인된 경우만 예외)
                     poll = title_fields.get('만족도조사여부', '')
-                    poll_expr = sa_case(
-                        (title_table.c.만족도조사여부 == '참여 완료', title_table.c.만족도조사여부),
-                        else_=poll
-                    ) if poll else title_table.c.만족도조사여부
+                    has_rating_field = '별점' in title_fields  # fetcher가 점수 조회 시도했음을 의미
+                    if has_rating_field and poll == '참여 가능':
+                        # 미참여 재분류: 다운그레이드 허용
+                        poll_expr = poll
+                    elif poll:
+                        poll_expr = sa_case(
+                            (title_table.c.만족도조사여부 == '참여 완료', title_table.c.만족도조사여부),
+                            else_=poll
+                        )
+                    else:
+                        poll_expr = title_table.c.만족도조사여부
+
+                    update_values = dict(
+                        상태=title_fields['상태'],
+                        신고번호=title_fields['신고번호'],
+                        신고명=title_fields['신고명'],
+                        신고일=title_fields['신고일'],
+                        만족도조사여부=poll_expr,
+                    )
+                    if has_rating_field:
+                        update_values['별점'] = title_fields.get('별점')
+                        update_values['별점사유'] = title_fields.get('별점사유') or ''
                     conn.execute(
                         update(title_table)
                         .where(title_table.c.ID == record_id)
-                        .values(
-                            상태=title_fields['상태'],
-                            신고번호=title_fields['신고번호'],
-                            신고명=title_fields['신고명'],
-                            신고일=title_fields['신고일'],
-                            만족도조사여부=poll_expr,
-                        )
+                        .values(**update_values)
                     )
                 else:
                     # title_fields 없을 때 기존 동작: 상태=='진행'인 경우만 동기화
@@ -391,6 +403,8 @@ def _merge_for_table(conn, merge_target, detail_source):
         title_table.c.신고명,
         title_table.c.신고일,
         title_table.c.만족도조사여부,
+        title_table.c.별점,
+        title_table.c.별점사유,
         title_table.c.감시목록,
         detail_source.c.처리상태,
         detail_source.c.차량번호,
