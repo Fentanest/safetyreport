@@ -107,10 +107,16 @@ async def export_excel():
     from sqlalchemy import create_engine
     import settings.settings as app_settings
     engine = create_engine(f'sqlite:///{app_settings.db_path}', connect_args={"check_same_thread": False})
-    df = database.load_results(engine=engine)
-    if df.empty: return JSONResponse({"status": "error", "message": "저장할 데이터가 없습니다."})
-    processed_df, _ = export._process_dataframe(df)
-    export.save_to_excel(processed_df)
+    category_dfs = database.load_results_by_category(engine=engine)
+    if not any(not df.empty for df in category_dfs.values()):
+        return JSONResponse({"status": "error", "message": "저장할 데이터가 없습니다."})
+    excel_data = {}
+    for label, df in category_dfs.items():
+        if df.empty:
+            continue
+        processed_df, _ = export._process_dataframe(df)
+        excel_data[label] = processed_df
+    export.save_to_excel(excel_data)
     return JSONResponse({"status": "success", "message": "DB 기반 엑셀 파일 생성이 완료되었습니다."})
 
 @router.post("/export/sheet")
@@ -122,11 +128,17 @@ async def export_sheet():
     if not app_settings.google_sheet_enabled:
         return JSONResponse({"status": "error", "message": "구글 시트 연동 기능이 비활성화되어 있습니다."})
     engine = create_engine(f'sqlite:///{app_settings.db_path}', connect_args={"check_same_thread": False})
-    df = database.load_results(engine=engine)
-    if df.empty: return JSONResponse({"status": "error", "message": "업로드할 데이터가 없습니다."})
-    processed_df, photo_cols = export._process_dataframe(df)
+    category_dfs = database.load_results_by_category(engine=engine)
+    if not any(not df.empty for df in category_dfs.values()):
+        return JSONResponse({"status": "error", "message": "업로드할 데이터가 없습니다."})
+    sheet_data = {}
+    for label, df in category_dfs.items():
+        if df.empty:
+            continue
+        processed_df, photo_cols = export._process_dataframe(df)
+        sheet_data[label] = (processed_df, photo_cols)
     try:
-        export.save_to_google_sheet(processed_df, photo_cols)
+        export.save_to_google_sheet(sheet_data, photo_cols=None)
         return JSONResponse({"status": "success", "message": "구글 시트 업로드가 완료되었습니다."})
     except Exception as e:
         return JSONResponse({"status": "error", "message": f"구글 시트 업로드 중 오류 발생: {e}"})

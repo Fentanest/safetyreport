@@ -16,11 +16,40 @@ _API_URL = "https://www.safetyreport.go.kr/api/v1/portal/statistics/satisfaction
 _PAGE_URL = "https://www.safetyreport.go.kr/html/common/popup/comptSatisfaction.html?seq={spp}&pn={phone}"
 
 
-def fetch_score_via_api(driver, spp_no: str) -> Tuple[Optional[int], str]:
-    """드라이버의 jQuery 컨텍스트로 점수 조회 API 호출 (세션/CSRF 우회 안전)."""
+_SCORE_URL = "https://www.safetyreport.go.kr/api/v1/portal/statistics/satisfactionstatistics/score/{spp}/{phone}"
+
+
+def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], str]:
+    """만족도조사 점수+사유 조회.
+
+    session_or_driver:
+      - curl_cffi Session 인스턴스 (driver-free 호출, 권장)
+      - Selenium driver 객체 (레거시 호환 — execute_async_script로 대체)
+    """
     phone = settings.phone_number
     if not phone or not spp_no:
         return None, ""
+
+    # curl_cffi 세션 모드 — get 메서드 보유 + execute_async_script 미보유로 식별
+    if hasattr(session_or_driver, "get") and not hasattr(session_or_driver, "execute_async_script"):
+        try:
+            url = _SCORE_URL.format(spp=spp_no, phone=phone)
+            r = session_or_driver.get(url, timeout=10)
+            if r.status_code != 200:
+                return None, ""
+            data = r.json()
+            if not data or "result" not in data or not data["result"]:
+                return None, ""
+            score_raw = data["result"].get("STSFDG_SCORE", 0)
+            score = int(score_raw) if score_raw else 0
+            cause = (data["result"].get("STSFDG_CAUSE") or "").strip()
+            return (score if score > 0 else None), cause
+        except Exception as e:
+            if logger.LoggerFactory.logbot:
+                logger.LoggerFactory.logbot.debug(f"[satisfaction] HTTP 조회 실패 {spp_no}: {e}")
+            return None, ""
+
+    # 레거시: Selenium driver 모드 (jQuery 컨텍스트)
     script = """
     var callback = arguments[arguments.length - 1];
     var spp = arguments[0];
@@ -30,7 +59,7 @@ def fetch_score_via_api(driver, spp_no: str) -> Tuple[Optional[int], str]:
      .fail(function(jqXHR, textStatus, errorThrown) { callback({error: textStatus + ' ' + errorThrown}); });
     """
     try:
-        data = driver.execute_async_script(script, spp_no, phone)
+        data = session_or_driver.execute_async_script(script, spp_no, phone)
         if not data or "error" in data or "result" not in data or not data["result"]:
             return None, ""
         score_raw = data["result"].get("STSFDG_SCORE", 0)
@@ -38,7 +67,8 @@ def fetch_score_via_api(driver, spp_no: str) -> Tuple[Optional[int], str]:
         cause = (data["result"].get("STSFDG_CAUSE") or "").strip()
         return (score if score > 0 else None), cause
     except Exception as e:
-        logger.LoggerFactory.logbot.debug(f"[satisfaction] API 조회 실패 {spp_no}: {e}")
+        if logger.LoggerFactory.logbot:
+            logger.LoggerFactory.logbot.debug(f"[satisfaction] API 조회 실패 {spp_no}: {e}")
         return None, ""
 
 

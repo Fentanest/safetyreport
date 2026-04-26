@@ -105,6 +105,14 @@ async def lifespan(app: FastAPI):
     _ws_manager.set_main_loop(asyncio.get_event_loop())
     database.upgrade_schema(engine)
     scheduler.init_scheduler()
+
+    # 직접 로그인 토큰 keep-alive (55분 주기). 자격증명 없으면 자동 스킵.
+    try:
+        from core.crawler import direct_login
+        direct_login.start_keepalive(interval_seconds=55 * 60)
+    except Exception as e:
+        logger.LoggerFactory.logbot.warning(f"direct_login keep-alive 시작 실패: {e}")
+
     if settings.telegram_enabled:
         try:
             logger.LoggerFactory.logbot.info("텔레그램 봇 프로세스를 시작합니다.")
@@ -118,6 +126,11 @@ async def lifespan(app: FastAPI):
     yield
 
     # ── shutdown ─────────────────────────────────────────────────────────────
+    try:
+        from core.crawler import direct_login
+        direct_login.stop_keepalive()
+    except Exception:
+        pass
     if bot_process:
         logger.LoggerFactory.logbot.info("텔레그램 봇 프로세스를 종료합니다.")
         bot_process.terminate()

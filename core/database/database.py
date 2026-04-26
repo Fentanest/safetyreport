@@ -455,28 +455,32 @@ def clear_old_attachments(engine):
         conn.commit()
 
 def load_results(engine, conn=None):
+    """전체 카테고리 합본 (레거시 호환). 새 코드는 load_results_by_category 사용 권장."""
+    cats = load_results_by_category(engine)
+    parts = [df for df in cats.values() if not df.empty]
+    return pd.concat(parts) if parts else pd.DataFrame()
+
+
+def load_results_by_category(engine):
+    """카테고리별 분리 결과. 엑셀/구글시트 시트별 저장용.
+    반환: {"교통위반": df_t, "주정차위반": df_p, "기타위반": df_o}"""
     with engine.connect() as conn:
-        query_t = select(merge_traffic_table)
-        query_p = select(merge_parking_table)
-        query_o = select(merge_other_table)
-        df_t = pd.DataFrame(pd.read_sql_query(query_t, conn))
-        df_p = pd.DataFrame(pd.read_sql_query(query_p, conn))
-        df_o = pd.DataFrame(pd.read_sql_query(query_o, conn))
-        df = pd.concat([df_t, df_p, df_o]) if not (df_t.empty and df_p.empty and df_o.empty) else pd.DataFrame()
-        
-        if not df.empty:
-            # 엑셀/구글 시트 내보내기 시에도 감시목록 '★' 여부를 정확히 렌더링하기 위한 조인 복구
-            df_watch = pd.read_sql_query(select(watchlist_table.c.신고번호), conn)
-            watch_ids = set(df_watch['신고번호'].tolist())
-            df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
-            
-            if settings.exclude_withdraw:
-                df = df[df['처리상태'] != '취하']
-            
-            if settings.normalize_police and '처리기관' in df.columns:
-                df['처리기관'] = df['처리기관'].apply(_normalize_police_agency)
-            
-        return df
+        df_watch = pd.read_sql_query(select(watchlist_table.c.신고번호), conn)
+        watch_ids = set(df_watch['신고번호'].tolist())
+
+        result = {}
+        for label, t in [("교통위반", merge_traffic_table),
+                         ("주정차위반", merge_parking_table),
+                         ("기타위반", merge_other_table)]:
+            df = pd.DataFrame(pd.read_sql_query(select(t), conn))
+            if not df.empty:
+                df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
+                if settings.exclude_withdraw:
+                    df = df[df['처리상태'] != '취하']
+                if settings.normalize_police and '처리기관' in df.columns:
+                    df['처리기관'] = df['처리기관'].apply(_normalize_police_agency)
+            result[label] = df
+        return result
 
 def get_merged_records_by_ids(engine, id_list):
     if not id_list:

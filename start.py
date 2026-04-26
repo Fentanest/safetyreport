@@ -213,16 +213,23 @@ def _process_and_save_results(engine, changed_item_ids):
     # get_merged_records_by_ids에 전달할 순수 ID 목록
     all_ids = [item["id"] for item in changed_item_ids]
 
-    # 1. 데이터 저장 (Excel, Google Sheet) - 중요도가 높으므로 먼저 수행
+    # 1. 데이터 저장 (Excel, Google Sheet) - 카테고리별 시트로 분리 저장
     if settings.auto_export_excel or settings.auto_export_sheet:
-        df = database.load_results(engine=engine)
-        if not df.empty:
+        category_dfs = database.load_results_by_category(engine=engine)
+        if any(not df.empty for df in category_dfs.values()):
             from core.utils.export import _process_dataframe, save_to_excel, save_to_google_sheet
-            processed_df, photo_cols = _process_dataframe(df)
+            excel_data = {}
+            sheet_data = {}
+            for label, df in category_dfs.items():
+                if df.empty:
+                    continue
+                processed_df, photo_cols = _process_dataframe(df)
+                excel_data[label] = processed_df
+                sheet_data[label] = (processed_df, photo_cols)
             if settings.auto_export_excel:
-                save_to_excel(processed_df)
+                save_to_excel(excel_data)
             if settings.auto_export_sheet:
-                save_to_google_sheet(processed_df, photo_cols)
+                save_to_google_sheet(sheet_data, photo_cols=None)
 
     # 2. 텔레그램 최종 요약 알림 - 대량의 경우 지연이 발생할 수 있으므로 마지막에 처리
     if settings.telegram_enabled:
@@ -238,6 +245,37 @@ def _process_and_save_results(engine, changed_item_ids):
         else:
             notifier_path = resource_path("core/utils/notifier.py")
             subprocess.run([sys.executable, notifier_path], input=msg, text=True)
+
+def _inject_session_into_driver(driver):
+    """direct_login에서 발급받은 JSESSIONID/WMONID를 driver에 주입.
+
+    안전신문고 레거시 페이지는 JSESSIONID 쿠키 기반 인증.
+    OAuth 토큰 단독으로는 HTML 페이지 인증 안 됨 → 쿠키 주입이 핵심.
+    실패 시 selenium login으로 fallback (login.login_mysafety 호출 주석 해제 필요)."""
+    from core.crawler import direct_login
+    info = direct_login.get_valid_token()
+    try:
+        # 도메인 컨텍스트 진입 (쿠키 추가 전 필수)
+        driver.get("https://www.safetyreport.go.kr/")
+        cookies = []
+        if info.get("jsessionid"):
+            cookies.append({"name": "JSESSIONID", "value": info["jsessionid"], "path": "/"})
+        if info.get("wmonid"):
+            cookies.append({"name": "WMONID", "value": info["wmonid"], "path": "/"})
+        for c in cookies:
+            try:
+                driver.add_cookie(c)
+            except Exception as e:
+                logger.LoggerFactory.logbot.warning(f"쿠키 주입 실패 ({c['name']}): {e}")
+        # 쿠키 적용된 상태로 마이페이지 진입 → 로그인 효과
+        driver.get(settings.myreporturl)
+        time.sleep(2)
+        logger.LoggerFactory.logbot.info("driver에 직접 로그인 세션 주입 완료.")
+    except Exception as e:
+        logger.LoggerFactory.logbot.error(f"세션 주입 중 오류: {e}")
+        # 백업 경로: selenium UI 로그인
+        login.login_mysafety(driver=driver)
+
 
 def wait_for_resume_signal():
     logger.LoggerFactory.logbot.info("비회원 모드 대기 중... 브라우저에서 로그인 후 웹 UI의 '크롤링 재개'를 클릭하세요.")
@@ -257,19 +295,36 @@ def main():
 
     driver = None
     try:
-        driver = driv.create_driver()
-        driver.get(settings.loginurl)
-        
-        if args["nonmember"]:
-            wait_for_resume_signal()
+        # API 방식: 직접 로그인(curl_cffi + RSA + OAuth)으로 토큰 발급, Selenium 불필요
+        # 레거시 방식: 토큰 발급 후 driver 생성 → driver에 JSESSIONID 쿠키 주입으로 로그인된 상태 진입
+        from core.crawler import direct_login
+        try:
+            direct_login.get_valid_token()  # 캐시 토큰 사용 or 신규 로그인
+            logger.LoggerFactory.logbot.info("직접 로그인 토큰 확보 완료.")
+        except Exception as e:
+            logger.LoggerFactory.logbot.error(f"직접 로그인 실패: {e}")
+            raise
+
+        if settings.crawl_type != 'api':
+            # 레거시 방식: driver 필요
+            driver = driv.create_driver()
+            driver.get(settings.loginurl)
+
+            if args["nonmember"]:
+                wait_for_resume_signal()
+            else:
+                # 기존 selenium 기반 로그인 — direct_login으로 대체됨, 보존을 위해 주석 처리
+                # login.login_mysafety(driver=driver)
+                _inject_session_into_driver(driver)
+                if settings.telegram_enabled:
+                    if is_frozen:
+                        subprocess.run([sys.executable, "--mode", "notify"], input="안전신문고 로그인에 성공했습니다.", text=True)
+                    else:
+                        notifier_path = resource_path("core/utils/notifier.py")
+                        subprocess.run([sys.executable, notifier_path], input="안전신문고 로그인에 성공했습니다.", text=True)
         else:
-            login.login_mysafety(driver=driver)
-            if settings.telegram_enabled:
-                if is_frozen:
-                    subprocess.run([sys.executable, "--mode", "notify"], input="안전신문고 로그인에 성공했습니다.", text=True)
-                else:
-                    notifier_path = resource_path("core/utils/notifier.py")
-                    subprocess.run([sys.executable, notifier_path], input="안전신문고 로그인에 성공했습니다.", text=True)
+            # API 방식: driver 불필요
+            logger.LoggerFactory.logbot.info("[API 방식] Selenium driver 생성 생략.")
 
         changed_item_ids = _run_crawling_process(driver, engine, args)
     except Exception as e:
