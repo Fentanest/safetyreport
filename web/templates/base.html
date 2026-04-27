@@ -344,6 +344,12 @@ document.addEventListener('click', function(e) {
         // 필드 목록
         var occur = d['발생일자'] || '';
         if (occur && d['발생시각']) occur += '  ' + d['발생시각'];
+        var rating = d['별점'];
+        var ratingDisplay = '';
+        if (rating !== null && rating !== undefined && rating !== '') {
+            var ratingNum = parseInt(rating, 10);
+            ratingDisplay = isNaN(ratingNum) ? String(rating) : ('★ ' + ratingNum + '점');
+        }
 
         document.getElementById('rdFields').innerHTML =
             field('fas fa-tag',              '신고번호',    d['신고번호']) +
@@ -356,7 +362,9 @@ document.addEventListener('click', function(e) {
             field('fas fa-car',              '차량번호',    d['차량번호']) +
             field('fas fa-gavel',            '위반법규',    d['위반법규']) +
             field('fas fa-map-marker-alt',   '위반장소',    d['위반장소']) +
-            field('fas fa-calendar-day',     '발생일자',    occur);
+            field('fas fa-calendar-day',     '발생일자',    occur) +
+            field('fas fa-star',             '별점',        ratingDisplay) +
+            field('fas fa-comment-dots',     '별점사유',    d['별점사유']);
 
         // 신고내용
         var rc = document.getElementById('rdReportContent');

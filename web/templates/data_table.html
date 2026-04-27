@@ -199,6 +199,8 @@
                     <th style="width: 71.63px;">첨부사진</th>
                     <th style="width: 71.63px;">첨부파일</th>
                     <th style="width: 73.61px;">만족도</th>
+                    <th style="width: 58.89px;">별점</th>
+                    <th style="width: 182px;">별점사유</th>
                     <th style="width: 58.89px;">감시</th>
                 </tr>
             </thead>
@@ -320,6 +322,14 @@ $(document).ready(function() {
         { data: '첨부파일',
           render: (d, t) => renderAttach(d, t, '일괄확인', 'btn-outline-primary') },
         { data: '만족도조사여부' },
+        { data: '별점', className: 'text-center',
+          render: (d, t) => {
+              if (t !== 'display') return d || '';
+              if (d === null || d === undefined || d === '') return '';
+              return `<span class="text-warning">★</span> ${esc(d)}점`;
+          } },
+        { data: '별점사유',
+          render: (d, t) => t === 'display' ? renderEllipsis(d, t, 182) : (d || '') },
         { data: '감시목록' },
     ];
 
@@ -329,7 +339,7 @@ $(document).ready(function() {
         ...(isDuplicate ? ['valid_count'] : []),
         '위반법규', '범칙금_과태료', '벌점', '처리기관', '담당자', '답변일', '발생일자',
         '발생시각', '위반장소', '종결여부', '신고내용', '처리내용', '지도',
-        '첨부사진', '첨부파일', '만족도조사여부', '감시목록'
+        '첨부사진', '첨부파일', '만족도조사여부', '별점', '별점사유', '감시목록'
     ];
 
     var table = $('#{{ table_id }}').DataTable({
@@ -367,7 +377,9 @@ $(document).ready(function() {
             { targets: 21 + offset, width: '71.63px' },
             { targets: 22 + offset, width: '71.63px' },
             { targets: 23 + offset, width: '73.61px' },
-            { targets: 24 + offset, width: '58.89px' }
+            { targets: 24 + offset, width: '58.89px' },
+            { targets: 25 + offset, width: '182px' },
+            { targets: 26 + offset, width: '58.89px' }
         ],
         language: {
             url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json'

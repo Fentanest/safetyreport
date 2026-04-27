@@ -8,6 +8,8 @@ API 방식: /api/v1/portal/statistics/satisfactionstatistics/score/{spp}/{phone}
   - cause: 불만족 사유 텍스트 (없으면 빈 문자열)
 """
 
+import html as _html
+import re as _re
 from typing import Optional, Tuple
 import settings.settings as settings
 from core.utils import logger
@@ -17,6 +19,26 @@ _PAGE_URL = "https://www.safetyreport.go.kr/html/common/popup/comptSatisfaction.
 
 
 _SCORE_URL = "https://www.safetyreport.go.kr/api/v1/portal/statistics/satisfactionstatistics/score/{spp}/{phone}"
+
+
+def _extract_cause_from_page_html(html_text: str) -> str:
+    if not html_text:
+        return ""
+    patterns = [
+        r'id=["\']STSFDG_CAUSE["\'][^>]*>(.*?)</textarea>',
+        r'name=["\']STSFDG_CAUSE["\'][^>]*>(.*?)</textarea>',
+        r'id=["\']STSFDG_CAUSE["\'][^>]*value=["\'](.*?)["\']',
+    ]
+    for pattern in patterns:
+        m = _re.search(pattern, html_text, _re.IGNORECASE | _re.DOTALL)
+        if not m:
+            continue
+        raw = _html.unescape(m.group(1) or "")
+        raw = _re.sub(r"<[^>]+>", "", raw)
+        cause = raw.strip()
+        if cause:
+            return cause
+    return ""
 
 
 def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], str]:
@@ -46,6 +68,13 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], 
             score_raw = data["result"].get("STSFDG_SCORE", 0)
             score = int(score_raw) if score_raw else 0
             cause = (data["result"].get("STSFDG_CAUSE") or "").strip()
+            if score > 0 and not cause:
+                page_url = _PAGE_URL.format(spp=spp_no, phone=phone)
+                page_res = direct_login.request_with_retry(
+                    session_or_driver, "GET", page_url, timeout=10
+                )
+                if page_res.status_code == 200:
+                    cause = _extract_cause_from_page_html(page_res.text)
             return (score if score > 0 else None), cause
         except Exception as e:
             if logger.LoggerFactory.logbot:
@@ -68,6 +97,8 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], 
         score_raw = data["result"].get("STSFDG_SCORE", 0)
         score = int(score_raw) if score_raw else 0
         cause = (data["result"].get("STSFDG_CAUSE") or "").strip()
+        if score > 0 and not cause:
+            _, cause = fetch_score_via_selenium_page(session_or_driver, spp_no)
         return (score if score > 0 else None), cause
     except Exception as e:
         if logger.LoggerFactory.logbot:
@@ -99,7 +130,8 @@ def fetch_score_via_selenium_page(driver, spp_no: str, timeout: int = 8) -> Tupl
         score = int(value) if value and value.isdigit() else 0
         cause = ""
         try:
-            cause = driver.find_element(By.ID, "STSFDG_CAUSE").text.strip()
+            cause_elem = driver.find_element(By.ID, "STSFDG_CAUSE")
+            cause = (cause_elem.get_attribute("value") or cause_elem.text or "").strip()
         except Exception:
             pass
         return (score if score > 0 else None), cause
