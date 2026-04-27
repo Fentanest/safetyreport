@@ -86,20 +86,26 @@ def _login_once(username: str, password: str) -> dict:
     encrypted_pw = _rsa_encrypt_hex(modulus_hex, exponent_hex, password)
 
     # Step 3: 토큰 발급 (재시도 3회)
-    body = {
-        "client_id": "web",
-        "grant_type": "password",
-        "loginType": "1",
-        "username": username,
-        "password": encrypted_pw,
-    }
+    # 주의: curl_cffi가 dict를 form-urlencoded로 직렬화하는 방식이 안전신문고 서버와
+    # 호환되지 않아 401을 반환함. 모바일 Dart 코드처럼 직접 문자열로 만들어 보내야 함.
+    from urllib.parse import quote
+    body = (
+        "client_id=web"
+        "&grant_type=password"
+        "&loginType=1"
+        f"&username={quote(username, safe='')}"
+        f"&password={encrypted_pw}"
+    )
     last_err = None
     for attempt in range(3):
         try:
             res = session.post(
                 _TOKEN_URL,
                 data=body,
-                headers={"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"},
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "Content-Length": str(len(body)),
+                },
                 timeout=15,
             )
             break
