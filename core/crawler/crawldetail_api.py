@@ -17,11 +17,17 @@ _DETAIL_URL = "https://www.safetyreport.go.kr/api/v1/portal/mypage/mysafereport"
 
 def _fetch_detail(session, c_no):
     url = f"{_DETAIL_URL}/{c_no}"
-    r = session.get(url, timeout=20)
+    try:
+        r = direct_login.request_with_retry(session, "GET", url, timeout=20)
+    except Exception as e:
+        return {"error": f"network: {e}"}
     if r.status_code == 401:
         direct_login.get_valid_token(force_refresh=True)
         new_session, _ = direct_login.make_authorized_session()
-        r = new_session.get(url, timeout=20)
+        try:
+            r = direct_login.request_with_retry(new_session, "GET", url, timeout=20)
+        except Exception as e:
+            return {"error": f"network after relogin: {e}"}
     if r.status_code != 200:
         return {"error": f"HTTP {r.status_code}"}
     try:

@@ -18,7 +18,8 @@ _LIST_URL = "https://www.safetyreport.go.kr/api/v1/portal/mypage/mysafereport"
 
 
 def _fetch_api_page(session, start_row, end_row):
-    """API 직접 호출. session은 direct_login.make_authorized_session()의 결과."""
+    """API 직접 호출. session은 direct_login.make_authorized_session()의 결과.
+    errno=104 등 일시 오류는 direct_login.request_with_retry가 silent 3회 재시도."""
     params = {
         "startRowNum": start_row,
         "endRowNum": end_row,
@@ -29,12 +30,22 @@ def _fetch_api_page(session, start_row, end_row):
         "C_RELATION2": 1,
         "searchKeyWord": "",
     }
-    r = session.get(_LIST_URL, params=params, timeout=20)
+    try:
+        r = direct_login.request_with_retry(
+            session, "GET", _LIST_URL, params=params, timeout=20
+        )
+    except Exception as e:
+        return {"error": f"network: {e}", "result": []}
     if r.status_code == 401:
         # 토큰 만료 → 강제 갱신 후 1회 재시도
         direct_login.get_valid_token(force_refresh=True)
         new_session, _ = direct_login.make_authorized_session()
-        r = new_session.get(_LIST_URL, params=params, timeout=20)
+        try:
+            r = direct_login.request_with_retry(
+                new_session, "GET", _LIST_URL, params=params, timeout=20
+            )
+        except Exception as e:
+            return {"error": f"network after relogin: {e}", "result": []}
     if r.status_code != 200:
         return {"error": f"HTTP {r.status_code}", "result": []}
     return r.json()

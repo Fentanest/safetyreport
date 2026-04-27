@@ -204,6 +204,46 @@ def make_authorized_session():
     return s, info
 
 
+def request_with_retry(session, method, url, *,
+                       max_attempts=None, base_backoff=1.0, **kwargs):
+    """curl_cffi 일시 네트워크 오류(errno=104, timeout 등) silent 재시도 헬퍼.
+
+    catch 대상: SSLError(connection reset 포함), ConnectionError, Timeout,
+    DNSError, IncompleteRead, ChunkedEncodingError, RequestException.
+    4xx/5xx 응답은 재시도 무의미 → 그대로 반환 (호출자가 status_code 처리).
+
+    max_attempts: None이면 settings.max_retry_attemps 사용 (앱 설정 페이지 값).
+    backoff: attempt * base_backoff 초 sleep. 최종 실패 시 마지막 예외 그대로 raise.
+    """
+    from curl_cffi.requests import exceptions as cce
+    if max_attempts is None:
+        try:
+            max_attempts = max(1, int(settings.max_retry_attemps))
+        except Exception:
+            max_attempts = 3
+    last_err = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return session.request(method, url, **kwargs)
+        except (cce.SSLError, cce.ConnectionError, cce.Timeout,
+                cce.DNSError, cce.IncompleteRead, cce.ChunkedEncodingError,
+                cce.RequestException) as e:
+            last_err = e
+            if attempt < max_attempts:
+                if logger.LoggerFactory.logbot:
+                    logger.LoggerFactory.logbot.warning(
+                        f"[direct_login] {method} {url} 일시 오류 "
+                        f"({attempt}/{max_attempts}): {e}. {attempt * base_backoff}초 후 재시도"
+                    )
+                time.sleep(attempt * base_backoff)
+            else:
+                if logger.LoggerFactory.logbot:
+                    logger.LoggerFactory.logbot.error(
+                        f"[direct_login] {method} {url} {max_attempts}회 재시도 실패: {e}"
+                    )
+    raise last_err
+
+
 # ── 백그라운드 keep-alive ─────────────────────────────────────────
 
 _keepalive_thread: Optional[threading.Thread] = None

@@ -33,8 +33,11 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], 
     # curl_cffi 세션 모드 — get 메서드 보유 + execute_async_script 미보유로 식별
     if hasattr(session_or_driver, "get") and not hasattr(session_or_driver, "execute_async_script"):
         try:
+            from core.crawler import direct_login
             url = _SCORE_URL.format(spp=spp_no, phone=phone)
-            r = session_or_driver.get(url, timeout=10)
+            r = direct_login.request_with_retry(
+                session_or_driver, "GET", url, timeout=10
+            )
             if r.status_code != 200:
                 return None, ""
             data = r.json()
