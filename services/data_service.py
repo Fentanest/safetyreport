@@ -64,37 +64,55 @@ def get_dashboard_stats(engine):
         mtime = os.path.getmtime(log_file)
         last_crawl_time = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
 
+    today = datetime.now().date()
+    three_days_ago = today - timedelta(days=3)
+
+    def _text_series(df, column):
+        if column not in df.columns:
+            return pd.Series([''] * len(df), index=df.index, dtype='object')
+        return df[column].fillna('').astype(str)
+
+    def _status_series(df):
+        return _text_series(df, '처리상태')
+
+    def _response_dates(df):
+        if '답변일' not in df.columns:
+            return pd.Series(pd.NaT, index=df.index)
+        return pd.to_datetime(df['답변일'], errors='coerce').dt.date
+
     with engine.connect() as conn:
         for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
-            try:
-                df = pd.read_sql_query(select(t), conn)
-            except OperationalError:
-                continue
+            df = _safe_read(conn, t)
             if not df.empty:
+                status_series = _status_series(df)
                 total += len(df)
-                accept_count += len(df[df['처리상태'] == '수용'])
-                reject_count += len(df[df['처리상태'].isin(['불수용', '기타'])])
-                partial_count += len(df[df['처리상태'] == '일부수용'])
-                processing_count += len(df[df['처리상태'].isin(['처리중', '진행', '진행중'])])
-                completed_count += len(df[df['처리상태'].isin(['수용', '불수용', '일부수용', '기타', '답변완료'])])
-                withdraw_count += len(df[df['처리상태'] == '취하'])
+                accept_count += int((status_series == '수용').sum())
+                reject_count += int(status_series.isin(['불수용', '기타']).sum())
+                partial_count += int((status_series == '일부수용').sum())
+                processing_count += int(status_series.isin(['처리중', '진행', '진행중']).sum())
+                completed_count += int(status_series.isin(['수용', '불수용', '일부수용', '기타', '답변완료']).sum())
+                withdraw_count += int((status_series == '취하').sum())
                 if t == database.merge_traffic_table:
-                    t_fine_count += len(df[df['범칙금_과태료'].str.contains('과태료', na=False)])
-                    t_penalty_count += len(df[df['범칙금_과태료'].str.contains('경고|범칙금', na=False)])
-                    t_reject_count += len(df[df['처리상태'].isin(['불수용', '기타'])])
-                    t_unconfirmed_count += len(df[(df['범칙금_과태료'] == '미확인') & (~df['처리상태'].isin(['불수용', '기타']))])
-                
-                # Recent answers (3 days)
-                three_days_ago = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
-                recent_df = df[(df['답변일'] >= three_days_ago) & (df['답변일'] <= datetime.now().strftime("%Y-%m-%d"))]
+                    fine_series = _text_series(df, '범칙금_과태료')
+                    t_fine_count += int(fine_series.str.contains('과태료', na=False).sum())
+                    t_penalty_count += int(fine_series.str.contains('경고|범칙금', na=False).sum())
+                    t_reject_count += int(status_series.isin(['불수용', '기타']).sum())
+                    t_unconfirmed_count += int(((fine_series == '미확인') & (~status_series.isin(['불수용', '기타']))).sum())
+
+                response_dates = _response_dates(df)
+                recent_mask = response_dates.notna() & (response_dates >= three_days_ago) & (response_dates <= today)
+                recent_df = df[recent_mask]
                 if app_settings.exclude_withdraw:
-                    recent_df = recent_df[recent_df['처리상태'] != '취하']
+                    recent_df = recent_df[_status_series(recent_df) != '취하']
                 for _, row in recent_df.iterrows():
                     recent_answers.append(_row_to_dict(row))
 
         # Watchlist
-        df_watch = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
-        watch_ids = df_watch['신고번호'].tolist()
+        try:
+            df_watch = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
+        except OperationalError:
+            df_watch = pd.DataFrame()
+        watch_ids = df_watch['신고번호'].tolist() if '신고번호' in df_watch.columns else []
 
         if watch_ids:
             for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
