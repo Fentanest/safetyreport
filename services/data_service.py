@@ -199,6 +199,23 @@ def _get_records_from_table(engine, table_obj, filters=None):
                 else:
                     df = df[df['위반법규'].str.contains(law, na=False, regex=False)]
 
+            rating = filters.get('rating')
+            if rating and '별점' in df.columns:
+                if rating == '__none__':
+                    rating_series = pd.to_numeric(df['별점'], errors='coerce')
+                    df = df[rating_series.isna() | (rating_series <= 0)]
+                else:
+                    wanted = pd.to_numeric(pd.Series([rating]), errors='coerce').iloc[0]
+                    if pd.isna(wanted):
+                        df = df.iloc[0:0]
+                    else:
+                        rating_series = pd.to_numeric(df['별점'], errors='coerce')
+                        df = df[rating_series == wanted]
+
+            rating_cause = filters.get('ratingCause')
+            if rating_cause and '별점사유' in df.columns:
+                df = df[df['별점사유'].fillna('').astype(str).str.contains(rating_cause, na=False, regex=False)]
+
         if not df.empty:
             df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
             df = df.fillna('')

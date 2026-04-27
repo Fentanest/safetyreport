@@ -103,6 +103,22 @@
                 <input type="text" class="form-control" id="searchFine">
             </div>
             <div class="col-12">
+                <label class="form-label fw-bold">별점</label>
+                <select class="form-select" id="searchRating">
+                    <option value="">전체</option>
+                    <option value="__none__">없음</option>
+                    <option value="1">1점</option>
+                    <option value="2">2점</option>
+                    <option value="3">3점</option>
+                    <option value="4">4점</option>
+                    <option value="5">5점</option>
+                </select>
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold">별점사유</label>
+                <input type="text" class="form-control" id="searchRatingCause">
+            </div>
+            <div class="col-12">
                 <label class="form-label fw-bold">신고내용</label>
                 <input type="text" class="form-control" id="searchReportContent">
             </div>
@@ -559,6 +575,13 @@ $(document).ready(function() {
         table.column(16 + offset).search(orSearch($('#searchLocation').val()), true, false); // 위반장소
         table.column(6).search(exactOrSearch($('#searchStatus').val()), true, false); // 처리상태 (정확히 일치)
         table.column(9 + offset).search(orSearch($('#searchFine').val()), true, false); // 과태료
+        var ratingVal = $('#searchRating').val();
+        if (ratingVal === '__none__') {
+            table.column(24 + offset).search('^$', true, false);
+        } else {
+            table.column(24 + offset).search(exactOrSearch(ratingVal), true, false);
+        }
+        table.column(25 + offset).search(orSearch($('#searchRatingCause').val()), true, false); // 별점사유
         table.column(18 + offset).search(orSearch($('#searchReportContent').val()), true, false); // 신고내용
         table.column(19 + offset).search(orSearch($('#searchProcessContent').val()), true, false); // 처리내용
         table.draw();

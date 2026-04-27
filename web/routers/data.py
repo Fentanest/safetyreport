@@ -13,7 +13,7 @@ engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_sam
 router = APIRouter(prefix="/data")
 
 
-def _build_filters(status=None, fine=None, agency=None, person=None, agencyExact=False, law=None):
+def _build_filters(status=None, fine=None, agency=None, person=None, agencyExact=False, law=None, rating=None, ratingCause=None):
     f = {}
     if status: f['status'] = status
     if fine: f['fine'] = fine
@@ -21,16 +21,21 @@ def _build_filters(status=None, fine=None, agency=None, person=None, agencyExact
     if person: f['person'] = person
     if agencyExact: f['agencyExact'] = True
     if law: f['law'] = law
+    if rating: f['rating'] = rating
+    if ratingCause: f['ratingCause'] = ratingCause
     return f or None
 
 
-def _filter_title(base, status=None, fine=None, agency=None, person=None, law=None):
+def _filter_title(base, status=None, fine=None, agency=None, person=None, law=None, rating=None, ratingCause=None):
     parts = [base]
     if agency: parts.append(f'기관: {agency}')
     if person: parts.append(f'담당자: {person}')
     if status: parts.append(f'상태: {status}')
     if fine: parts.append(f'과태료: {fine}')
     if law: parts.append(f'위반법규: {law}')
+    if rating:
+        parts.append('별점: 없음' if rating == '__none__' else f'별점: {rating}점')
+    if ratingCause: parts.append(f'별점사유: {ratingCause}')
     return ' / '.join(parts)
 
 
@@ -43,10 +48,12 @@ async def view_traffic(
     person: Optional[str] = Query(None),
     agencyExact: bool = Query(False),
     law: Optional[str] = Query(None),
+    rating: Optional[str] = Query(None),
+    ratingCause: Optional[str] = Query(None),
 ):
-    filters = _build_filters(status, fine, agency, person, agencyExact, law)
+    filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
     records = data_service.get_traffic_records(engine, filters)
-    title = _filter_title("교통위반 전체 보기", status, fine, agency, person, law)
+    title = _filter_title("교통위반 전체 보기", status, fine, agency, person, law, rating, ratingCause)
     return templates.TemplateResponse(request, "data_table.html", {
         "title": title,
         "records": records, "table_id": "trafficTable",
@@ -63,10 +70,12 @@ async def view_parking(
     person: Optional[str] = Query(None),
     agencyExact: bool = Query(False),
     law: Optional[str] = Query(None),
+    rating: Optional[str] = Query(None),
+    ratingCause: Optional[str] = Query(None),
 ):
-    filters = _build_filters(status, fine, agency, person, agencyExact, law)
+    filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
     records = data_service.get_parking_records(engine, filters)
-    title = _filter_title("주정차위반 내역", status, fine, agency, person, law)
+    title = _filter_title("주정차위반 내역", status, fine, agency, person, law, rating, ratingCause)
     return templates.TemplateResponse(request, "data_table.html", {
         "title": title,
         "records": records, "table_id": "parkingTable",
@@ -83,10 +92,12 @@ async def view_other(
     person: Optional[str] = Query(None),
     agencyExact: bool = Query(False),
     law: Optional[str] = Query(None),
+    rating: Optional[str] = Query(None),
+    ratingCause: Optional[str] = Query(None),
 ):
-    filters = _build_filters(status, fine, agency, person, agencyExact, law)
+    filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
     records = data_service.get_other_records(engine, filters)
-    title = _filter_title("기타 위반 조회", status, fine, agency, person, law)
+    title = _filter_title("기타 위반 조회", status, fine, agency, person, law, rating, ratingCause)
     return templates.TemplateResponse(request, "data_table.html", {
         "title": title,
         "records": records, "table_id": "otherTable",
@@ -101,10 +112,12 @@ async def view_all(
     fine: Optional[str] = Query(None),
     agency: Optional[str] = Query(None),
     person: Optional[str] = Query(None),
+    rating: Optional[str] = Query(None),
+    ratingCause: Optional[str] = Query(None),
 ):
-    filters = _build_filters(status, fine, agency, person)
+    filters = _build_filters(status, fine, agency, person, False, None, rating, ratingCause)
     records = data_service.get_all_records(engine, filters)
-    title = _filter_title("전체 신고 조회", status, fine, agency, person)
+    title = _filter_title("전체 신고 조회", status, fine, agency, person, None, rating, ratingCause)
     return templates.TemplateResponse(request, "data_table.html", {
         "title": title,
         "records": records, "table_id": "allTable",
