@@ -89,14 +89,15 @@ def extract_ids_from_queue(engine, queuelist):
                 resolved_ids.append(item)
     return resolved_ids, missing_rnums
 
-def _run_crawling_process(driver, engine, args):
+def _run_crawling_process(driver, engine, args, crawl_type=None):
+    crawl_type = crawl_type or settings.crawl_type
     last_page = 0
     titlelist = []
     
     if args.get("queue_file"):
         logger.LoggerFactory.logbot.info("큐 지정 크롤링 모드입니다. 전체 목록 갱신을 건너뜁니다.")
     else:
-        if settings.crawl_type == 'api':
+        if crawl_type == 'api':
             logger.LoggerFactory.logbot.info("[API 방식]으로 신고 목록 크롤링 시작.")
             if args["page_range"]:
                 titlelist, last_page = crawltitle_api.crawl_titles(driver=driver, page_range=args["page_range"])
@@ -138,7 +139,7 @@ def _run_crawling_process(driver, engine, args):
                     break
                 logger.LoggerFactory.logbot.info(f"목록 탐색 중... 페이지 {page_num} (남은 미확인: {len(missing_rnums)}건)")
                 try:
-                    if settings.crawl_type == 'api':
+                    if crawl_type == 'api':
                         page_dfs, _ = crawltitle_api.crawl_titles(driver=driver, page_range=[page_num])
                     else:
                         page_dfs, _ = crawltitle.crawl_titles(driver=driver, page_range=[page_num])
@@ -178,7 +179,7 @@ def _run_crawling_process(driver, engine, args):
 
     logger.LoggerFactory.logbot.info(f"상세 크롤링 대상 ID: {len(detaillist)} 건 (순차 처리)")
     
-    if settings.crawl_type == 'api':
+    if crawl_type == 'api':
         logger.LoggerFactory.logbot.info("[API 방식] 상세 데이터 추출 시작")
         detail_datas = list(crawldetail_api.crawl_details(driver=driver, list=detaillist))
     else:
@@ -294,18 +295,25 @@ def main():
     _prepare_database(engine, reset=args["reset"])
 
     driver = None
+    effective_crawl_type = settings.crawl_type
     try:
         # API 방식: 직접 로그인(curl_cffi + RSA + OAuth)으로 토큰 발급, Selenium 불필요
         # 레거시 방식: 토큰 발급 후 driver 생성 → driver에 JSESSIONID 쿠키 주입으로 로그인된 상태 진입
         from core.crawler import direct_login
+        direct_login_ok = False
         try:
             direct_login.get_valid_token()  # 캐시 토큰 사용 or 신규 로그인
+            direct_login_ok = True
             logger.LoggerFactory.logbot.info("직접 로그인 토큰 확보 완료.")
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"직접 로그인 실패: {e}")
-            raise
+            logger.LoggerFactory.logbot.warning(
+                f"직접 로그인 최대 재시도({settings.max_retry_attemps}) 실패. "
+                "기존 Selenium 로그인 방식으로 fallback 합니다."
+            )
+            effective_crawl_type = 'legacy'
 
-        if settings.crawl_type != 'api':
+        if effective_crawl_type != 'api':
             # 레거시 방식: driver 필요
             driver = driv.create_driver()
             driver.get(settings.loginurl)
@@ -313,9 +321,10 @@ def main():
             if args["nonmember"]:
                 wait_for_resume_signal()
             else:
-                # 기존 selenium 기반 로그인 — direct_login으로 대체됨, 보존을 위해 주석 처리
-                # login.login_mysafety(driver=driver)
-                _inject_session_into_driver(driver)
+                if direct_login_ok:
+                    _inject_session_into_driver(driver)
+                else:
+                    login.login_mysafety(driver=driver)
                 if settings.telegram_enabled:
                     if is_frozen:
                         subprocess.run([sys.executable, "--mode", "notify"], input="안전신문고 로그인에 성공했습니다.", text=True)
@@ -326,7 +335,7 @@ def main():
             # API 방식: driver 불필요
             logger.LoggerFactory.logbot.info("[API 방식] Selenium driver 생성 생략.")
 
-        changed_item_ids = _run_crawling_process(driver, engine, args)
+        changed_item_ids = _run_crawling_process(driver, engine, args, crawl_type=effective_crawl_type)
     except Exception as e:
         logger.LoggerFactory.logbot.error(f"실행 중 치명적 오류 발생: {e}")
         changed_item_ids = []

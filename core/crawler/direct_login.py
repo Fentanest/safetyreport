@@ -43,6 +43,13 @@ _COMMON_HEADERS = {
 }
 
 
+def _configured_attempts(default: int = 3) -> int:
+    try:
+        return max(1, int(settings.max_retry_attemps))
+    except Exception:
+        return default
+
+
 def _rsa_encrypt_hex(modulus_hex: str, exponent_hex: str, plaintext: str) -> str:
     """PKCS#1 v1.5 RSA 암호화 → hex 문자열 (브라우저 JSEncrypt 호환)."""
     modulus = int(modulus_hex, 16)
@@ -63,9 +70,10 @@ def _login_once(username: str, password: str) -> dict:
     """단일 로그인 시도. 성공 시 {access_token, expires_at, jsessionid, wmonid}."""
     session = _make_session()
 
-    # Step 1: RSA 공개키 (재시도 3회)
+    # Step 1: RSA 공개키 (설정 페이지 최대 재시도 횟수 사용)
     last_err = None
-    for attempt in range(3):
+    max_attempts = _configured_attempts()
+    for attempt in range(max_attempts):
         try:
             res = session.get(_KEY_URL, timeout=15)
             res.raise_for_status()
@@ -74,7 +82,7 @@ def _login_once(username: str, password: str) -> dict:
             last_err = e
             time.sleep(attempt + 1)
     else:
-        raise RuntimeError(f"RSA 키 조회 실패: {last_err}")
+        raise RuntimeError(f"RSA 키 조회 실패 ({max_attempts}회 재시도): {last_err}")
 
     key_data = res.json()
     modulus_hex = key_data["RSAModulus"]
@@ -85,7 +93,7 @@ def _login_once(username: str, password: str) -> dict:
     # Step 2: 비밀번호 RSA 암호화
     encrypted_pw = _rsa_encrypt_hex(modulus_hex, exponent_hex, password)
 
-    # Step 3: 토큰 발급 (재시도 3회)
+    # Step 3: 토큰 발급 (설정 페이지 최대 재시도 횟수 사용)
     # 주의: curl_cffi가 dict를 form-urlencoded로 직렬화하는 방식이 안전신문고 서버와
     # 호환되지 않아 401을 반환함. 모바일 Dart 코드처럼 직접 문자열로 만들어 보내야 함.
     from urllib.parse import quote
@@ -97,7 +105,7 @@ def _login_once(username: str, password: str) -> dict:
         f"&password={encrypted_pw}"
     )
     last_err = None
-    for attempt in range(3):
+    for attempt in range(max_attempts):
         try:
             res = session.post(
                 _TOKEN_URL,
@@ -113,7 +121,7 @@ def _login_once(username: str, password: str) -> dict:
             last_err = e
             time.sleep(attempt + 1)
     else:
-        raise RuntimeError(f"토큰 요청 실패: {last_err}")
+        raise RuntimeError(f"토큰 요청 실패 ({max_attempts}회 재시도): {last_err}")
 
     if res.status_code in (400, 401):
         try:

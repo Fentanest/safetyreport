@@ -166,7 +166,7 @@
             {% macro agency_rows(records, base_url, law_filter='') %}
                 {% for r in records %}
                 <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&agencyExact=true{% if law_filter %}&law={{ law_filter }}{% endif %}'">
-                    <td style="font-size: 15px;">{{ r.agency }}</td>
+                    <td style="font-size: 14px;">{{ r.agency }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
                     <td data-order="{{ r.total_fine_amount }}" class="text-center text-success fw-bold small">{{ fine_amt(r.total_fine_amount) }}</td>
@@ -183,7 +183,7 @@
             {% macro person_rows(records, base_url, law_filter='') %}
                 {% for r in records %}
                 <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&person={{ r.person }}&agencyExact=true{% if law_filter %}&law={{ law_filter }}{% endif %}'">
-                    <td style="font-size: 15px;">{{ r.agency }}</td>
+                    <td style="font-size: 14px;">{{ r.agency }}</td>
                     <td class="text-center">{{ r.person }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
