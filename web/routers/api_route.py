@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File
+from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
 from sqlalchemy import create_engine
 import settings.settings as settings
@@ -416,7 +417,8 @@ async def list_files(path: str = "", _: str = Depends(_require_api_key)):
 @router.get("/files/download")
 async def download_file(path: str = "", _: str = Depends(_require_api_key_flex)):
     """서버 파일 다운로드 — logs / results 폴더의 파일만 허용. X-API-Key 헤더 또는 api_key 쿼리 파라미터 인증."""
-    from fastapi.responses import FileResponse
+    from starlette.background import BackgroundTask
+    import tempfile
 
     ALLOWED_ROOTS = {'logs', 'results'}
     base = _os.path.abspath(settings.datapath)
@@ -433,10 +435,30 @@ async def download_file(path: str = "", _: str = Depends(_require_api_key_flex))
     if _os.path.isdir(target):
         raise HTTPException(status_code=400, detail="디렉토리는 다운로드할 수 없습니다")
 
+    tmp_path = None
+    live_logs = {
+        _os.path.abspath(_os.path.join(settings.logpath, 'current_crawl.log')),
+        _os.path.abspath(_os.path.join(settings.logpath, 'current_rating.log')),
+    }
+    if _os.path.abspath(target) in live_logs:
+        fd, tmp_path = tempfile.mkstemp(
+            prefix="safetyreport_log_snapshot_",
+            suffix=_os.path.splitext(target)[1] or ".log",
+        )
+        _os.close(fd)
+        _sh.copy2(target, tmp_path)
+
+    def _cleanup_temp_file(snapshot_path: str):
+        try:
+            _os.remove(snapshot_path)
+        except Exception:
+            pass
+
     return FileResponse(
-        target,
+        tmp_path or target,
         filename=_os.path.basename(target),
-        media_type="application/octet-stream"
+        media_type="application/octet-stream",
+        background=BackgroundTask(_cleanup_temp_file, tmp_path) if tmp_path else None,
     )
 
 
