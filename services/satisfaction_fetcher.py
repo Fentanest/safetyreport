@@ -10,6 +10,7 @@ API 방식: /api/v1/portal/statistics/satisfactionstatistics/score/{spp}/{phone}
 
 import html as _html
 import re as _re
+import time
 from typing import Optional, Tuple
 import settings.settings as settings
 from core.utils import logger
@@ -90,20 +91,33 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], 
      .done(function(data) { callback(data); })
      .fail(function(jqXHR, textStatus, errorThrown) { callback({error: textStatus + ' ' + errorThrown}); });
     """
-    try:
-        data = session_or_driver.execute_async_script(script, spp_no, phone)
-        if not data or "error" in data or "result" not in data or not data["result"]:
+    last_error = None
+    for attempt in range(1, 4):
+        try:
+            data = session_or_driver.execute_async_script(script, spp_no, phone)
+            if not data or "error" in data or "result" not in data or not data["result"]:
+                last_error = data.get("error") if isinstance(data, dict) else "empty result"
+                if attempt < 3:
+                    time.sleep(1)
+                    continue
+                return None, ""
+            score_raw = data["result"].get("STSFDG_SCORE", 0)
+            score = int(score_raw) if score_raw else 0
+            cause = (data["result"].get("STSFDG_CAUSE") or "").strip()
+            if score > 0 and not cause:
+                _, cause = fetch_score_via_selenium_page(session_or_driver, spp_no)
+            return (score if score > 0 else None), cause
+        except Exception as e:
+            last_error = e
+            if attempt < 3:
+                time.sleep(1)
+                continue
+            if logger.LoggerFactory.logbot:
+                logger.LoggerFactory.logbot.debug(f"[satisfaction] API 조회 실패 {spp_no}: {e}")
             return None, ""
-        score_raw = data["result"].get("STSFDG_SCORE", 0)
-        score = int(score_raw) if score_raw else 0
-        cause = (data["result"].get("STSFDG_CAUSE") or "").strip()
-        if score > 0 and not cause:
-            _, cause = fetch_score_via_selenium_page(session_or_driver, spp_no)
-        return (score if score > 0 else None), cause
-    except Exception as e:
-        if logger.LoggerFactory.logbot:
-            logger.LoggerFactory.logbot.debug(f"[satisfaction] API 조회 실패 {spp_no}: {e}")
-        return None, ""
+    if logger.LoggerFactory.logbot and last_error:
+        logger.LoggerFactory.logbot.debug(f"[satisfaction] API 재시도 실패 {spp_no}: {last_error}")
+    return None, ""
 
 
 def fetch_score_via_selenium_page(driver, spp_no: str, timeout: int = 8) -> Tuple[Optional[int], str]:
@@ -120,24 +134,36 @@ def fetch_score_via_selenium_page(driver, spp_no: str, timeout: int = 8) -> Tupl
     if not phone or not spp_no:
         return None, ""
     url = _PAGE_URL.format(spp=spp_no, phone=phone)
-    try:
-        driver.get(url)
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='STSFDG_SCORE']:checked"))
-        )
-        elem = driver.find_element(By.CSS_SELECTOR, "input[name='STSFDG_SCORE']:checked")
-        value = elem.get_attribute("value")
-        score = int(value) if value and value.isdigit() else 0
-        cause = ""
+    last_error = None
+    for attempt in range(1, 4):
         try:
-            cause_elem = driver.find_element(By.ID, "STSFDG_CAUSE")
-            cause = (cause_elem.get_attribute("value") or cause_elem.text or "").strip()
-        except Exception:
-            pass
-        return (score if score > 0 else None), cause
-    except TimeoutException:
-        # 미참여 또는 본인이 아닌 신고건 → 어떤 라디오도 체크되지 않음
-        return None, ""
-    except Exception as e:
-        logger.LoggerFactory.logbot.debug(f"[satisfaction] Selenium 조회 실패 {spp_no}: {e}")
-        return None, ""
+            driver.get(url)
+            WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='STSFDG_SCORE']:checked"))
+            )
+            elem = driver.find_element(By.CSS_SELECTOR, "input[name='STSFDG_SCORE']:checked")
+            value = elem.get_attribute("value")
+            score = int(value) if value and value.isdigit() else 0
+            cause = ""
+            try:
+                cause_elem = driver.find_element(By.ID, "STSFDG_CAUSE")
+                cause = (cause_elem.get_attribute("value") or cause_elem.text or "").strip()
+            except Exception:
+                pass
+            return (score if score > 0 else None), cause
+        except TimeoutException as e:
+            last_error = e
+            if attempt < 3:
+                time.sleep(1)
+                continue
+            return None, ""
+        except Exception as e:
+            last_error = e
+            if attempt < 3:
+                time.sleep(1)
+                continue
+            logger.LoggerFactory.logbot.debug(f"[satisfaction] Selenium 조회 실패 {spp_no}: {e}")
+            return None, ""
+    if logger.LoggerFactory.logbot and last_error:
+        logger.LoggerFactory.logbot.debug(f"[satisfaction] Selenium 재시도 실패 {spp_no}: {last_error}")
+    return None, ""
