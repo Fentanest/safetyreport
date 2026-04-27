@@ -157,21 +157,18 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
 
     또한 mysafety / mysafetydetail_* 테이블도 reports 데이터에서 채워 넣음
     (서버는 title/detail/merge 3중 구조, merge만 채우면 다른 흐름이 깨질 수 있음).
+
+    주의:
+    - 모바일 DB에는 admin_users / api_keys 같은 서버 전용 테이블이 없으므로
+      현재 서버 DB 파일을 통째로 교체하면 관리자 계정과 API 키가 유실될 수 있다.
+    - 따라서 현재 구현은 "크롤링 데이터 테이블만 교체"하고, 모바일에 없는 서버 전용
+      테이블은 그대로 보존한다.
     """
     from sqlalchemy import create_engine
     from core.database import database, models
 
     backup = _backup_current_db()
-
-    # 임시 로컬 엔진으로 reset → reports 행을 분류해 다시 채워넣음
-    dst = settings.db_path
-    _remove_sidecar_files(dst)
-
-    # 새 빈 DB 생성 (스키마는 upgrade_schema로)
-    if os.path.exists(dst):
-        os.remove(dst)
-
-    engine = create_engine(f"sqlite:///{dst}")
+    engine = create_engine(f"sqlite:///{settings.db_path}")
     database.upgrade_schema(engine)
 
     # 모바일 DB에서 reports 읽기
@@ -230,12 +227,15 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
 
     # 감시목록(sync_meta('watchlist') CSV) → mysafety_watchlist
     watchlist_nums = []
+    watchlist_found = False
     try:
         wm = src_conn.execute(
             "SELECT value FROM sync_meta WHERE key = 'watchlist'"
         ).fetchone()
-        if wm and wm["value"]:
-            watchlist_nums = [s.strip() for s in wm["value"].split(",") if s.strip()]
+        if wm is not None:
+            watchlist_found = True
+            if wm["value"]:
+                watchlist_nums = [s.strip() for s in wm["value"].split(",") if s.strip()]
     except Exception:
         pass
 
@@ -252,6 +252,20 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
     # bulk INSERT (배치)
     BATCH = 200
     with engine.begin() as conn:
+        # 기존 크롤링 데이터만 교체한다.
+        # admin_users / api_keys 같은 서버 전용 테이블은 유지해야 한다.
+        conn.execute(models.merge_traffic_table.delete())
+        conn.execute(models.merge_parking_table.delete())
+        conn.execute(models.merge_other_table.delete())
+        conn.execute(models.detail_traffic_table.delete())
+        conn.execute(models.detail_parking_table.delete())
+        conn.execute(models.detail_other_table.delete())
+        conn.execute(models.title_table.delete())
+        if watchlist_found:
+            conn.execute(models.watchlist_table.delete())
+        if "entry_value" in src_cols:
+            conn.execute(models.entry_value_table.delete())
+
         # title
         for i in range(0, len(title_records), BATCH):
             chunk = title_records[i:i + BATCH]
@@ -270,14 +284,14 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
                 conn.execute(tbl.insert(), recs[i:i + BATCH])
 
         # watchlist
-        if watchlist_nums:
+        if watchlist_found and watchlist_nums:
             conn.execute(
                 models.watchlist_table.insert(),
                 [{"신고번호": n} for n in watchlist_nums],
             )
 
         # entry_value
-        if entry_value_records:
+        if "entry_value" in src_cols and entry_value_records:
             for i in range(0, len(entry_value_records), BATCH):
                 conn.execute(
                     models.entry_value_table.insert(),
