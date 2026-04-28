@@ -259,7 +259,14 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.get_version.outputs.tag }}
+        name: "나만의 안전신문고 v${{ steps.get_version.outputs.version }}"
+        body: |
+          **나만의 안전신문고** v${{ steps.get_version.outputs.version }} 자동 릴리즈
+          Commit: ${{ github.sha }}
         files: mysafetyreport-linux.zip
+        draft: false
+        prerelease: false
+        generate_release_notes: true
 
     # ── Docker 멀티아키텍처 이미지 빌드 (amd64 + arm64) ───────────
     - name: Set lowercase image name
