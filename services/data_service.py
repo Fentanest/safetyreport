@@ -28,6 +28,17 @@ _REPORT_FIELDS = ["ID", "신고번호", "신고명", "신고일", "답변일", "
                   "발생일자", "발생시각", "신고내용", "처리내용", "첨부사진", "첨부파일", "지도",
                   "만족도조사여부", "별점", "별점사유", "감시목록"]
 
+def _sanitize_jsonable(value):
+    if isinstance(value, dict):
+        return {k: _sanitize_jsonable(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_jsonable(v) for v in value]
+    if isinstance(value, tuple):
+        return [_sanitize_jsonable(v) for v in value]
+    if pd.isna(value):
+        return None
+    return value
+
 def _row_to_dict(row) -> dict:
     d = {}
     for f in _REPORT_FIELDS:
@@ -135,7 +146,7 @@ def get_dashboard_stats(engine):
     valid_total = (accept_count + partial_count + reject_count + processing_count) if app_settings.exclude_withdraw else total
     t_bar_total = t_fine_count + t_penalty_count + t_reject_count + t_unconfirmed_count
     
-    return {
+    return _sanitize_jsonable({
         "last_crawl_time": last_crawl_time,
         "total": total,
         "acceptCount": accept_count,
@@ -164,7 +175,7 @@ def get_dashboard_stats(engine):
         "recent_answers": recent_answers[:20],
         "watchlist": watchlist_items,
         "exclude_withdraw": app_settings.exclude_withdraw
-    }
+    })
 
 def _get_records_from_table(engine, table_obj, filters=None):
     try:
@@ -591,7 +602,7 @@ def get_agency_stats(engine, filters=None):
         police_person  = [r for r in all_person if '경찰' in r['agency']]
         other_agency   = [r for r in all_agency if '경찰' not in r['agency']]
         other_person   = [r for r in all_person if '경찰' not in r['agency']]
-        return {
+        return _sanitize_jsonable({
             "by_agency":         all_agency,
             "by_person":         all_person,
             "police_by_agency":  police_agency,
@@ -602,19 +613,19 @@ def get_agency_stats(engine, filters=None):
             "total_fine_amount": category_total_fine,
             "available_laws":    available_laws,
             "has_empty_law":     has_empty_law,
-        }
+        })
 
     res_t = calc_stats(df_t)
     res_p = calc_stats(df_p)
     res_o = calc_stats(df_o)
 
-    return {
+    return _sanitize_jsonable({
         "traffic": res_t,
         "parking": res_p,
         "other": res_o,
         "available_years": available_years,
         "traffic_total_fine": int(df_t['범칙금_과태료'].apply(_extract_fine_amount).sum()) if not df_t.empty else 0,
-    }
+    })
 
 def resolve_to_report_numbers(engine, mixed_list):
     final_rnums = set()
