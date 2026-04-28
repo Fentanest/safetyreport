@@ -8,149 +8,18 @@ on:
 
 jobs:
   # ────────────────────────────────────────────────────────────────
-  # 1. Windows 실행 파일 빌드 (Git-Windows 셀프호스트 러너)
+  # 0. 릴리즈 메타데이터 준비
   # ────────────────────────────────────────────────────────────────
-  build-windows:
-    runs-on: [self-hosted, Windows, X64, 233]
-    permissions:
-      contents: write
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-
-    - name: Read version from VERSION file
-      id: get_version
-      shell: powershell
-      run: |
-        $versionString = (Get-Content VERSION -Raw).Trim()
-        if (-not $versionString) {
-          Write-Error "VERSION 파일에서 버전을 읽을 수 없습니다."
-          exit 1
-        }
-        echo "version=$versionString" >> $env:GITHUB_OUTPUT
-        echo "tag=v$versionString" >> $env:GITHUB_OUTPUT
-        Write-Output "Detected version: $versionString, tag: v$versionString"
-
-    - name: Check if tag already exists
-      id: check_tag
-      shell: powershell
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        TAG: ${{ steps.get_version.outputs.tag }}
-      run: |
-        $url = "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$env:TAG"
-        try {
-          Invoke-RestMethod -Uri $url -Headers @{ "Authorization" = "Bearer $env:GITHUB_TOKEN" }
-          echo "tag_exists=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Output "Tag $env:TAG already exists. Skipping build."
-        } catch {
-          if ($_.Exception.Response.StatusCode -eq 404) {
-            echo "tag_exists=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-            Write-Output "Tag $env:TAG does not exist. Proceeding with build."
-          } else {
-            Write-Error "API call failed: $($_.Exception.Response.StatusCode)"
-            exit 1
-          }
-        }
-
-    - name: Clean previous build artifacts
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      shell: powershell
-      run: Remove-Item -Path "venv","build","dist" -Recurse -Force -ErrorAction SilentlyContinue
-
-    - name: Set up Python 3.14
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.14'
-
-    - name: Create virtual environment and install dependencies
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      shell: powershell
-      run: |
-        python -m venv venv
-        .\venv\Scripts\python.exe -m pip install --no-cache-dir --upgrade pip
-        .\venv\Scripts\pip.exe install --no-cache-dir -r requirements.txt
-        .\venv\Scripts\pip.exe install --no-cache-dir pyinstaller
-
-    - name: Setup UPX 5.1.1
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      id: setup_upx
-      shell: powershell
-      run: |
-        $version = "5.1.1"
-        $upxExtractDir = "${env:TEMP}\upx"
-        $upxDir = Join-Path $upxExtractDir "upx-${version}-win64"
-        $upxPath = Join-Path $upxDir "upx.exe"
-        $zipPath = "${env:TEMP}\upx-${version}-win64.zip"
-        $downloadUrl = "https://github.com/upx/upx/releases/download/v${version}/upx-${version}-win64.zip"
-
-        if (-not (Test-Path $upxPath)) {
-          if (Test-Path $upxExtractDir) { Remove-Item -Recurse -Force $upxExtractDir }
-          Write-Output "Downloading UPX $version from $downloadUrl"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath
-          Expand-Archive -Path $zipPath -DestinationPath $upxExtractDir -Force
-        }
-        if (-not (Test-Path $upxPath)) {
-          Write-Error "UPX executable not found at $upxPath."
-          exit 1
-        }
-        Write-Output "Found UPX at: $upxPath"
-        echo "upx_path=$upxPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
-    - name: Build Windows executable with PyInstaller
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      shell: powershell
-      run: .\venv\Scripts\python.exe scripts/build/build_exe.py
-
-    - name: Compress executable with UPX
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      shell: powershell
-      run: |
-        & "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/mysafetyreport/mysafetyreport.exe
-
-    - name: Package Windows into Zip
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      shell: powershell
-      run: Compress-Archive -Path ./dist/mysafetyreport/* -DestinationPath mysafetyreport-win.zip
-
-    - name: Upload Windows artifact
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: actions/upload-artifact@v7
-      with:
-        name: mysafetyreport-win-${{ steps.get_version.outputs.version }}
-        path: mysafetyreport-win.zip
-
-    - name: Create GitHub Release with Windows asset
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ steps.get_version.outputs.tag }}
-        name: "나만의 안전신문고 v${{ steps.get_version.outputs.version }}"
-        body: |
-          **나만의 안전신문고** v${{ steps.get_version.outputs.version }} 자동 릴리즈
-          Commit: ${{ github.sha }}
-        files: mysafetyreport-win.zip
-        draft: false
-        prerelease: false
-        generate_release_notes: true
-
-  # ────────────────────────────────────────────────────────────────
-  # 2. Linux 실행 파일 + Docker 멀티아키 이미지 빌드 (Git-Debian 셀프호스트 러너)
-  # ────────────────────────────────────────────────────────────────
-  build-linux-and-docker:
+  prepare-release:
     runs-on: [self-hosted, Linux, X64, 234]
     permissions:
       contents: write
-      packages: write
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+      tag: ${{ steps.get_version.outputs.tag }}
+      tag_exists: ${{ steps.check_tag.outputs.tag_exists }}
 
     steps:
-    - name: Fix workspace permissions
-      run: sudo chown -R $(id -u):$(id -g) . || true
-
     - name: Checkout repository
       uses: actions/checkout@v6
       with:
@@ -179,7 +48,7 @@ jobs:
           "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG")
         if [ "$HTTP_STATUS" -eq 200 ]; then
           echo "tag_exists=true" >> "$GITHUB_OUTPUT"
-          echo "Tag $TAG already exists. Skipping build."
+          echo "Tag $TAG already exists. Skipping release workflow."
         elif [ "$HTTP_STATUS" -eq 404 ]; then
           echo "tag_exists=false" >> "$GITHUB_OUTPUT"
           echo "Tag $TAG does not exist. Proceeding with build."
@@ -188,20 +57,113 @@ jobs:
           exit 1
         fi
 
+  # ────────────────────────────────────────────────────────────────
+  # 1. Windows 실행 파일 빌드 (Git-Windows 셀프호스트 러너)
+  # ────────────────────────────────────────────────────────────────
+  build-windows:
+    needs: prepare-release
+    if: needs.prepare-release.outputs.tag_exists == 'false'
+    runs-on: [self-hosted, Windows, X64, 233]
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Clean previous build artifacts
+      shell: powershell
+      run: Remove-Item -Path "venv","build","dist" -Recurse -Force -ErrorAction SilentlyContinue
+
+    - name: Set up Python 3.14
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.14'
+
+    - name: Create virtual environment and install dependencies
+      shell: powershell
+      run: |
+        python -m venv venv
+        .\venv\Scripts\python.exe -m pip install --no-cache-dir --upgrade pip
+        .\venv\Scripts\pip.exe install --no-cache-dir -r requirements.txt
+        .\venv\Scripts\pip.exe install --no-cache-dir pyinstaller
+
+    - name: Setup UPX 5.1.1
+      id: setup_upx
+      shell: powershell
+      run: |
+        $version = "5.1.1"
+        $upxExtractDir = "${env:TEMP}\upx"
+        $upxDir = Join-Path $upxExtractDir "upx-${version}-win64"
+        $upxPath = Join-Path $upxDir "upx.exe"
+        $zipPath = "${env:TEMP}\upx-${version}-win64.zip"
+        $downloadUrl = "https://github.com/upx/upx/releases/download/v${version}/upx-${version}-win64.zip"
+
+        if (-not (Test-Path $upxPath)) {
+          if (Test-Path $upxExtractDir) { Remove-Item -Recurse -Force $upxExtractDir }
+          Write-Output "Downloading UPX $version from $downloadUrl"
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath $upxExtractDir -Force
+        }
+        if (-not (Test-Path $upxPath)) {
+          Write-Error "UPX executable not found at $upxPath."
+          exit 1
+        }
+        Write-Output "Found UPX at: $upxPath"
+        echo "upx_path=$upxPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+    - name: Build Windows executable with PyInstaller
+      shell: powershell
+      run: .\venv\Scripts\python.exe scripts/build/build_exe.py
+
+    - name: Compress executable with UPX
+      shell: powershell
+      run: |
+        & "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/mysafetyreport/mysafetyreport.exe
+
+    - name: Package Windows into Zip
+      shell: powershell
+      run: Compress-Archive -Path ./dist/mysafetyreport/* -DestinationPath mysafetyreport-win.zip
+
+    - name: Upload Windows artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-win-${{ needs.prepare-release.outputs.version }}
+        path: mysafetyreport-win.zip
+
+  # ────────────────────────────────────────────────────────────────
+  # 2. Linux 실행 파일 + Docker 멀티아키 이미지 빌드 (Git-Debian 셀프호스트 러너)
+  # ────────────────────────────────────────────────────────────────
+  build-linux-and-docker:
+    needs: prepare-release
+    if: needs.prepare-release.outputs.tag_exists == 'false'
+    runs-on: [self-hosted, Linux, X64, 234]
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+    - name: Fix workspace permissions
+      run: sudo chown -R $(id -u):$(id -g) . || true
+
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
     # ── Linux 실행 파일 빌드 ──────────────────────────────────────
     - name: Clean previous build artifacts
-      if: steps.check_tag.outputs.tag_exists == 'false'
       run: rm -rf venv build dist
 
     - name: Set up Python 3.14 (local install)
-      if: steps.check_tag.outputs.tag_exists == 'false'
       run: |
         PYTHON=$(command -v python3.14 || command -v python3)
         $PYTHON --version
         echo "$(dirname $PYTHON)" >> $GITHUB_PATH
 
     - name: Create virtual environment and install dependencies
-      if: steps.check_tag.outputs.tag_exists == 'false'
       run: |
         python3.14 -m venv venv
         ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
@@ -209,7 +171,6 @@ jobs:
         ./venv/bin/pip install --no-cache-dir pyinstaller
 
     - name: Setup UPX 5.1.1
-      if: steps.check_tag.outputs.tag_exists == 'false'
       id: setup_upx
       run: |
         VERSION="5.1.1"
@@ -233,55 +194,34 @@ jobs:
         echo "upx_path=$UPX_PATH" >> "$GITHUB_OUTPUT"
 
     - name: Build Linux executable with PyInstaller
-      if: steps.check_tag.outputs.tag_exists == 'false'
       run: ./venv/bin/python scripts/build/build_exe.py
 
     - name: Compress Linux executable with UPX
-      if: steps.check_tag.outputs.tag_exists == 'false'
       run: |
         "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/mysafetyreport/mysafetyreport
 
     - name: Package Linux into Zip
-      if: steps.check_tag.outputs.tag_exists == 'false'
       run: |
         cd dist/mysafetyreport
         zip -r ../../mysafetyreport-linux.zip .
 
     - name: Upload Linux artifact
-      if: steps.check_tag.outputs.tag_exists == 'false'
       uses: actions/upload-artifact@v7
       with:
-        name: mysafetyreport-linux-${{ steps.get_version.outputs.version }}
+        name: mysafetyreport-linux-${{ needs.prepare-release.outputs.version }}
         path: mysafetyreport-linux.zip
-
-    - name: Update GitHub Release with Linux asset
-      if: steps.check_tag.outputs.tag_exists == 'false'
-      uses: softprops/action-gh-release@v2
-      with:
-        tag_name: ${{ steps.get_version.outputs.tag }}
-        name: "나만의 안전신문고 v${{ steps.get_version.outputs.version }}"
-        body: |
-          **나만의 안전신문고** v${{ steps.get_version.outputs.version }} 자동 릴리즈
-          Commit: ${{ github.sha }}
-        files: mysafetyreport-linux.zip
-        draft: false
-        prerelease: false
-        generate_release_notes: true
 
     # ── Docker 멀티아키텍처 이미지 빌드 (amd64 + arm64) ───────────
     - name: Set lowercase image name
-      if: steps.check_tag.outputs.tag_exists == 'false'
       run: echo "IMAGE_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
     - name: Set up Docker Buildx
-      if: steps.check_tag.outputs.tag_exists == 'false'
       uses: docker/setup-buildx-action@v4
       with:
         driver: docker-container
         use: true
 
     - name: Log in to GitHub Container Registry (GHCR)
-      if: steps.check_tag.outputs.tag_exists == 'false'
       uses: docker/login-action@v4
       with:
         registry: ghcr.io
@@ -289,28 +229,64 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Log in to Docker Hub
-      if: steps.check_tag.outputs.tag_exists == 'false'
       uses: docker/login-action@v4
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Build and push Docker image (amd64 + arm64)
-      if: steps.check_tag.outputs.tag_exists == 'false'
       uses: docker/build-push-action@v7
       with:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
         tags: |
-          ghcr.io/${{ env.IMAGE_REPO }}:${{ steps.get_version.outputs.version }}
+          ghcr.io/${{ env.IMAGE_REPO }}:${{ needs.prepare-release.outputs.version }}
           ghcr.io/${{ env.IMAGE_REPO }}:latest
-          fentanest/safetyreport:${{ steps.get_version.outputs.version }}
+          fentanest/safetyreport:${{ needs.prepare-release.outputs.version }}
           fentanest/safetyreport:latest
         labels: |
           org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          org.opencontainers.image.version=${{ steps.get_version.outputs.version }}
+          org.opencontainers.image.version=${{ needs.prepare-release.outputs.version }}
           org.opencontainers.image.revision=${{ github.sha }}
+
+  # ────────────────────────────────────────────────────────────────
+  # 3. 공통 릴리즈 생성
+  # ────────────────────────────────────────────────────────────────
+  create-release:
+    needs: [prepare-release, build-windows, build-linux-and-docker]
+    if: needs.prepare-release.outputs.tag_exists == 'false'
+    runs-on: [self-hosted, Linux, X64, 234]
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download Windows artifact
+      uses: actions/download-artifact@v5
+      with:
+        name: mysafetyreport-win-${{ needs.prepare-release.outputs.version }}
+        path: release-assets/windows
+
+    - name: Download Linux artifact
+      uses: actions/download-artifact@v5
+      with:
+        name: mysafetyreport-linux-${{ needs.prepare-release.outputs.version }}
+        path: release-assets/linux
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.prepare-release.outputs.tag }}
+        name: "나만의 안전신문고 v${{ needs.prepare-release.outputs.version }}"
+        body: |
+          **나만의 안전신문고** v${{ needs.prepare-release.outputs.version }} 자동 릴리즈
+          Commit: ${{ github.sha }}
+        files: |
+          release-assets/windows/mysafetyreport-win.zip
+          release-assets/linux/mysafetyreport-linux.zip
+        draft: false
+        prerelease: false
+        generate_release_notes: true
 
   # # ────────────────────────────────────────────────────────────────
   # # 3. Linux ARM64 실행 파일 빌드 (Docker 크로스컴파일, 234 러너)
