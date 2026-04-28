@@ -29,7 +29,12 @@ _REPORT_FIELDS = ["ID", "신고번호", "신고명", "신고일", "답변일", "
                   "만족도조사여부", "별점", "별점사유", "감시목록"]
 
 def _row_to_dict(row) -> dict:
-    d = {f: row.get(f, '') for f in _REPORT_FIELDS}
+    d = {}
+    for f in _REPORT_FIELDS:
+        value = row.get(f, '')
+        if pd.isna(value):
+            value = ''
+        d[f] = value
     d["ID"] = str(d["ID"])
     d["결과"] = d["처리상태"]
     return d
