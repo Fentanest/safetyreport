@@ -1,7 +1,16 @@
 # 나만의 안전신문고 (MySafetyReport Manager)
 
+<p align="center">
+  <img src="./mysafetyreport.png" alt="나만의 안전신문고 로고" width="120">
+</p>
+
 > 안전신문고에 신고한 내역을 자동으로 수집하고, 강력한 검색·통계·알림 기능을 제공하는 개인용 통합 관리 시스템입니다.
 > 웹 대시보드, Android 앱, Chrome 확장 프로그램을 함께 사용할 수 있습니다.
+
+<p align="center">
+  <img src="./mysafetyreport.webp" alt="나만의 안전신문고 화면 미리보기" width="960">
+</p>
+
 
 [![GitHub Release](https://img.shields.io/github/v/release/Fentanest/safetyreport)](https://github.com/Fentanest/safetyreport/releases)
 [![GitHub Container Registry](https://img.shields.io/badge/Docker-ghcr.io-blue)](https://github.com/Fentanest/safetyreport/pkgs/container/safetyreport)
