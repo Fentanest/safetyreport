@@ -4,13 +4,22 @@ import os
 import shutil
 import platform
 
+
+def _resolve_icon_option() -> list[str]:
+    if sys.platform == "darwin":
+        icns_path = "mysafetyreport.icns"
+        if os.path.exists(icns_path):
+            return [f"--icon={icns_path}"]
+        return []
+    return ["--icon=mysafetyreport.ico"]
+
+
 def build():
     sep = ';' if sys.platform == 'win32' else ':'
 
     options = [
         'main.py',
         '--name=mysafetyreport',
-        '--icon=mysafetyreport.ico',
         '--clean',
         '--noconfirm',
         # Add Jinja2 templates, Static files, and VERSION
@@ -51,10 +60,10 @@ def build():
         '--exclude-module=antigravity',
         # Show console for server logs
         # '--windowed'
-    ]
+    ] + _resolve_icon_option()
 
-    # readline은 Linux에서만 제외 (Windows는 기본 없음)
-    if sys.platform != 'win32':
+    # readline은 Linux 번들에서만 제외
+    if sys.platform.startswith('linux'):
         options.append('--exclude-module=readline')
 
     PyInstaller.__main__.run(options)
@@ -62,8 +71,9 @@ def build():
     # 현재 플랫폼에 불필요한 selenium-manager 바이너리 제거
     _remove_cross_platform_selenium_manager()
 
-    # Linux: 터미널 창을 열어주는 런처 스크립트 생성
-    if sys.platform != "win32":
+    if sys.platform == "darwin":
+        _create_macos_launcher()
+    elif sys.platform.startswith("linux"):
         _create_linux_launcher()
 
 
@@ -102,9 +112,6 @@ def _remove_cross_platform_selenium_manager():
 
 
 def _create_linux_launcher():
-    import os
-    import stat
-
     run_sh = os.path.join("dist", "mysafetyreport", "run.sh")
     content = r"""#!/bin/bash
 # 터미널 창에서 실행 중이면 바로 시작, 아니면 터미널 에뮬레이터를 열어서 실행
@@ -134,10 +141,39 @@ done
 # 터미널 에뮬레이터를 찾지 못한 경우 그냥 실행
 exec "$EXE" "$@"
 """
-    with open(run_sh, 'w', encoding='utf-8', newline='\n') as f:
-        f.write(content)
-    os.chmod(run_sh, os.stat(run_sh).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    _write_launcher(run_sh, content)
     print(f"[build] Linux 런처 스크립트 생성: {run_sh}")
+
+
+def _create_macos_launcher():
+    run_command = os.path.join("dist", "mysafetyreport", "run.command")
+    content = r"""#!/bin/bash
+DIR="$(cd "$(dirname "$0")" && pwd)"
+EXE="$DIR/mysafetyreport"
+
+cd "$DIR" || exit 1
+
+if [ ! -x "$EXE" ]; then
+    chmod +x "$EXE"
+fi
+
+"$EXE" "$@"
+STATUS=$?
+
+echo
+read -r -p "종료되었습니다. Enter를 눌러 창을 닫으세요..." _
+exit "$STATUS"
+"""
+    _write_launcher(run_command, content)
+    print(f"[build] macOS 런처 스크립트 생성: {run_command}")
+
+
+def _write_launcher(path: str, content: str):
+    import stat
+
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(content)
+    os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 if __name__ == "__main__":

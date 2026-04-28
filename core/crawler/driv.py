@@ -13,8 +13,21 @@ import shutil
 import sys
 
 
+def _is_linux() -> bool:
+    return sys.platform.startswith('linux')
+
+
+def _is_macos() -> bool:
+    return sys.platform == 'darwin'
+
+
+def _is_arm64_machine() -> bool:
+    machine = platform.machine().lower()
+    return 'aarch64' in machine or 'arm64' in machine
+
+
 def _arm64_service():
-    """ARM64(Raspberry Pi 등)에서 시스템 chromium-driver 경로를 반환."""
+    """Linux ARM64(Raspberry Pi 등)에서 시스템 chromium-driver 경로를 반환."""
     candidates = [
         '/usr/bin/chromedriver',
         '/usr/lib/chromium/chromedriver',
@@ -31,8 +44,7 @@ def _arm64_service():
 
 
 def _get_service():
-    machine = platform.machine().lower()
-    if ('aarch64' in machine or 'arm64' in machine) and os.name != 'nt':
+    if _is_linux() and _is_arm64_machine():
         svc = _arm64_service()
         if svc:
             return svc
@@ -45,10 +57,39 @@ def _get_clean_env():
     # PyInstaller로 패키징된 환경에서 실행 중인 경우
     if getattr(sys, 'frozen', False):
         # 시스템 브라우저가 앱 번들의 라이브러리 대신 시스템 라이브러리를 찾도록 유도
-        for var in ['LD_LIBRARY_PATH', 'LIBPATH', 'SHLIB_PATH', 'PYTHONPATH']:
+        for var in [
+            'LD_LIBRARY_PATH',
+            'DYLD_LIBRARY_PATH',
+            'DYLD_FRAMEWORK_PATH',
+            'LIBPATH',
+            'SHLIB_PATH',
+            'PYTHONPATH',
+        ]:
             if var in env:
                 del env[var]
     return env
+
+
+def _set_binary_location(options):
+    if _is_linux() and _is_arm64_machine():
+        for bin_path in ['/usr/bin/chromium', '/usr/bin/chromium-browser']:
+            if os.path.isfile(bin_path):
+                options.binary_location = bin_path
+                logger.LoggerFactory.logbot.info(f"ARM64: chromium 바이너리 → {bin_path}")
+                return
+
+    if _is_macos():
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            os.path.expanduser("~/Applications/Chromium.app/Contents/MacOS/Chromium"),
+        ]
+        for bin_path in candidates:
+            if os.path.isfile(bin_path):
+                options.binary_location = bin_path
+                logger.LoggerFactory.logbot.info(f"macOS Chrome 바이너리 → {bin_path}")
+                return
 
 
 def create_driver():
@@ -65,15 +106,8 @@ def create_driver():
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
     options.add_argument('--disable-blink-features=AutomationControlled')
-    
-    # ARM64(Raspberry Pi): 시스템 chromium 바이너리 경로 설정
-    machine = platform.machine().lower()
-    if ('aarch64' in machine or 'arm64' in machine) and os.name != 'nt':
-        for bin_path in ['/usr/bin/chromium', '/usr/bin/chromium-browser']:
-            if os.path.isfile(bin_path):
-                options.binary_location = bin_path
-                logger.LoggerFactory.logbot.info(f"ARM64: chromium 바이너리 → {bin_path}")
-                break
+
+    _set_binary_location(options)
 
     mode = getattr(settings, 'chrome_mode', 'hub')
     if mode == 'desktop':

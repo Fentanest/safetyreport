@@ -200,6 +200,32 @@ docker-compose up -d
 
 ---
 
+### 방법 4. macOS 실행 파일 (Intel / Apple Silicon)
+
+**사전 조건**: 크롬(Chrome) 브라우저 설치 권장
+
+1. [릴리즈 페이지](https://github.com/Fentanest/safetyreport/releases)에서 환경에 맞는 파일을 다운로드합니다.
+   - Intel Mac: `mysafetyreport-macos-intel.zip`
+   - Apple Silicon Mac: `mysafetyreport-macos-arm64.zip`
+2. 압축 해제 후 실행 권한을 부여합니다:
+   ```bash
+   chmod +x run.command mysafetyreport
+   ```
+3. 실행:
+   ```bash
+   ./run.command
+   ```
+4. 처음 실행 시 macOS가 차단하면 Finder에서 `run.command` 또는 `mysafetyreport`를 우클릭해 **열기**를 선택하거나, 필요하면 아래 명령으로 quarantine 속성을 제거합니다:
+   ```bash
+   xattr -dr com.apple.quarantine .
+   ```
+5. 자동으로 브라우저가 열리며 웹 UI로 접속됩니다 (`http://127.0.0.1:6819`)
+6. 설정 → 크롬 구동 방식을 **로컬 데스크톱 크롬**으로 선택
+
+macOS 포터블 실행 파일도 데이터는 실행 폴더의 `data/` 아래에 저장되며, 자동 업데이트 시 이 폴더는 보존됩니다.
+
+---
+
 ## 초기 설정
 
 처음 접속하면 관리자 계정 생성 화면이 나타납니다. 아이디와 비밀번호를 설정하면 바로 사용할 수 있습니다.

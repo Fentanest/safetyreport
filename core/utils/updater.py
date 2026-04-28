@@ -4,12 +4,15 @@
 - Docker 환경: 새 버전 안내 메시지만 출력 (docker pull 안내)
 - 컴파일 바이너리(is_frozen): 대화형 프롬프트 → ZIP 다운로드 → 압축 해제 → 전체 교체 → 재시작
   - Linux: 셸 스크립트로 프로세스 종료 후 rsync(없으면 cp) + exec 재시작
+  - macOS: 셸 스크립트로 프로세스 종료 후 rsync/ditto + run.command 재실행
   - Windows: bat 스크립트로 프로세스 종료 후 xcopy + 재시작
 - 개발 환경: git pull 안내 메시지만 출력
 
 GitHub Releases 에셋 명명 규칙 (build.yml 기준):
   mysafetyreport-win.zip        ← Windows x64
   mysafetyreport-linux.zip      ← Linux x64
+  mysafetyreport-macos-intel.zip ← macOS Intel
+  mysafetyreport-macos-arm64.zip ← macOS Apple Silicon
   # mysafetyreport-linux-arm64.zip  ← ARM64 (빌드 비활성화)
 """
 
@@ -18,6 +21,7 @@ import sys
 import tempfile
 import zipfile
 import shutil
+import platform
 
 GITHUB_REPO = "Fentanest/safetyreport"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -57,11 +61,11 @@ def _get_asset_name() -> str | None:
     """현재 플랫폼에 해당하는 릴리스 에셋 파일명을 반환합니다."""
     if sys.platform == "win32":
         return "mysafetyreport-win.zip"
-    # import platform
-    # machine = platform.machine().lower()
-    # is_arm = 'arm' in machine or 'aarch64' in machine
-    # if is_arm:
-    #     return "mysafetyreport-linux-arm64.zip"  # ARM64 빌드 비활성화
+    if sys.platform == "darwin":
+        machine = platform.machine().lower()
+        if 'arm' in machine or 'aarch64' in machine:
+            return "mysafetyreport-macos-arm64.zip"
+        return "mysafetyreport-macos-intel.zip"
     return "mysafetyreport-linux.zip"
 
 
@@ -219,6 +223,8 @@ def _perform_update(download_url: str, new_version: str):
         # ── 3. 플랫폼별 교체 + 재시작 ─────────────────────────────────
         if sys.platform == "win32":
             _apply_windows(current_exe, install_dir, extract_dir, tmp_dir, new_version)
+        elif sys.platform == "darwin":
+            _apply_macos(current_exe, install_dir, extract_dir, tmp_dir, new_version)
         else:
             _apply_linux(current_exe, install_dir, extract_dir, tmp_dir, new_version)
 
@@ -235,40 +241,16 @@ def _apply_linux(current_exe: str, install_dir: str, extract_dir: str,
     shlex.quote()로 경로를 이스케이프하므로 한글·공백·특수문자 경로에 안전합니다.
     """
     import subprocess
-    import stat
     import shlex
 
-    sh_path = os.path.join(tmp_dir, "_apply_update.sh")
-    log_path = os.path.join(install_dir, "_update_log.txt")
-
-    q = shlex.quote
-    extra_args = " ".join(q(a) for a in sys.argv[1:])
-
-    with open(sh_path, 'w', encoding='utf-8', newline='\n') as f:
-        f.write(
-            "#!/bin/bash\n"
-            f"LOG={q(log_path)}\n"
-            'log() { echo "[$(date "+%Y-%m-%d %H:%M:%S")] $*" | tee -a "$LOG"; }\n'
-            f'log "업데이트 시작: v{new_version}"\n'
-            f'log "설치 경로: {install_dir}"\n'
-            f'log "임시 경로: {extract_dir}"\n'
-            "sleep 2\n"
-            'log "파일 복사 시작..."\n'
-            f"if command -v rsync &>/dev/null; then\n"
-            f"  rsync -a --delete {q(extract_dir + '/')} {q(install_dir + '/')} 2>&1 | tee -a \"$LOG\"\n"
-            f"else\n"
-            f"  cp -rT {q(extract_dir)} {q(install_dir)} 2>&1 | tee -a \"$LOG\"\n"
-            f"fi\n"
-            'RC=${PIPESTATUS[0]}\n'
-            'if [ $RC -ne 0 ]; then log "오류: 파일 복사 실패 (종료코드 $RC)"; exit 1; fi\n'
-            f"chmod +x {q(current_exe)}\n"
-            f'log "파일 복사 완료. 임시 폴더 정리..."\n'
-            f"rm -rf {q(tmp_dir)}\n"
-            f'log "재시작: {current_exe}"\n'
-            f"exec {q(current_exe)} {extra_args}\n"
-        )
-
-    os.chmod(sh_path, os.stat(sh_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    sh_path, log_path = _write_unix_update_script(
+        install_dir=install_dir,
+        extract_dir=extract_dir,
+        tmp_dir=tmp_dir,
+        new_version=new_version,
+        restart_command=f"exec {shlex.quote(current_exe)} {' '.join(shlex.quote(a) for a in sys.argv[1:])}".rstrip(),
+        copy_mode="linux",
+    )
 
     print(f"v{new_version} 업데이트가 준비되었습니다. 재시작합니다...")
     print(f"업데이트 로그: {log_path}")
@@ -278,6 +260,113 @@ def _apply_linux(current_exe: str, install_dir: str, extract_dir: str,
         close_fds=True,
     )
     sys.exit(0)
+
+
+def _apply_macos(current_exe: str, install_dir: str, extract_dir: str,
+                 tmp_dir: str, new_version: str):
+    """
+    macOS 포터블 배포용 업데이트.
+    data/ 폴더는 보존하고, 가능하면 run.command를 새 Terminal 창으로 다시 실행합니다.
+    """
+    import subprocess
+
+    launcher_path = os.path.join(install_dir, "run.command")
+    quoted_launcher = _shell_quote(launcher_path)
+    quoted_exe = _shell_quote(current_exe)
+    restart_command = (
+        f'if [ -f {quoted_launcher} ]; then\n'
+        f'  chmod +x {quoted_launcher}\n'
+        f'  open -a Terminal {quoted_launcher}\n'
+        f'else\n'
+        f'  chmod +x {quoted_exe}\n'
+        f'  exec {quoted_exe}\n'
+        f'fi'
+    )
+    sh_path, log_path = _write_unix_update_script(
+        install_dir=install_dir,
+        extract_dir=extract_dir,
+        tmp_dir=tmp_dir,
+        new_version=new_version,
+        restart_command=restart_command,
+        copy_mode="macos",
+    )
+
+    print(f"v{new_version} 업데이트가 준비되었습니다. 재시작합니다...")
+    print(f"업데이트 로그: {log_path}")
+    subprocess.Popen(
+        ["bash", sh_path],
+        start_new_session=True,
+        close_fds=True,
+    )
+    sys.exit(0)
+
+
+def _shell_quote(path: str) -> str:
+    import shlex
+    return shlex.quote(path)
+
+
+def _write_unix_update_script(*, install_dir: str, extract_dir: str, tmp_dir: str,
+                              new_version: str, restart_command: str,
+                              copy_mode: str) -> tuple[str, str]:
+    import stat
+
+    sh_path = os.path.join(tmp_dir, "_apply_update.sh")
+    log_path = os.path.join(install_dir, "_update_log.txt")
+
+    q = _shell_quote
+    copy_body = _unix_copy_body(copy_mode)
+    with open(sh_path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(
+            "#!/bin/bash\n"
+            f"LOG={q(log_path)}\n"
+            f"SRC={q(extract_dir)}\n"
+            f"DST={q(install_dir)}\n"
+            'log() { echo "[$(date "+%Y-%m-%d %H:%M:%S")] $*" | tee -a "$LOG"; }\n'
+            f'log "업데이트 시작: v{new_version}"\n'
+            f'log "설치 경로: {install_dir}"\n'
+            f'log "임시 경로: {extract_dir}"\n'
+            "sleep 2\n"
+            'log "파일 복사 시작..."\n'
+            f"{copy_body}\n"
+            'if [ $RC -ne 0 ]; then log "오류: 파일 복사 실패 (종료코드 $RC)"; exit 1; fi\n'
+            f'log "파일 복사 완료. 임시 폴더 정리..."\n'
+            f"rm -rf {q(tmp_dir)}\n"
+            'log "재시작 준비"\n'
+            f"{restart_command}\n"
+        )
+    os.chmod(sh_path, os.stat(sh_path).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return sh_path, log_path
+
+
+def _unix_copy_body(copy_mode: str) -> str:
+    if copy_mode == "macos":
+        fallback_copy = (
+            'if command -v ditto >/dev/null 2>&1; then\n'
+            '  ditto "$SRC" "$DST" 2>&1 | tee -a "$LOG"\n'
+            'else\n'
+            '  cp -R "$SRC/." "$DST/" 2>&1 | tee -a "$LOG"\n'
+            'fi\n'
+            'RC=${PIPESTATUS[0]}\n'
+        )
+    else:
+        fallback_copy = (
+            'cp -a "$SRC/." "$DST/" 2>&1 | tee -a "$LOG"\n'
+            'RC=${PIPESTATUS[0]}\n'
+        )
+
+    return (
+        'if command -v rsync >/dev/null 2>&1; then\n'
+        '  rsync -a --delete --exclude "data/" --exclude "_update_log.txt" "$SRC/" "$DST/" 2>&1 | tee -a "$LOG"\n'
+        '  RC=${PIPESTATUS[0]}\n'
+        'else\n'
+        '  find "$DST" -mindepth 1 -maxdepth 1 ! -name data ! -name _update_log.txt -exec rm -rf {} + 2>&1 | tee -a "$LOG"\n'
+        '  RC=${PIPESTATUS[0]}\n'
+        '  if [ $RC -eq 0 ]; then\n'
+        f'{fallback_copy}'
+        '  fi\n'
+        'fi'
+    )
 
 
 def _ps_escape(path: str) -> str:
