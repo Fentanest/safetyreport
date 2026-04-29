@@ -296,29 +296,42 @@ def main():
 
     driver = None
     effective_crawl_type = settings.crawl_type
+    is_nonmember_mode = args["nonmember"]
     try:
-        # API 방식: 직접 로그인(curl_cffi + RSA + OAuth)으로 토큰 발급, Selenium 불필요
-        # 레거시 방식: 토큰 발급 후 driver 생성 → driver에 JSESSIONID 쿠키 주입으로 로그인된 상태 진입
-        from core.crawler import direct_login
         direct_login_ok = False
-        try:
-            direct_login.get_valid_token()  # 캐시 토큰 사용 or 신규 로그인
-            direct_login_ok = True
-            logger.LoggerFactory.logbot.info("직접 로그인 토큰 확보 완료.")
-        except Exception as e:
-            logger.LoggerFactory.logbot.error(f"직접 로그인 실패: {e}")
-            logger.LoggerFactory.logbot.warning(
-                f"직접 로그인 최대 재시도({settings.max_retry_attemps}) 실패. "
-                "기존 Selenium 로그인 방식으로 fallback 합니다."
-            )
+        if is_nonmember_mode:
             effective_crawl_type = 'legacy'
+            logger.LoggerFactory.logbot.info(
+                "비회원(수동) 로그인 모드입니다. 직접 로그인/API 방식은 사용하지 않고 "
+                "설정된 Chrome 옵션으로 브라우저 로그인 대기 후 진행합니다."
+            )
+        else:
+            # API 방식: 직접 로그인(curl_cffi + RSA + OAuth)으로 토큰 발급, Selenium 불필요
+            # 레거시 방식: 토큰 발급 후 driver 생성 → driver에 JSESSIONID 쿠키 주입으로 로그인된 상태 진입
+            from core.crawler import direct_login
+            try:
+                direct_login.get_valid_token()  # 캐시 토큰 사용 or 신규 로그인
+                direct_login_ok = True
+                logger.LoggerFactory.logbot.info("직접 로그인 토큰 확보 완료.")
+            except Exception as e:
+                logger.LoggerFactory.logbot.error(f"직접 로그인 실패: {e}")
+                logger.LoggerFactory.logbot.warning(
+                    f"직접 로그인 최대 재시도({settings.max_retry_attemps}) 실패. "
+                    "기존 Selenium 로그인 방식으로 fallback 합니다."
+                )
+                effective_crawl_type = 'legacy'
 
         if effective_crawl_type != 'api':
             # 레거시 방식: driver 필요
             driver = driv.create_driver()
             driver.get(settings.loginurl)
 
-            if args["nonmember"]:
+            if is_nonmember_mode:
+                if getattr(settings, "chrome_mode", "") == "desktop" and getattr(settings, "headless", False):
+                    logger.LoggerFactory.logbot.warning(
+                        "비회원(수동) 로그인 모드인데 Headless가 켜져 있습니다. "
+                        "브라우저 창이 보이지 않으면 설정에서 '크롬 창 숨기기'를 꺼주세요."
+                    )
                 wait_for_resume_signal()
             else:
                 if direct_login_ok:

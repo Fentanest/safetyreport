@@ -1,5 +1,58 @@
 {% extends "base.html" %}
 
+{% block extra_css %}
+<style>
+    .stats-column-controls {
+        margin-bottom: 1rem;
+        padding: 1rem 1.1rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 1rem;
+        background: linear-gradient(180deg, #fbfdff 0%, #f4f7fb 100%);
+    }
+
+    .stats-column-list {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.65rem 0.85rem;
+    }
+
+    .stats-column-item {
+        min-height: 0;
+        margin-bottom: 0;
+        padding: 0.6rem 0.8rem 0.6rem 2rem;
+        border: 1px solid #dbe3ee;
+        border-radius: 0.85rem;
+        background-color: #fff;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    }
+
+    .stats-column-item .form-check-input {
+        margin-top: 0.15rem;
+    }
+
+    .stats-column-item .form-check-label {
+        display: block;
+        font-size: 0.95rem;
+        font-weight: 500;
+        cursor: pointer;
+    }
+
+    .stats-pane .table th,
+    .stats-pane .table td {
+        font-size: 14px;
+        font-family: inherit;
+        vertical-align: middle;
+    }
+
+    .stats-pane .table th *,
+    .stats-pane .table td *,
+    .stats-pane .table small {
+        font-size: inherit;
+        font-family: inherit;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="row g-3 align-items-start">
 <div class="col-xl-10 col-12">
@@ -155,6 +208,20 @@
             </div>
         </div>
 
+        <div class="stats-column-controls">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+                <div>
+                    <div class="fw-bold">표 컬럼 선택</div>
+                    <div class="small text-muted">체크한 컬럼만 현재 통계 표에 표시됩니다.</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge text-bg-light border" id="statsColumnScope"></span>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="statsColumnsSelectAll">전체 선택</button>
+                </div>
+            </div>
+            <div class="stats-column-list" id="statsColumnCheckboxes"></div>
+        </div>
+
         <!-- Stats panes -->
         <div id="statsTabsContent">
             {% macro avg_display(val) %}{{ ('%.1f일' % val) if val is not none else '-' }}{% endmacro %}
@@ -166,7 +233,7 @@
             {% macro agency_rows(records, base_url, law_filter='') %}
                 {% for r in records %}
                 <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&agencyExact=true{% if law_filter %}&law={{ law_filter }}{% endif %}'">
-                    <td style="font-size: 14px;">{{ r.agency }}</td>
+                    <td>{{ r.agency }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
                     <td data-order="{{ r.total_fine_amount }}" class="text-center text-success fw-bold small">{{ fine_amt(r.total_fine_amount) }}</td>
@@ -183,7 +250,7 @@
             {% macro person_rows(records, base_url, law_filter='') %}
                 {% for r in records %}
                 <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&person={{ r.person }}&agencyExact=true{% if law_filter %}&law={{ law_filter }}{% endif %}'">
-                    <td style="font-size: 14px;">{{ r.agency }}</td>
+                    <td>{{ r.agency }}</td>
                     <td class="text-center">{{ r.person }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
@@ -486,6 +553,105 @@
         agencyTables.forEach(function(id) { $(id).DataTable(dtOptionsAgency); });
         personTables.forEach(function(id) { $(id).DataTable(dtOptionsPerson); });
 
+        var columnVisibilityStorageKey = 'stats_column_visibility';
+        var columnVisibilityState = {};
+        try {
+            columnVisibilityState = JSON.parse(sessionStorage.getItem(columnVisibilityStorageKey) || '{}') || {};
+        } catch (e) {
+            columnVisibilityState = {};
+        }
+
+        function normalizeColumnText(text) {
+            return String(text || '').replace(/\s+/g, ' ').trim();
+        }
+
+        function getColumnLabel(headers, index) {
+            var label = normalizeColumnText(headers[index]);
+            if (label === '★') {
+                return '별점';
+            }
+            if (label === '비율') {
+                var prev = normalizeColumnText(headers[index - 1]);
+                if (prev === '★') {
+                    prev = '별점';
+                }
+                return (prev || '비율') + ' 비율';
+            }
+            return label;
+        }
+
+        function saveColumnVisibilityState() {
+            sessionStorage.setItem(columnVisibilityStorageKey, JSON.stringify(columnVisibilityState));
+        }
+
+        function getActiveTableApi() {
+            var $table = $('#' + currentCat + '-' + currentType).find('table').first();
+            return $table.length ? $table.DataTable() : null;
+        }
+
+        function getColumnMeta(api) {
+            var headers = api.columns().header().toArray().map(function (th) {
+                return normalizeColumnText($(th).text());
+            });
+            return headers.map(function (_, index) {
+                var label = getColumnLabel(headers, index);
+                return {
+                    index: index,
+                    key: label,
+                    label: label
+                };
+            });
+        }
+
+        function isColumnVisible(meta) {
+            return !Object.prototype.hasOwnProperty.call(columnVisibilityState, meta.key) || columnVisibilityState[meta.key] !== false;
+        }
+
+        function applyColumnVisibility(api) {
+            var meta = getColumnMeta(api);
+            meta.forEach(function (item) {
+                api.column(item.index).visible(isColumnVisible(item), false);
+            });
+            return meta;
+        }
+
+        function updateColumnScopeLabel() {
+            var catLabel = normalizeColumnText($('.stats-cat-btn[data-cat="' + currentCat + '"]').text());
+            var typeLabel = normalizeColumnText($('.stats-type-btn[data-type="' + currentType + '"]').text());
+            $('#statsColumnScope').text(catLabel + ' / ' + typeLabel);
+        }
+
+        function renderColumnControls(meta) {
+            var $box = $('#statsColumnCheckboxes');
+            $box.empty();
+            meta.forEach(function (item) {
+                var inputId = 'stats-column-' + currentType.replace(/[^a-z0-9]+/gi, '-') + '-' + item.index;
+                var $item = $('<div class="form-check stats-column-item"></div>');
+                var $input = $('<input type="checkbox" class="form-check-input stats-column-checkbox">')
+                    .attr('id', inputId)
+                    .attr('data-column-key', item.key)
+                    .prop('checked', isColumnVisible(item));
+                var $label = $('<label class="form-check-label"></label>')
+                    .attr('for', inputId)
+                    .text(item.label);
+                $item.append($input, $label);
+                $box.append($item);
+            });
+            updateColumnScopeLabel();
+        }
+
+        function syncActiveTableColumns() {
+            var api = getActiveTableApi();
+            if (!api) {
+                $('#statsColumnCheckboxes').empty();
+                $('#statsColumnScope').text('');
+                return;
+            }
+            var meta = applyColumnVisibility(api);
+            api.columns.adjust().draw(false);
+            renderColumnControls(meta);
+        }
+
         // 카테고리별 위반법규 목록 + 빈 법규 여부 (law 필터 제외한 서버 집계)
         var lawMap = {
             traffic: {{ traffic_available_laws | tojson }},
@@ -557,7 +723,7 @@
         function showPane() {
             $('.stats-pane').hide();
             $('#' + currentCat + '-' + currentType).show();
-            $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust();
+            syncActiveTableColumns();
             sessionStorage.setItem('stats_cat', currentCat);
             sessionStorage.setItem('stats_type', currentType);
         }
@@ -591,6 +757,24 @@
             currentType = $(this).data('type');
             updateButtons();
             showPane();
+        });
+
+        $('#statsColumnCheckboxes').on('change', '.stats-column-checkbox', function () {
+            columnVisibilityState[$(this).attr('data-column-key')] = $(this).is(':checked');
+            saveColumnVisibilityState();
+            syncActiveTableColumns();
+        });
+
+        $('#statsColumnsSelectAll').on('click', function () {
+            var api = getActiveTableApi();
+            if (!api) {
+                return;
+            }
+            getColumnMeta(api).forEach(function (item) {
+                columnVisibilityState[item.key] = true;
+            });
+            saveColumnVisibilityState();
+            syncActiveTableColumns();
         });
 
         updateButtons();
