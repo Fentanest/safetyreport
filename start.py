@@ -90,7 +90,7 @@ def extract_ids_from_queue(engine, queuelist):
     return resolved_ids, missing_rnums
 
 def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fallback=False):
-    crawl_type = crawl_type or settings.crawl_type
+    crawl_type = 'api' if (crawl_type or settings.crawl_type) == 'api' else 'legacy'
     last_page = 0
     titlelist = []
     
@@ -285,7 +285,7 @@ def main():
     _prepare_database(engine, reset=args["reset"])
 
     driver = None
-    effective_crawl_type = settings.crawl_type
+    effective_crawl_type = 'api' if settings.crawl_type == 'api' else 'legacy'
     is_nonmember_mode = args["nonmember"]
     api_browser_fallback = False
     try:

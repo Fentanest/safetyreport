@@ -63,7 +63,8 @@ class AppSettings:
         self.auto_export_excel = self.config.getboolean('SETTINGS', 'auto_export_excel', fallback=True)
         self.auto_export_sheet = self.config.getboolean('SETTINGS', 'auto_export_sheet', fallback=True)
         self.crawl_mode = self.config.get('SETTINGS', 'crawl_mode', fallback='full')
-        self.crawl_type = self.config.get('Crawler', 'crawl_type', fallback='api')
+        raw_crawl_type = self.config.get('Crawler', 'crawl_type', fallback='api')
+        self.crawl_type = 'api' if raw_crawl_type == 'api' else 'legacy'
         self.exclude_withdraw = self.config.getboolean('SETTINGS', 'exclude_withdraw', fallback=True)
         self.retry_interval = int(self.config.get('SETTINGS', 'retry_interval', fallback=10))
         self.max_retry_attemps = int(self.config.get('SETTINGS', 'max_retry_attemps', fallback=3))

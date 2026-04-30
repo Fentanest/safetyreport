@@ -271,7 +271,7 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
 
     body = await request.json()
     login_mode = body.get("login_mode", "member")
-    crawl_type = body.get("crawl_type", "api")
+    crawl_type = 'api' if body.get("crawl_type", "api") == "api" else 'legacy'
     crawl_mode = body.get("crawl_mode", "full")
     max_empty_pages = int(body.get("max_empty_pages", 3))
     queue_list = body.get("queue_list", "").strip()
@@ -559,8 +559,12 @@ async def update_settings(request: Request, _: str = Depends(_require_api_key)):
         app_settings._instance.update_config('SETTINGS', 'normalize_police', body["normalize_police"])
     if "exclude_withdraw" in body:
         app_settings._instance.update_config('SETTINGS', 'exclude_withdraw', body["exclude_withdraw"])
-    if "crawl_type" in body and body["crawl_type"] in ("api", "web"):
-        app_settings._instance.update_config('Crawler', 'crawl_type', body["crawl_type"])
+    if "crawl_type" in body:
+        app_settings._instance.update_config(
+            'Crawler',
+            'crawl_type',
+            'api' if body["crawl_type"] == 'api' else 'legacy'
+        )
     if "auto_export_excel" in body:
         app_settings._instance.update_config('SETTINGS', 'auto_export_excel', body["auto_export_excel"])
     if "auto_export_sheet" in body:

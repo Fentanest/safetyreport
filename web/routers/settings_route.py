@@ -90,6 +90,8 @@ async def save_settings(
     if match:
         sheet_key = match.group(1)
 
+    crawl_type = 'api' if crawl_type == 'api' else 'legacy'
+
     app_settings._instance.update_config('LOGIN', 'username', username)
     app_settings._instance.update_config('LOGIN', 'password', password)
 

@@ -33,6 +33,7 @@ async def start_crawl(
     max_empty_pages: int = Form(3)
 ):
     import settings.settings as app_settings
+    crawl_type = 'api' if crawl_type == 'api' else 'legacy'
     app_settings._instance.update_config('SETTINGS', 'max_empty_pages', max_empty_pages)
     app_settings._instance.update_config('Crawler', 'crawl_type', crawl_type)
     save_mode = 'full' if crawl_mode == 'reset' else crawl_mode
