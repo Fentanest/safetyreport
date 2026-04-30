@@ -5,6 +5,12 @@
     .sunwi-card {
         position: sticky;
         top: 20px;
+        height: 100%;
+        width: 100%;
+    }
+    .sunwi-card .card-body {
+        display: flex;
+        flex-direction: column;
     }
     .sunwi-nav {
         display: flex;
@@ -41,7 +47,8 @@
         color: #0d6efd;
     }
     .sunwi-items {
-        min-height: 420px;
+        flex: 1 1 auto;
+        min-height: 0;
     }
     .sunwi-item-card {
         display: flex;
@@ -65,11 +72,20 @@
         color: #fff;
         background: #0d6efd;
     }
+    .sunwi-rank-badge.rank-1 {
+        background: #0d6efd;
+    }
     .sunwi-rank-badge.rank-2 {
-        background: #20c997;
+        background: #198754;
     }
     .sunwi-rank-badge.rank-3 {
         background: #fd7e14;
+    }
+    .sunwi-rank-badge.rank-4 {
+        background: #6f42c1;
+    }
+    .sunwi-rank-badge.rank-5 {
+        background: #dc3545;
     }
     .sunwi-region {
         font-weight: 700;
@@ -109,7 +125,7 @@
     </div>
 </div>
 
-<div class="row g-4 align-items-start">
+<div class="row g-4 align-items-stretch">
     <div class="col-xl-8">
         <div class="row mb-1 mt-2">
             <div class="col-12">
@@ -268,7 +284,7 @@
         </div>
     </div>
 
-    <div class="col-xl-4">
+    <div class="col-xl-4 d-flex">
         <div class="card card-custom sunwi-card">
             <div class="card-header bg-white border-0 pb-0">
                 <div>
@@ -504,7 +520,7 @@
         function renderItems(items) {
             var html = '';
             items.forEach(function (item) {
-                var badgeClass = item.rank === 2 ? 'rank-2' : (item.rank === 3 ? 'rank-3' : '');
+                var badgeClass = 'rank-' + item.rank;
                 html += '' +
                     '<div class="col-12">' +
                     '  <div class="sunwi-item-card">' +
