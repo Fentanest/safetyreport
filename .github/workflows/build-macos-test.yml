@@ -74,18 +74,52 @@ jobs:
           exit 1
         fi
 
-    - name: Set up Python 3.14
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.14'
-
-    - name: Check Python architecture
+    - name: Resolve local Python 3.14
+      id: python
+      env:
+        MACOS_X64_PYTHON: ${{ vars.MACOS_X64_PYTHON }}
       run: |
         set -euo pipefail
-        PYTHON_BIN="$(python -c 'import sys; print(sys.executable)')"
+
+        CANDIDATES=()
+        if [ -n "${MACOS_X64_PYTHON:-}" ]; then
+          CANDIDATES+=("$MACOS_X64_PYTHON")
+        fi
+        CANDIDATES+=(
+          "/Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14"
+          "/usr/local/bin/python3.14"
+          "/opt/homebrew/bin/python3.14"
+        )
+
+        FOUND=""
+        for candidate in "${CANDIDATES[@]}"; do
+          if [ -x "$candidate" ]; then
+            FOUND="$candidate"
+            break
+          fi
+        done
+
+        if [ -z "$FOUND" ]; then
+          echo "::error::Python 3.14 실행 파일을 찾지 못했습니다."
+          echo "::error::self-hosted macOS runner에 Python 3.14를 설치하고, 필요하면 GitHub repository variable 'MACOS_X64_PYTHON' 에 경로를 지정하세요."
+          exit 1
+        fi
+
+        PYTHON_BIN="$FOUND"
+        PYTHON_VERSION=$("$PYTHON_BIN" -c 'import sys; print(".".join(map(str, sys.version_info[:3])))')
         ARCHS=$(lipo -archs "$PYTHON_BIN")
         echo "Using Python: $PYTHON_BIN"
+        echo "Version: $PYTHON_VERSION"
         echo "Architectures: $ARCHS"
+
+        case "$PYTHON_VERSION" in
+          3.14.*)
+            ;;
+          *)
+            echo "::error::Python 3.14가 필요하지만 현재 버전은 $PYTHON_VERSION 입니다."
+            exit 1
+            ;;
+        esac
 
         case "$ARCHS" in
           *x86_64*)
@@ -96,9 +130,11 @@ jobs:
             ;;
         esac
 
+        echo "python_bin=$PYTHON_BIN" >> "$GITHUB_OUTPUT"
+
     - name: Create virtual environment and install dependencies
       run: |
-        python -m venv venv
+        "${{ steps.python.outputs.python_bin }}" -m venv venv
         ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
         ./venv/bin/pip install --no-cache-dir -r requirements.txt
         ./venv/bin/pip install --no-cache-dir pyinstaller
