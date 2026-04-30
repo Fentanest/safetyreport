@@ -332,7 +332,7 @@ def save_all_rows_csv(rows, filename):
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["카테고리", "대분류", "소분류", "시도", "시군구", "건수"]
+            fieldnames=["대분류", "소분류", "시도", "시군구", "건수"]
         )
         writer.writeheader()
         writer.writerows(rows)
@@ -341,7 +341,7 @@ def save_top5_csv(top5_rows, filename):
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["카테고리", "대분류", "소분류", "순위", "시도", "시군구", "건수"]
+            fieldnames=["대분류", "소분류", "순위", "시도", "시군구", "건수"]
         )
         writer.writeheader()
         writer.writerows(top5_rows)
@@ -370,7 +370,6 @@ def build_top5_rows(category_ranking):
                 }
                 category_items.append(item)
                 top5_csv_rows.append({
-                    "카테고리": get_category_label(subcategory),
                     "대분류": group["name"],
                     "소분류": subcategory,
                     "순위": idx,
@@ -430,7 +429,6 @@ def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1
                         "건수": cnt,
                     })
                     all_rows.append({
-                        "카테고리": get_category_label(category),
                         "대분류": parent,
                         "소분류": category,
                         "시도": sido_name,
@@ -481,7 +479,6 @@ def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1
                         "건수": cnt,
                     })
                     all_rows.append({
-                        "카테고리": get_category_label(category),
                         "대분류": parent,
                         "소분류": category,
                         "시도": item["시도"],
