@@ -1,7 +1,10 @@
-"""API 방식 신고 상세 크롤러 (Selenium 불필요).
+"""API 방식 신고 상세 크롤러.
 
-기존: Selenium driver의 jQuery 컨텍스트로 $.get 호출
-변경: curl_cffi + Bearer 토큰으로 직접 호출 → driver 불필요
+기본 경로:
+- direct_login(curl_cffi + Bearer 토큰) 기반 API 호출
+
+fallback 경로:
+- Selenium driver의 로그인 세션을 이용한 브라우저 컨텍스트($.get) API 호출
 """
 import pandas as pd
 from time import sleep
@@ -36,17 +39,46 @@ def _fetch_detail(session, c_no):
         return {"error": f"JSON parse: {e}"}
 
 
-def crawl_details(driver=None, list=None):
-    """driver 인자는 호환성 유지용 — 무시됨 (API 방식은 driver 불필요)."""
+def _ensure_browser_context(driver):
+    if driver is None:
+        raise RuntimeError("브라우저 API fallback에는 Selenium driver가 필요합니다.")
+    if "safetyreport.go.kr" not in (driver.current_url or ""):
+        driver.get(settings.myreporturl)
+        sleep(2)
+
+
+def _fetch_detail_via_browser(driver, c_no):
+    script = """
+    var callback = arguments[arguments.length - 1];
+    var reportId = arguments[0];
+    $.get('/api/v1/portal/mypage/mysafereport/' + reportId)
+     .done(function(data) { callback(data); })
+     .fail(function(jqXHR, textStatus, errorThrown) {
+        callback({error: textStatus + ' ' + errorThrown});
+     });
+    """
+    return driver.execute_async_script(script, str(c_no))
+
+
+def crawl_details(driver=None, list=None, browser_fallback: bool = False):
     if list is None:
         list = []
 
-    session, _ = direct_login.make_authorized_session()
+    if browser_fallback:
+        logger.LoggerFactory.logbot.info("API 방식으로 상세 데이터를 호출합니다. (Selenium 브라우저 fallback)")
+        _ensure_browser_context(driver)
+        fetch_detail = lambda link: _fetch_detail_via_browser(driver, link)
+        satisfaction_client = driver
+    else:
+        logger.LoggerFactory.logbot.info("API 방식으로 상세 데이터를 호출합니다. (direct_login 세션)")
+        session, _ = direct_login.make_authorized_session()
+        fetch_detail = lambda link: _fetch_detail(session, link)
+        satisfaction_client = session
 
     for link in list:
         logger.LoggerFactory.logbot.debug(f"[API] Fetching details for ID: {link}")
 
-        data = _fetch_detail(session, link)
+        data = fetch_detail(link)
         if "error" in data or "result" not in data:
             logger.LoggerFactory.logbot.error(
                 f"Error fetching JSON API for {link}: {data.get('error', 'No result key')}"
@@ -92,7 +124,7 @@ def crawl_details(driver=None, list=None):
             title_fields = details.get("title_fields") or {}
             if title_fields.get("만족도조사여부") == "참여 완료" and settings.phone_number:
                 spp_no = title_fields.get("신고번호", "")
-                score, cause = satisfaction_fetcher.fetch_score_via_api(session, spp_no)
+                score, cause = satisfaction_fetcher.fetch_score_via_api(satisfaction_client, spp_no)
                 if score:
                     title_fields["별점"] = score
                     title_fields["별점사유"] = cause

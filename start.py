@@ -89,7 +89,7 @@ def extract_ids_from_queue(engine, queuelist):
                 resolved_ids.append(item)
     return resolved_ids, missing_rnums
 
-def _run_crawling_process(driver, engine, args, crawl_type=None):
+def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fallback=False):
     crawl_type = crawl_type or settings.crawl_type
     last_page = 0
     titlelist = []
@@ -98,11 +98,21 @@ def _run_crawling_process(driver, engine, args, crawl_type=None):
         logger.LoggerFactory.logbot.info("큐 지정 크롤링 모드입니다. 전체 목록 갱신을 건너뜁니다.")
     else:
         if crawl_type == 'api':
-            logger.LoggerFactory.logbot.info("[API 방식]으로 신고 목록 크롤링 시작.")
-            if args["page_range"]:
-                titlelist, last_page = crawltitle_api.crawl_titles(driver=driver, page_range=args["page_range"])
+            if api_browser_fallback:
+                logger.LoggerFactory.logbot.info("[API 방식 - Selenium fallback]으로 신고 목록 크롤링 시작.")
             else:
-                titlelist, last_page = crawltitle_api.crawl_titles(driver=driver)
+                logger.LoggerFactory.logbot.info("[API 방식]으로 신고 목록 크롤링 시작.")
+            if args["page_range"]:
+                titlelist, last_page = crawltitle_api.crawl_titles(
+                    driver=driver,
+                    page_range=args["page_range"],
+                    browser_fallback=api_browser_fallback,
+                )
+            else:
+                titlelist, last_page = crawltitle_api.crawl_titles(
+                    driver=driver,
+                    browser_fallback=api_browser_fallback,
+                )
         else:
             logger.LoggerFactory.logbot.info("[웹 방식(레거시)]으로 신고 목록 크롤링 시작.")
             if args["page_range"]:
@@ -140,7 +150,11 @@ def _run_crawling_process(driver, engine, args, crawl_type=None):
                 logger.LoggerFactory.logbot.info(f"목록 탐색 중... 페이지 {page_num} (남은 미확인: {len(missing_rnums)}건)")
                 try:
                     if crawl_type == 'api':
-                        page_dfs, _ = crawltitle_api.crawl_titles(driver=driver, page_range=[page_num])
+                        page_dfs, _ = crawltitle_api.crawl_titles(
+                            driver=driver,
+                            page_range=[page_num],
+                            browser_fallback=api_browser_fallback,
+                        )
                     else:
                         page_dfs, _ = crawltitle.crawl_titles(driver=driver, page_range=[page_num])
                 except Exception as e:
@@ -180,8 +194,15 @@ def _run_crawling_process(driver, engine, args, crawl_type=None):
     logger.LoggerFactory.logbot.info(f"상세 크롤링 대상 ID: {len(detaillist)} 건 (순차 처리)")
     
     if crawl_type == 'api':
-        logger.LoggerFactory.logbot.info("[API 방식] 상세 데이터 추출 시작")
-        detail_datas = list(crawldetail_api.crawl_details(driver=driver, list=detaillist))
+        if api_browser_fallback:
+            logger.LoggerFactory.logbot.info("[API 방식 - Selenium fallback] 상세 데이터 추출 시작")
+        else:
+            logger.LoggerFactory.logbot.info("[API 방식] 상세 데이터 추출 시작")
+        detail_datas = list(crawldetail_api.crawl_details(
+            driver=driver,
+            list=detaillist,
+            browser_fallback=api_browser_fallback,
+        ))
     else:
         logger.LoggerFactory.logbot.info("[웹 방식(레거시)] 상세 데이터 추출 시작")
         detail_datas = list(crawldetail.crawl_details(driver=driver, list=detaillist))
@@ -247,41 +268,6 @@ def _process_and_save_results(engine, changed_item_ids):
             notifier_path = resource_path("core/utils/notifier.py")
             subprocess.run([sys.executable, notifier_path], input=msg, text=True)
 
-def _inject_session_into_driver(driver):
-    """direct_login에서 발급받은 JSESSIONID/WMONID를 driver에 주입.
-
-    안전신문고 레거시 페이지는 JSESSIONID 쿠키 기반 인증.
-    OAuth 토큰 단독으로는 HTML 페이지 인증 안 됨 → 쿠키 주입이 핵심.
-    실패 시 selenium login으로 fallback (login.login_mysafety 호출 주석 해제 필요)."""
-    from core.crawler import direct_login
-    info = direct_login.get_valid_token()
-    try:
-        # 도메인 컨텍스트 진입 (쿠키 추가 전 필수)
-        driver.get("https://www.safetyreport.go.kr/")
-        cookies = []
-        if info.get("jsessionid"):
-            cookies.append({"name": "JSESSIONID", "value": info["jsessionid"], "path": "/"})
-        if info.get("wmonid"):
-            cookies.append({"name": "WMONID", "value": info["wmonid"], "path": "/"})
-        for c in cookies:
-            try:
-                driver.add_cookie(c)
-            except Exception as e:
-                logger.LoggerFactory.logbot.warning(f"쿠키 주입 실패 ({c['name']}): {e}")
-        # 쿠키 적용된 상태로 마이페이지 진입 → 로그인 효과
-        driver.get(settings.myreporturl)
-        if login.wait_for_logged_in(driver, timeout=15):
-            logger.LoggerFactory.logbot.info("driver에 직접 로그인 세션 주입 완료.")
-            return True
-
-        logger.LoggerFactory.logbot.warning(
-            "쿠키 주입 후에도 로그인 상태가 확인되지 않아 Selenium UI 로그인으로 fallback 합니다."
-        )
-    except Exception as e:
-        logger.LoggerFactory.logbot.error(f"세션 주입 중 오류: {e}")
-    return login.login_mysafety(driver=driver)
-
-
 def wait_for_resume_signal():
     logger.LoggerFactory.logbot.info("비회원 모드 대기 중... 브라우저에서 로그인 후 웹 UI의 '크롤링 재개'를 클릭하세요.")
     sig_file = os.path.join(settings.datapath, 'resume.sig')
@@ -301,32 +287,34 @@ def main():
     driver = None
     effective_crawl_type = settings.crawl_type
     is_nonmember_mode = args["nonmember"]
+    api_browser_fallback = False
     try:
-        direct_login_ok = False
         if is_nonmember_mode:
             effective_crawl_type = 'legacy'
             logger.LoggerFactory.logbot.info(
                 "비회원(수동) 로그인 모드입니다. 직접 로그인/API 방식은 사용하지 않고 "
                 "설정된 Chrome 옵션으로 브라우저 로그인 대기 후 진행합니다."
             )
-        else:
-            # API 방식: 직접 로그인(curl_cffi + RSA + OAuth)으로 토큰 발급, Selenium 불필요
-            # 레거시 방식: 토큰 발급 후 driver 생성 → driver에 JSESSIONID 쿠키 주입으로 로그인된 상태 진입
+        elif effective_crawl_type == 'api':
+            # API 방식: 먼저 direct_login을 시도하고, 실패 시 Selenium 로그인 후
+            # 브라우저 컨텍스트 API 호출($.get) fallback으로 진행
             from core.crawler import direct_login
             try:
-                direct_login.get_valid_token()  # 캐시 토큰 사용 or 신규 로그인
-                direct_login_ok = True
+                direct_login.get_valid_token()
                 logger.LoggerFactory.logbot.info("직접 로그인 토큰 확보 완료.")
             except Exception as e:
                 logger.LoggerFactory.logbot.error(f"직접 로그인 실패: {e}")
                 logger.LoggerFactory.logbot.warning(
                     f"직접 로그인 최대 재시도({settings.max_retry_attemps}) 실패. "
-                    "기존 Selenium 로그인 방식으로 fallback 합니다."
+                    "Selenium 로그인 후 브라우저 기반 API 호출 fallback으로 진행합니다."
                 )
-                effective_crawl_type = 'legacy'
+                api_browser_fallback = True
+        else:
+            logger.LoggerFactory.logbot.info(
+                "레거시 크롤링 모드입니다. direct_login을 사용하지 않고 Selenium 로그인으로 진행합니다."
+            )
 
-        if effective_crawl_type != 'api':
-            # 레거시 방식: driver 필요
+        if effective_crawl_type == 'legacy':
             driver = driv.create_driver()
             driver.get(settings.loginurl)
 
@@ -338,11 +326,7 @@ def main():
                     )
                 wait_for_resume_signal()
             else:
-                if direct_login_ok:
-                    login_ok = _inject_session_into_driver(driver)
-                else:
-                    login_ok = login.login_mysafety(driver=driver)
-
+                login_ok = login.login_mysafety(driver=driver)
                 if not login_ok:
                     raise RuntimeError("안전신문고 Selenium 로그인에 실패했습니다.")
                 if settings.telegram_enabled:
@@ -351,11 +335,22 @@ def main():
                     else:
                         notifier_path = resource_path("core/utils/notifier.py")
                         subprocess.run([sys.executable, notifier_path], input="안전신문고 로그인에 성공했습니다.", text=True)
+        elif api_browser_fallback:
+            driver = driv.create_driver()
+            driver.get(settings.loginurl)
+            login_ok = login.login_mysafety(driver=driver)
+            if not login_ok:
+                raise RuntimeError("안전신문고 Selenium 로그인(API fallback)에 실패했습니다.")
         else:
-            # API 방식: driver 불필요
             logger.LoggerFactory.logbot.info("[API 방식] Selenium driver 생성 생략.")
 
-        changed_item_ids = _run_crawling_process(driver, engine, args, crawl_type=effective_crawl_type)
+        changed_item_ids = _run_crawling_process(
+            driver,
+            engine,
+            args,
+            crawl_type=effective_crawl_type,
+            api_browser_fallback=api_browser_fallback,
+        )
     except Exception as e:
         logger.LoggerFactory.logbot.error(f"실행 중 치명적 오류 발생: {e}")
         changed_item_ids = []

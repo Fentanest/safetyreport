@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - mac
+      - dev
 
 concurrency:
   group: build-macos-test-${{ github.ref }}
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, 235]
     outputs:
       version: ${{ steps.meta.outputs.version }}
       short_sha: ${{ steps.meta.outputs.short_sha }}
@@ -170,8 +170,10 @@ jobs:
         cd dist/mysafetyreport
         zip -r ../../mysafetyreport-macos-x64-test.zip .
 
-    - name: Upload macOS test artifact
-      uses: actions/upload-artifact@v7
-      with:
-        name: macos-x64-test-v${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.short_sha }}
-        path: mysafetyreport-macos-x64-test.zip
+    - name: Move macOS test artifact to better0101 home
+      run: |
+        DEST_DIR="/Users/better0101"
+        DEST_FILE="$DEST_DIR/macos-x64-test-v${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.short_sha }}.zip"
+        mkdir -p "$DEST_DIR"
+        mv -f mysafetyreport-macos-x64-test.zip "$DEST_FILE"
+        echo "Moved artifact to: $DEST_FILE"

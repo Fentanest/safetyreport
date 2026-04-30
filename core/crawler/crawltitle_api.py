@@ -1,9 +1,10 @@
-"""API 방식 신고 목록 크롤러 (Selenium 불필요).
+"""API 방식 신고 목록 크롤러.
 
-기존: Selenium driver의 jQuery 컨텍스트로 $.get 호출
-변경: curl_cffi + Bearer 토큰으로 직접 호출 → driver 불필요
+기본 경로:
+- direct_login(curl_cffi + Bearer 토큰) 기반 API 호출
 
-direct_login 모듈이 토큰 발급/갱신 담당.
+fallback 경로:
+- Selenium driver의 로그인 세션을 이용한 브라우저 컨텍스트($.get) API 호출
 """
 import datetime
 from time import sleep
@@ -51,17 +52,50 @@ def _fetch_api_page(session, start_row, end_row):
     return r.json()
 
 
-def crawl_titles(driver=None, page_range=None):
-    """driver 인자는 호환성 유지용 — 무시됨 (API 방식은 driver 불필요)."""
-    logger.LoggerFactory.logbot.info("API 방식으로 목록 데이터를 호출합니다. (Selenium 미사용)")
+def _ensure_browser_context(driver):
+    if driver is None:
+        raise RuntimeError("브라우저 API fallback에는 Selenium driver가 필요합니다.")
+    if "safetyreport.go.kr" not in (driver.current_url or ""):
+        driver.get(settings.myreporturl)
+        sleep(2)
 
-    session, _ = direct_login.make_authorized_session()
+
+def _fetch_api_page_via_browser(driver, start_row, end_row):
+    script = f"""
+    var callback = arguments[arguments.length - 1];
+    $.get('/api/v1/portal/mypage/mysafereport', {{
+        startRowNum: {start_row},
+        endRowNum: {end_row},
+        C_FRM_DATE: '2014-01-01',
+        C_TO_DATE: '{datetime.datetime.now().strftime("%Y-%m-%d")}',
+        state: '',
+        seachType: 'tit',
+        C_RELATION2: 1,
+        searchKeyWord: ''
+    }})
+    .done(function(data) {{ callback(data); }})
+    .fail(function(jqXHR, textStatus, errorThrown) {{
+        callback({{error: textStatus + ' ' + errorThrown, result: []}});
+    }});
+    """
+    return driver.execute_async_script(script)
+
+
+def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False):
+    if browser_fallback:
+        logger.LoggerFactory.logbot.info("API 방식으로 목록 데이터를 호출합니다. (Selenium 브라우저 fallback)")
+        _ensure_browser_context(driver)
+        fetch_page = lambda start_row, end_row: _fetch_api_page_via_browser(driver, start_row, end_row)
+    else:
+        logger.LoggerFactory.logbot.info("API 방식으로 목록 데이터를 호출합니다. (direct_login 세션)")
+        session, _ = direct_login.make_authorized_session()
+        fetch_page = lambda start_row, end_row: _fetch_api_page(session, start_row, end_row)
 
     all_title_dfs = []
     page_size = 200
     cols = ["ID", "상태", "신고번호", "신고명", "신고일", "만족도조사여부", "감시목록"]
 
-    first_payload = _fetch_api_page(session, 1, page_size)
+    first_payload = fetch_page(1, page_size)
     if "error" in first_payload or "result" not in first_payload:
         logger.LoggerFactory.logbot.error(f"API 목록 호출 실패: {first_payload.get('error', 'No result')}")
         return [], 0
@@ -84,7 +118,7 @@ def crawl_titles(driver=None, page_range=None):
 
         logger.LoggerFactory.logbot.info(f"API 목록 로드 중: {page_num} 페이지 ({start_row}~{end_row}건)")
 
-        payload = _fetch_api_page(session, start_row, end_row)
+        payload = fetch_page(start_row, end_row)
         results = payload.get("result", [])
 
         if not results:
