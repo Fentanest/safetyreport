@@ -409,10 +409,91 @@ jobs:
         path: mysafetyreport-macos-x64.zip
 
   # ────────────────────────────────────────────────────────────────
-  # 4. 공통 릴리즈 생성
+  # 4. macOS ARM64 실행 파일 빌드 (GitHub-hosted Apple Silicon runner)
+  # ────────────────────────────────────────────────────────────────
+  build-macos-arm64:
+    needs: prepare-release
+    if: needs.prepare-release.outputs.tag_exists == 'false'
+    runs-on: macos-15
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Clean previous build artifacts
+      run: rm -rf venv build dist
+
+    - name: Check Xcode Command Line Tools
+      run: |
+        set -euo pipefail
+
+        DEV_PATH=$(xcode-select -p)
+        echo "Using developer tools: $DEV_PATH"
+
+        if ! xcrun --find lipo >/dev/null 2>&1; then
+          echo "::error::developer tools 안에서 'lipo' 를 찾지 못했습니다."
+          exit 1
+        fi
+
+    - name: Set up Python 3.14 (arm64)
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.14'
+        architecture: 'arm64'
+
+    - name: Display Python runtime information
+      run: |
+        set -euo pipefail
+        python -c 'import platform, sys; print("Python:", sys.version); print("Machine:", platform.machine()); print("Executable:", sys.executable)'
+        file "$(python -c 'import sys; print(sys.executable)')"
+        lipo -archs "$(python -c 'import sys; print(sys.executable)')"
+
+    - name: Create virtual environment and install dependencies
+      run: |
+        python -m venv venv
+        ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
+        ./venv/bin/pip install --no-cache-dir -r requirements.txt
+        ./venv/bin/pip install --no-cache-dir pyinstaller
+
+    - name: Diagnose macOS arm64 Python environment
+      run: |
+        ./venv/bin/python scripts/build/check_macos_universal2.py \
+          --root venv \
+          --expected-arch arm64 \
+          --fail-if-empty
+
+    - name: Build macOS arm64 executable with PyInstaller
+      env:
+        PYINSTALLER_TARGET_ARCH: arm64
+      run: ./venv/bin/python scripts/build/build_exe.py
+
+    - name: Diagnose macOS arm64 bundle
+      run: |
+        ./venv/bin/python scripts/build/check_macos_universal2.py \
+          --root dist/mysafetyreport \
+          --expected-arch arm64 \
+          --fail-if-empty
+
+    - name: Package macOS arm64 into Zip
+      run: |
+        cd dist/mysafetyreport
+        zip -r ../../mysafetyreport-macos-arm64.zip .
+
+    - name: Upload macOS arm64 artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-macos-arm64-${{ needs.prepare-release.outputs.version }}
+        path: mysafetyreport-macos-arm64.zip
+
+  # ────────────────────────────────────────────────────────────────
+  # 5. 공통 릴리즈 생성
   # ────────────────────────────────────────────────────────────────
   create-release:
-    needs: [prepare-release, build-windows, build-linux, build-macos-x64]
+    needs: [prepare-release, build-windows, build-linux, build-macos-x64, build-macos-arm64]
     if: needs.prepare-release.outputs.tag_exists == 'false'
     runs-on: [self-hosted, Linux, X64, 235]
     permissions:
@@ -437,6 +518,12 @@ jobs:
         name: mysafetyreport-macos-x64-${{ needs.prepare-release.outputs.version }}
         path: release-assets/macos-x64
 
+    - name: Download macOS arm64 artifact
+      uses: actions/download-artifact@v5
+      with:
+        name: mysafetyreport-macos-arm64-${{ needs.prepare-release.outputs.version }}
+        path: release-assets/macos-arm64
+
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
@@ -449,6 +536,7 @@ jobs:
           release-assets/windows/mysafetyreport-win.zip
           release-assets/linux/mysafetyreport-linux.zip
           release-assets/macos-x64/mysafetyreport-macos-x64.zip
+          release-assets/macos-arm64/mysafetyreport-macos-arm64.zip
         draft: false
         prerelease: false
         generate_release_notes: true

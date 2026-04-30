@@ -14,6 +14,48 @@
 - `CLAUDE.md`는 구조/운영 메모 중심으로 정리하고, 작업/버그/세션 이력은 `CHANGELOG.md`로 분리
 - 이 세션 기준으로 최근 macOS 빌드/크롤러 로그인/업데이트 체크 수정 내역을 함께 정리
 
+### 행정구역별 Top3 대시보드 추가
+
+상태: 작업 트리 반영
+
+구성:
+- `services/sunwi_fetcher.py`로 통계 수집 코어를 배치
+  - 대상 월을 현재 `YYYYMM` 기준으로 계산
+  - 서버 부담 완화용 랜덤 sleep/휴식 로직 제거
+  - 카테고리별 Top3 가공 함수와 CSV 저장 함수 분리
+- `services/sunwi_service.py` 추가
+  - 로그인 없이 안전신문고 통계 API 별도 호출
+  - 서버 시작 후 즉시 1회 수집
+  - 이후 3시간마다 재수집
+  - `data/results/sunwi_category_all_latest.csv`, `sunwi_category_top3_latest.csv` 저장
+  - 메모리 캐시를 통해 대시보드가 바로 읽을 수 있게 구성
+- `web/routers/dashboard.py`
+  - 대시보드 렌더 컨텍스트에 `sunwi` 데이터 추가
+  - `/sunwi/download/top3` CSV 다운로드 엔드포인트 추가
+- `web/templates/index.html`
+  - 기존 두 통계 섹션을 좌측 컬럼으로 정리
+  - 우측에 행정구역별 Top3 카드 추가
+  - 카테고리 좌우 화살표, 내용 좌우 화살표, 5초 자동 전환, CSV 다운로드 링크 추가
+- `main.py`
+  - `sunwi_service.start_background_refresh()` / `stop_background_refresh()` 연결
+
+### macOS 워크플로 통합 정리
+
+상태: 작업 트리 반영
+
+변경:
+- `build.yml`
+  - 기존 self-hosted `macOS x64` 릴리즈 빌드 유지
+  - GitHub-hosted `macOS arm64` 릴리즈 빌드 추가
+  - 릴리즈 생성 시 `mysafetyreport-macos-x64.zip`, `mysafetyreport-macos-arm64.zip` 두 파일을 모두 첨부
+- 테스트 워크플로 정리
+  - 기존 `build-macos-test.yml`, `build-macos-arm64-test.yml` 삭제
+  - `build-macos-manual.yml` 추가
+    - `workflow_dispatch` 전용
+    - 태그 체크 없이 항상 시작
+    - x64/self-hosted + arm64/GitHub-hosted를 모두 빌드
+    - 릴리즈 생성 없이 artifact 업로드만 수행
+
 ### macOS 빌드/배포 정비
 
 | 상태 | 커밋 | 내용 |
@@ -54,7 +96,7 @@
 
 ### macOS 패키지 버전 체크/업데이트 체크 복구
 
-상태: 작업 트리 반영, 커밋 전
+상태: 작업 트리 반영
 
 증상:
 - macOS 패키지 앱 시작 시 `업데이트 확인 중... (서버 연결 실패, 건너뜀)`
@@ -69,7 +111,7 @@
 - `core/utils/updater.py`
   - `certifi` 기반 SSL context 생성
   - GitHub API 조회와 zip 다운로드를 모두 `_urlopen()` 경유로 통일
-  - macOS 릴리스 에셋명을 `mysafetyreport-macos-x64.zip`로 수정
+  - macOS 릴리스 에셋명을 `mysafetyreport-macos-x64.zip` / `mysafetyreport-macos-arm64.zip` 기준으로 분기
   - 캐시 주석을 실제 동작(5분)과 일치하도록 정리
 - `scripts/build/build_exe.py`
   - `--collect-data=certifi` 추가

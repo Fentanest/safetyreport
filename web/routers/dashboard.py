@@ -1,13 +1,11 @@
-from fastapi import APIRouter, Request
-from sqlalchemy import select, desc
-import pandas as pd
-from datetime import datetime, timedelta
+import os
 
-from core.database import database
+from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import FileResponse
 import settings.settings as settings
 from sqlalchemy import create_engine
-import os
 from services import data_service
+from services import sunwi_service
 from core.utils.templating import templates
 
 engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_same_thread": False})
@@ -25,7 +23,22 @@ async def dashboard(request: Request):
             "recent_answers": [], "watchlist": []
         }
 
+    stats["sunwi"] = sunwi_service.get_dashboard_payload()
+
     return templates.TemplateResponse(request, "index.html", {
         "title": "대시보드",
         **stats
     })
+
+
+@router.get("/sunwi/download/top3")
+async def download_sunwi_top3_csv():
+    csv_path = sunwi_service.get_top3_csv_path()
+    if not os.path.exists(csv_path):
+        raise HTTPException(status_code=404, detail="CSV file not found")
+
+    return FileResponse(
+        csv_path,
+        media_type="text/csv",
+        filename=os.path.basename(csv_path),
+    )

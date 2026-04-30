@@ -17,6 +17,7 @@ import subprocess
 import sys
 
 from core.utils.path_utils import resource_path, is_frozen
+from services import sunwi_service
 
 # Handle different execution modes for PyInstaller single-binary bundle
 if __name__ == "__main__":
@@ -105,6 +106,7 @@ async def lifespan(app: FastAPI):
     _ws_manager.set_main_loop(asyncio.get_event_loop())
     database.upgrade_schema(engine)
     scheduler.init_scheduler()
+    sunwi_service.start_background_refresh()
 
     # 직접 로그인 토큰 keep-alive (55분 주기). 자격증명 없으면 자동 스킵.
     try:
@@ -131,6 +133,10 @@ async def lifespan(app: FastAPI):
         direct_login.stop_keepalive()
     except Exception:
         pass
+    try:
+        sunwi_service.stop_background_refresh()
+    except Exception as e:
+        logger.LoggerFactory.logbot.error(f"sunwi background refresh 종료 중 오류: {e}")
     if bot_process:
         logger.LoggerFactory.logbot.info("텔레그램 봇 프로세스를 종료합니다.")
         bot_process.terminate()

@@ -11,7 +11,8 @@
 GitHub Releases 에셋 명명 규칙 (build.yml 기준):
   mysafetyreport-win.zip       ← Windows x64
   mysafetyreport-linux.zip     ← Linux x64
-  mysafetyreport-macos-x64.zip ← macOS x64
+  mysafetyreport-macos-x64.zip ← macOS Intel
+  mysafetyreport-macos-arm64.zip ← macOS Apple Silicon
   # mysafetyreport-linux-arm64.zip ← ARM64 (빌드 비활성화)
 """
 
@@ -83,6 +84,9 @@ def _get_asset_name() -> str | None:
     if sys.platform == "win32":
         return "mysafetyreport-win.zip"
     if sys.platform == "darwin":
+        machine = platform.machine().lower()
+        if "arm" in machine or "aarch64" in machine:
+            return "mysafetyreport-macos-arm64.zip"
         return "mysafetyreport-macos-x64.zip"
     return "mysafetyreport-linux.zip"
 

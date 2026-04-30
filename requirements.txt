@@ -4,6 +4,7 @@ gspread==6.2.1
 gspread-dataframe==4.0.0
 pandas==3.0.1
 python-telegram-bot==22.7
+requests>=2.32.0
 selenium==4.41.0
 SQLAlchemy==2.0.48
 openpyxl==3.1.5

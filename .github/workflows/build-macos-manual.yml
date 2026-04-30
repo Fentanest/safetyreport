@@ -1,13 +1,10 @@
-name: Build macOS Test
+name: Build macOS Manual
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - dev
 
 concurrency:
-  group: build-macos-test-${{ github.ref }}
+  group: build-macos-manual-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -34,7 +31,7 @@ jobs:
         echo "Version: $versionString"
         echo "Commit: ${GITHUB_SHA::7}"
 
-  build-macos:
+  build-macos-x64:
     needs: prepare
     runs-on: [self-hosted, macOS, X64, 236]
     permissions:
@@ -62,15 +59,13 @@ jobs:
 
         if ! DEV_PATH=$(xcode-select -p 2>/dev/null); then
           echo "::error::Xcode Command Line Tools를 찾지 못했습니다."
-          echo "::error::self-hosted macOS runner에서 'xcode-select --install' 또는 전체 Xcode 설치 후 'sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer' 를 실행하세요."
-          echo "::error::별도 위치의 Xcode를 쓰는 경우 GitHub repository variable 'MACOS_DEVELOPER_DIR' 에 '/Applications/Xcode.app/Contents/Developer' 같은 경로를 지정할 수 있습니다."
           exit 1
         fi
 
         echo "Using developer tools: $DEV_PATH"
 
         if ! xcrun --find lipo >/dev/null 2>&1; then
-          echo "::error::developer tools 안에서 'lipo' 를 찾지 못했습니다. Xcode/Command Line Tools 설치 상태를 확인하세요."
+          echo "::error::developer tools 안에서 'lipo' 를 찾지 못했습니다."
           exit 1
         fi
 
@@ -101,7 +96,6 @@ jobs:
 
         if [ -z "$FOUND" ]; then
           echo "::error::Python 3.14 실행 파일을 찾지 못했습니다."
-          echo "::error::self-hosted macOS runner에 Python 3.14를 설치하고, 필요하면 GitHub repository variable 'MACOS_X64_PYTHON' 에 경로를 지정하세요."
           exit 1
         fi
 
@@ -165,15 +159,97 @@ jobs:
           chmod +x dist/mysafetyreport/run.command
         fi
 
-    - name: Package macOS build into Zip
+    - name: Package macOS x64 build into Zip
       run: |
         cd dist/mysafetyreport
         zip -r ../../mysafetyreport-macos-x64-test.zip .
 
-    - name: Move macOS test artifact to better0101 home
+    - name: Upload macOS x64 artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-macos-x64-test-v${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.short_sha }}
+        path: mysafetyreport-macos-x64-test.zip
+
+  build-macos-arm64:
+    needs: prepare
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Clean previous build artifacts
+      run: rm -rf venv build dist
+
+    - name: Check Xcode Command Line Tools
       run: |
-        DEST_DIR="/Users/better0101"
-        DEST_FILE="$DEST_DIR/macos-x64-test-v${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.short_sha }}.zip"
-        mkdir -p "$DEST_DIR"
-        mv -f mysafetyreport-macos-x64-test.zip "$DEST_FILE"
-        echo "Moved artifact to: $DEST_FILE"
+        set -euo pipefail
+
+        DEV_PATH=$(xcode-select -p)
+        echo "Using developer tools: $DEV_PATH"
+
+        if ! xcrun --find lipo >/dev/null 2>&1; then
+          echo "::error::developer tools 안에서 'lipo' 를 찾지 못했습니다."
+          exit 1
+        fi
+
+    - name: Set up Python 3.14 (arm64)
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.14'
+        architecture: 'arm64'
+
+    - name: Display Python runtime information
+      run: |
+        set -euo pipefail
+        python -c 'import platform, sys; print("Python:", sys.version); print("Machine:", platform.machine()); print("Executable:", sys.executable)'
+        file "$(python -c 'import sys; print(sys.executable)')"
+        lipo -archs "$(python -c 'import sys; print(sys.executable)')"
+
+    - name: Create virtual environment and install dependencies
+      run: |
+        python -m venv venv
+        ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
+        ./venv/bin/pip install --no-cache-dir -r requirements.txt
+        ./venv/bin/pip install --no-cache-dir pyinstaller
+
+    - name: Diagnose macOS arm64 Python environment
+      run: |
+        ./venv/bin/python scripts/build/check_macos_universal2.py \
+          --root venv \
+          --expected-arch arm64 \
+          --fail-if-empty
+
+    - name: Build macOS arm64 executable with PyInstaller
+      env:
+        PYINSTALLER_TARGET_ARCH: arm64
+      run: ./venv/bin/python scripts/build/build_exe.py
+
+    - name: Diagnose macOS arm64 bundle
+      run: |
+        ./venv/bin/python scripts/build/check_macos_universal2.py \
+          --root dist/mysafetyreport \
+          --expected-arch arm64 \
+          --fail-if-empty
+
+    - name: Ensure launchers are executable
+      run: |
+        chmod +x dist/mysafetyreport/mysafetyreport
+        if [ -f dist/mysafetyreport/run.command ]; then
+          chmod +x dist/mysafetyreport/run.command
+        fi
+
+    - name: Package macOS arm64 build into Zip
+      run: |
+        cd dist/mysafetyreport
+        zip -r ../../mysafetyreport-macos-arm64-test.zip .
+
+    - name: Upload macOS arm64 artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-macos-arm64-test-v${{ needs.prepare.outputs.version }}-${{ needs.prepare.outputs.short_sha }}
+        path: mysafetyreport-macos-arm64-test.zip

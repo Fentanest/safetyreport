@@ -15,8 +15,8 @@
 ```
 /
 ├── .github/workflows/
-│   ├── build.yml                 # Windows/Linux/macOS 빌드 + Release 생성
-│   └── build-macos-test.yml      # macOS x64 셀프호스트 테스트 빌드
+│   ├── build.yml                 # Windows/Linux/macOS(x64+arm64) 빌드 + Release 생성
+│   └── build-macos-manual.yml    # macOS x64/arm64 수동 테스트 빌드 (artifact only)
 ├── core/
 │   ├── crawler/
 │   │   ├── direct_login.py       # curl_cffi + RSA + OAuth 기반 직접 로그인
@@ -50,6 +50,8 @@
 │   ├── parser.py                # HTML/JSON 파싱 (과태료, 처리상태 등)
 │   ├── satisfaction_fetcher.py  # 만족도조사 점수+사유 조회 (HTTP + Selenium)
 │   ├── star_rating_service.py   # 별점 배치 처리
+│   ├── sunwi_fetcher.py         # 안전신문고 통계 API 수집/Top3 CSV 가공 유틸
+│   ├── sunwi_service.py         # 행정구역별 안전신문고 Top3 수집/캐시/CSV 저장
 │   └── ws_manager.py            # WebSocket 클라이언트 연결 관리 싱글톤
 ├── web/
 │   ├── routers/
@@ -97,9 +99,10 @@
   - `api`: `direct_login` + `curl_cffi` API 호출
   - `api fallback`: direct login 실패 시 Selenium 로그인 후 브라우저 컨텍스트 `$.get` API 호출
 - 비회원 모드는 direct login을 타지 않고, Chrome 창에서 사용자가 로그인한 뒤 `재개` 신호를 기다리는 수동 흐름이다.
+- `sunwi_service`는 로그인 없이 안전신문고 통계 API를 별도로 호출하고, 서버 시작 후 즉시 1회 + 이후 3시간마다 행정구역별 카테고리 Top3를 갱신한다.
 - 빌드 계층은 `scripts/build/build_exe.py`와 `.github/workflows/*.yml`이 담당한다.
-  - `build.yml`: 정식 릴리즈
-  - `build-macos-test.yml`: macOS x64 셀프호스트 테스트 빌드
+  - `build.yml`: 정식 릴리즈 (macOS x64 + arm64 포함)
+  - `build-macos-manual.yml`: 태그 체크 없이 수동으로 macOS x64/arm64 아티팩트만 생성
 
 ---
 
