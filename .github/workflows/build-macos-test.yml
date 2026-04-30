@@ -49,6 +49,31 @@ jobs:
     - name: Clean previous build artifacts
       run: rm -rf venv build dist
 
+    - name: Check Xcode Command Line Tools
+      env:
+        MACOS_DEVELOPER_DIR: ${{ vars.MACOS_DEVELOPER_DIR }}
+      run: |
+        set -euo pipefail
+
+        if [ -n "${MACOS_DEVELOPER_DIR:-}" ]; then
+          echo "DEVELOPER_DIR=$MACOS_DEVELOPER_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$MACOS_DEVELOPER_DIR"
+        fi
+
+        if ! DEV_PATH=$(xcode-select -p 2>/dev/null); then
+          echo "::error::Xcode Command Line Tools를 찾지 못했습니다."
+          echo "::error::self-hosted macOS runner에서 'xcode-select --install' 또는 전체 Xcode 설치 후 'sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer' 를 실행하세요."
+          echo "::error::별도 위치의 Xcode를 쓰는 경우 GitHub repository variable 'MACOS_DEVELOPER_DIR' 에 '/Applications/Xcode.app/Contents/Developer' 같은 경로를 지정할 수 있습니다."
+          exit 1
+        fi
+
+        echo "Using developer tools: $DEV_PATH"
+
+        if ! xcrun --find lipo >/dev/null 2>&1; then
+          echo "::error::developer tools 안에서 'lipo' 를 찾지 못했습니다. Xcode/Command Line Tools 설치 상태를 확인하세요."
+          exit 1
+        fi
+
     - name: Resolve Universal 2 Python
       id: python
       env:
