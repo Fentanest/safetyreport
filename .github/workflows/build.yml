@@ -270,12 +270,12 @@ jobs:
           org.opencontainers.image.revision=${{ github.sha }}
 
   # ────────────────────────────────────────────────────────────────
-  # 3. macOS Intel 실행 파일 빌드 (GitHub-hosted)
+  # 3. macOS Universal 2 실행 파일 빌드 (self-hosted Intel runner)
   # ────────────────────────────────────────────────────────────────
-  build-macos-intel:
+  build-macos-universal2:
     needs: prepare-release
     if: needs.prepare-release.outputs.tag_exists == 'false'
-    runs-on: macos-15-intel
+    runs-on: [self-hosted, macOS, X64, 236]
     permissions:
       contents: write
 
@@ -288,82 +288,83 @@ jobs:
     - name: Clean previous build artifacts
       run: rm -rf venv build dist
 
-    - name: Set up Python 3.14
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.14'
+    - name: Resolve Universal 2 Python
+      id: python
+      env:
+        MACOS_UNIVERSAL2_PYTHON: ${{ vars.MACOS_UNIVERSAL2_PYTHON }}
+        MACOS_UNIVERSAL2_PYTHON_FALLBACK: /Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14
+      run: |
+        set -euo pipefail
+
+        PYTHON_BIN="${MACOS_UNIVERSAL2_PYTHON:-$MACOS_UNIVERSAL2_PYTHON_FALLBACK}"
+        if [ ! -x "$PYTHON_BIN" ]; then
+          echo "::error::Universal 2 Python을 찾지 못했습니다: $PYTHON_BIN"
+          echo "::error::self-hosted macOS runner에 python.org universal2 Python 3.14를 설치하고, 필요하면 MACOS_UNIVERSAL2_PYTHON repository variable로 경로를 지정하세요."
+          exit 1
+        fi
+
+        ARCHS=$(lipo -archs "$PYTHON_BIN")
+        echo "Using Python: $PYTHON_BIN"
+        echo "Architectures: $ARCHS"
+
+        case "$ARCHS" in
+          *x86_64*arm64*|*arm64*x86_64*)
+            ;;
+          *)
+            echo "::error::선택한 Python이 universal2가 아닙니다: $ARCHS"
+            exit 1
+            ;;
+        esac
+
+        echo "python_bin=$PYTHON_BIN" >> "$GITHUB_OUTPUT"
 
     - name: Create virtual environment and install dependencies
+      env:
+        ARCHFLAGS: -arch x86_64 -arch arm64
       run: |
-        python -m venv venv
+        "${{ steps.python.outputs.python_bin }}" -m venv venv
         ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
         ./venv/bin/pip install --no-cache-dir -r requirements.txt
         ./venv/bin/pip install --no-cache-dir pyinstaller
 
-    - name: Build macOS Intel executable with PyInstaller
+    - name: Diagnose macOS Universal 2 Python environment
+      run: |
+        ./venv/bin/python scripts/build/check_macos_universal2.py \
+          --root venv \
+          --expected-arch x86_64 \
+          --expected-arch arm64 \
+          --fail-if-empty
+
+    - name: Build macOS Universal 2 executable with PyInstaller
+      env:
+        ARCHFLAGS: -arch x86_64 -arch arm64
+        PYINSTALLER_TARGET_ARCH: universal2
       run: ./venv/bin/python scripts/build/build_exe.py
 
-    - name: Package macOS Intel into Zip
+    - name: Diagnose macOS Universal 2 bundle
+      run: |
+        ./venv/bin/python scripts/build/check_macos_universal2.py \
+          --root dist/mysafetyreport \
+          --expected-arch x86_64 \
+          --expected-arch arm64 \
+          --fail-if-empty
+
+    - name: Package macOS Universal 2 into Zip
       run: |
         cd dist/mysafetyreport
-        zip -r ../../mysafetyreport-macos-intel.zip .
+        zip -r ../../mysafetyreport-macos-universal2.zip .
 
-    - name: Upload macOS Intel artifact
+    - name: Upload macOS Universal 2 artifact
       uses: actions/upload-artifact@v7
       with:
-        name: mysafetyreport-macos-intel-${{ needs.prepare-release.outputs.version }}
-        path: mysafetyreport-macos-intel.zip
+        name: mysafetyreport-macos-universal2-${{ needs.prepare-release.outputs.version }}
+        path: mysafetyreport-macos-universal2.zip
 
   # ────────────────────────────────────────────────────────────────
-  # 4. macOS Apple Silicon 실행 파일 빌드 (GitHub-hosted)
-  # ────────────────────────────────────────────────────────────────
-  build-macos-arm64:
-    needs: prepare-release
-    if: needs.prepare-release.outputs.tag_exists == 'false'
-    runs-on: macos-15
-    permissions:
-      contents: write
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-
-    - name: Clean previous build artifacts
-      run: rm -rf venv build dist
-
-    - name: Set up Python 3.14
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.14'
-
-    - name: Create virtual environment and install dependencies
-      run: |
-        python -m venv venv
-        ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
-        ./venv/bin/pip install --no-cache-dir -r requirements.txt
-        ./venv/bin/pip install --no-cache-dir pyinstaller
-
-    - name: Build macOS Apple Silicon executable with PyInstaller
-      run: ./venv/bin/python scripts/build/build_exe.py
-
-    - name: Package macOS Apple Silicon into Zip
-      run: |
-        cd dist/mysafetyreport
-        zip -r ../../mysafetyreport-macos-arm64.zip .
-
-    - name: Upload macOS Apple Silicon artifact
-      uses: actions/upload-artifact@v7
-      with:
-        name: mysafetyreport-macos-arm64-${{ needs.prepare-release.outputs.version }}
-        path: mysafetyreport-macos-arm64.zip
-
-  # ────────────────────────────────────────────────────────────────
-  # 5. 공통 릴리즈 생성
+  # 4. 공통 릴리즈 생성
   # ────────────────────────────────────────────────────────────────
   create-release:
-    needs: [prepare-release, build-windows, build-linux, build-macos-intel, build-macos-arm64]
+    needs: [prepare-release, build-windows, build-linux, build-macos-universal2]
     if: needs.prepare-release.outputs.tag_exists == 'false'
     runs-on: [self-hosted, Linux, X64, 235]
     permissions:
@@ -382,17 +383,11 @@ jobs:
         name: mysafetyreport-linux-${{ needs.prepare-release.outputs.version }}
         path: release-assets/linux
 
-    - name: Download macOS Intel artifact
+    - name: Download macOS Universal 2 artifact
       uses: actions/download-artifact@v5
       with:
-        name: mysafetyreport-macos-intel-${{ needs.prepare-release.outputs.version }}
-        path: release-assets/macos-intel
-
-    - name: Download macOS Apple Silicon artifact
-      uses: actions/download-artifact@v5
-      with:
-        name: mysafetyreport-macos-arm64-${{ needs.prepare-release.outputs.version }}
-        path: release-assets/macos-arm64
+        name: mysafetyreport-macos-universal2-${{ needs.prepare-release.outputs.version }}
+        path: release-assets/macos-universal2
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
@@ -405,8 +400,7 @@ jobs:
         files: |
           release-assets/windows/mysafetyreport-win.zip
           release-assets/linux/mysafetyreport-linux.zip
-          release-assets/macos-intel/mysafetyreport-macos-intel.zip
-          release-assets/macos-arm64/mysafetyreport-macos-arm64.zip
+          release-assets/macos-universal2/mysafetyreport-macos-universal2.zip
         draft: false
         prerelease: false
         generate_release_notes: true

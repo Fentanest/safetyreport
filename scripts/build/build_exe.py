@@ -14,6 +14,25 @@ def _resolve_icon_option() -> list[str]:
     return ["--icon=mysafetyreport.ico"]
 
 
+def _resolve_target_arch_option() -> list[str]:
+    if sys.platform != "darwin":
+        return []
+
+    target_arch = os.environ.get("PYINSTALLER_TARGET_ARCH", "").strip()
+    if not target_arch:
+        return []
+
+    valid_arches = {"x86_64", "arm64", "universal2"}
+    if target_arch not in valid_arches:
+        raise SystemExit(
+            f"Unsupported PYINSTALLER_TARGET_ARCH={target_arch!r}. "
+            f"Expected one of: {', '.join(sorted(valid_arches))}"
+        )
+
+    print(f"[build] PyInstaller target arch: {target_arch}")
+    return [f"--target-arch={target_arch}"]
+
+
 def build():
     sep = ';' if sys.platform == 'win32' else ':'
 
@@ -60,7 +79,7 @@ def build():
         '--exclude-module=antigravity',
         # Show console for server logs
         # '--windowed'
-    ] + _resolve_icon_option()
+    ] + _resolve_icon_option() + _resolve_target_arch_option()
 
     # readline은 Linux 번들에서만 제외
     if sys.platform.startswith('linux'):
