@@ -2,7 +2,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException, StaleElementReferenceException
 from selenium.webdriver.common.keys import Keys
 import datetime
 from time import sleep
@@ -10,66 +10,79 @@ import pandas as pd
 import settings.settings as settings
 from core.utils import logger
 
-def _scrape_current_page(driver):
+def _scrape_current_page(driver, max_attempts=3):
     """Scrapes the data from the currently loaded page."""
-    page_dfs = []
-    found_in_progress = False
     cols = ["ID", "상태", "신고번호", "신고명", "신고일", "만족도조사여부", "감시목록"]
 
-    try:
-        table = driver.find_element(By.ID, settings.titletable)
-        tbody = table.find_element(By.TAG_NAME, 'tbody')
-        rows = tbody.find_elements(By.TAG_NAME, 'tr')
+    for attempt in range(1, max_attempts + 1):
+        page_dfs = []
+        found_in_progress = False
 
-        if not rows or (len(rows) == 1 and "데이터가 없습니다" in rows[0].text):
-            logger.LoggerFactory.logbot.warning("현재 페이지에 데이터가 없습니다.")
-            return [], False
+        try:
+            table = WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.ID, settings.titletable))
+            )
+            tbody = table.find_element(By.TAG_NAME, 'tbody')
+            rows = tbody.find_elements(By.TAG_NAME, 'tr')
 
-        cNo_elements = tbody.find_elements(By.CSS_SELECTOR, 'td.bbs_subject input[name="cNo"]')
+            if not rows or (len(rows) == 1 and "데이터가 없습니다" in rows[0].text):
+                logger.LoggerFactory.logbot.warning("현재 페이지에 데이터가 없습니다.")
+                return [], False
 
-        for index, row in enumerate(rows):
-            try:
-                link = cNo_elements[index].get_attribute('value').strip()
-                property_cells = row.find_elements(By.TAG_NAME, 'td')
-                report_text = property_cells[0].text
-                date = property_cells[1].text.strip()
+            cNo_elements = tbody.find_elements(By.CSS_SELECTOR, 'td.bbs_subject input[name="cNo"]')
 
-                state_part, title_part = report_text.split(')', 1)
-                state = state_part.split('(')[0].strip()
-                reportnumber = state_part.split('(')[1].strip()
-                reporttitle = title_part.strip()
-
-                if state not in ['답변완료', '수용불가', '일부수용', '불수용', '취하', '수용']:
-                    found_in_progress = True
-
-                poll_status = ""
+            for index, row in enumerate(rows):
                 try:
-                    poll_btn = row.find_element(By.CSS_SELECTOR, 'a[class*="btn_poll"]')
-                    btn_classes = poll_btn.get_attribute('class')
-                    logger.LoggerFactory.logbot.debug(f"[poll] ID={link} | class='{btn_classes}'")
-                    if 'btn_poll_disable' in btn_classes:
-                        poll_status = "답변 대기"  # 만족도 조사 대기 (진행 중)
-                    elif 'btn_poll_comp' in btn_classes:
-                        poll_status = "참여 완료"  # 만족도 조사 완료
-                    elif 'btn_poll' in btn_classes:
-                        poll_status = "참여 가능"  # 만족도 조사 참여 가능 (답변 완료)
-                except NoSuchElementException:
-                    logger.LoggerFactory.logbot.debug(f"[poll] ID={link} | btn_poll 링크 없음 (진행 중 또는 취하)")
+                    link = cNo_elements[index].get_attribute('value').strip()
+                    property_cells = row.find_elements(By.TAG_NAME, 'td')
+                    report_text = property_cells[0].text
+                    date = property_cells[1].text.strip()
 
-                # 취하된 건은 만족도 조사 참여 불가로 분류
-                if not poll_status and state == '취하':
-                    poll_status = '참여 불가'
+                    state_part, title_part = report_text.split(')', 1)
+                    state = state_part.split('(')[0].strip()
+                    reportnumber = state_part.split('(')[1].strip()
+                    reporttitle = title_part.strip()
 
-                titlelist = [link, state, reportnumber, reporttitle, date, poll_status, "N"]
-                df = pd.DataFrame([titlelist], columns=cols)
-                page_dfs.append(df)
-            except IndexError:
-                logger.LoggerFactory.logbot.warning(f"페이지의 {index+1}번째 행 파싱 중 오류가 발생했습니다.")
-                continue
-    except Exception as e:
-        logger.LoggerFactory.logbot.error(f"현재 페이지를 스크래핑하는 중 오류 발생: {e}")
+                    if state not in ['답변완료', '수용불가', '일부수용', '불수용', '취하', '수용']:
+                        found_in_progress = True
 
-    return page_dfs, found_in_progress
+                    poll_status = ""
+                    try:
+                        poll_btn = row.find_element(By.CSS_SELECTOR, 'a[class*="btn_poll"]')
+                        btn_classes = poll_btn.get_attribute('class')
+                        logger.LoggerFactory.logbot.debug(f"[poll] ID={link} | class='{btn_classes}'")
+                        if 'btn_poll_disable' in btn_classes:
+                            poll_status = "답변 대기"
+                        elif 'btn_poll_comp' in btn_classes:
+                            poll_status = "참여 완료"
+                        elif 'btn_poll' in btn_classes:
+                            poll_status = "참여 가능"
+                    except NoSuchElementException:
+                        logger.LoggerFactory.logbot.debug(f"[poll] ID={link} | btn_poll 링크 없음 (진행 중 또는 취하)")
+
+                    if not poll_status and state == '취하':
+                        poll_status = '참여 불가'
+
+                    titlelist = [link, state, reportnumber, reporttitle, date, poll_status, "N"]
+                    df = pd.DataFrame([titlelist], columns=cols)
+                    page_dfs.append(df)
+                except IndexError:
+                    logger.LoggerFactory.logbot.warning(f"페이지의 {index+1}번째 행 파싱 중 오류가 발생했습니다.")
+                    continue
+
+            return page_dfs, found_in_progress
+
+        except StaleElementReferenceException as e:
+            logger.LoggerFactory.logbot.warning(
+                f"현재 페이지 DOM이 갱신되어 재시도합니다. ({attempt}/{max_attempts}): {e}"
+            )
+            sleep(1)
+        except Exception as e:
+            logger.LoggerFactory.logbot.error(f"현재 페이지를 스크래핑하는 중 오류 발생: {e}")
+            return page_dfs, found_in_progress
+
+    logger.LoggerFactory.logbot.error("현재 페이지 스크래핑이 반복적으로 stale element 오류로 실패했습니다.")
+    return [], False
 
 def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
     today = datetime.datetime.now().strftime("%Y-%m-%d")
@@ -153,12 +166,20 @@ def crawl_titles(driver, use_minimal_crawl=False, page_range=None):
             WebDriverWait(driver, 20).until(
                 EC.invisibility_of_element_located((By.CSS_SELECTOR, "div.loading-backdrop"))
             )
+            current_tbody = driver.find_element(By.CSS_SELECTOR, f"#{settings.titletable} tbody")
             # Wait for the "Next" button to be clickable and then click it
             next_button = WebDriverWait(driver, 20).until(
                 EC.element_to_be_clickable((By.XPATH, '//a[@title="다음으로 이동"]'))
             )
             next_button.click()
-            sleep(2) # Allow a brief moment for JS to potentially render
+            try:
+                WebDriverWait(driver, 10).until(EC.staleness_of(current_tbody))
+            except TimeoutException:
+                logger.LoggerFactory.logbot.debug("목록 tbody가 stale 상태로 바뀌지 않아 현재 DOM 기준으로 계속 진행합니다.")
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, f"#{settings.titletable} tbody tr"))
+            )
+            sleep(1)
         except (NoSuchElementException, TimeoutException):
             logger.LoggerFactory.logbot.info("'다음' 버튼을 찾거나 클릭할 수 없어 크롤링을 종료합니다.")
             break

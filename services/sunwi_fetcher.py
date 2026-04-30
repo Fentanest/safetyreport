@@ -10,21 +10,50 @@ from urllib3.util.retry import Retry
 
 BASE_URL = "https://www.safetyreport.go.kr/api/v1/portal/introduction/safeSingoStatistics"
 
-TARGET_CATEGORIES = [
-    "소화전",
-    "교차로 모퉁이",
-    "버스정류소",
-    "횡단보도",
-    "어린이보호구역",
-    "인도",
-    "장애인전용구역",
-    "기타불법주정차",
-    "소방차전용구역",
-    "친환경차충전구역",
-    "자동차 안전신고",
-    "교통위반(고속도로 포함)",
-    "이륜차 위반",
+CATEGORY_GROUPS = [
+    {
+        "name": "불법주정차신고",
+        "children": [
+            "소화전",
+            "교차로 모퉁이",
+            "버스정류소",
+            "횡단보도",
+            "어린이보호구역",
+            "인도",
+            "장애인전용구역",
+            "기타불법주정차",
+            "소방차전용구역",
+            "친환경차충전구역",
+        ],
+    },
+    {
+        "name": "자동차·교통위반",
+        "children": [
+            "자동차 안전신고",
+            "교통위반(고속도로 포함)",
+            "이륜차 위반",
+            "(구)적재물 추락방지,중량·용량 위반",
+            "버스전용차로 위반(고속도로제외)",
+            "번호판 규정 위반",
+            "불법등화, 반사판(지) 가림·손상",
+            "불법 튜닝, 해체, 조작",
+            "기타 자동차 안전기준 위반",
+            "난폭/보복운전",
+        ],
+    },
 ]
+
+TARGET_CATEGORIES = [
+    child
+    for group in CATEGORY_GROUPS
+    for child in group["children"]
+]
+
+CATEGORY_LOOKUP = {
+    child: group["name"]
+    for group in CATEGORY_GROUPS
+    for child in group["children"]
+}
 
 REGIONS = {
     "서울특별시": {
@@ -288,55 +317,77 @@ def extract_count(item):
     except Exception:
         return 0
 
+
+def get_parent_category_name(subcategory):
+    return CATEGORY_LOOKUP.get(subcategory, "")
+
+
+def get_category_label(subcategory):
+    parent = get_parent_category_name(subcategory)
+    if not parent:
+        return subcategory
+    return f"{parent} > {subcategory}"
+
 def save_all_rows_csv(rows, filename):
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["시도", "시군구", "항목", "건수"]
+            fieldnames=["카테고리", "대분류", "소분류", "시도", "시군구", "건수"]
         )
         writer.writeheader()
         writer.writerows(rows)
 
-def save_top3_csv(top3_rows, filename):
+def save_top5_csv(top5_rows, filename):
     with open(filename, "w", newline="", encoding="utf-8-sig") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["항목", "순위", "시도", "시군구", "건수"]
+            fieldnames=["카테고리", "대분류", "소분류", "순위", "시도", "시군구", "건수"]
         )
         writer.writeheader()
-        writer.writerows(top3_rows)
+        writer.writerows(top5_rows)
 
 
-def build_top3_rows(category_ranking):
-    top3_csv_rows = []
-    top3_by_category = []
+def build_top5_rows(category_ranking):
+    top5_csv_rows = []
+    top5_by_category = []
 
-    for category in TARGET_CATEGORIES:
-        rows = sorted(category_ranking[category], key=lambda x: x["건수"], reverse=True)[:3]
-        category_items = []
-        for idx, row in enumerate(rows, 1):
-            item = {
-                "rank": idx,
-                "sido": row["시도"],
-                "sigungu": row["시군구"],
-                "count": row["건수"],
-                "region": f"{row['시도']} {row['시군구']}",
-            }
-            category_items.append(item)
-            top3_csv_rows.append({
-                "항목": category,
-                "순위": idx,
-                "시도": row["시도"],
-                "시군구": row["시군구"],
-                "건수": row["건수"],
+    for group in CATEGORY_GROUPS:
+        group_entry = {
+            "name": group["name"],
+            "children": [],
+        }
+
+        for subcategory in group["children"]:
+            rows = sorted(category_ranking[subcategory], key=lambda x: x["건수"], reverse=True)[:5]
+            category_items = []
+            for idx, row in enumerate(rows, 1):
+                item = {
+                    "rank": idx,
+                    "sido": row["시도"],
+                    "sigungu": row["시군구"],
+                    "count": row["건수"],
+                    "region": f"{row['시도']} {row['시군구']}",
+                }
+                category_items.append(item)
+                top5_csv_rows.append({
+                    "카테고리": get_category_label(subcategory),
+                    "대분류": group["name"],
+                    "소분류": subcategory,
+                    "순위": idx,
+                    "시도": row["시도"],
+                    "시군구": row["시군구"],
+                    "건수": row["건수"],
+                })
+
+            group_entry["children"].append({
+                "name": subcategory,
+                "full_name": get_category_label(subcategory),
+                "items": category_items,
             })
 
-        top3_by_category.append({
-            "name": category,
-            "items": category_items,
-        })
+        top5_by_category.append(group_entry)
 
-    return top3_csv_rows, top3_by_category
+    return top5_csv_rows, top5_by_category
 
 
 def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1):
@@ -372,15 +423,18 @@ def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1
 
                 for category in TARGET_CATEGORIES:
                     cnt = row_map.get(category, 0)
+                    parent = get_parent_category_name(category)
                     category_ranking[category].append({
                         "시도": sido_name,
                         "시군구": sigungu_name,
                         "건수": cnt,
                     })
                     all_rows.append({
+                        "카테고리": get_category_label(category),
+                        "대분류": parent,
+                        "소분류": category,
                         "시도": sido_name,
                         "시군구": sigungu_name,
-                        "항목": category,
                         "건수": cnt,
                     })
 
@@ -420,15 +474,18 @@ def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1
 
                 for category in TARGET_CATEGORIES:
                     cnt = row_map.get(category, 0)
+                    parent = get_parent_category_name(category)
                     category_ranking[category].append({
                         "시도": item["시도"],
                         "시군구": item["시군구"],
                         "건수": cnt,
                     })
                     all_rows.append({
+                        "카테고리": get_category_label(category),
+                        "대분류": parent,
+                        "소분류": category,
                         "시도": item["시도"],
                         "시군구": item["시군구"],
-                        "항목": category,
                         "건수": cnt,
                     })
 
@@ -439,13 +496,13 @@ def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1
 
         failed = retry_failed
 
-    top3_csv_rows, top3_by_category = build_top3_rows(category_ranking)
+    top5_csv_rows, top5_by_category = build_top5_rows(category_ranking)
     return {
         "period": target_yyyymm,
         "period_label": format_period_label(target_yyyymm),
         "all_rows": all_rows,
-        "top3_rows": top3_csv_rows,
-        "top3_by_category": top3_by_category,
+        "top5_rows": top5_csv_rows,
+        "top5_by_category": top5_by_category,
         "failed": failed,
     }
 
@@ -453,21 +510,23 @@ def main():
     result = collect_statistics()
     period = result["period"]
     all_csv = f"safetyreport_category_all_{period}.csv"
-    top3_csv = f"safetyreport_category_top3_{period}.csv"
+    top5_csv = f"safetyreport_category_top5_{period}.csv"
 
-    print("\n=== 항목별 전국 TOP 3 ===\n")
-    for category_info in result["top3_by_category"]:
-        print(f"[{category_info['name']}]")
-        for item in category_info["items"]:
-            print(f"{item['rank']}위: {item['region']} - {item['count']}건")
-        print()
+    print("\n=== 항목별 전국 TOP 5 ===\n")
+    for group_info in result["top5_by_category"]:
+        print(f"[{group_info['name']}]")
+        for category_info in group_info["children"]:
+            print(f"  - {category_info['name']}")
+            for item in category_info["items"]:
+                print(f"    {item['rank']}위: {item['region']} - {item['count']}건")
+            print()
 
     save_all_rows_csv(result["all_rows"], all_csv)
-    save_top3_csv(result["top3_rows"], top3_csv)
+    save_top5_csv(result["top5_rows"], top5_csv)
 
     print("=== 저장 완료 ===")
     print(f"전체 데이터 CSV: {all_csv}")
-    print(f"TOP3 데이터 CSV: {top3_csv}")
+    print(f"TOP5 데이터 CSV: {top5_csv}")
 
     if result["failed"]:
         print("\n=== 끝까지 실패한 지역 ===")

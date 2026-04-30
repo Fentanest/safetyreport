@@ -10,7 +10,7 @@ from services import sunwi_fetcher
 
 REFRESH_INTERVAL_SECONDS = 3 * 60 * 60
 ALL_CSV_FILENAME = "sunwi_category_all_latest.csv"
-TOP3_CSV_FILENAME = "sunwi_category_top3_latest.csv"
+TOP5_CSV_FILENAME = "sunwi_category_top5_latest.csv"
 
 _cache_lock = threading.Lock()
 _stop_event = threading.Event()
@@ -61,22 +61,26 @@ def get_all_csv_path() -> str:
     return os.path.join(_results_dir(), ALL_CSV_FILENAME)
 
 
-def get_top3_csv_path() -> str:
-    return os.path.join(_results_dir(), TOP3_CSV_FILENAME)
+def get_top5_csv_path() -> str:
+    return os.path.join(_results_dir(), TOP5_CSV_FILENAME)
 
 
 def refresh_data() -> dict:
     result = sunwi_fetcher.collect_statistics(logger_fn=_log_adapter)
     sunwi_fetcher.save_all_rows_csv(result["all_rows"], get_all_csv_path())
-    sunwi_fetcher.save_top3_csv(result["top3_rows"], get_top3_csv_path())
+    sunwi_fetcher.save_top5_csv(result["top5_rows"], get_top5_csv_path())
 
     updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     payload = {
-        "available": any(category["items"] for category in result["top3_by_category"]),
+        "available": any(
+            child["items"]
+            for group in result["top5_by_category"]
+            for child in group["children"]
+        ),
         "period": result["period"],
         "period_label": result["period_label"],
         "updated_at": updated_at,
-        "categories": result["top3_by_category"],
+        "categories": result["top5_by_category"],
         "error": None,
         "failed_count": len(result["failed"]),
     }
@@ -96,7 +100,7 @@ def get_dashboard_payload() -> dict:
     with _cache_lock:
         payload = copy.deepcopy(_cache)
 
-    payload["csv_download_url"] = "/sunwi/download/top3"
+    payload["csv_download_url"] = "/sunwi/download/top5"
     return payload
 
 

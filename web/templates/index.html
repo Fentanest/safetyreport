@@ -18,27 +18,38 @@
         border-radius: 999px;
         flex: 0 0 auto;
     }
-    .sunwi-category-title {
+    .sunwi-nav-stack {
         flex: 1;
-        font-size: 1rem;
-        font-weight: 700;
         text-align: center;
         line-height: 1.3;
     }
-    .sunwi-content-meta {
-        flex: 1;
-        text-align: center;
-        font-size: 0.82rem;
+    .sunwi-nav-label {
+        font-size: 0.76rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
         color: #6c757d;
+        text-transform: uppercase;
+    }
+    .sunwi-category-title {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #212529;
+    }
+    .sunwi-subcategory-title {
+        font-size: 0.95rem;
+        font-weight: 700;
+        color: #0d6efd;
     }
     .sunwi-items {
-        min-height: 250px;
+        min-height: 420px;
     }
     .sunwi-item-card {
-        height: 100%;
+        display: flex;
+        align-items: center;
+        gap: 14px;
         border: 1px solid #e9ecef;
         border-radius: 16px;
-        padding: 14px;
+        padding: 14px 16px;
         background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
         box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
     }
@@ -64,10 +75,18 @@
         font-weight: 700;
         line-height: 1.45;
         color: #212529;
-        min-height: 3.1em;
+        min-height: 0;
+    }
+    .sunwi-item-main {
+        flex: 1;
+        min-width: 0;
+    }
+    .sunwi-count-wrap {
+        text-align: right;
+        flex: 0 0 auto;
     }
     .sunwi-count {
-        font-size: 1.5rem;
+        font-size: 1.35rem;
         font-weight: 800;
         color: #0d6efd;
     }
@@ -254,7 +273,7 @@
             <div class="card-header bg-white border-0 pb-0">
                 <div class="d-flex justify-content-between align-items-start gap-3">
                     <div>
-                        <h5 class="fw-bold mb-1 text-dark"><i class="fas fa-map-marked-alt me-2 text-info"></i>행정구역별 Top 3</h5>
+                        <h5 class="fw-bold mb-1 text-dark"><i class="fas fa-map-marked-alt me-2 text-info"></i>행정구역별 Top 5</h5>
                         <div class="small text-muted">{{ sunwi.period_label or '수집 대기 중' }} 기준</div>
                     </div>
                     <div class="small text-muted text-end">
@@ -270,21 +289,27 @@
             <div class="card-body">
                 {% if sunwi.available and sunwi.categories %}
                 <div class="sunwi-nav mb-3">
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="sunwiPrevCategory" aria-label="이전 카테고리">
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="sunwiPrevParentCategory" aria-label="이전 대분류">
                         <i class="fas fa-chevron-left"></i>
                     </button>
-                    <div class="sunwi-category-title" id="sunwiCategoryName"></div>
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="sunwiNextCategory" aria-label="다음 카테고리">
+                    <div class="sunwi-nav-stack">
+                        <div class="sunwi-nav-label">대분류</div>
+                        <div class="sunwi-category-title" id="sunwiParentCategoryName"></div>
+                    </div>
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="sunwiNextParentCategory" aria-label="다음 대분류">
                         <i class="fas fa-chevron-right"></i>
                     </button>
                 </div>
 
                 <div class="sunwi-nav mb-3">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="sunwiPrevContent" aria-label="이전 내용">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="sunwiPrevChildCategory" aria-label="이전 소분류">
                         <i class="fas fa-chevron-left"></i>
                     </button>
-                    <div class="sunwi-content-meta" id="sunwiContentMeta"></div>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="sunwiNextContent" aria-label="다음 내용">
+                    <div class="sunwi-nav-stack">
+                        <div class="sunwi-nav-label">소분류</div>
+                        <div class="sunwi-subcategory-title" id="sunwiChildCategoryName"></div>
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="sunwiNextChildCategory" aria-label="다음 소분류">
                         <i class="fas fa-chevron-right"></i>
                     </button>
                 </div>
@@ -293,7 +318,7 @@
 
                 <div class="pt-3">
                     <div class="small text-muted">
-                        자동으로 5초마다 전환됩니다.
+                        대분류와 소분류는 5초마다 자동으로 전환됩니다.
                         {% if sunwi.failed_count %}
                         일부 재시도 실패 지역 {{ sunwi.failed_count }}건이 있습니다.
                         {% endif %}
@@ -447,44 +472,37 @@
         var state = {
             categories: sunwiData.categories,
             categoryIndex: 0,
-            contentIndex: 0,
+            childIndex: 0,
             timerId: null
         };
 
-        var categoryNameEl = document.getElementById('sunwiCategoryName');
-        var contentMetaEl = document.getElementById('sunwiContentMeta');
+        var parentCategoryNameEl = document.getElementById('sunwiParentCategoryName');
+        var childCategoryNameEl = document.getElementById('sunwiChildCategoryName');
         var itemsEl = document.getElementById('sunwiItems');
-        var prevCategoryBtn = document.getElementById('sunwiPrevCategory');
-        var nextCategoryBtn = document.getElementById('sunwiNextCategory');
-        var prevContentBtn = document.getElementById('sunwiPrevContent');
-        var nextContentBtn = document.getElementById('sunwiNextContent');
+        var prevParentCategoryBtn = document.getElementById('sunwiPrevParentCategory');
+        var nextParentCategoryBtn = document.getElementById('sunwiNextParentCategory');
+        var prevChildCategoryBtn = document.getElementById('sunwiPrevChildCategory');
+        var nextChildCategoryBtn = document.getElementById('sunwiNextChildCategory');
 
         function mod(index, size) {
             return (index % size + size) % size;
         }
 
-        function getCurrentCategory() {
+        function getCurrentCategoryGroup() {
             return state.categories[state.categoryIndex];
         }
 
-        function getWindowCount(items) {
-            if (!items || items.length <= 2) {
-                return 1;
-            }
-            return items.length;
+        function getCurrentChildren() {
+            var group = getCurrentCategoryGroup();
+            return Array.isArray(group.children) ? group.children : [];
         }
 
-        function getVisibleItems(items) {
-            if (!items || !items.length) {
-                return [];
+        function getCurrentCategory() {
+            var children = getCurrentChildren();
+            if (!children.length) {
+                return { name: '', full_name: '', items: [] };
             }
-            if (items.length <= 2) {
-                return items.slice();
-            }
-            return [
-                items[state.contentIndex],
-                items[(state.contentIndex + 1) % items.length]
-            ];
+            return children[state.childIndex];
         }
 
         function renderItems(items) {
@@ -492,15 +510,18 @@
             items.forEach(function (item) {
                 var badgeClass = item.rank === 2 ? 'rank-2' : (item.rank === 3 ? 'rank-3' : '');
                 html += '' +
-                    '<div class="' + (items.length === 1 ? 'col-12' : 'col-6') + '">' +
+                    '<div class="col-12">' +
                     '  <div class="sunwi-item-card">' +
-                    '    <div class="d-flex justify-content-between align-items-center mb-3">' +
+                    '    <div>' +
                     '      <span class="sunwi-rank-badge ' + badgeClass + '">' + item.rank + '위</span>' +
-                    '      <span class="sunwi-subtext">행정구역</span>' +
                     '    </div>' +
-                    '    <div class="sunwi-region mb-3">' + item.region + '</div>' +
-                    '    <div class="sunwi-count">' + Number(item.count || 0).toLocaleString() + '<span class="fs-6 ms-1">건</span></div>' +
-                    '    <div class="sunwi-subtext mt-2">' + item.sido + ' · ' + item.sigungu + '</div>' +
+                    '    <div class="sunwi-item-main">' +
+                    '      <div class="sunwi-region">' + item.region + '</div>' +
+                    '      <div class="sunwi-subtext mt-1">' + item.sido + ' · ' + item.sigungu + '</div>' +
+                    '    </div>' +
+                    '    <div class="sunwi-count-wrap">' +
+                    '      <div class="sunwi-count">' + Number(item.count || 0).toLocaleString() + '<span class="fs-6 ms-1">건</span></div>' +
+                    '    </div>' +
                     '  </div>' +
                     '</div>';
             });
@@ -509,18 +530,24 @@
 
         function render() {
             var category = getCurrentCategory();
+            var group = getCurrentCategoryGroup();
+            var children = getCurrentChildren();
+            if (children.length && state.childIndex >= children.length) {
+                state.childIndex = 0;
+                category = getCurrentCategory();
+            }
             var items = category.items || [];
-            var visibleItems = getVisibleItems(items);
-            var windowCount = getWindowCount(items);
 
-            categoryNameEl.textContent = category.name + ' (' + (state.categoryIndex + 1) + '/' + state.categories.length + ')';
-            contentMetaEl.textContent = items.length ? ('Top ' + visibleItems.map(function (item) { return item.rank; }).join(' · ') + ' / 총 ' + items.length + '건') : '데이터 없음';
-            renderItems(visibleItems);
+            parentCategoryNameEl.textContent = group.name + ' (' + (state.categoryIndex + 1) + '/' + state.categories.length + ')';
+            childCategoryNameEl.textContent = category.name
+                ? (category.name + ' (' + (state.childIndex + 1) + '/' + children.length + ')')
+                : '데이터 없음';
+            renderItems(items);
 
-            prevCategoryBtn.disabled = state.categories.length <= 1;
-            nextCategoryBtn.disabled = state.categories.length <= 1;
-            prevContentBtn.disabled = windowCount <= 1;
-            nextContentBtn.disabled = windowCount <= 1;
+            prevParentCategoryBtn.disabled = state.categories.length <= 1;
+            nextParentCategoryBtn.disabled = state.categories.length <= 1;
+            prevChildCategoryBtn.disabled = children.length <= 1;
+            nextChildCategoryBtn.disabled = children.length <= 1;
         }
 
         function resetTimer() {
@@ -528,47 +555,50 @@
                 window.clearInterval(state.timerId);
             }
             state.timerId = window.setInterval(function () {
-                var items = getCurrentCategory().items || [];
-                var windowCount = getWindowCount(items);
-
-                if (windowCount > 1) {
-                    state.contentIndex = mod(state.contentIndex + 1, windowCount);
-                    if (state.contentIndex === 0 && state.categories.length > 1) {
+                var children = getCurrentChildren();
+                if (children.length > 1) {
+                    state.childIndex = mod(state.childIndex + 1, children.length);
+                    if (state.childIndex === 0 && state.categories.length > 1) {
                         state.categoryIndex = mod(state.categoryIndex + 1, state.categories.length);
                     }
                 } else if (state.categories.length > 1) {
                     state.categoryIndex = mod(state.categoryIndex + 1, state.categories.length);
+                    state.childIndex = 0;
                 }
                 render();
             }, 5000);
         }
 
-        prevCategoryBtn.addEventListener('click', function () {
+        prevParentCategoryBtn.addEventListener('click', function () {
             state.categoryIndex = mod(state.categoryIndex - 1, state.categories.length);
-            state.contentIndex = 0;
+            state.childIndex = 0;
             render();
             resetTimer();
         });
 
-        nextCategoryBtn.addEventListener('click', function () {
+        nextParentCategoryBtn.addEventListener('click', function () {
             state.categoryIndex = mod(state.categoryIndex + 1, state.categories.length);
-            state.contentIndex = 0;
+            state.childIndex = 0;
             render();
             resetTimer();
         });
 
-        prevContentBtn.addEventListener('click', function () {
-            var items = getCurrentCategory().items || [];
-            var windowCount = getWindowCount(items);
-            state.contentIndex = mod(state.contentIndex - 1, windowCount);
+        prevChildCategoryBtn.addEventListener('click', function () {
+            var children = getCurrentChildren();
+            if (children.length <= 1) {
+                return;
+            }
+            state.childIndex = mod(state.childIndex - 1, children.length);
             render();
             resetTimer();
         });
 
-        nextContentBtn.addEventListener('click', function () {
-            var items = getCurrentCategory().items || [];
-            var windowCount = getWindowCount(items);
-            state.contentIndex = mod(state.contentIndex + 1, windowCount);
+        nextChildCategoryBtn.addEventListener('click', function () {
+            var children = getCurrentChildren();
+            if (children.length <= 1) {
+                return;
+            }
+            state.childIndex = mod(state.childIndex + 1, children.length);
             render();
             resetTimer();
         });

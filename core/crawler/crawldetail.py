@@ -12,6 +12,20 @@ from core.utils import logger
 import services.parser as doc_parser
 from services import satisfaction_fetcher
 
+
+def _get_latest_result_table_soup(driver):
+    """처리결과 테이블이 여러 개인 경우 마지막 테이블을 최신 답변으로 사용한다."""
+    result_table_xpath = "//div[contains(@class, 'singo')]//table[.//th[text()='처리내용']]"
+    WebDriverWait(driver, 5).until(
+        EC.presence_of_element_located((By.XPATH, result_table_xpath))
+    )
+    result_table_elements = driver.find_elements(By.XPATH, result_table_xpath)
+    if not result_table_elements:
+        return None, 0
+
+    latest_table = result_table_elements[-1]
+    return BeautifulSoup(latest_table.get_attribute('outerHTML'), 'html.parser'), len(result_table_elements)
+
 def crawl_details(driver, list):
     """Crawls the detail page for each report link."""
     for link in list:
@@ -43,14 +57,10 @@ def crawl_details(driver, list):
             # If the report is not in progress or withdrawn, wait for the result table
             if progress_status not in ['진행', '취하']:
                 try:
-                    result_table_xpath = "//div[contains(@class, 'singo') and .//th[text()='처리내용']]"
-                    WebDriverWait(driver, 5).until(
-                        EC.presence_of_element_located((By.XPATH, result_table_xpath))
+                    result_soup, result_table_count = _get_latest_result_table_soup(driver)
+                    logger.LoggerFactory.logbot.debug(
+                        f"Processing result table found (using last of {result_table_count})."
                     )
-                    # 처리결과 테이블이 여러 개인 경우(수정 이력) 마지막 것이 최신 답변
-                    result_table_elements = driver.find_elements(By.XPATH, result_table_xpath)
-                    result_soup = BeautifulSoup(result_table_elements[-1].get_attribute('outerHTML'), 'html.parser')
-                    logger.LoggerFactory.logbot.debug(f"Processing result table found (using last of {len(result_table_elements)}).")
                 except Exception:
                     logger.LoggerFactory.logbot.debug("Processing result table not found, but was expected.")
             else:

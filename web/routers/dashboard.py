@@ -31,9 +31,9 @@ async def dashboard(request: Request):
     })
 
 
-@router.get("/sunwi/download/top3")
-async def download_sunwi_top3_csv():
-    csv_path = sunwi_service.get_top3_csv_path()
+@router.get("/sunwi/download/top5")
+async def download_sunwi_top5_csv():
+    csv_path = sunwi_service.get_top5_csv_path()
     if not os.path.exists(csv_path):
         raise HTTPException(status_code=404, detail="CSV file not found")
 

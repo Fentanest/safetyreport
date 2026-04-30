@@ -5,8 +5,8 @@
 
 ## 작업 규칙
 - 작업 완료 후: 구조 변경은 CLAUDE.md, 작업 이력은 CHANGELOG.md에 기록 + 코드 git 커밋
-- CLAUDE.md 자체는 git에 커밋하지 않음 (로컬 전용)
 - 구조/운영 메모는 CLAUDE.md, 작업/버그/세션 이력은 CHANGELOG.md로 분리 관리
+- `CLAUDE.md`, `CHANGELOG.md`는 git 추적 대상이고, `REFACTOR.md`는 로컬 원문 보관용이다.
 
 ---
 
@@ -50,8 +50,8 @@
 │   ├── parser.py                # HTML/JSON 파싱 (과태료, 처리상태 등)
 │   ├── satisfaction_fetcher.py  # 만족도조사 점수+사유 조회 (HTTP + Selenium)
 │   ├── star_rating_service.py   # 별점 배치 처리
-│   ├── sunwi_fetcher.py         # 안전신문고 통계 API 수집/Top3 CSV 가공 유틸
-│   ├── sunwi_service.py         # 행정구역별 안전신문고 Top3 수집/캐시/CSV 저장
+│   ├── sunwi_fetcher.py         # 안전신문고 통계 API 수집/대분류-소분류 Top5 CSV 가공 유틸
+│   ├── sunwi_service.py         # 행정구역별 안전신문고 Top5 수집/캐시/CSV 저장
 │   └── ws_manager.py            # WebSocket 클라이언트 연결 관리 싱글톤
 ├── web/
 │   ├── routers/
@@ -98,8 +98,10 @@
   - `legacy`: Selenium 로그인 + Selenium HTML 파싱
   - `api`: `direct_login` + `curl_cffi` API 호출
   - `api fallback`: direct login 실패 시 Selenium 로그인 후 브라우저 컨텍스트 `$.get` API 호출
+- `legacy` 상세 파서는 처리결과가 여러 개일 때 마지막 `처리결과` 테이블을 최신 답변으로 사용한다.
+- `legacy` 목록 파서는 페이지 전환 중 `stale element reference`가 나면 같은 페이지를 다시 읽도록 재시도한다.
 - 비회원 모드는 direct login을 타지 않고, Chrome 창에서 사용자가 로그인한 뒤 `재개` 신호를 기다리는 수동 흐름이다.
-- `sunwi_service`는 로그인 없이 안전신문고 통계 API를 별도로 호출하고, 서버 시작 후 즉시 1회 + 이후 3시간마다 행정구역별 카테고리 Top3를 갱신한다.
+- `sunwi_service`는 로그인 없이 안전신문고 통계 API를 별도로 호출하고, 서버 시작 후 즉시 1회 + 이후 3시간마다 대분류/소분류 기준 행정구역 Top5를 갱신한다.
 - 빌드 계층은 `scripts/build/build_exe.py`와 `.github/workflows/*.yml`이 담당한다.
   - `build.yml`: 정식 릴리즈 (macOS x64 + arm64 포함)
   - `build-macos-manual.yml`: 태그 체크 없이 수동으로 macOS x64/arm64 아티팩트만 생성

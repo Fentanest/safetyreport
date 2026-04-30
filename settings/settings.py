@@ -67,7 +67,7 @@ class AppSettings:
         self.crawl_type = 'api' if raw_crawl_type == 'api' else 'legacy'
         self.exclude_withdraw = self.config.getboolean('SETTINGS', 'exclude_withdraw', fallback=True)
         self.retry_interval = int(self.config.get('SETTINGS', 'retry_interval', fallback=10))
-        self.max_retry_attemps = int(self.config.get('SETTINGS', 'max_retry_attemps', fallback=3))
+        self.max_retry_attemps = int(self.config.get('SETTINGS', 'max_retry_attemps', fallback=5))
         self.max_empty_pages = int(self.config.get('SETTINGS', 'max_empty_pages', fallback=3))
         self.session_max_age = int(self.config.get('SETTINGS', 'session_max_age', fallback=10800))
         self.log_level = self.config.get('SETTINGS', 'log_level', fallback="INFO")

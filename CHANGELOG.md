@@ -8,6 +8,55 @@
 
 ---
 
+## 2026-05-01
+
+### 레거시 크롤러 응답 선택/페이지 안정화
+
+상태: 완료
+
+변경:
+- `core/crawler/crawldetail.py`
+  - 레거시 상세 페이지에 `처리결과` 테이블이 여러 개 있을 때 마지막 테이블을 최신 답변으로 선택
+  - `testresults/57250864_legacy_raw.html` 기준으로 `불수용`이 아닌 `수용 / 과태료 50,000원` 응답을 읽도록 수정
+- `core/crawler/crawltitle.py`
+  - 페이지 이동 후 `tbody` 교체를 기다리도록 보강
+  - `stale element reference` 발생 시 같은 페이지 스크래핑을 최대 3회 재시도하도록 수정
+
+### 행정구역별 Top5 대시보드 2중 카테고리 개편
+
+상태: 완료
+
+구성:
+- `services/sunwi_fetcher.py`
+  - `CATEGORY_GROUPS` 기반 대분류/소분류 구조 도입
+  - 대분류
+    - `불법주정차신고`
+    - `자동차·교통위반`
+  - 각 소분류별 전국 Top5 산출
+  - CSV 컬럼을 `카테고리`, `대분류`, `소분류` 포함 형태로 확장
+- `services/sunwi_service.py`
+  - 대분류/소분류 중첩 구조를 캐시에 저장하도록 변경
+  - 다운로드 파일명을 `sunwi_category_top5_latest.csv`로 유지하면서 새 컬럼 구조 반영
+- `web/routers/dashboard.py`
+  - `/sunwi/download/top5` 경로 유지
+- `web/templates/index.html`
+  - 대시보드 우측 카드에 대분류/소분류 화살표를 각각 배치
+  - 부모 변경 시 소분류 인덱스 초기화
+  - 5초 자동 전환은 소분류 기준으로 순환하고, 끝에 도달하면 다음 대분류로 이동
+  - 카드 본문은 선택된 소분류의 Top5 행정구역을 세로 스택으로 표시
+
+### 설정 기본값 조정
+
+상태: 완료
+
+변경:
+- `settings/settings.py`
+  - `max_retry_attemps` 기본 fallback 값을 `3`에서 `5`로 변경
+- `web/routers/settings_route.py`
+  - 설정 페이지 표시 기본값과 폼 기본값도 `5`로 동기화
+
+---
+
 ## 2026-04-30
 
 ### 문서 정리
