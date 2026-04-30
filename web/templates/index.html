@@ -271,17 +271,13 @@
     <div class="col-xl-4">
         <div class="card card-custom sunwi-card">
             <div class="card-header bg-white border-0 pb-0">
-                <div class="d-flex justify-content-between align-items-start gap-3">
+                <div>
                     <div>
-                        <h5 class="fw-bold mb-1 text-dark"><i class="fas fa-map-marked-alt me-2 text-info"></i>행정구역별 Top 5</h5>
-                        <div class="small text-muted">{{ sunwi.period_label or '수집 대기 중' }} 기준</div>
-                    </div>
-                    <div class="small text-muted text-end">
+                        <h5 class="fw-bold mb-1 text-dark"><i class="fas fa-map-marked-alt me-2 text-info"></i>안전신문고 안전신고 통계</h5>
                         {% if sunwi.updated_at %}
-                        <div>업데이트</div>
-                        <div>{{ sunwi.updated_at }}</div>
+                        <div class="small text-muted">전일기준 · 수집시간 {{ sunwi.updated_at }}</div>
                         {% else %}
-                        <div>수집 준비 중</div>
+                        <div class="small text-muted">전일기준 · 수집 준비 중</div>
                         {% endif %}
                     </div>
                 </div>
