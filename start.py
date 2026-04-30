@@ -270,12 +270,16 @@ def _inject_session_into_driver(driver):
                 logger.LoggerFactory.logbot.warning(f"쿠키 주입 실패 ({c['name']}): {e}")
         # 쿠키 적용된 상태로 마이페이지 진입 → 로그인 효과
         driver.get(settings.myreporturl)
-        time.sleep(2)
-        logger.LoggerFactory.logbot.info("driver에 직접 로그인 세션 주입 완료.")
+        if login.wait_for_logged_in(driver, timeout=15):
+            logger.LoggerFactory.logbot.info("driver에 직접 로그인 세션 주입 완료.")
+            return True
+
+        logger.LoggerFactory.logbot.warning(
+            "쿠키 주입 후에도 로그인 상태가 확인되지 않아 Selenium UI 로그인으로 fallback 합니다."
+        )
     except Exception as e:
         logger.LoggerFactory.logbot.error(f"세션 주입 중 오류: {e}")
-        # 백업 경로: selenium UI 로그인
-        login.login_mysafety(driver=driver)
+    return login.login_mysafety(driver=driver)
 
 
 def wait_for_resume_signal():
@@ -335,9 +339,12 @@ def main():
                 wait_for_resume_signal()
             else:
                 if direct_login_ok:
-                    _inject_session_into_driver(driver)
+                    login_ok = _inject_session_into_driver(driver)
                 else:
-                    login.login_mysafety(driver=driver)
+                    login_ok = login.login_mysafety(driver=driver)
+
+                if not login_ok:
+                    raise RuntimeError("안전신문고 Selenium 로그인에 실패했습니다.")
                 if settings.telegram_enabled:
                     if is_frozen:
                         subprocess.run([sys.executable, "--mode", "notify"], input="안전신문고 로그인에 성공했습니다.", text=True)
