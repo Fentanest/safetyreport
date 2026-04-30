@@ -1,0 +1,108 @@
+name: Build macOS ARM64 Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+
+concurrency:
+  group: build-macos-arm64-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos-arm64:
+    runs-on: macos-15
+    permissions:
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Read build metadata
+      id: meta
+      run: |
+        versionString=$(tr -d '[:space:]' < VERSION)
+        if [ -z "$versionString" ]; then
+          echo "::error::VERSION 파일에서 버전을 읽을 수 없습니다."
+          exit 1
+        fi
+        echo "version=$versionString" >> "$GITHUB_OUTPUT"
+        echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        echo "Version: $versionString"
+        echo "Commit: ${GITHUB_SHA::7}"
+
+    - name: Clean previous build artifacts
+      run: rm -rf venv build dist
+
+    - name: Check Xcode Command Line Tools
+      run: |
+        set -euo pipefail
+
+        DEV_PATH=$(xcode-select -p)
+        echo "Using developer tools: $DEV_PATH"
+
+        if ! xcrun --find lipo >/dev/null 2>&1; then
+          echo "::error::developer tools 안에서 'lipo' 를 찾지 못했습니다."
+          exit 1
+        fi
+
+    - name: Set up Python 3.14 (arm64)
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.14'
+        architecture: 'arm64'
+
+    - name: Display Python runtime information
+      run: |
+        set -euo pipefail
+        python -c 'import platform, sys; print("Python:", sys.version); print("Machine:", platform.machine()); print("Executable:", sys.executable)'
+        file "$(python -c 'import sys; print(sys.executable)')"
+        lipo -archs "$(python -c 'import sys; print(sys.executable)')"
+
+    - name: Create virtual environment and install dependencies
+      run: |
+        python -m venv venv
+        ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
+        ./venv/bin/pip install --no-cache-dir -r requirements.txt
+        ./venv/bin/pip install --no-cache-dir pyinstaller
+
+    - name: Diagnose macOS arm64 Python environment
+      run: |
+        ./venv/bin/python scripts/build/check_macos_universal2.py \
+          --root venv \
+          --expected-arch arm64 \
+          --fail-if-empty
+
+    - name: Build macOS arm64 executable with PyInstaller
+      env:
+        PYINSTALLER_TARGET_ARCH: arm64
+      run: ./venv/bin/python scripts/build/build_exe.py
+
+    - name: Diagnose macOS arm64 bundle
+      run: |
+        ./venv/bin/python scripts/build/check_macos_universal2.py \
+          --root dist/mysafetyreport \
+          --expected-arch arm64 \
+          --fail-if-empty
+
+    - name: Ensure launchers are executable
+      run: |
+        chmod +x dist/mysafetyreport/mysafetyreport
+        if [ -f dist/mysafetyreport/run.command ]; then
+          chmod +x dist/mysafetyreport/run.command
+        fi
+
+    - name: Package macOS arm64 build into Zip
+      run: |
+        cd dist/mysafetyreport
+        zip -r ../../mysafetyreport-macos-arm64-test.zip .
+
+    - name: Upload macOS arm64 artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-macos-arm64-test-v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.short_sha }}
+        path: mysafetyreport-macos-arm64-test.zip

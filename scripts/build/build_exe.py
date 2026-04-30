@@ -58,6 +58,7 @@ def build():
         '--hidden-import=webdriver_manager',
         '--hidden-import=webdriver_manager.chrome',
         '--hidden-import=gspread',
+        '--collect-data=certifi',
         # Exclude unused stdlib & packages to reduce bundle size
         '--exclude-module=tkinter',
         '--exclude-module=setuptools',

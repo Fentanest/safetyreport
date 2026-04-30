@@ -9,11 +9,10 @@
 - 개발 환경: git pull 안내 메시지만 출력
 
 GitHub Releases 에셋 명명 규칙 (build.yml 기준):
-  mysafetyreport-win.zip        ← Windows x64
-  mysafetyreport-linux.zip      ← Linux x64
-  mysafetyreport-macos-intel.zip ← macOS Intel
-  mysafetyreport-macos-arm64.zip ← macOS Apple Silicon
-  # mysafetyreport-linux-arm64.zip  ← ARM64 (빌드 비활성화)
+  mysafetyreport-win.zip       ← Windows x64
+  mysafetyreport-linux.zip     ← Linux x64
+  mysafetyreport-macos-x64.zip ← macOS x64
+  # mysafetyreport-linux-arm64.zip ← ARM64 (빌드 비활성화)
 """
 
 import os
@@ -22,6 +21,7 @@ import tempfile
 import zipfile
 import shutil
 import platform
+import ssl
 
 GITHUB_REPO = "Fentanest/safetyreport"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
@@ -31,9 +31,30 @@ GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
 _latest_version_cache: dict = {}   # {"version": str, "expires": float}
 
 
+def _build_ssl_context():
+    """패키징 환경에서도 certifi 번들을 우선 사용해 HTTPS 검증이 되도록 한다."""
+    try:
+        import certifi
+        cafile = certifi.where()
+        if cafile and os.path.exists(cafile):
+            return ssl.create_default_context(cafile=cafile)
+    except Exception:
+        pass
+    return ssl.create_default_context()
+
+
+def _urlopen(request_or_url, *, timeout: int = 5):
+    import urllib.request
+
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPSHandler(context=_build_ssl_context())
+    )
+    return opener.open(request_or_url, timeout=timeout)
+
+
 def get_latest_version_cached() -> str | None:
     """
-    GitHub 최신 버전을 반환합니다. 1시간 캐시.
+    GitHub 최신 버전을 반환합니다. 5분 캐시.
     네트워크 오류 시 None 반환.
     """
     import time
@@ -62,18 +83,15 @@ def _get_asset_name() -> str | None:
     if sys.platform == "win32":
         return "mysafetyreport-win.zip"
     if sys.platform == "darwin":
-        machine = platform.machine().lower()
-        if 'arm' in machine or 'aarch64' in machine:
-            return "mysafetyreport-macos-arm64.zip"
-        return "mysafetyreport-macos-intel.zip"
+        return "mysafetyreport-macos-x64.zip"
     return "mysafetyreport-linux.zip"
 
 
 def _fetch_latest_release() -> dict | None:
     """GitHub API에서 최신 릴리스 정보를 가져옵니다. 실패 시 None 반환."""
     try:
-        import urllib.request
         import json
+        import urllib.request
         req = urllib.request.Request(
             GITHUB_API_URL,
             headers={
@@ -81,7 +99,7 @@ def _fetch_latest_release() -> dict | None:
                 "User-Agent": "mysafetyreport-updater",
             }
         )
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with _urlopen(req, timeout=5) as resp:
             return json.loads(resp.read().decode())
     except Exception:
         return None
@@ -186,8 +204,6 @@ def check_and_prompt_update():
 
 def _perform_update(download_url: str, new_version: str):
     """ZIP을 다운로드하고 압축을 해제한 뒤 설치 디렉토리 전체를 교체합니다."""
-    import urllib.request
-
     current_exe = os.path.abspath(sys.executable)
     install_dir = os.path.dirname(current_exe)
 
@@ -210,7 +226,17 @@ def _perform_update(download_url: str, new_version: str):
                 mb_total = total_size / 1024 / 1024
                 print(f"\r  {pct}% ({mb_done:.1f} / {mb_total:.1f} MB)", end='', flush=True)
 
-        urllib.request.urlretrieve(download_url, zip_path, _reporthook)
+        with _urlopen(download_url, timeout=30) as resp, open(zip_path, "wb") as dst:
+            total_size = int(resp.headers.get("Content-Length", "0") or "0")
+            block_size = 1024 * 256
+            block_num = 0
+            while True:
+                chunk = resp.read(block_size)
+                if not chunk:
+                    break
+                dst.write(chunk)
+                block_num += 1
+                _reporthook(block_num, block_size, total_size)
         print()
 
         # ── 2. 압축 해제 ──────────────────────────────────────────────

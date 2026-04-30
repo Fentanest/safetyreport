@@ -13,7 +13,9 @@ config.ini
 .env
 *.json
 *.md
+!CLAUDE.md
 !README.md
+!CHANGELOG.md
 test_*
 
 # Build & Packaging
