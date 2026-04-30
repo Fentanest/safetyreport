@@ -11,7 +11,7 @@ jobs:
   # 0. 릴리즈 메타데이터 준비
   # ────────────────────────────────────────────────────────────────
   prepare-release:
-    runs-on: [self-hosted, Linux, X64, 234]
+    runs-on: [self-hosted, Linux, X64, 235]
     permissions:
       contents: write
     outputs:
@@ -134,12 +134,12 @@ jobs:
         path: mysafetyreport-win.zip
 
   # ────────────────────────────────────────────────────────────────
-  # 2. Linux 실행 파일 + Docker 멀티아키 이미지 빌드 (Git-Debian 셀프호스트 러너)
+  # 2. Linux 실행 파일 빌드
   # ────────────────────────────────────────────────────────────────
-  build-linux-and-docker:
+  build-linux:
     needs: prepare-release
     if: needs.prepare-release.outputs.tag_exists == 'false'
-    runs-on: [self-hosted, Linux, X64, 234]
+    runs-on: [self-hosted, Linux, X64, 235]
     permissions:
       contents: write
       packages: write
@@ -211,7 +211,26 @@ jobs:
         name: mysafetyreport-linux-${{ needs.prepare-release.outputs.version }}
         path: mysafetyreport-linux.zip
 
-    # ── Docker 멀티아키텍처 이미지 빌드 (amd64 + arm64) ───────────
+  # ────────────────────────────────────────────────────────────────
+  # 3. Docker 멀티아키 이미지 빌드
+  # ────────────────────────────────────────────────────────────────
+  build-docker:
+    needs: prepare-release
+    if: needs.prepare-release.outputs.tag_exists == 'false'
+    runs-on: [self-hosted, Linux, X64, 234]
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+    - name: Fix workspace permissions
+      run: sudo chown -R $(id -u):$(id -g) . || true
+
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
     - name: Set lowercase image name
       run: echo "IMAGE_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
@@ -251,12 +270,12 @@ jobs:
           org.opencontainers.image.revision=${{ github.sha }}
 
   # ────────────────────────────────────────────────────────────────
-  # 3. 공통 릴리즈 생성
+  # 4. 공통 릴리즈 생성
   # ────────────────────────────────────────────────────────────────
   create-release:
-    needs: [prepare-release, build-windows, build-linux-and-docker]
+    needs: [prepare-release, build-windows, build-linux]
     if: needs.prepare-release.outputs.tag_exists == 'false'
-    runs-on: [self-hosted, Linux, X64, 234]
+    runs-on: [self-hosted, Linux, X64, 235]
     permissions:
       contents: write
 
@@ -289,10 +308,10 @@ jobs:
         generate_release_notes: true
 
   # # ────────────────────────────────────────────────────────────────
-  # # 3. Linux ARM64 실행 파일 빌드 (Docker 크로스컴파일, 234 러너)
+  # # 5. Linux ARM64 실행 파일 빌드 (Docker 크로스컴파일, 235 러너)
   # # ────────────────────────────────────────────────────────────────
   # build-linux-arm64:
-  #   runs-on: [self-hosted, Linux, X64, 234]
+  #   runs-on: [self-hosted, Linux, X64, 235]
   #   permissions:
   #     contents: write
 
