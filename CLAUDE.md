@@ -15,8 +15,11 @@
 ```
 /
 ├── .github/workflows/
-│   ├── build.yml                 # Windows/Linux/macOS(x64+arm64) 빌드 + Release 생성
-│   └── build-macos-manual.yml    # macOS x64/arm64 수동 테스트 빌드 (artifact only)
+│   ├── build.yml                  # Windows/Linux/macOS(x64+arm64) 빌드 + Release 생성
+│   ├── build-windows-manual.yml   # Windows 수동 테스트 빌드 (artifact only)
+│   ├── build-linux-manual.yml     # Linux 수동 테스트 빌드 (artifact only)
+│   ├── build-macos-x64-manual.yml # macOS x64 수동 테스트 빌드 (artifact only)
+│   └── build-macos-arm64-manual.yml # macOS arm64 수동 테스트 빌드 (artifact only)
 ├── core/
 │   ├── crawler/
 │   │   ├── direct_login.py       # curl_cffi + RSA + OAuth 기반 직접 로그인
@@ -104,7 +107,10 @@
 - `sunwi_service`는 로그인 없이 안전신문고 통계 API를 별도로 호출하고, 서버 시작 후 즉시 1회 + 이후 3시간마다 대분류/소분류 기준 행정구역 Top5를 갱신한다.
 - 빌드 계층은 `scripts/build/build_exe.py`와 `.github/workflows/*.yml`이 담당한다.
   - `build.yml`: 정식 릴리즈 (macOS x64 + arm64 포함)
-  - `build-macos-manual.yml`: 태그 체크 없이 수동으로 macOS x64/arm64 아티팩트만 생성
+  - `build-windows-manual.yml`: 태그 체크 없이 수동으로 Windows 아티팩트 생성
+  - `build-linux-manual.yml`: 태그 체크 없이 수동으로 Linux 아티팩트 생성
+  - `build-macos-x64-manual.yml`: 태그 체크 없이 수동으로 macOS x64 아티팩트 생성
+  - `build-macos-arm64-manual.yml`: 태그 체크 없이 수동으로 macOS arm64 아티팩트 생성
 
 ---
 

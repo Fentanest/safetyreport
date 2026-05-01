@@ -33,7 +33,7 @@
     - `불법주정차신고`
     - `자동차·교통위반`
   - 각 소분류별 전국 Top5 산출
-  - CSV 컬럼을 `카테고리`, `대분류`, `소분류` 포함 형태로 확장
+  - CSV 컬럼을 `대분류`, `소분류` 중심 구조로 확장
 - `services/sunwi_service.py`
   - 대분류/소분류 중첩 구조를 캐시에 저장하도록 변경
   - 다운로드 파일명을 `sunwi_category_top5_latest.csv`로 유지하면서 새 컬럼 구조 반영
@@ -66,6 +66,19 @@
 - `core/utils/updater.py`
   - macOS 자동 업데이트 스크립트가 파일 복사 직후 같은 대상들에 대해 quarantine 재귀 해제를 시도하도록 추가
   - 인앱 업데이트 후 다시 `grp.cpython-314-darwin.so`, `zstd.cpython-314-darwin.so`류가 차단되는 가능성을 낮추는 용도
+
+### 수동 테스트 워크플로 플랫폼별 분리
+
+상태: 완료
+
+변경:
+- 기존 `build-macos-manual.yml` 제거
+- `workflow_dispatch` 전용 테스트 워크플로를 플랫폼별 4개로 분리
+  - `build-windows-manual.yml`
+  - `build-linux-manual.yml`
+  - `build-macos-x64-manual.yml`
+  - `build-macos-arm64-manual.yml`
+- 각 워크플로는 `build.yml`의 해당 플랫폼 빌드 job과 동일한 러너/설치 흐름을 사용하고, 태그 체크/릴리즈 생성 없이 아티팩트 업로드까지만 수행
 
 ---
 
@@ -111,11 +124,7 @@
   - 릴리즈 생성 시 `mysafetyreport-macos-x64.zip`, `mysafetyreport-macos-arm64.zip` 두 파일을 모두 첨부
 - 테스트 워크플로 정리
   - 기존 `build-macos-test.yml`, `build-macos-arm64-test.yml` 삭제
-  - `build-macos-manual.yml` 추가
-    - `workflow_dispatch` 전용
-    - 태그 체크 없이 항상 시작
-    - x64/self-hosted + arm64/GitHub-hosted를 모두 빌드
-    - 릴리즈 생성 없이 artifact 업로드만 수행
+  - 이후 구조가 다시 바뀌어 플랫폼별 수동 워크플로 4개로 분리됨
 
 ### macOS 빌드/배포 정비
 

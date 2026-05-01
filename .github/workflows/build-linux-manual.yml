@@ -1,0 +1,91 @@
+name: Build Linux Manual
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: build-linux-manual-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-linux:
+    runs-on: [self-hosted, Linux, X64, 235]
+    permissions:
+      contents: read
+
+    steps:
+    - name: Fix workspace permissions
+      run: sudo chown -R $(id -u):$(id -g) . || true
+
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Read build metadata
+      id: meta
+      run: |
+        versionString=$(tr -d '[:space:]' < VERSION)
+        if [ -z "$versionString" ]; then
+          echo "::error::VERSION 파일에서 버전을 읽을 수 없습니다."
+          exit 1
+        fi
+        echo "version=$versionString" >> "$GITHUB_OUTPUT"
+        echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+    - name: Clean previous build artifacts
+      run: rm -rf venv build dist
+
+    - name: Set up Python 3.14 (local install)
+      run: |
+        PYTHON=$(command -v python3.14 || command -v python3)
+        $PYTHON --version
+        echo "$(dirname $PYTHON)" >> $GITHUB_PATH
+
+    - name: Create virtual environment and install dependencies
+      run: |
+        python3.14 -m venv venv
+        ./venv/bin/python -m pip install --no-cache-dir --upgrade pip
+        ./venv/bin/pip install --no-cache-dir -r requirements.txt
+        ./venv/bin/pip install --no-cache-dir pyinstaller
+
+    - name: Setup UPX 5.1.1
+      id: setup_upx
+      run: |
+        VERSION="5.1.1"
+        UPX_DIR="/tmp/upx-${VERSION}-amd64_linux"
+        UPX_PATH="${UPX_DIR}/upx"
+        TAR_PATH="/tmp/upx.tar.xz"
+        DOWNLOAD_URL="https://github.com/upx/upx/releases/download/v${VERSION}/upx-${VERSION}-amd64_linux.tar.xz"
+
+        if [ ! -f "$UPX_PATH" ]; then
+          rm -rf "$UPX_DIR"
+          echo "Downloading UPX $VERSION from $DOWNLOAD_URL"
+          wget -q -O "$TAR_PATH" "$DOWNLOAD_URL"
+          mkdir -p "$UPX_DIR"
+          tar -xf "$TAR_PATH" -C "$UPX_DIR" --strip-components=1
+        fi
+        if [ ! -f "$UPX_PATH" ]; then
+          echo "::error::UPX executable not found at $UPX_PATH."
+          exit 1
+        fi
+        echo "Found UPX at: $UPX_PATH"
+        echo "upx_path=$UPX_PATH" >> "$GITHUB_OUTPUT"
+
+    - name: Build Linux executable with PyInstaller
+      run: ./venv/bin/python scripts/build/build_exe.py
+
+    - name: Compress Linux executable with UPX
+      run: |
+        "${{ steps.setup_upx.outputs.upx_path }}" --best --lzma --force dist/mysafetyreport/mysafetyreport
+
+    - name: Package Linux into Zip
+      run: |
+        cd dist/mysafetyreport
+        zip -r ../../mysafetyreport-linux-test.zip .
+
+    - name: Upload Linux artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: mysafetyreport-linux-test-v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.short_sha }}
+        path: mysafetyreport-linux-test.zip
