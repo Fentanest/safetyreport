@@ -391,6 +391,21 @@ $(document).ready(function() {
         });
     }
 
+    function runAdvancedSearch() {
+        table.search('').columns().search('');
+        table.draw();
+    }
+
+    function submitFromMultiSelect($button) {
+        const $dropdown = $button.closest('.dropdown');
+        const toggleEl = $dropdown.find('.multi-select-toggle')[0];
+        if (toggleEl && window.bootstrap && window.bootstrap.Dropdown) {
+            window.bootstrap.Dropdown.getOrCreateInstance(toggleEl).hide();
+            toggleEl.focus();
+        }
+        runAdvancedSearch();
+    }
+
     function getStatusOptions() {
         const seen = new Set();
         const discovered = [];
@@ -731,8 +746,7 @@ $(document).ready(function() {
     );
 
     $('#btnSearch').on('click', function() {
-        table.search('').columns().search('');
-        table.draw();
+        runAdvancedSearch();
     });
 
     function validateAndWarn(startId, endId, label) {
@@ -790,6 +804,17 @@ $(document).ready(function() {
             e.preventDefault();
             $('#btnSearch').click();
         }
+    });
+
+    $('#advSearchForm').on('keydown', '.multi-select-option', function(e) {
+        if (e.key !== 'Enter') return;
+        if (!$(this).hasClass('active')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const $button = $(this);
+        setTimeout(function() {
+            submitFromMultiSelect($button);
+        }, 0);
     });
 
     if (qAgency || qPerson) {
