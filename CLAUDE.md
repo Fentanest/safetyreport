@@ -388,6 +388,7 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 | GET | `/reports/other` | 기타위반 신고 목록 |
 | GET | `/stats` | 기관별/담당자별 통계 |
 | GET/POST | `/watchlist` | 감시 목록 조회/수정 |
+| POST | `/rating/start` | 모바일 Client 별점 배치 시작 (API 키 인증) |
 | POST | `/crawl/enqueue` | 신고번호 큐 등록 (알림 리스너 연동) |
 | GET | `/crawl/status` | 크롤링 실행 여부 |
 | GET | `/crawl/done` | 완료 마커 조회 (읽으면 삭제) |

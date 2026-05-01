@@ -10,6 +10,16 @@
 
 ## 2026-05-01
 
+### 모바일 Client 별점 API 추가 (302 로그인 리다이렉트 대응)
+
+상태: 완료
+
+변경:
+- `web/routers/api_route.py`
+  - `POST /api/v1/rating/start` 추가
+  - 모바일 Client가 관리자 세션이 필요한 웹 `/rating/start` 대신 API 키 기반 경로로 별점 배치 작업을 시작할 수 있게 수정
+  - 내부적으로는 기존 `data_service.resolve_ids_for_rating()`와 `star_rating_service.run_batch_rating()`를 재사용하고 `current_rating.log` 회전도 동일 규칙으로 맞춤
+
 ### 상세검색 AND/OR + 다중선택 확장
 
 상태: 완료

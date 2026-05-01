@@ -6,6 +6,7 @@ import settings.settings as settings
 from services import data_service
 from services.ws_manager import ws_manager
 from core.database import database
+from core.utils import logger
 import pandas as pd
 
 router = APIRouter(prefix="/api/v1")
@@ -135,6 +136,67 @@ def _rotate_log(log_file: str):
             _sh.copy2(log_file, dst)
         except Exception:
             pass
+
+
+def _start_rating_batch_worker(report_numbers: list[str], score: int):
+    log_dir = _os.path.join(settings.datapath, 'logs')
+    _os.makedirs(log_dir, exist_ok=True)
+    log_file = _os.path.join(log_dir, 'current_rating.log')
+
+    if _os.path.exists(log_file):
+        try:
+            mtime = _os.path.getmtime(log_file)
+            ts = _dt.datetime.fromtimestamp(mtime).strftime("%Y%m%d_%H%M%S")
+            backup_name = _os.path.join(log_dir, f"star_{ts}.log")
+            _sh.move(log_file, backup_name)
+        except Exception as e:
+            logger.LoggerFactory.get_logger().error(f"별점 로그 백업 중 오류: {e}")
+
+    logger.LoggerFactory.set_star_log_file(log_file)
+
+    def _do_rating():
+        from services import star_rating_service as star_rating
+        star_rating.run_batch_rating(report_numbers, score=score)
+
+    _threading.Thread(target=_do_rating, daemon=True).start()
+
+
+@router.post("/rating/start")
+async def api_start_batch_rating(request: Request, _: str = Depends(_require_api_key)):
+    """모바일 Client 모드용 별점 시작 API.
+    body: {report_numbers: [...], score: 1~5}
+    """
+    body = await request.json()
+    report_numbers = body.get("report_numbers", [])
+    score = int(body.get("score", 5))
+
+    if not isinstance(report_numbers, list) or not report_numbers:
+        raise HTTPException(status_code=400, detail="report_numbers is required")
+    if score < 1 or score > 5:
+        raise HTTPException(status_code=400, detail="score must be between 1 and 5")
+
+    normalized = [str(i).strip() for i in report_numbers if str(i).strip()]
+    if not normalized:
+        raise HTTPException(status_code=400, detail="유효한 신고번호가 없습니다.")
+
+    final_ids = data_service.resolve_ids_for_rating(engine, normalized)
+    if not final_ids:
+        raise HTTPException(status_code=404, detail="유효한 신고 건을 찾을 수 없습니다.")
+
+    from services.crawl_manager import crawl_manager
+    if crawl_manager.is_crawling():
+        raise HTTPException(
+            status_code=409,
+            detail="현재 크롤링 프로세스가 진행 중입니다. 충돌 방지를 위해 크롤링 종료 후 실행해주세요.",
+        )
+
+    _start_rating_batch_worker(final_ids, score)
+    return {
+        "status": "success",
+        "requested": len(normalized),
+        "resolved": len(final_ids),
+        "message": f"총 {len(final_ids)}건에 대해 {score}점 별점 부여를 백그라운드에서 시작합니다.",
+    }
 
 
 @router.post("/crawl/enqueue")
