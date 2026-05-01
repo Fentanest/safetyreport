@@ -490,7 +490,7 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 - `처리상태`는 `_tableData`(DB에서 내려온 현재 레코드)에서 distinct 값을 추출해 다중선택 드롭다운으로 렌더링.
 - `별점`은 `없음`, `1~5점` 다중선택 드롭다운으로 렌더링.
 - 두 드롭다운 모두 선택된 항목 우측에 초록 `v`를 표시.
-- `만족도 조사 여부`는 `참여 완료`, `참여 가능`, `참여 불가` 단일선택 `<select>` 드롭다운으로 렌더링. 모바일 `SearchFilterSheet`에도 동일하게 추가.
+- `만족도 조사 여부`는 `참여 완료`, `참여 가능` 단일선택 `<select>` 드롭다운으로 렌더링. 모바일 `SearchFilterSheet`에도 동일하게 추가.
 
 ### 웹 통계 상세검색 문법 (stats.html, services/data_service.py)
 - `처리기관`, `신고명`, `위반장소`는 `_parse_and_or_groups()` / `_matches_and_or_text()` / `_apply_text_query()` 헬퍼로 같은 `&` / `,` 문법 처리.
