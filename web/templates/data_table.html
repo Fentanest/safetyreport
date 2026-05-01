@@ -173,6 +173,15 @@
                 <input type="text" class="form-control" id="searchRatingCause">
             </div>
             <div class="col-12">
+                <label class="form-label fw-bold">만족도 조사 여부</label>
+                <select class="form-select" id="searchPollStatus">
+                    <option value="">전체</option>
+                    <option value="참여 완료">참여 완료</option>
+                    <option value="참여 가능">참여 가능</option>
+                    <option value="참여 불가">참여 불가</option>
+                </select>
+            </div>
+            <div class="col-12">
                 <label class="form-label fw-bold">신고내용</label>
                 <input type="text" class="form-control" id="searchReportContent">
             </div>
@@ -712,6 +721,12 @@ $(document).ready(function() {
             if (!matchesAndOr(row['처리기관'], $('#searchAgency').val())) return false;
             if (!matchesAndOr(row['범칙금_과태료'], $('#searchFine').val())) return false;
             if (!matchesAndOr(row['별점사유'], $('#searchRatingCause').val())) return false;
+
+            var pollFilter = $('#searchPollStatus').val();
+            if (pollFilter) {
+                var currentPoll = String(row['만족도조사여부'] || '').trim();
+                if (currentPoll !== pollFilter) return false;
+            }
             if (!matchesAndOr(row['신고내용'], $('#searchReportContent').val())) return false;
             if (!matchesAndOr(row['처리내용'], $('#searchProcessContent').val())) return false;
 
