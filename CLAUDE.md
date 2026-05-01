@@ -42,10 +42,6 @@
 │       ├── scheduler.py         # 자동 스케줄러
 │       ├── security.py          # config 암복호화 / 세션 키 관리
 │       └── updater.py           # GitHub Releases 자동 업데이트
-├── data/                        # config.ini, 로그, 결과 파일, auth, 실제 운영 DB(data/data.db)
-├── data.db                      # 수동 검증/복원 비교용 로컬 DB 사본이 놓일 수 있음
-├── mobileexample/               # 모바일/서버 DB 복원 테스트용 샘플 DB 보관
-├── safepeople/                  # 분석/참고용 외부 앱 리소스 덤프 보관
 ├── services/
 │   ├── data_service.py          # DB 조회/집계 (대시보드, 필터, crawl_done 등)
 │   ├── db_backup.py             # DB checkpoint(WAL/SHM 정리) + 서버/모바일 DB 자동 감지/변환
@@ -83,7 +79,6 @@
 │       ├── merge.py             # 수동 merge 유틸
 │       └── save.py              # 수동 저장 유틸
 ├── settings/settings.py         # AppSettings 싱글톤 (config.ini 기반)
-├── testresults/                 # 수동 검증 산출물
 ├── main.py                      # FastAPI 서버 진입점 (lifespan, 라우터 등록)
 └── start.py                     # 크롤링 실행 스크립트 (서브프로세스)
 ```
