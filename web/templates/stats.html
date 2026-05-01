@@ -90,11 +90,16 @@
                     <!-- 현재 선택된 연도 유지 -->
                     <input type="hidden" name="year" value="{{ current_year if current_year != 'all' else '' }}">
                     <div class="col-12">
+                        <div class="alert alert-light border mb-0 small">
+                            <span class="fw-bold">안내:</span> <code>&amp;</code>는 AND, <code>,</code>는 OR 조건입니다.
+                        </div>
+                    </div>
+                    <div class="col-12">
                         <label class="form-label fw-bold">처리기관</label>
                         <input type="text" class="form-control" name="agency" value="{{ f.agency or '' }}" placeholder="예: 강남경찰서">
                         <div class="form-check mt-1">
                             <input class="form-check-input" type="checkbox" name="agencyExact" id="agencyExact" {% if f.agencyExact %}checked{% endif %} value="true">
-                            <label class="form-check-label small text-muted" for="agencyExact">정확히 일치 (부분검색 비활성화)</label>
+                            <label class="form-check-label small text-muted" for="agencyExact">단일어 입력 시 정확히 일치</label>
                         </div>
                     </div>
                     <div class="col-12">

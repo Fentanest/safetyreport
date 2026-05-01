@@ -39,6 +39,53 @@
     tr.row-selected td {
         background-color: #fff3cd !important;
     }
+    .search-logic-hint {
+        font-size: 0.9rem;
+        line-height: 1.45;
+    }
+    .multi-select-toggle {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid #ced4da;
+        border-radius: 0.375rem;
+        background: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        text-align: left;
+    }
+    .multi-select-toggle::after {
+        flex-shrink: 0;
+    }
+    .multi-select-toggle .selection-text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .multi-select-menu {
+        width: 100%;
+        padding: 0.35rem 0;
+        max-height: 240px;
+        overflow-y: auto;
+    }
+    .multi-select-option {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+    }
+    .multi-select-option.active {
+        background-color: #eef8f0;
+    }
+    .multi-select-check {
+        color: #198754;
+        font-weight: 700;
+        visibility: hidden;
+    }
+    .multi-select-option.active .multi-select-check {
+        visibility: visible;
+    }
 </style>
 {% endblock %}
 
@@ -56,6 +103,11 @@
     </div>
     <div class="offcanvas-body">
         <form id="advSearchForm" class="row g-3">
+            <div class="col-12">
+                <div class="alert alert-light border mb-0 search-logic-hint">
+                    <span class="fw-bold">안내:</span> <code>&amp;</code>는 AND, <code>,</code>는 OR 조건입니다.
+                </div>
+            </div>
             <div class="col-12">
                 <label class="form-label fw-bold">차량번호</label>
                 <input type="text" class="form-control" id="searchCar" placeholder="예: 12가3456">
@@ -96,7 +148,12 @@
             </div>
             <div class="col-12">
                 <label class="form-label fw-bold">처리상태</label>
-                <input type="text" class="form-control" id="searchStatus">
+                <div class="dropdown" id="searchStatusDropdown">
+                    <button class="multi-select-toggle dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                        <span class="selection-text">전체</span>
+                    </button>
+                    <div class="dropdown-menu multi-select-menu"></div>
+                </div>
             </div>
             <div class="col-12">
                 <label class="form-label fw-bold">과태료</label>
@@ -104,15 +161,12 @@
             </div>
             <div class="col-12">
                 <label class="form-label fw-bold">별점</label>
-                <select class="form-select" id="searchRating">
-                    <option value="">전체</option>
-                    <option value="__none__">없음</option>
-                    <option value="1">1점</option>
-                    <option value="2">2점</option>
-                    <option value="3">3점</option>
-                    <option value="4">4점</option>
-                    <option value="5">5점</option>
-                </select>
+                <div class="dropdown" id="searchRatingDropdown">
+                    <button class="multi-select-toggle dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
+                        <span class="selection-text">전체</span>
+                    </button>
+                    <div class="dropdown-menu multi-select-menu"></div>
+                </div>
             </div>
             <div class="col-12">
                 <label class="form-label fw-bold">별점사유</label>
@@ -251,6 +305,108 @@ $(document).ready(function() {
 
     const isDuplicate = '{{ table_id }}' === 'duplicateTable';
     const offset = isDuplicate ? 1 : 0;
+    const searchState = { statuses: [], ratings: [] };
+    const preferredStatusOrder = ['수용', '일부수용', '불수용', '처리중', '진행', '진행중', '취하', '기타', '답변완료'];
+    const ratingOptions = [
+        { value: '__none__', label: '없음' },
+        { value: '1', label: '1점' },
+        { value: '2', label: '2점' },
+        { value: '3', label: '3점' },
+        { value: '4', label: '4점' },
+        { value: '5', label: '5점' }
+    ];
+
+    function normalizeText(v) {
+        return String(v == null ? '' : v).trim().toLowerCase();
+    }
+
+    function parseAndOrGroups(query) {
+        return String(query == null ? '' : query)
+            .split(',')
+            .map(group => group.split('&').map(term => normalizeText(term)).filter(Boolean))
+            .filter(group => group.length > 0);
+    }
+
+    function matchesAndOr(value, query) {
+        const groups = parseAndOrGroups(query);
+        if (!groups.length) return true;
+        const haystack = normalizeText(value);
+        return groups.some(group => group.every(term => haystack.includes(term)));
+    }
+
+    function normalizeRatingValue(value) {
+        const text = String(value == null ? '' : value).trim();
+        if (!text) return '__none__';
+        const numeric = Number(text);
+        if (!Number.isFinite(numeric) || numeric <= 0) return '__none__';
+        return String(Math.trunc(numeric));
+    }
+
+    function summarizeSelections(options, values) {
+        const selectedSet = new Set(values);
+        const labels = options.filter(option => selectedSet.has(option.value)).map(option => option.label);
+        if (!labels.length) return '전체';
+        if (labels.length <= 2) return labels.join(', ');
+        return labels[0] + ' 외 ' + (labels.length - 1) + '개';
+    }
+
+    function sortSelections(values, options) {
+        const orderMap = new Map(options.map((option, index) => [option.value, index]));
+        values.sort((a, b) => (orderMap.get(a) ?? 999) - (orderMap.get(b) ?? 999));
+    }
+
+    function renderMultiSelect($root, options, values) {
+        const selectedSet = new Set(values);
+        const $menu = $root.find('.multi-select-menu');
+        $root.find('.selection-text').text(summarizeSelections(options, values));
+        $menu.empty();
+
+        const $allButton = $('<button type="button" class="dropdown-item multi-select-option"></button>');
+        if (!selectedSet.size) $allButton.addClass('active');
+        $allButton.append('<span>전체</span><span class="multi-select-check">v</span>');
+        $allButton.on('click', function(e) {
+            e.preventDefault();
+            values.length = 0;
+            renderMultiSelect($root, options, values);
+        });
+        $menu.append($allButton);
+        $menu.append('<div class="dropdown-divider my-1"></div>');
+
+        options.forEach(function(option) {
+            const $item = $('<button type="button" class="dropdown-item multi-select-option"></button>');
+            if (selectedSet.has(option.value)) $item.addClass('active');
+            $item.append('<span>' + esc(option.label) + '</span><span class="multi-select-check">v</span>');
+            $item.on('click', function(e) {
+                e.preventDefault();
+                const idx = values.indexOf(option.value);
+                if (idx >= 0) {
+                    values.splice(idx, 1);
+                } else {
+                    values.push(option.value);
+                    sortSelections(values, options);
+                }
+                renderMultiSelect($root, options, values);
+            });
+            $menu.append($item);
+        });
+    }
+
+    function getStatusOptions() {
+        const seen = new Set();
+        const discovered = [];
+        _tableData.forEach(function(row) {
+            const status = String(row['처리상태'] || '').trim();
+            if (!status || seen.has(status)) return;
+            seen.add(status);
+            discovered.push(status);
+        });
+
+        const ordered = preferredStatusOrder.filter(status => seen.has(status));
+        const extras = discovered
+            .filter(status => !preferredStatusOrder.includes(status))
+            .sort((a, b) => a.localeCompare(b, 'ko'));
+        return ordered.concat(extras).map(status => ({ value: status, label: status }));
+    }
 
     // ── 렌더 헬퍼 ──────────────────────────────────────────────────
     function esc(v) {
@@ -402,6 +558,10 @@ $(document).ready(function() {
         }
     });
 
+    const statusOptions = getStatusOptions();
+    renderMultiSelect($('#searchStatusDropdown'), statusOptions, searchState.statuses);
+    renderMultiSelect($('#searchRatingDropdown'), ratingOptions, searchState.ratings);
+
     // 선택된 신고번호 추적 Set (페이지 전환에도 유지)
     var selectedRows = new Set();
 
@@ -503,87 +663,75 @@ $(document).ready(function() {
                 if (d) setTimeout(function() { window.showReportDetail(d); }, 150);
             }
         });
-        table.column(3).search(orSearch(openReport), true, false).draw();
+        $('#btnSearch').click();
     }, 200);
 
     // draw 핸들러는 selectedRows 블록 내에서 등록하므로 여기선 제거
 
     $.fn.dataTable.ext.search.push(
         function(settings, data, dataIndex) {
-            function checkDateRange(startId, endId, colIdx) {
+            if (settings.nTable !== table.table().node()) return true;
+            const row = settings.aoData[dataIndex] && settings.aoData[dataIndex]._aData
+                ? settings.aoData[dataIndex]._aData
+                : {};
+
+            function checkRange(startId, endId, value) {
                 var min = $(startId).val();
                 var max = $(endId).val();
-                var date = data[colIdx] || "";
+                var current = String(value || "");
                 if ((min === "" && max === "") ||
-                    (min === "" && date <= max) ||
-                    (min <= date && max === "") ||
-                    (min <= date && date <= max)) {
+                    (min === "" && current <= max) ||
+                    (min <= current && max === "") ||
+                    (min <= current && current <= max)) {
                     return true;
                 }
                 return false;
             }
 
-            var reportDateOk = checkDateRange('#searchReportDateStart', '#searchReportDateEnd', 5);
-            var responseDateOk = checkDateRange('#searchResponseDateStart', '#searchResponseDateEnd', 13 + offset);
-            var occurDateOk = checkDateRange('#searchOccurDateStart', '#searchOccurDateEnd', 14 + offset);
-            var occurTimeOk = checkDateRange('#searchOccurTimeStart', '#searchOccurTimeEnd', 15 + offset);
-            
+            if (!matchesAndOr(row['차량번호'], $('#searchCar').val())) return false;
+            if (!matchesAndOr(row['신고번호'], $('#searchReport').val())) return false;
+            if (!matchesAndOr(row['신고명'], $('#searchReportName').val())) return false;
+            if (!matchesAndOr(row['위반법규'], $('#searchLaw').val())) return false;
+            if (!matchesAndOr(row['담당자'], $('#searchPerson').val())) return false;
+            if (!matchesAndOr(row['위반장소'], $('#searchLocation').val())) return false;
+            if (!matchesAndOr(row['처리기관'], $('#searchAgency').val())) return false;
+            if (!matchesAndOr(row['범칙금_과태료'], $('#searchFine').val())) return false;
+            if (!matchesAndOr(row['별점사유'], $('#searchRatingCause').val())) return false;
+            if (!matchesAndOr(row['신고내용'], $('#searchReportContent').val())) return false;
+            if (!matchesAndOr(row['처리내용'], $('#searchProcessContent').val())) return false;
+
+            if (searchState.statuses.length) {
+                const currentStatus = String(row['처리상태'] || '').trim();
+                if (!searchState.statuses.includes(currentStatus)) return false;
+            }
+
+            if (searchState.ratings.length) {
+                const currentRating = normalizeRatingValue(row['별점']);
+                if (!searchState.ratings.includes(currentRating)) return false;
+            }
+
+            var reportDateOk = checkRange('#searchReportDateStart', '#searchReportDateEnd', row['신고일']);
+            var responseDateOk = checkRange('#searchResponseDateStart', '#searchResponseDateEnd', row['답변일']);
+            var occurDateOk = checkRange('#searchOccurDateStart', '#searchOccurDateEnd', row['발생일자']);
+            var occurTimeOk = checkRange('#searchOccurTimeStart', '#searchOccurTimeEnd', row['발생시각']);
+
             // 경찰기관 제외 필터
             if ($('#excludePolice').is(':checked')) {
-                var agencyText = data[11 + offset] || "";
+                var agencyText = String(row['처리기관'] || "");
                 if (agencyText.includes("경찰")) return false;
             }
             // 경찰기관만 포함 필터
             if ($('#onlyPolice').is(':checked')) {
-                var agencyText = data[11 + offset] || "";
+                var agencyText = String(row['처리기관'] || "");
                 if (!agencyText.includes("경찰")) return false;
             }
-            
+
             return reportDateOk && occurDateOk && responseDateOk && occurTimeOk;
         }
     );
 
-    function orSearch(val) {
-        if(!val) return '';
-        var escaped = val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        return escaped.split(',').map(s => s.trim()).filter(s => s).join('|');
-    }
-
-    function exactOrSearch(val) {
-        if(!val) return '';
-        var escaped = val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        var parts = escaped.split(',').map(s => s.trim()).filter(s => s);
-        if(parts.length === 0) return '';
-        return '^(' + parts.join('|') + ')$';
-    }
-
-    function boundedOrSearch(val) {
-        if(!val) return '';
-        var escaped = val.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        var parts = escaped.split(',').map(s => s.trim()).filter(s => s);
-        if(parts.length === 0) return '';
-        return '(^|\\D)(' + parts.join('|') + ')(\\D|$)';
-    }
-
     $('#btnSearch').on('click', function() {
-        table.column(7).search(orSearch($('#searchCar').val()), true, false); // 차량번호
-        table.column(3).search(orSearch($('#searchReport').val()), true, false); // 신고번호
-        table.column(4).search(orSearch($('#searchReportName').val()), true, false); // 신고명
-        table.column(8 + offset).search(boundedOrSearch($('#searchLaw').val()), true, false); // 위반법규명 (단어 경계)
-        table.column(11 + offset).search(orSearch($('#searchAgency').val()), true, false); // 처리기관
-        table.column(12 + offset).search(orSearch($('#searchPerson').val()), true, false); // 담당자
-        table.column(16 + offset).search(orSearch($('#searchLocation').val()), true, false); // 위반장소
-        table.column(6).search(exactOrSearch($('#searchStatus').val()), true, false); // 처리상태 (정확히 일치)
-        table.column(9 + offset).search(orSearch($('#searchFine').val()), true, false); // 과태료
-        var ratingVal = $('#searchRating').val();
-        if (ratingVal === '__none__') {
-            table.column(24 + offset).search('^$', true, false);
-        } else {
-            table.column(24 + offset).search(exactOrSearch(ratingVal), true, false);
-        }
-        table.column(25 + offset).search(orSearch($('#searchRatingCause').val()), true, false); // 별점사유
-        table.column(18 + offset).search(orSearch($('#searchReportContent').val()), true, false); // 신고내용
-        table.column(19 + offset).search(orSearch($('#searchProcessContent').val()), true, false); // 처리내용
+        table.search('').columns().search('');
         table.draw();
     });
 
@@ -650,6 +798,10 @@ $(document).ready(function() {
 
     $('#btnReset').on('click', function() {
         selectedRows.clear();
+        searchState.statuses.length = 0;
+        searchState.ratings.length = 0;
+        renderMultiSelect($('#searchStatusDropdown'), statusOptions, searchState.statuses);
+        renderMultiSelect($('#searchRatingDropdown'), ratingOptions, searchState.ratings);
         setTimeout(function() {
             table.search('').columns().search('').draw();
             $('#selectAll').prop('checked', false).prop('indeterminate', false);

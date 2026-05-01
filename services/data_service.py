@@ -50,6 +50,46 @@ def _row_to_dict(row) -> dict:
     d["결과"] = d["처리상태"]
     return d
 
+def _text_or_empty(value) -> str:
+    if pd.isna(value):
+        return ''
+    return str(value).strip()
+
+def _parse_and_or_groups(query: str):
+    text = _text_or_empty(query)
+    if not text:
+        return []
+    groups = []
+    for raw_group in text.split(','):
+        terms = [_text_or_empty(term) for term in raw_group.split('&')]
+        terms = [term for term in terms if term]
+        if terms:
+            groups.append(terms)
+    return groups
+
+def _matches_and_or_text(value, query: str, exact: bool = False) -> bool:
+    groups = _parse_and_or_groups(query)
+    if not groups:
+        return True
+
+    source = _text_or_empty(value)
+    source_cmp = source.casefold()
+
+    if exact and len(groups) == 1 and len(groups[0]) == 1:
+        return source_cmp == groups[0][0].casefold()
+
+    return any(
+        all(term.casefold() in source_cmp for term in group)
+        for group in groups
+    )
+
+def _apply_text_query(df, column: str, query: str, exact: bool = False):
+    if df.empty or column not in df.columns or not _text_or_empty(query):
+        return df
+    series = df[column].fillna('').astype(str)
+    mask = series.apply(lambda value: _matches_and_or_text(value, query, exact=exact))
+    return df[mask]
+
 def _safe_read(conn, table):
     """테이블이 아직 생성되지 않은 경우 빈 DataFrame 반환"""
     try:
@@ -439,9 +479,9 @@ def get_agency_stats(engine, filters=None):
                     df = df[df['답변일'].str.startswith(filters['year'], na=False)]
 
             if filters.get('reportName') and '신고명' in df.columns:
-                df = df[df['신고명'].str.contains(filters['reportName'], na=False, regex=False)]
+                df = _apply_text_query(df, '신고명', filters['reportName'])
             if filters.get('location') and '위반장소' in df.columns:
-                df = df[df['위반장소'].str.contains(filters['location'], na=False, regex=False)]
+                df = _apply_text_query(df, '위반장소', filters['location'])
 
             if filters.get('reportDateStart') and '신고일' in df.columns:
                 df = df[df['신고일'] >= filters['reportDateStart']]
@@ -464,10 +504,13 @@ def get_agency_stats(engine, filters=None):
                 df = df[df['발생시각'] <= filters['occurTimeEnd']]
 
             if filters.get('agency') and '처리기관' in df.columns:
-                if filters.get('agencyExact'):
-                    df = df[df['처리기관'] == filters['agency']]
-                else:
-                    df = df[df['처리기관'].str.contains(filters['agency'], na=False, regex=False)]
+                agency_query = filters['agency']
+                use_exact_agency = (
+                    filters.get('agencyExact')
+                    and '&' not in agency_query
+                    and ',' not in agency_query
+                )
+                df = _apply_text_query(df, '처리기관', agency_query, exact=use_exact_agency)
 
             if filters.get('excludePolice') and '처리기관' in df.columns:
                 df = df[~df['처리기관'].str.contains('경찰', na=False)]

@@ -483,6 +483,17 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 `agencyExact=True` 시 `df['처리기관'] == agency` 정확히 일치 필터 적용.
 통계 행 클릭 링크에는 `&agencyExact=true` 자동 포함. 직접 검색 시는 기본값 `false` (contains).
 
+### 웹 상세검색 문법 (data_table.html)
+- 상세검색 상단에 `&` = AND, `,` = OR 안내 문구 표시.
+- `차량번호`, `신고번호`, `신고명`, `위반법규`, `담당자`, `위반장소`, `처리기관`, `범칙금_과태료`, `별점사유`, `신고내용`, `처리내용`은 DataTables `ext.search` 커스텀 필터에서 같은 문법으로 처리.
+- `처리상태`는 `_tableData`(DB에서 내려온 현재 레코드)에서 distinct 값을 추출해 다중선택 드롭다운으로 렌더링.
+- `별점`은 `없음`, `1~5점` 다중선택 드롭다운으로 렌더링.
+- 두 드롭다운 모두 선택된 항목 우측에 초록 `v`를 표시.
+
+### 웹 통계 상세검색 문법 (stats.html, services/data_service.py)
+- `처리기관`, `신고명`, `위반장소`는 `_parse_and_or_groups()` / `_matches_and_or_text()` / `_apply_text_query()` 헬퍼로 같은 `&` / `,` 문법 처리.
+- `agencyExact`는 단일어 입력일 때만 exact match를 사용하고, `&` 또는 `,`가 포함되면 AND/OR 부분검색 규칙이 우선한다.
+
 ### 웹 첨부파일 인라인 미디어 (data_table.html)
 `renderAttach()` 버튼에 `data-type="photo"|"file"` 추가.
 클릭 시 Bootstrap 모달(`#attachModal`)에서 이미지/동영상 인라인 표시, 기타는 다운로드 버튼.
