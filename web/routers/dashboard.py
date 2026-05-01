@@ -31,6 +31,11 @@ async def dashboard(request: Request):
     })
 
 
+@router.get("/sunwi/payload")
+async def sunwi_payload():
+    return sunwi_service.get_dashboard_payload()
+
+
 @router.get("/sunwi/download/top5")
 async def download_sunwi_top5_csv():
     csv_path = sunwi_service.get_top5_csv_path()

@@ -290,64 +290,17 @@
                 <div>
                     <div>
                         <h5 class="fw-bold mb-1 text-dark"><i class="fas fa-map-marked-alt me-2 text-info"></i>안전신문고 안전신고 통계</h5>
-                        {% if sunwi.updated_at %}
-                        <div class="small text-muted">전일기준 · 수집시간 {{ sunwi.updated_at }}</div>
-                        {% else %}
-                        <div class="small text-muted">전일기준 · 수집 준비 중</div>
-                        {% endif %}
+                        <div class="small text-muted" id="sunwiUpdatedAtLabel">
+                            {% if sunwi.updated_at %}
+                            전일기준 · 수집시간 {{ sunwi.updated_at }}
+                            {% else %}
+                            전일기준 · 수집 준비 중
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="card-body">
-                {% if sunwi.available and sunwi.categories %}
-                <div class="sunwi-nav mb-3">
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="sunwiPrevParentCategory" aria-label="이전 대분류">
-                        <i class="fas fa-chevron-left"></i>
-                    </button>
-                    <div class="sunwi-nav-stack">
-                        <div class="sunwi-nav-label">대분류</div>
-                        <div class="sunwi-category-title" id="sunwiParentCategoryName"></div>
-                    </div>
-                    <button type="button" class="btn btn-outline-primary btn-sm" id="sunwiNextParentCategory" aria-label="다음 대분류">
-                        <i class="fas fa-chevron-right"></i>
-                    </button>
-                </div>
-
-                <div class="sunwi-nav mb-3">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="sunwiPrevChildCategory" aria-label="이전 소분류">
-                        <i class="fas fa-chevron-left"></i>
-                    </button>
-                    <div class="sunwi-nav-stack">
-                        <div class="sunwi-nav-label">소분류</div>
-                        <div class="sunwi-subcategory-title" id="sunwiChildCategoryName"></div>
-                    </div>
-                    <button type="button" class="btn btn-outline-secondary btn-sm" id="sunwiNextChildCategory" aria-label="다음 소분류">
-                        <i class="fas fa-chevron-right"></i>
-                    </button>
-                </div>
-
-                <div class="row g-2 sunwi-items" id="sunwiItems"></div>
-
-                <div class="pt-3">
-                    <div class="small text-muted">
-                        대분류와 소분류는 5초마다 자동으로 전환됩니다.
-                        {% if sunwi.failed_count %}
-                        일부 재시도 실패 지역 {{ sunwi.failed_count }}건이 있습니다.
-                        {% endif %}
-                    </div>
-                    <div class="pt-2 text-end">
-                        <a href="{{ sunwi.csv_download_url }}" class="small text-decoration-none">csv 다운로드</a>
-                    </div>
-                </div>
-                {% else %}
-                <div class="text-center text-muted py-5">
-                    <div class="mb-2"><i class="fas fa-spinner fa-spin me-1"></i>행정구역 통계를 수집 중입니다.</div>
-                    {% if sunwi.error %}
-                    <div class="small text-danger">{{ sunwi.error }}</div>
-                    {% endif %}
-                </div>
-                {% endif %}
-            </div>
+            <div class="card-body" id="sunwiContent"></div>
         </div>
     </div>
 </div>
@@ -475,33 +428,50 @@
         }, 150);
     }
 
-    function initSunwiCarousel() {
-        var sunwiData = {{ sunwi | tojson }};
-        if (!sunwiData || !sunwiData.available || !Array.isArray(sunwiData.categories) || !sunwiData.categories.length) {
+    function initSunwiWidget() {
+        var initialSunwiData = {{ sunwi | tojson }};
+        var contentEl = document.getElementById('sunwiContent');
+        var updatedAtLabelEl = document.getElementById('sunwiUpdatedAtLabel');
+        if (!contentEl || !updatedAtLabelEl) {
             return;
         }
 
         var state = {
-            categories: sunwiData.categories,
+            data: normalizeSunwiData(initialSunwiData),
             categoryIndex: 0,
             childIndex: 0,
-            timerId: null
+            carouselTimerId: null,
+            pollTimerId: null,
+            isFetching: false,
+            dom: null
         };
 
-        var parentCategoryNameEl = document.getElementById('sunwiParentCategoryName');
-        var childCategoryNameEl = document.getElementById('sunwiChildCategoryName');
-        var itemsEl = document.getElementById('sunwiItems');
-        var prevParentCategoryBtn = document.getElementById('sunwiPrevParentCategory');
-        var nextParentCategoryBtn = document.getElementById('sunwiNextParentCategory');
-        var prevChildCategoryBtn = document.getElementById('sunwiPrevChildCategory');
-        var nextChildCategoryBtn = document.getElementById('sunwiNextChildCategory');
+        function normalizeSunwiData(data) {
+            var normalized = data && typeof data === 'object' ? data : {};
+            normalized.categories = Array.isArray(normalized.categories) ? normalized.categories : [];
+            normalized.available = Boolean(normalized.available && normalized.categories.length);
+            normalized.updated_at = normalized.updated_at || '';
+            normalized.error = normalized.error || '';
+            normalized.failed_count = Number(normalized.failed_count || 0);
+            normalized.csv_download_url = normalized.csv_download_url || '/sunwi/download/top5';
+            return normalized;
+        }
+
+        function escapeHtml(value) {
+            return String(value == null ? '' : value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
         function mod(index, size) {
             return (index % size + size) % size;
         }
 
         function getCurrentCategoryGroup() {
-            return state.categories[state.categoryIndex];
+            return state.data.categories[state.categoryIndex];
         }
 
         function getCurrentChildren() {
@@ -518,6 +488,10 @@
         }
 
         function renderItems(items) {
+            if (!state.dom || !state.dom.itemsEl) {
+                return;
+            }
+
             var html = '';
             items.forEach(function (item) {
                 var badgeClass = 'rank-' + item.rank;
@@ -525,11 +499,11 @@
                     '<div class="col-12">' +
                     '  <div class="sunwi-item-card">' +
                     '    <div>' +
-                    '      <span class="sunwi-rank-badge ' + badgeClass + '">' + item.rank + '위</span>' +
+                    '      <span class="sunwi-rank-badge ' + badgeClass + '">' + escapeHtml(item.rank) + '위</span>' +
                     '    </div>' +
                     '    <div class="sunwi-item-main">' +
-                    '      <div class="sunwi-region">' + item.region + '</div>' +
-                    '      <div class="sunwi-subtext mt-1">' + item.sido + ' · ' + item.sigungu + '</div>' +
+                    '      <div class="sunwi-region">' + escapeHtml(item.region) + '</div>' +
+                    '      <div class="sunwi-subtext mt-1">' + escapeHtml(item.sido) + ' · ' + escapeHtml(item.sigungu) + '</div>' +
                     '    </div>' +
                     '    <div class="sunwi-count-wrap">' +
                     '      <div class="sunwi-count">' + Number(item.count || 0).toLocaleString() + '<span class="fs-6 ms-1">건</span></div>' +
@@ -537,10 +511,123 @@
                     '  </div>' +
                     '</div>';
             });
-            itemsEl.innerHTML = html;
+            state.dom.itemsEl.innerHTML = html;
+        }
+
+        function renderUnavailable() {
+            var errorHtml = state.data.error
+                ? '<div class="small text-danger">' + escapeHtml(state.data.error) + '</div>'
+                : '';
+            contentEl.innerHTML = '' +
+                '<div class="text-center text-muted py-5">' +
+                '  <div class="mb-2"><i class="fas fa-spinner fa-spin me-1"></i>행정구역 통계를 수집 중입니다.</div>' +
+                   errorHtml +
+                '</div>';
+            state.dom = null;
+        }
+
+        function bindAvailableDom() {
+            state.dom = {
+                parentCategoryNameEl: document.getElementById('sunwiParentCategoryName'),
+                childCategoryNameEl: document.getElementById('sunwiChildCategoryName'),
+                itemsEl: document.getElementById('sunwiItems'),
+                prevParentCategoryBtn: document.getElementById('sunwiPrevParentCategory'),
+                nextParentCategoryBtn: document.getElementById('sunwiNextParentCategory'),
+                prevChildCategoryBtn: document.getElementById('sunwiPrevChildCategory'),
+                nextChildCategoryBtn: document.getElementById('sunwiNextChildCategory')
+            };
+
+            state.dom.prevParentCategoryBtn.addEventListener('click', function () {
+                state.categoryIndex = mod(state.categoryIndex - 1, state.data.categories.length);
+                state.childIndex = 0;
+                render();
+                resetCarouselTimer();
+            });
+
+            state.dom.nextParentCategoryBtn.addEventListener('click', function () {
+                state.categoryIndex = mod(state.categoryIndex + 1, state.data.categories.length);
+                state.childIndex = 0;
+                render();
+                resetCarouselTimer();
+            });
+
+            state.dom.prevChildCategoryBtn.addEventListener('click', function () {
+                var children = getCurrentChildren();
+                if (children.length <= 1) {
+                    return;
+                }
+                state.childIndex = mod(state.childIndex - 1, children.length);
+                render();
+                resetCarouselTimer();
+            });
+
+            state.dom.nextChildCategoryBtn.addEventListener('click', function () {
+                var children = getCurrentChildren();
+                if (children.length <= 1) {
+                    return;
+                }
+                state.childIndex = mod(state.childIndex + 1, children.length);
+                render();
+                resetCarouselTimer();
+            });
+        }
+
+        function renderAvailableShell() {
+            var failedText = state.data.failed_count
+                ? '일부 재시도 실패 지역 ' + Number(state.data.failed_count).toLocaleString() + '건이 있습니다.'
+                : '';
+            contentEl.innerHTML = '' +
+                '<div class="sunwi-nav mb-3">' +
+                '  <button type="button" class="btn btn-outline-primary btn-sm" id="sunwiPrevParentCategory" aria-label="이전 대분류">' +
+                '    <i class="fas fa-chevron-left"></i>' +
+                '  </button>' +
+                '  <div class="sunwi-nav-stack">' +
+                '    <div class="sunwi-nav-label">대분류</div>' +
+                '    <div class="sunwi-category-title" id="sunwiParentCategoryName"></div>' +
+                '  </div>' +
+                '  <button type="button" class="btn btn-outline-primary btn-sm" id="sunwiNextParentCategory" aria-label="다음 대분류">' +
+                '    <i class="fas fa-chevron-right"></i>' +
+                '  </button>' +
+                '</div>' +
+                '<div class="sunwi-nav mb-3">' +
+                '  <button type="button" class="btn btn-outline-secondary btn-sm" id="sunwiPrevChildCategory" aria-label="이전 소분류">' +
+                '    <i class="fas fa-chevron-left"></i>' +
+                '  </button>' +
+                '  <div class="sunwi-nav-stack">' +
+                '    <div class="sunwi-nav-label">소분류</div>' +
+                '    <div class="sunwi-subcategory-title" id="sunwiChildCategoryName"></div>' +
+                '  </div>' +
+                '  <button type="button" class="btn btn-outline-secondary btn-sm" id="sunwiNextChildCategory" aria-label="다음 소분류">' +
+                '    <i class="fas fa-chevron-right"></i>' +
+                '  </button>' +
+                '</div>' +
+                '<div class="row g-2 sunwi-items" id="sunwiItems"></div>' +
+                '<div class="pt-3">' +
+                '  <div class="small text-muted">' +
+                '    대분류와 소분류는 5초마다 자동으로 전환됩니다.' +
+                (failedText ? ' ' + escapeHtml(failedText) : '') +
+                '  </div>' +
+                '  <div class="pt-2 text-end">' +
+                '    <a href="' + escapeHtml(state.data.csv_download_url) + '" class="small text-decoration-none">csv 다운로드</a>' +
+                '  </div>' +
+                '</div>';
+            bindAvailableDom();
+        }
+
+        function updateHeader() {
+            if (state.data.updated_at) {
+                updatedAtLabelEl.textContent = '전일기준 · 수집시간 ' + state.data.updated_at;
+            } else {
+                updatedAtLabelEl.textContent = '전일기준 · 수집 준비 중';
+            }
         }
 
         function render() {
+            if (!state.data.available) {
+                renderUnavailable();
+                return;
+            }
+
             var category = getCurrentCategory();
             var group = getCurrentCategoryGroup();
             var children = getCurrentChildren();
@@ -550,78 +637,129 @@
             }
             var items = category.items || [];
 
-            parentCategoryNameEl.textContent = group.name + ' (' + (state.categoryIndex + 1) + '/' + state.categories.length + ')';
-            childCategoryNameEl.textContent = category.name
+            state.dom.parentCategoryNameEl.textContent = group.name + ' (' + (state.categoryIndex + 1) + '/' + state.data.categories.length + ')';
+            state.dom.childCategoryNameEl.textContent = category.name
                 ? (category.name + ' (' + (state.childIndex + 1) + '/' + children.length + ')')
                 : '데이터 없음';
             renderItems(items);
 
-            prevParentCategoryBtn.disabled = state.categories.length <= 1;
-            nextParentCategoryBtn.disabled = state.categories.length <= 1;
-            prevChildCategoryBtn.disabled = children.length <= 1;
-            nextChildCategoryBtn.disabled = children.length <= 1;
+            state.dom.prevParentCategoryBtn.disabled = state.data.categories.length <= 1;
+            state.dom.nextParentCategoryBtn.disabled = state.data.categories.length <= 1;
+            state.dom.prevChildCategoryBtn.disabled = children.length <= 1;
+            state.dom.nextChildCategoryBtn.disabled = children.length <= 1;
         }
 
-        function resetTimer() {
-            if (state.timerId) {
-                window.clearInterval(state.timerId);
+        function resetCarouselTimer() {
+            if (state.carouselTimerId) {
+                window.clearInterval(state.carouselTimerId);
+                state.carouselTimerId = null;
             }
-            state.timerId = window.setInterval(function () {
+
+            if (!state.data.available) {
+                return;
+            }
+
+            state.carouselTimerId = window.setInterval(function () {
                 var children = getCurrentChildren();
                 if (children.length > 1) {
                     state.childIndex = mod(state.childIndex + 1, children.length);
-                    if (state.childIndex === 0 && state.categories.length > 1) {
-                        state.categoryIndex = mod(state.categoryIndex + 1, state.categories.length);
+                    if (state.childIndex === 0 && state.data.categories.length > 1) {
+                        state.categoryIndex = mod(state.categoryIndex + 1, state.data.categories.length);
                     }
-                } else if (state.categories.length > 1) {
-                    state.categoryIndex = mod(state.categoryIndex + 1, state.categories.length);
+                } else if (state.data.categories.length > 1) {
+                    state.categoryIndex = mod(state.categoryIndex + 1, state.data.categories.length);
                     state.childIndex = 0;
                 }
                 render();
             }, 5000);
         }
 
-        prevParentCategoryBtn.addEventListener('click', function () {
-            state.categoryIndex = mod(state.categoryIndex - 1, state.categories.length);
-            state.childIndex = 0;
-            render();
-            resetTimer();
-        });
+        function payloadSignature(data) {
+            return JSON.stringify({
+                available: data.available,
+                updated_at: data.updated_at,
+                period: data.period || '',
+                failed_count: data.failed_count,
+                error: data.error,
+                categories: data.categories
+            });
+        }
 
-        nextParentCategoryBtn.addEventListener('click', function () {
-            state.categoryIndex = mod(state.categoryIndex + 1, state.categories.length);
-            state.childIndex = 0;
-            render();
-            resetTimer();
-        });
+        function updateData(nextData) {
+            var normalized = normalizeSunwiData(nextData);
+            var previousAvailable = state.data.available;
+            var previousSignature = payloadSignature(state.data);
+            var nextSignature = payloadSignature(normalized);
+            state.data = normalized;
+            updateHeader();
 
-        prevChildCategoryBtn.addEventListener('click', function () {
-            var children = getCurrentChildren();
-            if (children.length <= 1) {
+            if (!normalized.available) {
+                if (previousAvailable || previousSignature !== nextSignature || !state.dom) {
+                    renderUnavailable();
+                }
+                resetCarouselTimer();
+                schedulePoll();
                 return;
             }
-            state.childIndex = mod(state.childIndex - 1, children.length);
-            render();
-            resetTimer();
-        });
 
-        nextChildCategoryBtn.addEventListener('click', function () {
-            var children = getCurrentChildren();
-            if (children.length <= 1) {
+            if (!previousAvailable) {
+                state.categoryIndex = 0;
+                state.childIndex = 0;
+                renderAvailableShell();
+            } else if (previousSignature !== nextSignature) {
+                var maxCategoryIndex = Math.max(normalized.categories.length - 1, 0);
+                state.categoryIndex = Math.min(state.categoryIndex, maxCategoryIndex);
+                state.childIndex = 0;
+            }
+
+            if (!state.dom) {
+                renderAvailableShell();
+            }
+
+            render();
+            resetCarouselTimer();
+            schedulePoll();
+        }
+
+        function schedulePoll() {
+            if (state.pollTimerId) {
+                window.clearTimeout(state.pollTimerId);
+            }
+            var delay = state.data.available ? 30000 : 3000;
+            state.pollTimerId = window.setTimeout(fetchLatestSunwiData, delay);
+        }
+
+        function fetchLatestSunwiData() {
+            if (state.isFetching) {
+                schedulePoll();
                 return;
             }
-            state.childIndex = mod(state.childIndex + 1, children.length);
-            render();
-            resetTimer();
-        });
 
-        render();
-        resetTimer();
+            state.isFetching = true;
+            fetch('/sunwi/payload', { cache: 'no-store' })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('sunwi payload fetch failed');
+                    }
+                    return response.json();
+                })
+                .then(function (data) {
+                    updateData(data);
+                })
+                .catch(function () {
+                    schedulePoll();
+                })
+                .finally(function () {
+                    state.isFetching = false;
+                });
+        }
+
+        updateData(initialSunwiData);
     }
 
     $(document).ready(function () {
         animateProgressBars();
-        initSunwiCarousel();
+        initSunwiWidget();
     });
 </script>
 {% endblock %}
