@@ -346,6 +346,7 @@ def _write_unix_update_script(*, install_dir: str, extract_dir: str, tmp_dir: st
 
     q = _shell_quote
     copy_body = _unix_copy_body(copy_mode)
+    post_copy_body = _unix_post_copy_body(copy_mode)
     with open(sh_path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(
             "#!/bin/bash\n"
@@ -360,6 +361,7 @@ def _write_unix_update_script(*, install_dir: str, extract_dir: str, tmp_dir: st
             'log "파일 복사 시작..."\n'
             f"{copy_body}\n"
             'if [ $RC -ne 0 ]; then log "오류: 파일 복사 실패 (종료코드 $RC)"; exit 1; fi\n'
+            f"{post_copy_body}\n"
             f'log "파일 복사 완료. 임시 폴더 정리..."\n'
             f"rm -rf {q(tmp_dir)}\n"
             'log "재시작 준비"\n'
@@ -396,6 +398,18 @@ def _unix_copy_body(copy_mode: str) -> str:
         f'{fallback_copy}'
         '  fi\n'
         'fi'
+    )
+
+
+def _unix_post_copy_body(copy_mode: str) -> str:
+    if copy_mode != "macos":
+        return ""
+
+    return (
+        'if command -v xattr >/dev/null 2>&1; then\n'
+        '  log "macOS quarantine 속성 정리 중..."\n'
+        '  xattr -dr com.apple.quarantine "$DST/run.command" "$DST/mysafetyreport" "$DST/_internal" >/dev/null 2>&1 || true\n'
+        'fi\n'
     )
 
 

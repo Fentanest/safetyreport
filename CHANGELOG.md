@@ -55,6 +55,18 @@
 - `web/routers/settings_route.py`
   - 설정 페이지 표시 기본값과 폼 기본값도 `5`로 동기화
 
+### macOS quarantine 우회 보강
+
+상태: 완료
+
+변경:
+- `scripts/build/build_exe.py`
+  - 생성되는 `run.command`가 실행되면 `run.command`, `mysafetyreport`, `_internal`에 대해 `xattr -dr com.apple.quarantine`를 시도하도록 추가
+  - 첫 실행 전 Gatekeeper 차단 자체를 없애지는 못하지만, 사용자가 `run.command`를 한 번 허용한 뒤 내부 `.so` 연쇄 차단을 줄이는 목적
+- `core/utils/updater.py`
+  - macOS 자동 업데이트 스크립트가 파일 복사 직후 같은 대상들에 대해 quarantine 재귀 해제를 시도하도록 추가
+  - 인앱 업데이트 후 다시 `grp.cpython-314-darwin.so`, `zstd.cpython-314-darwin.so`류가 차단되는 가능성을 낮추는 용도
+
 ---
 
 ## 2026-04-30

@@ -170,8 +170,13 @@ def _create_macos_launcher():
     content = r"""#!/bin/bash
 DIR="$(cd "$(dirname "$0")" && pwd)"
 EXE="$DIR/mysafetyreport"
+INTERNAL_DIR="$DIR/_internal"
 
 cd "$DIR" || exit 1
+
+if command -v xattr >/dev/null 2>&1; then
+    xattr -dr com.apple.quarantine "$DIR/run.command" "$EXE" "$INTERNAL_DIR" 2>/dev/null || true
+fi
 
 if [ ! -x "$EXE" ]; then
     chmod +x "$EXE"
