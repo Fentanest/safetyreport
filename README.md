@@ -205,22 +205,22 @@ docker-compose up -d
 **사전 조건**: 크롬(Chrome) 브라우저 설치 권장
 
 1. [릴리즈 페이지](https://github.com/Fentanest/safetyreport/releases)에서 환경에 맞는 파일을 다운로드합니다.
-   - Intel Mac: `mysafetyreport-macos-intel.zip`
+   - Intel Mac: `mysafetyreport-macos-x64.zip`
    - Apple Silicon Mac: `mysafetyreport-macos-arm64.zip`
 2. 압축 해제 후 실행 권한을 부여합니다:
    ```bash
    chmod +x run.command mysafetyreport
    ```
-3. 실행:
-   ```bash
-   ./run.command
-   ```
-4. 처음 실행 시 macOS가 차단하면 Finder에서 `run.command` 또는 `mysafetyreport`를 우클릭해 **열기**를 선택하거나, 필요하면 아래 명령으로 quarantine 속성을 제거합니다:
+3. Finder에서 `run.command`를 실행합니다.
+4. 처음 실행 시 macOS가 차단하면 `run.command`를 우클릭해 **열기**를 선택하거나, 시스템 설정 `개인정보 보호 및 보안`에서 **그래도 열기(Open Anyway)** 를 눌러 한 번 허용한 뒤 다시 실행합니다.
+5. `run.command`를 허용해도 내부 파일이 계속 차단되면, 터미널에서 압축 해제한 폴더로 이동한 뒤 quarantine 속성을 직접 해제하고 다시 실행합니다:
    ```bash
    xattr -dr com.apple.quarantine .
+   chmod +x run.command mysafetyreport
+   ./run.command
    ```
-5. 자동으로 브라우저가 열리며 웹 UI로 접속됩니다 (`http://127.0.0.1:6819`)
-6. 설정 → 크롬 구동 방식을 **로컬 데스크톱 크롬**으로 선택
+6. 자동으로 브라우저가 열리며 웹 UI로 접속됩니다 (`http://127.0.0.1:6819`)
+7. 설정 → 크롬 구동 방식을 **로컬 데스크톱 크롬**으로 선택
 
 macOS 포터블 실행 파일도 데이터는 실행 폴더의 `data/` 아래에 저장되며, 자동 업데이트 시 이 폴더는 보존됩니다.
 
