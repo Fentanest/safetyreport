@@ -799,22 +799,30 @@ $(document).ready(function() {
         }
     });
 
-    $('#advSearchForm input').on('keypress', function(e) {
-        if(e.which === 13) {
-            e.preventDefault();
-            $('#btnSearch').click();
-        }
-    });
-
-    $('#advSearchForm').on('keydown', '.multi-select-option', function(e) {
+    $('#advSearchForm').on('keydown', function(e) {
         if (e.key !== 'Enter') return;
-        if (!$(this).hasClass('active')) return;
+        if (e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+        const $target = $(e.target);
+        if ($target.is('textarea')) return;
         e.preventDefault();
         e.stopPropagation();
-        const $button = $(this);
-        setTimeout(function() {
-            submitFromMultiSelect($button);
-        }, 0);
+
+        const $optionButton = $target.closest('.multi-select-option');
+        if ($optionButton.length) {
+            $optionButton.trigger('click');
+            setTimeout(function() {
+                submitFromMultiSelect($optionButton);
+            }, 0);
+            return;
+        }
+
+        const $toggleButton = $target.closest('.multi-select-toggle');
+        if ($toggleButton.length) {
+            submitFromMultiSelect($toggleButton);
+            return;
+        }
+
+        runAdvancedSearch();
     });
 
     if (qAgency || qPerson) {
