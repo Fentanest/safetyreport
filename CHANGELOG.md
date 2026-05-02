@@ -436,8 +436,17 @@ Task 4 — `normalize_police` 유틸 중복 제거:
 Task 5 — `database.py` `sync_rating_status` 루프화:
 - `title_table`, `merge_traffic_table`, `merge_parking_table`, `merge_other_table`에 대한 동일 UPDATE를 루프로 통합
 
-권장 작업 순서 원안:
 ## 2026-05-02
+
+### 문서 역할 분리 정리
+
+변경:
+- `CLAUDE.md`
+  - 작업 이력성 메모를 제거하고 구조/작동 방식/운영 메모만 남기도록 정리
+  - 작업/버그/세션 이력은 `CHANGELOG.md`에만 남긴다는 규칙을 명확히 함
+- `CHANGELOG.md`
+  - 최근 `CLAUDE.md`에 남아 있던 변경 이력 요약은 이 파일의 날짜별 항목으로 관리하도록 정리
+  - 2026-05-02 구간에 섞여 있던 stray task/checklist 메모를 제거해 changelog 형식으로 정돈
 
 ### sunwi 모바일 API + 대시보드 정리
 
@@ -449,21 +458,6 @@ Task 5 — `database.py` `sync_rating_status` 루프화:
 - 대시보드의 sunwi 카드 폭을 기존 대비 절반 수준으로 축소 (`col-xl-4` → `col-xl-2`, 본문 `col-xl-8` → `col-xl-10`).
 - sunwi 카드 항목에서 행정구역 중복 표기(`시도 · 시군구` 보조 텍스트) 제거.
 - 대시보드 두 막대그래프는 라벨 텍스트 없이 퍼센트 숫자만 표시하도록 수정.
-
-1. Task 5
-2. Task 1
-3. Task 3
-4. Task 4
-5. Task 2
-
-원안 체크리스트:
-- [x] Task 1: `crawltitle_api.py` + `parser.py` `c_now` dict 통일
-- [x] Task 2: `parser.py` `_apply_penalty_corrections` 추출
-- [x] Task 3: `data_service.py` `_row_to_dict` 추출
-- [x] Task 4: `normalize_police` 중복 제거
-- [x] Task 5: `sync_rating_status` 루프화
-- [ ] 전체 크롤링 1회 실행해서 DB 정상 저장 확인
-- [ ] 대시보드 / 데이터 조회 정상 확인
 
 ---
 

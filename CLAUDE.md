@@ -6,6 +6,7 @@
 ## 작업 규칙
 - 작업 완료 후: 구조 변경은 CLAUDE.md, 작업 이력은 CHANGELOG.md에 기록 + 코드 git 커밋
 - 구조/운영 메모는 CLAUDE.md, 작업/버그/세션 이력은 CHANGELOG.md로 분리 관리
+- `CLAUDE.md`에는 프로젝트 구조, 작동 방식, 운영상 주의점만 남긴다.
 - `CLAUDE.md`, `CHANGELOG.md`는 git 추적 대상이고, `REFACTOR.md`는 로컬 원문 보관용이다.
 
 ---
@@ -561,8 +562,4 @@ GET /api/v1/vehicle/{vehicle_number}
 
 ## 변경 이력
 - 작업/버그/세션 기록은 `CHANGELOG.md`에 정리한다.
-- 2026-05-02:
-  - 모바일 Client `신고현황` 탭 지원용 `/api/v1/sunwi/payload`, `/api/v1/sunwi/export/{kind}` 추가.
-  - `sunwi_service`가 cache에 `all_rows`, `top5_rows`를 유지하고 `ensure_csv()`로 현재 결과 경로 CSV를 재생성 가능.
-  - 웹 대시보드 sunwi 카드 폭 축소, 행정구역 보조문구 제거, 처리율/처분율 progress bar 내부 텍스트를 숫자만 보이도록 정리.
 - 2026-04-30에 기존 작업 이력 섹션을 CLAUDE.md에서 분리했다.
