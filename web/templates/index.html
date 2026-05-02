@@ -126,7 +126,7 @@
 </div>
 
 <div class="row g-4 align-items-stretch">
-    <div class="col-xl-8">
+    <div class="col-xl-10">
         <div class="row mb-1 mt-2">
             <div class="col-12">
                 <h4 class="fw-bold mb-3 text-dark"><i class="fas fa-chart-pie me-2 text-primary"></i> 내 안전신문고 처리 상태</h4>
@@ -200,20 +200,20 @@
                 <h6 class="fw-bold mb-2 text-secondary"><i class="fas fa-sliders-h me-1"></i> 안전신문고 처리상태</h6>
                 <div class="progress shadow-sm mb-3" style="height: 35px; border-radius: 17px; font-size: 1.05em; font-weight: bold;">
                     <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ accept_pct }}%">
-                        수용 {{ accept_pct }}%
+                        {{ accept_pct }}%
                     </div>
                     <div class="progress-bar bg-warning text-dark progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ partial_pct }}%">
-                        일부수용 {{ partial_pct }}%
+                        {{ partial_pct }}%
                     </div>
                     <div class="progress-bar bg-danger progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ reject_pct }}%">
-                        불수용/기타 {{ reject_pct }}%
+                        {{ reject_pct }}%
                     </div>
                     <div class="progress-bar bg-light text-dark progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ processing_pct }}%">
-                        처리중 {{ processing_pct }}%
+                        {{ processing_pct }}%
                     </div>
                     {% if not exclude_withdraw and withdrawCount > 0 %}
                     <div class="progress-bar bg-secondary text-white progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ withdraw_pct }}%">
-                        취하 {{ withdraw_pct }}%
+                        {{ withdraw_pct }}%
                     </div>
                     {% endif %}
                 </div>
@@ -268,23 +268,23 @@
                 <h6 class="fw-bold mb-2 text-secondary"><i class="fas fa-balance-scale me-1"></i> 교통위반 실제 처분율</h6>
                 <div class="progress shadow-sm mb-3" style="height: 35px; border-radius: 17px; font-size: 1.05em; font-weight: bold;">
                     <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: #e83e8c; width: 0%; transition: width 1.5s ease" data-width="{{ tfine_pct }}%">
-                        과태료 {{ tfine_pct }}%
+                        {{ tfine_pct }}%
                     </div>
                     <div class="progress-bar bg-secondary progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ tpenalty_pct }}%">
-                        경고/범칙금 {{ tpenalty_pct }}%
+                        {{ tpenalty_pct }}%
                     </div>
                     <div class="progress-bar bg-danger progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ treject_pct }}%">
-                        불수용/기타 {{ treject_pct }}%
+                        {{ treject_pct }}%
                     </div>
                     <div class="progress-bar bg-light text-muted progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ tunconfirmed_pct }}%">
-                        미확인 {{ tunconfirmed_pct }}%
+                        {{ tunconfirmed_pct }}%
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="col-xl-4 d-flex">
+    <div class="col-xl-2 d-flex">
         <div class="card card-custom sunwi-card">
             <div class="card-header bg-white border-0 pb-0">
                 <div>
@@ -503,7 +503,6 @@
                     '    </div>' +
                     '    <div class="sunwi-item-main">' +
                     '      <div class="sunwi-region">' + escapeHtml(item.region) + '</div>' +
-                    '      <div class="sunwi-subtext mt-1">' + escapeHtml(item.sido) + ' · ' + escapeHtml(item.sigungu) + '</div>' +
                     '    </div>' +
                     '    <div class="sunwi-count-wrap">' +
                     '      <div class="sunwi-count">' + Number(item.count || 0).toLocaleString() + '<span class="fs-6 ms-1">건</span></div>' +

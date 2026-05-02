@@ -437,6 +437,19 @@ Task 5 — `database.py` `sync_rating_status` 루프화:
 - `title_table`, `merge_traffic_table`, `merge_parking_table`, `merge_other_table`에 대한 동일 UPDATE를 루프로 통합
 
 권장 작업 순서 원안:
+## 2026-05-02
+
+### sunwi 모바일 API + 대시보드 정리
+
+변경:
+- `/api/v1/sunwi/payload` 추가: 모바일 Client `신고현황` 탭에서 서버 sunwi 캐시를 그대로 표시할 수 있도록 payload 노출.
+- `/api/v1/sunwi/export/{kind}` 추가 (`all`, `top5`): 서버 결과 경로에 CSV 생성을 보장하고 생성 경로를 반환.
+- `services/sunwi_service.py` 캐시에 `all_rows`, `top5_rows`를 함께 보존하고, 필요 시 현재 캐시 기준으로 CSV를 다시 저장하는 `ensure_csv()` 추가.
+- 웹 라우터에 `/sunwi/download/all` 추가.
+- 대시보드의 sunwi 카드 폭을 기존 대비 절반 수준으로 축소 (`col-xl-4` → `col-xl-2`, 본문 `col-xl-8` → `col-xl-10`).
+- sunwi 카드 항목에서 행정구역 중복 표기(`시도 · 시군구` 보조 텍스트) 제거.
+- 대시보드 두 막대그래프는 라벨 텍스트 없이 퍼센트 숫자만 표시하도록 수정.
+
 1. Task 5
 2. Task 1
 3. Task 3

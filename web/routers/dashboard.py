@@ -47,3 +47,16 @@ async def download_sunwi_top5_csv():
         media_type="text/csv",
         filename=os.path.basename(csv_path),
     )
+
+
+@router.get("/sunwi/download/all")
+async def download_sunwi_all_csv():
+    csv_path = sunwi_service.get_all_csv_path()
+    if not os.path.exists(csv_path):
+        raise HTTPException(status_code=404, detail="CSV file not found")
+
+    return FileResponse(
+        csv_path,
+        media_type="text/csv",
+        filename=os.path.basename(csv_path),
+    )

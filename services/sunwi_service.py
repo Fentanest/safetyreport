@@ -21,6 +21,8 @@ _cache = {
     "period_label": None,
     "updated_at": None,
     "categories": [],
+    "all_rows": [],
+    "top5_rows": [],
     "error": None,
     "failed_count": 0,
 }
@@ -65,6 +67,10 @@ def get_top5_csv_path() -> str:
     return os.path.join(_results_dir(), TOP5_CSV_FILENAME)
 
 
+def get_results_dir() -> str:
+    return _results_dir()
+
+
 def refresh_data() -> dict:
     result = sunwi_fetcher.collect_statistics(logger_fn=_log_adapter)
     sunwi_fetcher.save_all_rows_csv(result["all_rows"], get_all_csv_path())
@@ -81,6 +87,8 @@ def refresh_data() -> dict:
         "period_label": result["period_label"],
         "updated_at": updated_at,
         "categories": result["top5_by_category"],
+        "all_rows": result["all_rows"],
+        "top5_rows": result["top5_rows"],
         "error": None,
         "failed_count": len(result["failed"]),
     }
@@ -100,8 +108,36 @@ def get_dashboard_payload() -> dict:
     with _cache_lock:
         payload = copy.deepcopy(_cache)
 
+    payload.pop("all_rows", None)
+    payload.pop("top5_rows", None)
     payload["csv_download_url"] = "/sunwi/download/top5"
+    payload["all_csv_download_url"] = "/sunwi/download/all"
     return payload
+
+
+def ensure_csv(kind: str) -> str:
+    normalized = (kind or "").strip().lower()
+    if normalized not in {"all", "top5"}:
+        raise ValueError(f"unsupported csv kind: {kind}")
+
+    target_path = get_all_csv_path() if normalized == "all" else get_top5_csv_path()
+
+    with _cache_lock:
+        all_rows = copy.deepcopy(_cache.get("all_rows", []))
+        top5_rows = copy.deepcopy(_cache.get("top5_rows", []))
+
+    if normalized == "all" and all_rows:
+        sunwi_fetcher.save_all_rows_csv(all_rows, target_path)
+        return target_path
+    if normalized == "top5" and top5_rows:
+        sunwi_fetcher.save_top5_csv(top5_rows, target_path)
+        return target_path
+
+    if os.path.exists(target_path):
+        return target_path
+
+    refresh_data()
+    return target_path
 
 
 def _worker_loop():

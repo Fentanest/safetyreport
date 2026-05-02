@@ -4,6 +4,7 @@ from fastapi.security import APIKeyHeader
 from sqlalchemy import create_engine
 import settings.settings as settings
 from services import data_service
+from services import sunwi_service
 from services.ws_manager import ws_manager
 from core.database import database
 from core.utils import logger
@@ -89,6 +90,35 @@ async def get_stats(_: str = Depends(_require_api_key), year: str = None, law: s
             filters['law'] = law
         stats = data_service.get_agency_stats(engine, filters or None)
         return {"status": "success", "data": stats}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/sunwi/payload")
+async def get_sunwi_payload(_: str = Depends(_require_api_key)):
+    """모바일용 신고현황(sunwi) 데이터"""
+    try:
+        return {"status": "success", "data": sunwi_service.get_dashboard_payload()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sunwi/export/{kind}")
+async def export_sunwi_csv(kind: str, _: str = Depends(_require_api_key)):
+    """서버 경로에 sunwi CSV를 생성/보장한다. kind: all | top5"""
+    normalized = kind.strip().lower()
+    if normalized not in {"all", "top5"}:
+        raise HTTPException(status_code=400, detail="kind must be 'all' or 'top5'")
+
+    try:
+        csv_path = sunwi_service.ensure_csv(normalized)
+        return {
+            "status": "success",
+            "kind": normalized,
+            "path": csv_path,
+            "filename": _os.path.basename(csv_path),
+            "results_dir": sunwi_service.get_results_dir(),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
