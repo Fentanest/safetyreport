@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}나만의 안전신문고{% endblock %}</title>
-    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ request.state.app_version }}">
     
     <!-- Bootstrap 5 CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -104,7 +104,7 @@
         <nav class="col-md-2 d-md-block sidebar" id="mainSidebar">
             <div class="sidebar-sticky">
                 <div class="text-center mb-2">
-                    <img src="/static/logo.png" alt="Logo" style="width: 80px; height: auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
+                    <img src="/static/logo.png?v={{ request.state.app_version }}" alt="Logo" style="width: 80px; height: auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
                 </div>
                 <h5 class="text-center mb-0 text-white fw-bold">나만의<br>안전신문고</h5>
                 <div class="text-center text-white fw-bold" style="font-size: 0.8rem;">프로젝트 버전: v{{ request.state.app_version }}</div>
