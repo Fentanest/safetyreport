@@ -136,6 +136,12 @@ def get_dashboard_stats(engine):
             return pd.Series(pd.NaT, index=df.index)
         return pd.to_datetime(df['답변일'], errors='coerce').dt.date
 
+    table_category_map = {
+        database.merge_traffic_table: 'traffic',
+        database.merge_parking_table: 'parking',
+        database.merge_other_table: 'other',
+    }
+
     with engine.connect() as conn:
         for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
             df = _safe_read(conn, t)
@@ -160,8 +166,11 @@ def get_dashboard_stats(engine):
                 recent_df = df[recent_mask]
                 if app_settings.exclude_withdraw:
                     recent_df = recent_df[_status_series(recent_df) != '취하']
+                cat = table_category_map.get(t, '')
                 for _, row in recent_df.iterrows():
-                    recent_answers.append(_row_to_dict(row))
+                    item = _row_to_dict(row)
+                    item['category'] = cat
+                    recent_answers.append(item)
 
         # Watchlist
         try:
@@ -177,8 +186,11 @@ def get_dashboard_stats(engine):
                     df_watch_part = pd.read_sql_query(query, conn)
                 except OperationalError:
                     continue
+                cat = table_category_map.get(t, '')
                 for _, row in df_watch_part.iterrows():
-                    watchlist_items.append(_row_to_dict(row))
+                    item = _row_to_dict(row)
+                    item['category'] = cat
+                    watchlist_items.append(item)
 
     recent_answers.sort(key=lambda x: x['답변일'], reverse=True)
     watchlist_items.sort(key=lambda x: x['신고번호'] or '', reverse=True)
@@ -212,7 +224,7 @@ def get_dashboard_stats(engine):
         "treject_pct": round((t_reject_count / t_bar_total * 100), 1) if t_bar_total > 0 else 0,
         "tunconfirmed_pct": round((t_unconfirmed_count / t_bar_total * 100), 1) if t_bar_total > 0 else 0,
         
-        "recent_answers": recent_answers[:20],
+        "recent_answers": recent_answers[:200],
         "watchlist": watchlist_items,
         "exclude_withdraw": app_settings.exclude_withdraw
     })
@@ -384,6 +396,13 @@ def get_duplicate_records(engine):
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
         df_p = _safe_read(conn, database.merge_parking_table)
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
+        # 카테고리 라벨 (모달 상세보기에서 카테고리별 필터 링크 생성용)
+        if not df_t.empty:
+            df_t['category'] = 'traffic'
+        if not df_p.empty:
+            df_p['category'] = 'parking'
+        if not df_o.empty:
+            df_o['category'] = 'other'
         df_all = pd.concat([df_t, df_p, df_o])
         
         if df_all.empty:
@@ -728,6 +747,13 @@ def get_all_watchlist(engine):
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
         df_p = _safe_read(conn, database.merge_parking_table)
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
+        # 카테고리 라벨 (모달 상세보기 → 카테고리별 필터 링크용)
+        if not df_t.empty:
+            df_t['category'] = 'traffic'
+        if not df_p.empty:
+            df_p['category'] = 'parking'
+        if not df_o.empty:
+            df_o['category'] = 'other'
 
         df = pd.concat([df_t, df_p, df_o], ignore_index=True)
         if df.empty:

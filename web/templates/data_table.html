@@ -307,9 +307,15 @@ $(document).ready(function() {
     const urlParams = new URLSearchParams(window.location.search);
     const qAgency = urlParams.get('agency');
     const qPerson = urlParams.get('person');
+    const qCar = urlParams.get('car');
+    const qLaw = urlParams.get('law');
+    const qLocation = urlParams.get('location');
 
     if (qAgency) $('#searchAgency').val(qAgency);
     if (qPerson) $('#searchPerson').val(qPerson);
+    if (qCar) $('#searchCar').val(qCar);
+    if (qLaw) $('#searchLaw').val(qLaw);
+    if (qLocation) $('#searchLocation').val(qLocation);
 
     const isDuplicate = '{{ table_id }}' === 'duplicateTable';
     const offset = isDuplicate ? 1 : 0;
@@ -839,7 +845,7 @@ $(document).ready(function() {
         runAdvancedSearch();
     });
 
-    if (qAgency || qPerson) {
+    if (qAgency || qPerson || qCar || qLaw || qLocation) {
         setTimeout(function() { $('#btnSearch').click(); }, 500);
     }
 

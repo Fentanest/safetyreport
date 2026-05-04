@@ -331,6 +331,25 @@ document.addEventListener('click', function(e) {
             '</div>';
     }
 
+    /// 신고 카테고리(traffic/parking/other) 데이터 리스트로 이동하면서
+    /// queryKey=value 검색 조건을 미리 적용. category 가 없으면 /data/all 로 fallback.
+    function buildFilterUrl(category, queryKey, value) {
+        var path = '/data/' + (category || 'all');
+        return path + '?' + queryKey + '=' + encodeURIComponent(value || '');
+    }
+
+    function linkField(icon, label, value, category, queryKey) {
+        if (!value || value === '' || value === '미확인') return '';
+        var href = buildFilterUrl(category, queryKey, value);
+        return '<div class="d-flex align-items-start mb-2">' +
+            '<i class="' + icon + ' text-muted me-2" style="width:14px;font-size:.82rem;margin-top:2px"></i>' +
+            '<span class="text-muted me-2 flex-shrink-0" style="min-width:78px;font-size:.82rem">' + label + '</span>' +
+            '<a class="fw-medium text-decoration-underline" href="' + href + '" ' +
+            'style="font-size:.82rem;word-break:break-all">' + esc(value) +
+            ' <i class="fas fa-chevron-right ms-1" style="font-size:.7rem;opacity:.5"></i></a>' +
+            '</div>';
+    }
+
     function safetyUrl(id) {
         return 'https://www.safetyreport.go.kr/#mypage/mysafereport/' + encodeURIComponent(id || '');
     }
@@ -351,17 +370,25 @@ document.addEventListener('click', function(e) {
             ratingDisplay = isNaN(ratingNum) ? String(rating) : ('★ ' + ratingNum + '점');
         }
 
+        // 카테고리 추론: 모바일 호환을 위해 'category' 키를 우선 사용.
+        // 없으면 현재 페이지 URL 의 /data/<cat> 로 추정 (data_table.html).
+        var category = (d && d['category']) ? String(d['category']).trim() : '';
+        if (!category) {
+            var pathMatch = window.location.pathname.match(/^\/data\/(traffic|parking|other)/);
+            if (pathMatch) category = pathMatch[1];
+        }
+
         document.getElementById('rdFields').innerHTML =
             field('fas fa-tag',              '신고번호',    d['신고번호']) +
             field('fas fa-calendar',         '신고일',      d['신고일']) +
             field('fas fa-check-circle',     '답변일',      d['답변일']) +
             field('fas fa-building',         '처리기관',    d['처리기관']) +
-            field('fas fa-user',             '담당자',      d['담당자']) +
+            linkField('fas fa-user',         '담당자',      d['담당자'],     category, 'person') +
             field('fas fa-coins',            '과태료/범칙금', d['범칙금_과태료']) +
             field('fas fa-exclamation-triangle','벌점',     d['벌점']) +
-            field('fas fa-car',              '차량번호',    d['차량번호']) +
-            field('fas fa-gavel',            '위반법규',    d['위반법규']) +
-            field('fas fa-map-marker-alt',   '위반장소',    d['위반장소']) +
+            linkField('fas fa-car',          '차량번호',    d['차량번호'],   category, 'car') +
+            linkField('fas fa-gavel',        '위반법규',    d['위반법규'],   category, 'law') +
+            linkField('fas fa-map-marker-alt','위반장소',   d['위반장소'],   category, 'location') +
             field('fas fa-calendar-day',     '발생일자',    occur) +
             field('fas fa-star',             '별점',        ratingDisplay) +
             field('fas fa-comment-dots',     '별점사유',    d['별점사유']);

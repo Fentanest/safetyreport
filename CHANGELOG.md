@@ -8,6 +8,33 @@
 
 ---
 
+## 2026-05-05
+
+### 모바일 대시보드 더보기 / 상세 모달 필드 링크 (모바일과 함께 작업)
+
+상태: 완료
+
+변경:
+- `services/data_service.py`
+  - `get_dashboard_stats` 의 `recent_answers` 한도를 20 → 200 으로 상향. 대시보드에서
+    가려졌던 항목이 모바일 더보기 페이지에서 모두 보이도록 함
+  - `recent_answers` / `watchlist` 행 dict 에 `category` 필드 추가 (`traffic`/`parking`/`other`)
+    — 모달 상세에서 카테고리별 필터 링크 생성 시 사용
+  - `get_duplicate_records`, `get_all_watchlist` 도 카테고리 라벨 부여
+- `web/templates/base.html`
+  - `linkField()` 헬퍼 추가: 차량번호 / 위반장소 / 위반법규 / 담당자 4개 필드를
+    `/data/<category>?car|law|location|person=<value>` 링크로 렌더링
+  - 행 데이터의 `category` 필드를 우선, 없으면 현재 URL `/data/<cat>` 로 추정 (data_table 페이지 호환)
+- `web/templates/data_table.html`
+  - URL 쿼리 `car` / `law` / `location` 파라미터를 받아 상세 검색 입력에 자동 채우고
+    `qAgency || qPerson || qCar || qLaw || qLocation` 일 때 자동 검색 실행
+
+비고:
+- 모바일 측 변경: `safetyreport-mobile` 의 동일자 CHANGELOG 참고
+- 추가된 `recent_answers[:200]` 한도는 통상적인 3일 답변 수보다 충분히 큰 안전 캡
+
+---
+
 ## 2026-05-02
 
 ### 상세검색 만족도 조사 여부 드롭다운 추가
