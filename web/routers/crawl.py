@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Request, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 import asyncio
-import sys
 import os
-import threading
-from services.crawl_manager import crawl_manager
-from services.ws_manager import ws_manager
-from core.utils.templating import templates
+
 import settings.settings as settings
+from core.database.engine import get_engine
+from core.utils.templating import templates
+from services import crawl_control, export_service
+from services.crawl_manager import crawl_manager
 
 router = APIRouter(prefix="/crawl")
 
@@ -15,14 +15,16 @@ router = APIRouter(prefix="/crawl")
 @router.get("/")
 async def crawl_dashboard(request: Request):
     import settings.settings as app_settings
+
     app_settings._instance.load()
     return templates.TemplateResponse(request, "crawl.html", {
         "title": "크롤링 제어 및 모니터링",
         "is_running": crawl_manager.is_crawling(),
         "crawl_type": app_settings.crawl_type,
-        "max_empty_pages": app_settings.config.get('SETTINGS', 'max_empty_pages', fallback=3),
-        "google_sheet_enabled": app_settings.google_sheet_enabled
+        "max_empty_pages": app_settings.config.get("SETTINGS", "max_empty_pages", fallback=3),
+        "google_sheet_enabled": app_settings.google_sheet_enabled,
     })
+
 
 @router.post("/start")
 async def start_crawl(
@@ -30,124 +32,62 @@ async def start_crawl(
     queue_list: str = Form(""),
     crawl_mode: str = Form("full"),
     crawl_type: str = Form("api"),
-    max_empty_pages: int = Form(3)
+    max_empty_pages: int = Form(3),
 ):
-    import settings.settings as app_settings
-    crawl_type = 'api' if crawl_type == 'api' else 'legacy'
-    app_settings._instance.update_config('SETTINGS', 'max_empty_pages', max_empty_pages)
-    app_settings._instance.update_config('Crawler', 'crawl_type', crawl_type)
-    save_mode = 'full' if crawl_mode == 'reset' else crawl_mode
-    app_settings._instance.update_config('SETTINGS', 'crawl_mode', save_mode)
-    app_settings._instance.save()
-
-    log_dir = os.path.join(settings.datapath, 'logs')
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, 'current_crawl.log')
-
-    with open(log_file, 'w', encoding='utf-8') as f:
-        f.write("=== 크롤링 작업 시작 ===\n")
-
-    is_frozen = getattr(sys, 'frozen', False)
-    cmd = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
-
-    if login_mode == "nonmember":
-        cmd.append("--nonmember")
-    if crawl_mode == "min":
-        cmd.append("--min")
-    elif crawl_mode == "reset":
-        cmd.append("--reset")
-
-    if queue_list.strip():
-        queue_file = os.path.join(settings.datapath, 'queue.txt')
-        with open(queue_file, 'w', encoding='utf-8') as qf:
-            qf.write(queue_list)
-        cmd.extend(["--queue", queue_file])
-
-    work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    if not crawl_manager.start_crawl(cmd, cwd=work_dir, log_file=log_file):
+    try:
+        crawl_control.start_crawl(
+            login_mode=login_mode,
+            crawl_mode=crawl_mode,
+            crawl_type="api" if crawl_type == "api" else "legacy",
+            max_empty_pages=max_empty_pages,
+            queue_list=queue_list,
+            queue_filename="queue.txt",
+            header="=== 크롤링 작업 시작 ===",
+            broadcast_source="web_start",
+        )
+    except RuntimeError:
         return JSONResponse({"status": "error", "message": "크롤링이 이미 실행 중입니다. (수동 또는 스케줄러)."})
-
-    proc = crawl_manager.get_process()
-    asyncio.create_task(ws_manager.broadcast("crawl_started", {
-        "login_mode": login_mode,
-        "crawl_mode": crawl_mode,
-        "crawl_type": crawl_type,
-    }))
-
-    if proc:
-        threading.Thread(target=crawl_manager.run_after_crawl, args=(proc, log_file), daemon=True).start()
+    except Exception as exc:
+        return JSONResponse({"status": "error", "message": f"오류: {exc}"})
 
     return JSONResponse({"status": "success", "message": "크롤링이 시작되었습니다."})
 
 
 @router.post("/resume")
 async def resume_crawl():
-    signal_file = os.path.join(settings.datapath, 'resume.sig')
-    with open(signal_file, 'w', encoding='utf-8') as f:
-        f.write("RESUME")
+    crawl_control.resume_crawl()
     return JSONResponse({"status": "success", "message": "크롤링 재개 신호가 전송되었습니다."})
+
 
 @router.post("/kill")
 async def kill_crawl():
-    if not crawl_manager.is_crawling():
+    if not crawl_control.stop_crawl():
         return JSONResponse({"status": "error", "message": "현재 실행 중인 크롤링 프로세스가 없습니다."})
+    return JSONResponse({"status": "success", "message": "크롤링 프로세스가 강제로 종료되었습니다."})
 
-    try:
-        crawl_manager.stop_crawl()
-        log_file = os.path.join(settings.datapath, 'logs', 'current_crawl.log')
-        with open(log_file, 'a', encoding='utf-8') as f:
-            f.write("\n[시스템] 사용자 요청으로 크롤링 프로세스가 강제 종료되었습니다.\n")
-        return JSONResponse({"status": "success", "message": "크롤링 프로세스가 강제로 종료되었습니다."})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": f"오류: {e}"})
 
 @router.post("/export/excel")
 async def export_excel():
-    from core.database import database
-    from core.utils import export
-    from sqlalchemy import create_engine
-    import settings.settings as app_settings
-    engine = create_engine(f'sqlite:///{app_settings.db_path}', connect_args={"check_same_thread": False})
-    category_dfs = database.load_results_by_category(engine=engine)
-    if not any(not df.empty for df in category_dfs.values()):
+    if not export_service.export_results(get_engine(), save_excel=True, save_sheet=False):
         return JSONResponse({"status": "error", "message": "저장할 데이터가 없습니다."})
-    excel_data = {}
-    for label, df in category_dfs.items():
-        if df.empty:
-            continue
-        processed_df, _ = export._process_dataframe(df)
-        excel_data[label] = processed_df
-    export.save_to_excel(excel_data)
     return JSONResponse({"status": "success", "message": "DB 기반 엑셀 파일 생성이 완료되었습니다."})
+
 
 @router.post("/export/sheet")
 async def export_sheet():
-    from core.database import database
-    from core.utils import export
-    from sqlalchemy import create_engine
     import settings.settings as app_settings
+
     if not app_settings.google_sheet_enabled:
         return JSONResponse({"status": "error", "message": "구글 시트 연동 기능이 비활성화되어 있습니다."})
-    engine = create_engine(f'sqlite:///{app_settings.db_path}', connect_args={"check_same_thread": False})
-    category_dfs = database.load_results_by_category(engine=engine)
-    if not any(not df.empty for df in category_dfs.values()):
+    if not export_service.export_results(get_engine(), save_excel=False, save_sheet=True):
         return JSONResponse({"status": "error", "message": "업로드할 데이터가 없습니다."})
-    sheet_data = {}
-    for label, df in category_dfs.items():
-        if df.empty:
-            continue
-        processed_df, photo_cols = export._process_dataframe(df)
-        sheet_data[label] = (processed_df, photo_cols)
-    try:
-        export.save_to_google_sheet(sheet_data, photo_cols=None)
-        return JSONResponse({"status": "success", "message": "구글 시트 업로드가 완료되었습니다."})
-    except Exception as e:
-        return JSONResponse({"status": "error", "message": f"구글 시트 업로드 중 오류 발생: {e}"})
+    return JSONResponse({"status": "success", "message": "구글 시트 업로드가 완료되었습니다."})
+
 
 @router.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
     await websocket.accept()
-    log_file = os.path.join(settings.datapath, 'logs', 'current_crawl.log')
+    log_file = os.path.join(settings.datapath, "logs", "current_crawl.log")
 
     try:
         if not os.path.exists(log_file):
@@ -156,8 +96,8 @@ async def websocket_logs(websocket: WebSocket):
                 await asyncio.sleep(1)
 
         if os.path.exists(log_file):
-            with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
-                data = f.read()
+            with open(log_file, "r", encoding="utf-8", errors="replace") as file_obj:
+                data = file_obj.read()
                 if data:
                     await websocket.send_text(data)
 
@@ -170,16 +110,15 @@ async def websocket_logs(websocket: WebSocket):
 
             current_size = os.path.getsize(log_file)
             if current_size > last_size:
-                with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
-                    f.seek(last_size)
-                    new_data = f.read()
+                with open(log_file, "r", encoding="utf-8", errors="replace") as file_obj:
+                    file_obj.seek(last_size)
+                    new_data = file_obj.read()
                     if new_data:
                         await websocket.send_text(new_data)
                 last_size = current_size
             elif current_size < last_size:
                 last_size = 0
-
     except WebSocketDisconnect:
         pass
-    except Exception as e:
-        print(f"WS error: {e}")
+    except Exception as exc:
+        print(f"WS error: {exc}")

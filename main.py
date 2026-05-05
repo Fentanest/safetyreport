@@ -65,10 +65,11 @@ os.makedirs(os.path.join(settings.datapath, 'logs'), exist_ok=True)
 os.makedirs(os.path.join(settings.datapath, 'results'), exist_ok=True)
 
 # DB Init
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from core.database import database
+from core.database.engine import get_engine
 from core.utils import scheduler
-engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_same_thread": False})
+engine = get_engine()
 
 def _checkpoint_wal():
     try:

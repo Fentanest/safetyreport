@@ -3,12 +3,12 @@ import os
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import FileResponse
 import settings.settings as settings
-from sqlalchemy import create_engine
+from core.database.engine import get_engine
 from services import data_service
 from services import sunwi_service
 from core.utils.templating import templates
 
-engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_same_thread": False})
+engine = get_engine()
 router = APIRouter()
 
 @router.get("/")

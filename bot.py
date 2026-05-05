@@ -6,9 +6,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, ConversationHandler, MessageHandler, filters
 
 # DB and settings imports
-from sqlalchemy import create_engine
 import settings.settings as settings
 from core.database import database
+from core.database.engine import get_engine_with_timeout
 from core.utils import logger
 from core.utils import message_formatter
 import warnings
@@ -116,7 +116,7 @@ async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(f"차량번호 '{car_number}'에 대한 신고 내역을 검색합니다...")
 
     try:
-        engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={'timeout': 15})
+        engine = get_engine_with_timeout(15)
         results = database.search_by_car_number(engine, car_number)
 
         if not results:
@@ -140,7 +140,7 @@ async def receive_report_number(update: Update, context: ContextTypes.DEFAULT_TY
     await update.message.reply_text(f"신고번호 '{report_number}'에 대한 신고 내역을 검색합니다...")
 
     try:
-        engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={'timeout': 15})
+        engine = get_engine_with_timeout(15)
         results = database.search_by_report_number(engine, report_number)
 
         if not results:

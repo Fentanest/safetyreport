@@ -239,7 +239,8 @@ if __name__ == "__main__":
     logger.LoggerFactory.create_logger()
     print("--- 디버그 스크립트 시작 ---")
 
-    engine = create_engine(f"sqlite:///{settings.db_path}", connect_args={"check_same_thread": False})
+    from core.database.engine import get_engine
+    engine = get_engine()
 
     record_ids = []
     for arg in input_args:

@@ -1,26 +1,19 @@
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import create_engine
 
 import settings.settings as app_settings
 from core.utils.templating import templates
 from core.database import database
+from core.database.engine import get_engine
 
 router = APIRouter(tags=["auth"])
-
-
-def _get_engine():
-    return create_engine(
-        f'sqlite:///{app_settings.db_path}',
-        connect_args={"check_same_thread": False}
-    )
 
 
 # ── 최초 설정 (관리자 계정 생성) ─────────────────────────────────────────────
 
 @router.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
-    engine = _get_engine()
+    engine = get_engine()
     if database.has_admin_user(engine):
         return RedirectResponse("/login", status_code=302)
     return templates.TemplateResponse(request, "setup.html", {"error": None})
@@ -33,7 +26,7 @@ async def do_setup(
     password: str = Form(...),
     password_confirm: str = Form(...)
 ):
-    engine = _get_engine()
+    engine = get_engine()
     if database.has_admin_user(engine):
         return RedirectResponse("/login", status_code=302)
 
@@ -54,7 +47,7 @@ async def do_setup(
 async def login_page(request: Request):
     if request.session.get("admin_logged_in"):
         return RedirectResponse("/", status_code=302)
-    engine = _get_engine()
+    engine = get_engine()
     if not database.has_admin_user(engine):
         return RedirectResponse("/setup", status_code=302)
     error = request.query_params.get("error")
@@ -69,7 +62,7 @@ async def do_login(
     password: str = Form(...),
     next: str = Form(default="")
 ):
-    engine = _get_engine()
+    engine = get_engine()
     user = database.get_admin_user(engine, username.strip())
 
     if not user:
@@ -114,7 +107,7 @@ async def change_admin(
     redirect_to: str = Form(default="/settings/admin")
 ):
     old_username = request.session.get("admin_username", "")
-    engine = _get_engine()
+    engine = get_engine()
     user = database.get_admin_user(engine, old_username)
 
     if not user:

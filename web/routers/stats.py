@@ -1,12 +1,10 @@
 from fastapi import APIRouter, Request
-from sqlalchemy import create_engine
-import settings.settings as app_settings
-import pandas as pd
+from core.database.engine import get_engine
 from services import data_service
 from core.utils.templating import templates
 
 router = APIRouter()
-engine = create_engine(f'sqlite:///{app_settings.db_path}', connect_args={"check_same_thread": False})
+engine = get_engine()
 
 @router.get("/stats")
 async def view_stats(

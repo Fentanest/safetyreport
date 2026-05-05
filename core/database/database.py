@@ -10,9 +10,12 @@ from .models import (metadata, title_table, detail_traffic_table, detail_parking
                      merge_traffic_table, merge_parking_table, merge_other_table, watchlist_table, admin_users_table,
                      api_keys_table, entry_value_table)
 
-def _normalize_police_agency(x: str) -> str:
+def normalize_police_agency(x: str) -> str:
     idx = x.find('경찰서')
     return x[:idx + 3] if idx != -1 else x
+
+
+_normalize_police_agency = normalize_police_agency
 
 def category_from_entry_value(entry_value: str) -> str:
     """entry_value 문자열로부터 카테고리를 결정합니다."""
@@ -123,13 +126,8 @@ def upgrade_schema(engine):
 
     migrate_by_entry_value(engine)
 
-def _get_all_title_ids(conn):
-    logger.LoggerFactory.logbot.info("전체 신고 건을 다시 스캔합니다.")
-    query = select(title_table.c.ID)
-    return pd.read_sql_query(query, conn)
-
-def _get_initial_scan_ids(conn):
-    logger.LoggerFactory.logbot.info("detail 테이블 비어 있어 전체 스캔 시작")
+def _get_title_ids_for_scan(conn, *, message: str):
+    logger.LoggerFactory.logbot.info(message)
     query = select(title_table.c.ID)
     return pd.read_sql_query(query, conn)
 
@@ -173,16 +171,16 @@ def _get_new_and_incomplete_ids(conn):
     merged = pd.concat([df_new, df_changed_t, df_changed_p, df_changed_o]).drop_duplicates()
     return merged
 
-def get_cNo(engine, force=False):
+def get_pending_detail_ids(engine, force=False):
     with engine.connect() as conn:
         if force:
-            df = _get_all_title_ids(conn)
+            df = _get_title_ids_for_scan(conn, message="전체 신고 건을 다시 스캔합니다.")
         else:
             row_count_t = conn.execute(select(func.count()).select_from(detail_traffic_table)).scalar()
             row_count_o = conn.execute(select(func.count()).select_from(detail_other_table)).scalar()
             
             if row_count_t + row_count_o == 0:
-                df = _get_initial_scan_ids(conn)
+                df = _get_title_ids_for_scan(conn, message="detail 테이블 비어 있어 전체 스캔 시작")
             else:
                 df = _get_new_and_incomplete_ids(conn)
         
@@ -194,6 +192,10 @@ def get_cNo(engine, force=False):
         logger.LoggerFactory.logbot.debug("스캔대상 ID 리스트화 완료")
         logger.LoggerFactory.logbot.info(f"스캔대상 ID 총 {len(detaillist)}건")
         return detaillist
+
+
+def get_cNo(engine, force=False):
+    return get_pending_detail_ids(engine=engine, force=force)
 
 def title_to_sql(dataframes, engine, conn=None):
     if not dataframes:
@@ -269,7 +271,7 @@ _TITLE_STATUS_FROM_PROGRESS = {
     '이송':     '이송',
 }
 
-def deatil_to_sql(dataframes_with_category, engine, conn=None):
+def detail_to_sql(dataframes_with_category, engine, conn=None):
     if not dataframes_with_category:
         return []
 
@@ -391,6 +393,10 @@ def deatil_to_sql(dataframes_with_category, engine, conn=None):
 
     logger.LoggerFactory.logbot.info(f"총 {total_records}건 detail 테이블 upsert 완료. (변경/신규: {len(changed_item_ids)}건)")
     return changed_item_ids
+
+
+def deatil_to_sql(dataframes_with_category, engine, conn=None):
+    return detail_to_sql(dataframes_with_category=dataframes_with_category, engine=engine, conn=conn)
 
 def _merge_for_table(conn, merge_target, detail_source):
     conn.execute(merge_target.delete())

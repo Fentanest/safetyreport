@@ -26,6 +26,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicNumbers
 
 import settings.settings as settings
 from core.utils import logger
+from core.utils.retry import get_configured_attempts
 
 _BASE = "https://www.safetyreport.go.kr"
 _KEY_URL = f"{_BASE}/api/v1/common/rsa/getPublicKey"
@@ -41,14 +42,6 @@ _COMMON_HEADERS = {
     "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
     "Origin": "https://www.safetyreport.go.kr",
 }
-
-
-def _configured_attempts(default: int = 3) -> int:
-    try:
-        return max(1, int(settings.max_retry_attemps))
-    except Exception:
-        return default
-
 
 def _rsa_encrypt_hex(modulus_hex: str, exponent_hex: str, plaintext: str) -> str:
     """PKCS#1 v1.5 RSA 암호화 → hex 문자열 (브라우저 JSEncrypt 호환)."""
@@ -72,7 +65,7 @@ def _login_once(username: str, password: str) -> dict:
 
     # Step 1: RSA 공개키 (설정 페이지 최대 재시도 횟수 사용)
     last_err = None
-    max_attempts = _configured_attempts()
+    max_attempts = get_configured_attempts()
     for attempt in range(max_attempts):
         try:
             res = session.get(_KEY_URL, timeout=15)

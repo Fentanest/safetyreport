@@ -14,20 +14,13 @@ import time
 from typing import Optional, Tuple
 import settings.settings as settings
 from core.utils import logger
+from core.utils.retry import get_configured_attempts, get_retry_interval
 
 _API_URL = "https://www.safetyreport.go.kr/api/v1/portal/statistics/satisfactionstatistics/score/{spp}/{phone}"
 _PAGE_URL = "https://www.safetyreport.go.kr/html/common/popup/comptSatisfaction.html?seq={spp}&pn={phone}"
 
 
 _SCORE_URL = "https://www.safetyreport.go.kr/api/v1/portal/statistics/satisfactionstatistics/score/{spp}/{phone}"
-
-
-def _configured_attempts(default: int = 3) -> int:
-    try:
-        return max(1, int(settings.max_retry_attemps))
-    except Exception:
-        return default
-
 
 def _extract_cause_from_page_html(html_text: str) -> str:
     if not html_text:
@@ -99,14 +92,14 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], 
      .fail(function(jqXHR, textStatus, errorThrown) { callback({error: textStatus + ' ' + errorThrown}); });
     """
     last_error = None
-    max_attempts = _configured_attempts()
+    max_attempts = get_configured_attempts()
     for attempt in range(1, max_attempts + 1):
         try:
             data = session_or_driver.execute_async_script(script, spp_no, phone)
             if not data or "error" in data or "result" not in data or not data["result"]:
                 last_error = data.get("error") if isinstance(data, dict) else "empty result"
                 if attempt < max_attempts:
-                    time.sleep(max(1, int(getattr(settings, "retry_interval", 1))))
+                    time.sleep(get_retry_interval())
                     continue
                 return None, ""
             score_raw = data["result"].get("STSFDG_SCORE", 0)
@@ -118,7 +111,7 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], 
         except Exception as e:
             last_error = e
             if attempt < max_attempts:
-                time.sleep(max(1, int(getattr(settings, "retry_interval", 1))))
+                time.sleep(get_retry_interval())
                 continue
             if logger.LoggerFactory.logbot:
                 logger.LoggerFactory.logbot.debug(f"[satisfaction] API 조회 실패 {spp_no}: {e}")
@@ -143,7 +136,7 @@ def fetch_score_via_selenium_page(driver, spp_no: str, timeout: int = 8) -> Tupl
         return None, ""
     url = _PAGE_URL.format(spp=spp_no, phone=phone)
     last_error = None
-    max_attempts = _configured_attempts()
+    max_attempts = get_configured_attempts()
     for attempt in range(1, max_attempts + 1):
         try:
             driver.get(url)
@@ -163,13 +156,13 @@ def fetch_score_via_selenium_page(driver, spp_no: str, timeout: int = 8) -> Tupl
         except TimeoutException as e:
             last_error = e
             if attempt < max_attempts:
-                time.sleep(max(1, int(getattr(settings, "retry_interval", 1))))
+                time.sleep(get_retry_interval())
                 continue
             return None, ""
         except Exception as e:
             last_error = e
             if attempt < max_attempts:
-                time.sleep(max(1, int(getattr(settings, "retry_interval", 1))))
+                time.sleep(get_retry_interval())
                 continue
             logger.LoggerFactory.logbot.debug(f"[satisfaction] Selenium 조회 실패 {spp_no}: {e}")
             return None, ""

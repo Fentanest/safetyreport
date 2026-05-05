@@ -1,9 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 import settings.settings as app_settings
-import subprocess
-import sys
-import os
 from core.utils import logger
+from services import crawl_control
 from services.crawl_manager import crawl_manager
 
 # 시스템 로컬 타임존 사용
@@ -15,44 +13,19 @@ def run_crawler():
         return
 
     logger.LoggerFactory.logbot.info("스케줄러에 의해 크롤러가 시작됩니다.")
-    log_file = os.path.join(app_settings._instance.datapath, 'logs', 'current_crawl.log')
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
-    with open(log_file, 'w', encoding='utf-8') as f:
-        f.write("=== 자동 스케줄러 크롤링 작업 시작 ===\n")
-
-    is_frozen = getattr(sys, 'frozen', False)
-    if is_frozen:
-        cmd = [sys.executable, "--mode", "crawl"]
-    else:
-        cmd = [sys.executable, "-u", "start.py"]
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-    
-    if not crawl_manager.start_crawl(cmd, cwd=base_dir, log_file=log_file):
+    try:
+        crawl_control.start_crawl(
+            login_mode="member",
+            crawl_mode=app_settings.crawl_mode,
+            crawl_type=app_settings.crawl_type,
+            max_empty_pages=app_settings.max_empty_pages,
+            header="=== 자동 스케줄러 크롤링 작업 시작 ===",
+            broadcast_source="scheduler",
+        )
+    except RuntimeError:
         logger.LoggerFactory.logbot.warning("스케줄러: 시작 직전 다른 프로세스 진입 발견됨. 건너뜁니다.")
-        return
-
-    p = crawl_manager.get_process()
-
-    # Lock 해제 후 대청소 대기
-    def wait_and_rotate_log(proc, lpath):
-        if proc:
-            proc.wait()
-        crawl_manager.clear_process()
-        import time, shutil, datetime
-        time.sleep(1)
-        if os.path.exists(lpath):
-            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
-            dst = os.path.join(os.path.dirname(lpath), f"crawl_{now_str}.log")
-            try:
-                with open(lpath, 'a', encoding='utf-8') as f:
-                    f.write(f"\n[시스템] 자동 크롤링 작업이 성공적으로 종료되었습니다.\n전체 상세 로그는 {os.path.basename(dst)} 파일로 백업 보관되었습니다.\n")
-                shutil.copy2(lpath, dst)
-            except Exception:
-                pass
-
-    import threading
-    if p:
-        threading.Thread(target=wait_and_rotate_log, args=(p, log_file), daemon=True).start()
+    except Exception as exc:
+        logger.LoggerFactory.logbot.error(f"스케줄러 크롤링 시작 실패: {exc}")
 
 
 def update_jobs():

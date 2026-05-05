@@ -5,11 +5,11 @@ from core.database.models import (
     merge_traffic_table, merge_parking_table, merge_other_table,
     detail_traffic_table, detail_parking_table, detail_other_table
 )
-from sqlalchemy import create_engine, select, update
-import settings.settings as settings
+from sqlalchemy import select, update
+from core.database.engine import get_engine
 
 router = APIRouter(prefix="/db-editor", tags=["db-editor"])
-engine = create_engine(f"sqlite:///{settings.db_path}", connect_args={"check_same_thread": False})
+engine = get_engine()
 
 _CATEGORY_TABLES = {
     "traffic": (merge_traffic_table, detail_traffic_table),

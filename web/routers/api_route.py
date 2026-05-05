@@ -1,19 +1,24 @@
-from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File
+import os
+import tempfile
+
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
-from sqlalchemy import create_engine
+from starlette.background import BackgroundTask
+
 import settings.settings as settings
-from services import data_service
-from services import sunwi_service
-from services.ws_manager import ws_manager
 from core.database import database
-from core.utils import logger
-import pandas as pd
+from core.database.engine import get_engine
+from services import crawl_control, crawl_state_store, data_service, file_service, rating_service, sunwi_service
+from services.crawl_manager import crawl_manager
+from services.ws_manager import ws_manager
 
 router = APIRouter(prefix="/api/v1")
-engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_same_thread": False})
+engine = get_engine()
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+_api_key_query_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
 
 def _require_api_key(request: Request, api_key: str = Depends(_api_key_header)):
     if not api_key or not database.validate_api_key(engine, api_key):
@@ -23,8 +28,6 @@ def _require_api_key(request: Request, api_key: str = Depends(_api_key_header)):
     ws_manager.track_api_request(api_key, device_name, ip)
     return api_key
 
-# api_key를 쿼리 파라미터로도 허용 (파일 다운로드용 브라우저 링크)
-_api_key_query_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 def _require_api_key_flex(request: Request, header_key: str = Depends(_api_key_query_header)):
     api_key = header_key or request.query_params.get("api_key", "")
@@ -32,18 +35,17 @@ def _require_api_key_flex(request: Request, header_key: str = Depends(_api_key_q
         raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
     return api_key
 
+
 @router.get("/summary")
 async def get_summary(request: Request, _: str = Depends(_require_api_key)):
-    """모바일용 대시보드 요약 정보"""
     try:
-        stats = data_service.get_dashboard_stats(engine)
-        return {"status": "success", "data": stats}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"status": "success", "data": data_service.get_dashboard_stats(engine)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
 @router.get("/reports/{category}")
 async def get_reports(category: str, _: str = Depends(_require_api_key)):
-    """카테고리별 신고 리스트 (traffic, other, duplicates)"""
     try:
         if category == "traffic":
             records = data_service.get_traffic_records(engine)
@@ -56,56 +58,53 @@ async def get_reports(category: str, _: str = Depends(_require_api_key)):
         else:
             raise HTTPException(status_code=400, detail="Invalid category")
         return {"status": "success", "category": category, "count": len(records), "data": records}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
 @router.get("/vehicle/{vehicle_number}")
 async def get_vehicle_reports(vehicle_number: str, _: str = Depends(_require_api_key)):
-    """차량번호로 전체 카테고리에서 신고 내역 조회 (크롬 확장 연동용)"""
     try:
         results = data_service.search_by_vehicle(engine, vehicle_number)
         return {"status": "success", "vehicle_number": vehicle_number, "count": len(results), "data": results}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/address")
 async def get_address_reports(q: str, _: str = Depends(_require_api_key)):
-    """위반장소로 전체 카테고리에서 신고 내역 조회 (크롬 확장 연동용)"""
     try:
         results = data_service.search_by_address(engine, q)
         return {"status": "success", "address": q, "count": len(results), "data": results}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/stats")
 async def get_stats(_: str = Depends(_require_api_key), year: str = None, law: str = None):
-    """기관별/담당자별 처리 통계"""
     try:
-        filters: dict = {}
-        if year and year != 'all':
-            filters['year'] = year
+        filters = {}
+        if year and year != "all":
+            filters["year"] = year
         if law:
-            filters['law'] = law
-        stats = data_service.get_agency_stats(engine, filters or None)
-        return {"status": "success", "data": stats}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+            filters["law"] = law
+        return {"status": "success", "data": data_service.get_agency_stats(engine, filters or None)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/sunwi/payload")
 async def get_sunwi_payload(_: str = Depends(_require_api_key)):
-    """모바일용 신고현황(sunwi) 데이터"""
     try:
         return {"status": "success", "data": sunwi_service.get_dashboard_payload()}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/sunwi/export/{kind}")
 async def export_sunwi_csv(kind: str, _: str = Depends(_require_api_key)):
-    """서버 경로에 sunwi CSV를 생성/보장한다. kind: all | top5"""
     normalized = kind.strip().lower()
     if normalized not in {"all", "top5"}:
         raise HTTPException(status_code=400, detail="kind must be 'all' or 'top5'")
@@ -116,86 +115,38 @@ async def export_sunwi_csv(kind: str, _: str = Depends(_require_api_key)):
             "status": "success",
             "kind": normalized,
             "path": csv_path,
-            "filename": _os.path.basename(csv_path),
+            "filename": os.path.basename(csv_path),
             "results_dir": sunwi_service.get_results_dir(),
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
 @router.get("/watchlist")
 async def get_watchlist(_: str = Depends(_require_api_key)):
-    """감시 목록 조회"""
     try:
         items = data_service.get_all_watchlist(engine)
         return {"status": "success", "count": len(items), "data": items}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
 @router.post("/watchlist")
 async def update_watchlist(request: Request, _: str = Depends(_require_api_key)):
-    """감시 목록 추가/제거. body: {report_numbers: [...], action: 'add'|'remove'}"""
     body = await request.json()
     report_numbers = body.get("report_numbers", [])
     action = body.get("action", "remove")
     if not report_numbers:
         raise HTTPException(status_code=400, detail="report_numbers is required")
     try:
-        count = data_service.update_watchlist_status(
-            engine, report_numbers, 'Y' if action == 'add' else 'N'
-        )
-        return {"status": "success", "updated": count}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-import sys as _sys
-import os as _os
-import datetime as _dt
-import shutil as _sh
-import threading as _threading
-import asyncio as _asyncio
-
-def _get_work_dir():
-    return _os.path.abspath(_os.path.join(_os.path.dirname(__file__), '..', '..'))
-
-def _rotate_log(log_file: str):
-    """현재 로그를 타임스탬프 파일로 백업."""
-    if _os.path.exists(log_file):
-        try:
-            now_str = _dt.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
-            dst = _os.path.join(_os.path.dirname(log_file), f"crawl_{now_str}.log")
-            _sh.copy2(log_file, dst)
-        except Exception:
-            pass
-
-
-def _start_rating_batch_worker(report_numbers: list[str], score: int):
-    log_dir = _os.path.join(settings.datapath, 'logs')
-    _os.makedirs(log_dir, exist_ok=True)
-    log_file = _os.path.join(log_dir, 'current_rating.log')
-
-    if _os.path.exists(log_file):
-        try:
-            mtime = _os.path.getmtime(log_file)
-            ts = _dt.datetime.fromtimestamp(mtime).strftime("%Y%m%d_%H%M%S")
-            backup_name = _os.path.join(log_dir, f"star_{ts}.log")
-            _sh.move(log_file, backup_name)
-        except Exception as e:
-            logger.LoggerFactory.get_logger().error(f"별점 로그 백업 중 오류: {e}")
-
-    logger.LoggerFactory.set_star_log_file(log_file)
-
-    def _do_rating():
-        from services import star_rating_service as star_rating
-        star_rating.run_batch_rating(report_numbers, score=score)
-
-    _threading.Thread(target=_do_rating, daemon=True).start()
+        updated = data_service.update_watchlist_status(engine, report_numbers, "Y" if action == "add" else "N")
+        return {"status": "success", "updated": updated}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/rating/start")
 async def api_start_batch_rating(request: Request, _: str = Depends(_require_api_key)):
-    """모바일 Client 모드용 별점 시작 API.
-    body: {report_numbers: [...], score: 1~5}
-    """
     body = await request.json()
     report_numbers = body.get("report_numbers", [])
     score = int(body.get("score", 5))
@@ -205,22 +156,17 @@ async def api_start_batch_rating(request: Request, _: str = Depends(_require_api
     if score < 1 or score > 5:
         raise HTTPException(status_code=400, detail="score must be between 1 and 5")
 
-    normalized = [str(i).strip() for i in report_numbers if str(i).strip()]
+    normalized = [str(item).strip() for item in report_numbers if str(item).strip()]
     if not normalized:
         raise HTTPException(status_code=400, detail="유효한 신고번호가 없습니다.")
 
-    final_ids = data_service.resolve_ids_for_rating(engine, normalized)
-    if not final_ids:
-        raise HTTPException(status_code=404, detail="유효한 신고 건을 찾을 수 없습니다.")
+    try:
+        final_ids = rating_service.start_batch_rating(engine, normalized, score)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
 
-    from services.crawl_manager import crawl_manager
-    if crawl_manager.is_crawling():
-        raise HTTPException(
-            status_code=409,
-            detail="현재 크롤링 프로세스가 진행 중입니다. 충돌 방지를 위해 크롤링 종료 후 실행해주세요.",
-        )
-
-    _start_rating_batch_worker(final_ids, score)
     return {
         "status": "success",
         "requested": len(normalized),
@@ -231,75 +177,48 @@ async def api_start_batch_rating(request: Request, _: str = Depends(_require_api
 
 @router.post("/crawl/enqueue")
 async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
-    """신고번호를 받아 크롤링 큐에 추가 (안드로이드 알림 연동용).
-    크롤링 중이면 대기 큐에 쌓아두고 완료 후 자동 실행."""
-    from services.crawl_manager import crawl_manager
-
     body = await request.json()
     report_number = body.get("report_number")
     if not report_number:
         raise HTTPException(status_code=400, detail="report_number is required")
 
-    if crawl_manager.is_crawling():
-        queue_size = crawl_manager.append_to_pending(str(report_number))
+    try:
+        result = crawl_control.enqueue_report(str(report_number))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    if result["status"] == "queued":
         return {
             "status": "queued",
-            "message": f"크롤링 완료 후 자동 실행됩니다. (대기 중: {queue_size}건)",
+            "message": f"크롤링 완료 후 자동 실행됩니다. (대기 중: {result['queue_size']}건)",
         }
 
-    is_frozen = getattr(_sys, 'frozen', False)
-    cmd = [_sys.executable, "--mode", "crawl"] if is_frozen else [_sys.executable, "-u", "start.py"]
+    return {
+        "status": "success",
+        "message": f"신고번호 {report_number} 크롤링이 시작되었습니다.",
+    }
 
-    queue_file = _os.path.join(settings.datapath, 'mobile_queue.txt')
-    with open(queue_file, 'w', encoding='utf-8') as qf:
-        qf.write(str(report_number))
-    cmd.extend(["--queue", queue_file])
-
-    log_dir = _os.path.join(settings.datapath, 'logs')
-    _os.makedirs(log_dir, exist_ok=True)
-    log_file = _os.path.join(log_dir, 'current_crawl.log')
-    _rotate_log(log_file)
-
-    with open(log_file, 'w', encoding='utf-8') as f:
-        f.write(f"=== [모바일에서 시작된 크롤링] - 신고번호: {report_number} ===\n")
-
-    if crawl_manager.start_crawl(cmd, cwd=_get_work_dir(), log_file=log_file):
-        proc = crawl_manager.get_process()
-        import settings.settings as _s
-        _asyncio.create_task(ws_manager.broadcast("crawl_started", {
-            "source": "mobile_enqueue",
-            "report_number": report_number,
-            "crawl_mode": _s.crawl_mode,
-            "crawl_type": _s.crawl_type,
-        }))
-        if proc:
-            _threading.Thread(target=crawl_manager.run_after_crawl, args=(proc, log_file), daemon=True).start()
-        return {"status": "success", "message": f"신고번호 {report_number} 크롤링이 시작되었습니다."}
-    else:
-        return {"status": "error", "message": "크롤링 프로세스를 시작하지 못했습니다."}
 
 @router.get("/crawl/results")
 async def get_crawl_results(_: str = Depends(_require_api_key)):
-    """크롤링으로 변경된 신고 목록 조회 및 초기화 (모바일 개별 알림용)"""
     try:
-        changes = data_service.get_and_clear_crawl_changes()
+        changes = crawl_state_store.get_and_clear_crawl_changes()
         return {"status": "success", "count": len(changes), "data": changes}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/crawl/status")
 async def get_crawl_status(_: str = Depends(_require_api_key)):
-    """크롤링 실행 중 여부 확인"""
-    from services.crawl_manager import crawl_manager
     return {"status": "success", "running": crawl_manager.is_crawling()}
 
 
 @router.get("/server/version")
 async def get_server_version(_: str = Depends(_require_api_key)):
-    """서버 버전 및 최신 버전 정보 (크롬 확장용)"""
-    from core.utils.updater import get_current_version, get_latest_version_cached
-    from core.utils.updater import _version_gt
+    from core.utils.updater import _version_gt, get_current_version, get_latest_version_cached
+
     current = get_current_version() or "unknown"
     latest = get_latest_version_cached()
     up_to_date = (latest is None) or not _version_gt(latest, current)
@@ -313,9 +232,8 @@ async def get_server_version(_: str = Depends(_require_api_key)):
 
 @router.get("/crawl/done/ext")
 async def get_crawl_done_ext(_: str = Depends(_require_api_key)):
-    """크롤링 완료 여부 및 변경 목록 조회 (크롬 확장용, 확인 후 자동 삭제)"""
     try:
-        done = data_service.get_and_clear_crawl_done_ext()
+        done = crawl_state_store.get_and_clear_crawl_done_ext()
         if done is None:
             return {"status": "success", "done": False}
         return {
@@ -325,273 +243,164 @@ async def get_crawl_done_ext(_: str = Depends(_require_api_key)):
             "changed_count": done["changed_count"],
             "changes": done.get("changes", []),
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/crawl/done")
 async def get_crawl_done(_: str = Depends(_require_api_key)):
-    """크롤링 완료 여부 및 변경 건수 조회 (확인 후 자동 삭제)"""
     try:
-        done = data_service.get_and_clear_crawl_done()
+        done = crawl_state_store.get_and_clear_crawl_done()
         if done is None:
             return {"status": "success", "done": False}
-        return {"status": "success", "done": True, "timestamp": done["timestamp"], "changed_count": done["changed_count"]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "status": "success",
+            "done": True,
+            "timestamp": done["timestamp"],
+            "changed_count": done["changed_count"],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/crawl/config")
 async def get_crawl_config(_: str = Depends(_require_api_key)):
-    """크롤링 설정 조회 (저장된 crawl_type, max_empty_pages)"""
-    import settings.settings as s
-    s._instance.load()
+    settings._instance.load()
     return {
         "status": "success",
         "data": {
-            "crawl_type": s.crawl_type,
-            "crawl_mode": s.crawl_mode,
-            "max_empty_pages": s.max_empty_pages,
-        }
+            "crawl_type": settings.crawl_type,
+            "crawl_mode": settings.crawl_mode,
+            "max_empty_pages": settings.max_empty_pages,
+        },
     }
 
 
 @router.post("/crawl/start")
 async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key)):
-    """모바일에서 크롤링 시작. queue_list가 있고 이미 실행 중이면 대기 큐에 추가."""
-    from services.crawl_manager import crawl_manager
-
     body = await request.json()
     login_mode = body.get("login_mode", "member")
-    crawl_type = 'api' if body.get("crawl_type", "api") == "api" else 'legacy'
+    crawl_type = "api" if body.get("crawl_type", "api") == "api" else "legacy"
     crawl_mode = body.get("crawl_mode", "full")
     max_empty_pages = int(body.get("max_empty_pages", 3))
     queue_list = body.get("queue_list", "").strip()
 
     if crawl_manager.is_crawling():
         if queue_list:
-            for rnum in queue_list.splitlines():
-                rnum = rnum.strip()
-                if rnum:
-                    crawl_manager.append_to_pending(rnum)
+            for report_number in queue_list.splitlines():
+                report_number = report_number.strip()
+                if report_number:
+                    crawl_manager.append_to_pending(report_number)
             return {
                 "status": "queued",
                 "message": f"크롤링 완료 후 자동 실행됩니다. (대기 중: {crawl_manager.pending_count()}건)",
             }
         raise HTTPException(status_code=409, detail="크롤링이 이미 실행 중입니다.")
 
-    import settings.settings as app_settings
-    app_settings._instance.update_config('SETTINGS', 'max_empty_pages', max_empty_pages)
-    app_settings._instance.update_config('Crawler', 'crawl_type', crawl_type)
-    save_mode = 'full' if crawl_mode == 'reset' else crawl_mode
-    app_settings._instance.update_config('SETTINGS', 'crawl_mode', save_mode)
-    app_settings._instance.save()
-
-    is_frozen = getattr(_sys, 'frozen', False)
-    cmd = [_sys.executable, "--mode", "crawl"] if is_frozen else [_sys.executable, "-u", "start.py"]
-
-    if login_mode == "nonmember":
-        cmd.append("--nonmember")
-    if crawl_mode == "min":
-        cmd.append("--min")
-    elif crawl_mode == "reset":
-        cmd.append("--reset")
-
-    if queue_list:
-        queue_file = _os.path.join(settings.datapath, 'mobile_queue.txt')
-        with open(queue_file, 'w', encoding='utf-8') as qf:
-            qf.write(queue_list)
-        cmd.extend(["--queue", queue_file])
-
-    log_dir = _os.path.join(settings.datapath, 'logs')
-    _os.makedirs(log_dir, exist_ok=True)
-    log_file = _os.path.join(log_dir, 'current_crawl.log')
-    _rotate_log(log_file)
-
-    with open(log_file, 'w', encoding='utf-8') as f:
-        f.write("=== [모바일에서 시작된 크롤링] ===\n")
-
-    if not crawl_manager.start_crawl(cmd, cwd=_get_work_dir(), log_file=log_file):
-        raise HTTPException(status_code=500, detail="크롤링 프로세스를 시작하지 못했습니다.")
-
-    proc = crawl_manager.get_process()
-    _asyncio.create_task(ws_manager.broadcast("crawl_started", {
-        "source": "mobile_start",
-        "login_mode": login_mode,
-        "crawl_mode": crawl_mode,
-        "crawl_type": crawl_type,
-    }))
-
-    if proc:
-        _threading.Thread(target=crawl_manager.run_after_crawl, args=(proc, log_file), daemon=True).start()
+    try:
+        crawl_control.start_crawl(
+            login_mode=login_mode,
+            crawl_mode=crawl_mode,
+            crawl_type=crawl_type,
+            max_empty_pages=max_empty_pages,
+            queue_list=queue_list,
+            queue_filename="mobile_queue.txt",
+            header="=== [모바일에서 시작된 크롤링] ===",
+            broadcast_source="mobile_start",
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
     return {"status": "success", "message": "크롤링이 시작되었습니다."}
 
 
 @router.post("/crawl/kill")
 async def mobile_kill_crawl(_: str = Depends(_require_api_key)):
-    """모바일에서 크롤링 강제 중지"""
-    from services.crawl_manager import crawl_manager
-    import settings.settings as app_settings
-    if not crawl_manager.is_crawling():
+    if not crawl_control.stop_crawl():
         raise HTTPException(status_code=409, detail="실행 중인 크롤링이 없습니다.")
-    try:
-        crawl_manager.stop_crawl()
-        log_file = _os.path.join(app_settings.datapath, 'logs', 'current_crawl.log')
-        with open(log_file, 'a', encoding='utf-8') as f:
-            f.write("\n[시스템] 사용자 요청으로 크롤링 프로세스가 강제 종료되었습니다.\n")
-        return {"status": "success", "message": "크롤링이 강제 중지되었습니다."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "success", "message": "크롤링이 강제 중지되었습니다."}
 
 
 @router.post("/crawl/resume")
 async def mobile_resume_crawl(_: str = Depends(_require_api_key)):
-    """모바일에서 크롤링 재개 (비회원 수동 로그인 완료 신호)"""
-    import settings.settings as app_settings
-    signal_file = _os.path.join(app_settings.datapath, 'resume.sig')
-    with open(signal_file, 'w', encoding='utf-8') as f:
-        f.write("RESUME")
+    crawl_control.resume_crawl()
     return {"status": "success", "message": "크롤링 재개 신호가 전송되었습니다."}
 
 
 @router.get("/files")
 async def list_files(path: str = "", _: str = Depends(_require_api_key)):
-    """서버 파일 브라우저 — logs / results 폴더만 허용"""
-    from datetime import datetime as dt
-
-    ALLOWED_ROOTS = {'logs', 'results'}
-    base = _os.path.abspath(settings.datapath)
-
-    if not path:
-        items = []
-        for name in sorted(ALLOWED_ROOTS):
-            full = _os.path.join(base, name)
-            if _os.path.exists(full):
-                items.append({
-                    "name": name, "path": name, "is_dir": True, "size": None,
-                    "modified": dt.fromtimestamp(_os.path.getmtime(full)).strftime("%Y-%m-%d %H:%M"),
-                })
-        return {"status": "success", "current_path": "/", "data": items}
-
-    first = path.replace('\\', '/').split('/')[0]
-    if first not in ALLOWED_ROOTS:
-        raise HTTPException(status_code=403, detail="접근 불가")
-
-    target = _os.path.normpath(_os.path.join(base, path))
-    if not target.startswith(base):
-        raise HTTPException(status_code=403, detail="접근 불가")
-    if not _os.path.exists(target):
-        raise HTTPException(status_code=404, detail="경로를 찾을 수 없습니다")
-    if not _os.path.isdir(target):
-        raise HTTPException(status_code=400, detail="파일 경로는 지원하지 않습니다")
-
     try:
-        entries = sorted(
-            _os.listdir(target),
-            key=lambda n: (not _os.path.isdir(_os.path.join(target, n)), n.lower())
-        )
-        items = []
-        for name in entries:
-            full = _os.path.join(target, name)
-            rel = _os.path.relpath(full, base)
-            is_dir = _os.path.isdir(full)
-            items.append({
-                "name": name, "path": rel, "is_dir": is_dir,
-                "size": None if is_dir else _os.path.getsize(full),
-                "modified": dt.fromtimestamp(_os.path.getmtime(full)).strftime("%Y-%m-%d %H:%M"),
-            })
+        current_path, items = file_service.list_api_entries(path)
     except PermissionError:
-        raise HTTPException(status_code=403, detail="권한 없음")
-    return {"status": "success", "current_path": path, "data": items}
+        raise HTTPException(status_code=403, detail="접근 불가")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="경로를 찾을 수 없습니다")
+    except NotADirectoryError:
+        raise HTTPException(status_code=400, detail="파일 경로는 지원하지 않습니다")
+    return {"status": "success", "current_path": current_path, "data": items}
 
 
 @router.get("/files/download")
 async def download_file(path: str = "", _: str = Depends(_require_api_key_flex)):
-    """서버 파일 다운로드 — logs / results 폴더의 파일만 허용. X-API-Key 헤더 또는 api_key 쿼리 파라미터 인증."""
-    from starlette.background import BackgroundTask
-    import tempfile
-
-    ALLOWED_ROOTS = {'logs', 'results'}
-    base = _os.path.abspath(settings.datapath)
-
-    first = path.replace('\\', '/').split('/')[0]
-    if first not in ALLOWED_ROOTS:
+    try:
+        target = file_service.resolve_api_file(path)
+        download_path, cleanup_path = file_service.snapshot_live_log_if_needed(target)
+    except PermissionError:
         raise HTTPException(status_code=403, detail="접근 불가")
-
-    target = _os.path.normpath(_os.path.join(base, path))
-    if not target.startswith(base):
-        raise HTTPException(status_code=403, detail="접근 불가")
-    if not _os.path.exists(target):
+    except FileNotFoundError:
         raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다")
-    if _os.path.isdir(target):
+    except IsADirectoryError:
         raise HTTPException(status_code=400, detail="디렉토리는 다운로드할 수 없습니다")
 
-    tmp_path = None
-    live_logs = {
-        _os.path.abspath(_os.path.join(settings.logpath, 'current_crawl.log')),
-        _os.path.abspath(_os.path.join(settings.logpath, 'current_rating.log')),
-    }
-    if _os.path.abspath(target) in live_logs:
-        fd, tmp_path = tempfile.mkstemp(
-            prefix="safetyreport_log_snapshot_",
-            suffix=_os.path.splitext(target)[1] or ".log",
-        )
-        _os.close(fd)
-        _sh.copy2(target, tmp_path)
-
-    def _cleanup_temp_file(snapshot_path: str):
+    def _cleanup(snapshot_path: str):
         try:
-            _os.remove(snapshot_path)
+            os.remove(snapshot_path)
         except Exception:
             pass
 
     return FileResponse(
-        tmp_path or target,
-        filename=_os.path.basename(target),
+        download_path,
+        filename=os.path.basename(target),
         media_type="application/octet-stream",
-        background=BackgroundTask(_cleanup_temp_file, tmp_path) if tmp_path else None,
+        background=BackgroundTask(_cleanup, cleanup_path) if cleanup_path else None,
     )
 
 
 @router.get("/app/config")
 async def get_app_config(_: str = Depends(_require_api_key)):
-    """모바일 앱 설정 및 버전 정보"""
-    import settings.settings as s
-    s._instance.load()
+    settings._instance.load()
     return {
         "status": "success",
         "data": {
             "app_name": "나만의 안전신문고",
             "version": "1.0.0",
             "support_email": "support@example.com",
-            "exclude_withdraw": s.exclude_withdraw,
-            "normalize_police": s.normalize_police,
-            "auto_export_excel": s.config.getboolean('SETTINGS', 'auto_export_excel', fallback=True),
-            "auto_export_sheet": s.config.getboolean('SETTINGS', 'auto_export_sheet', fallback=True),
-        }
+            "exclude_withdraw": settings.exclude_withdraw,
+            "normalize_police": settings.normalize_police,
+            "auto_export_excel": settings.config.getboolean("SETTINGS", "auto_export_excel", fallback=True),
+            "auto_export_sheet": settings.config.getboolean("SETTINGS", "auto_export_sheet", fallback=True),
+        },
     }
 
 
 @router.get("/settings/db")
 async def download_database(_: str = Depends(_require_api_key_flex)):
-    """로컬 DB 파일 다운로드.
-    내부적으로 WAL/SHM을 머지한 일관성 있는 단일 .db 스냅샷을 생성해 전송."""
-    from fastapi.responses import FileResponse
-    from starlette.background import BackgroundTask
-    import os
     from services import db_backup
 
     try:
         tmp_path = db_backup.export_clean_db()
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"DB 추출 실패: {e}")
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"DB 추출 실패: {exc}")
 
-    def _cleanup(p):
-        try: os.remove(p)
-        except Exception: pass
+    def _cleanup(path: str):
+        try:
+            os.remove(path)
+        except Exception:
+            pass
 
     return FileResponse(
         tmp_path,
@@ -602,11 +411,7 @@ async def download_database(_: str = Depends(_require_api_key_flex)):
 
 
 @router.post("/settings/db/upload")
-async def upload_database(file: UploadFile = File(...),
-                          _: str = Depends(_require_api_key_flex)):
-    """모바일/외부에서 DB 파일을 업로드해 복원.
-    서버/모바일 자동 감지. 모바일 DB는 서버 구조로 변환됨."""
-    import os, tempfile
+async def upload_database(file: UploadFile = File(...), _: str = Depends(_require_api_key_flex)):
     from services import db_backup
 
     if not file.filename or not file.filename.lower().endswith(".db"):
@@ -639,27 +444,24 @@ async def upload_database(file: UploadFile = File(...),
             "backup": os.path.basename(backup) if backup else "",
         }
     finally:
-        try: os.remove(tmp_path)
-        except Exception: pass
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass
+
 
 @router.post("/settings")
 async def update_settings(request: Request, _: str = Depends(_require_api_key)):
-    """기타 데이터 필터 세팅 저장 (normalize_police, exclude_withdraw)"""
-    import settings.settings as app_settings
     body = await request.json()
     if "normalize_police" in body:
-        app_settings._instance.update_config('SETTINGS', 'normalize_police', body["normalize_police"])
+        settings._instance.update_config("SETTINGS", "normalize_police", body["normalize_police"])
     if "exclude_withdraw" in body:
-        app_settings._instance.update_config('SETTINGS', 'exclude_withdraw', body["exclude_withdraw"])
+        settings._instance.update_config("SETTINGS", "exclude_withdraw", body["exclude_withdraw"])
     if "crawl_type" in body:
-        app_settings._instance.update_config(
-            'Crawler',
-            'crawl_type',
-            'api' if body["crawl_type"] == 'api' else 'legacy'
-        )
+        settings._instance.update_config("Crawler", "crawl_type", "api" if body["crawl_type"] == "api" else "legacy")
     if "auto_export_excel" in body:
-        app_settings._instance.update_config('SETTINGS', 'auto_export_excel', body["auto_export_excel"])
+        settings._instance.update_config("SETTINGS", "auto_export_excel", body["auto_export_excel"])
     if "auto_export_sheet" in body:
-        app_settings._instance.update_config('SETTINGS', 'auto_export_sheet', body["auto_export_sheet"])
-    app_settings._instance.save()
+        settings._instance.update_config("SETTINGS", "auto_export_sheet", body["auto_export_sheet"])
+    settings._instance.save()
     return {"status": "success"}

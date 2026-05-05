@@ -3,7 +3,7 @@ import requests
 import settings.settings as settings
 from core.utils import logger
 from core.database import database
-from sqlalchemy import create_engine
+from core.database.engine import get_engine
 
 def run_batch_rating(ids, score=5):
     """
@@ -11,7 +11,7 @@ def run_batch_rating(ids, score=5):
     score: 1 to 5
     로그는 logger.LoggerFactory.star_log → current_rating.log 로 기록됨.
     """
-    engine = create_engine(f'sqlite:///{settings.db_path}', connect_args={"check_same_thread": False})
+    engine = get_engine()
     log = logger.LoggerFactory.star_log
 
     log.info(f"=== 별점 처리 작업 시작 (요청 횟수: {len(ids)}건, 목표 점수: {score}점) ===")

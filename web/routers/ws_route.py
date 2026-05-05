@@ -11,23 +11,11 @@ import uuid
 import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from core.database import database
-from sqlalchemy import create_engine
-import settings.settings as settings
+from core.database.engine import get_engine
 from services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-_engine = None
-
-def _get_engine():
-    global _engine
-    if _engine is None:
-        _engine = create_engine(
-            f'sqlite:///{settings.db_path}',
-            connect_args={"check_same_thread": False}
-        )
-    return _engine
 
 
 @router.websocket("/ws/events")
@@ -36,12 +24,13 @@ async def ws_events(
     api_key: str = Query(default=""),
 ):
     # API Key 인증
-    if not api_key or not database.validate_api_key(_get_engine(), api_key):
+    engine = get_engine()
+    if not api_key or not database.validate_api_key(engine, api_key):
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
     client_id = str(uuid.uuid4())
-    device_name = database.get_api_key_name(_get_engine(), api_key)
+    device_name = database.get_api_key_name(engine, api_key)
     forwarded = websocket.headers.get("x-forwarded-for", "")
     ip = forwarded.split(",")[0].strip() if forwarded else (websocket.client.host if websocket.client else "")
     await ws_manager.connect(client_id, websocket, api_key=api_key, ip=ip, device_name=device_name)

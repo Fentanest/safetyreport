@@ -1,5 +1,3 @@
-from sqlalchemy import create_engine, inspect, text, select
-import pandas as pd
 import os
 import sys
 import subprocess
@@ -13,8 +11,10 @@ except ImportError:
 from core.utils import logger
 logger.LoggerFactory.create_logger(mode='crawl')
 from core.database import database
-from core.utils import export, message_formatter
+from core.utils import message_formatter
+from core.database.engine import get_engine
 from core.utils.path_utils import resource_path, is_frozen, enforce_utf8
+from services import crawl_state_store, export_service
 enforce_utf8()
 
 def _parse_args():
@@ -185,7 +185,7 @@ def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fal
         for df in titlelist:
             detaillist.extend(df['ID'].tolist())
     else:
-        detaillist = database.get_cNo(engine=engine, force=args["force"])
+        detaillist = database.get_pending_detail_ids(engine=engine, force=args["force"])
 
     if not detaillist:
         logger.LoggerFactory.logbot.info("크롤링할 상세 내역 없음.")
@@ -198,16 +198,18 @@ def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fal
             logger.LoggerFactory.logbot.info("[API 방식 - Selenium fallback] 상세 데이터 추출 시작")
         else:
             logger.LoggerFactory.logbot.info("[API 방식] 상세 데이터 추출 시작")
-        detail_datas = list(crawldetail_api.crawl_details(
-            driver=driver,
-            list=detaillist,
-            browser_fallback=api_browser_fallback,
-        ))
+        detail_datas = list(
+            crawldetail_api.crawl_details(
+                driver=driver,
+                report_ids=detaillist,
+                browser_fallback=api_browser_fallback,
+            )
+        )
     else:
         logger.LoggerFactory.logbot.info("[웹 방식(레거시)] 상세 데이터 추출 시작")
-        detail_datas = list(crawldetail.crawl_details(driver=driver, list=detaillist))
+        detail_datas = list(crawldetail.crawl_details(driver=driver, report_ids=detaillist))
         
-    changed_item_ids = database.deatil_to_sql(dataframes_with_category=detail_datas, engine=engine)
+    changed_item_ids = database.detail_to_sql(dataframes_with_category=detail_datas, engine=engine)
     if settings.telegram_enabled:
         msg = f"2/5. 상세 정보(Detail) 크롤링 {len(detaillist)}건 및 DB 저장을 완료했습니다. (내용 변경/신규 처리: {len(changed_item_ids)}건)"
         # changed_item_ids는 [{"id": ..., "change_type": "신규"/"변경"}] 형식
@@ -225,33 +227,22 @@ def _process_and_save_results(engine, changed_item_ids):
     database.clear_old_attachments(engine=engine)
 
     # 모바일 개별 알림용 변경 목록 파일 저장 + 완료 마커
-    from services.data_service import save_crawl_changes, save_crawl_done, clear_crawl_changes
     if changed_item_ids:
-        save_crawl_changes(engine, changed_item_ids)
+        crawl_state_store.save_crawl_changes(engine, changed_item_ids)
     else:
-        clear_crawl_changes()  # 이전 크롤링 결과가 남아 재브로드캐스트되지 않도록 삭제
-    save_crawl_done(len(changed_item_ids))
+        crawl_state_store.clear_crawl_changes()
+    crawl_state_store.save_crawl_done(len(changed_item_ids))
 
     # get_merged_records_by_ids에 전달할 순수 ID 목록
     all_ids = [item["id"] for item in changed_item_ids]
 
     # 1. 데이터 저장 (Excel, Google Sheet) - 카테고리별 시트로 분리 저장
     if settings.auto_export_excel or settings.auto_export_sheet:
-        category_dfs = database.load_results_by_category(engine=engine)
-        if any(not df.empty for df in category_dfs.values()):
-            from core.utils.export import _process_dataframe, save_to_excel, save_to_google_sheet
-            excel_data = {}
-            sheet_data = {}
-            for label, df in category_dfs.items():
-                if df.empty:
-                    continue
-                processed_df, photo_cols = _process_dataframe(df)
-                excel_data[label] = processed_df
-                sheet_data[label] = (processed_df, photo_cols)
-            if settings.auto_export_excel:
-                save_to_excel(excel_data)
-            if settings.auto_export_sheet:
-                save_to_google_sheet(sheet_data, photo_cols=None)
+        export_service.export_results(
+            engine,
+            save_excel=settings.auto_export_excel,
+            save_sheet=settings.auto_export_sheet,
+        )
 
     # 2. 텔레그램 최종 요약 알림 - 대량의 경우 지연이 발생할 수 있으므로 마지막에 처리
     if settings.telegram_enabled:
@@ -281,7 +272,7 @@ def wait_for_resume_signal():
 def main():
     args = _parse_args()
     _validate_settings()
-    engine = create_engine(f'sqlite:///{settings.db_path}')
+    engine = get_engine()
     _prepare_database(engine, reset=args["reset"])
 
     driver = None

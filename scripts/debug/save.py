@@ -5,9 +5,9 @@ import sys
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
-from sqlalchemy import create_engine
 import settings.settings as settings
 from core.database import database
+from core.database.engine import create_sqlite_engine
 from core.utils import export
 from core.utils import logger
 
@@ -24,7 +24,7 @@ def main():
         sys.exit(1)
     
     print(f"Using database: {db_path}")
-    engine = create_engine(f'sqlite:///{db_path}')
+    engine = create_sqlite_engine(db_path=db_path, connect_args={})
 
     try:
         print("Calling items.load_results()...")

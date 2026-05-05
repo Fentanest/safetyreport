@@ -4,6 +4,9 @@ import sys
 import os
 from typing import Optional, List
 
+from services import crawl_state_store
+from services.crawl_control import rotate_crawl_log
+
 class CrawlManager:
     _instance = None
     _lock = threading.Lock()
@@ -85,23 +88,11 @@ class CrawlManager:
 
     # ── 크롤링 완료 후 공통 처리 ──────────────────────────────────────────────
 
-    def _rotate_log(self, log_file: str):
-        """현재 로그를 타임스탬프 파일로 백업."""
-        import datetime, shutil
-        if os.path.exists(log_file):
-            try:
-                now_str = datetime.datetime.now().strftime("%Y-%m-%d %H_%M_%S")
-                dst = os.path.join(os.path.dirname(log_file), f"crawl_{now_str}.log")
-                shutil.copy2(log_file, dst)
-            except Exception:
-                pass
-
     def run_after_crawl(self, proc, log_file: str):
         """크롤링 프로세스 완료 후 공통 처리 (배경 스레드에서 호출).
         로그 회전 → WS 브로드캐스트 → 대기 큐 자동 실행."""
         import time
         from services.ws_manager import ws_manager
-        from services import data_service
 
         if proc:
             proc.wait()
@@ -112,21 +103,21 @@ class CrawlManager:
             try:
                 with open(log_file, 'a', encoding='utf-8') as f:
                     f.write("\n[시스템] 크롤링 작업이 완료되었습니다.\n")
-                self._rotate_log(log_file)
+                rotate_crawl_log(log_file)
             except Exception:
                 pass
 
         try:
-            done = data_service.get_and_clear_crawl_done()
+            done = crawl_state_store.get_and_clear_crawl_done()
             changed_count = done["changed_count"] if done else 0
             ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
         except Exception:
             changed_count = 0
         try:
-            changes = data_service.peek_crawl_changes()
+            changes = crawl_state_store.peek_crawl_changes()
             if changes:
                 ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
-            data_service.save_crawl_done_ext(changed_count, changes or [])
+            crawl_state_store.save_crawl_done_ext(changed_count, changes or [])
         except Exception:
             pass
 
@@ -152,7 +143,7 @@ class CrawlManager:
 
         log_dir = os.path.join(s.datapath, 'logs')
         log_file = os.path.join(log_dir, 'current_crawl.log')
-        self._rotate_log(log_file)
+        rotate_crawl_log(log_file)
 
         with open(log_file, 'w', encoding='utf-8') as f:
             f.write(f"=== [대기 큐 자동 시작] 신고번호 {len(pending)}건 ===\n")

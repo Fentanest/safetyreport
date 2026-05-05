@@ -13,14 +13,13 @@ import settings.settings as settings
 from core.utils import logger
 from services.parser import _C_NOW_STATUS
 from core.crawler import direct_login
+from core.crawler.api_client import ensure_browser_context, get_authorized_json
+from core.crawler.title_pipeline import build_title_dataframe
 
 
 _LIST_URL = "https://www.safetyreport.go.kr/api/v1/portal/mypage/mysafereport"
 
-
 def _fetch_api_page(session, start_row, end_row):
-    """API 직접 호출. session은 direct_login.make_authorized_session()의 결과.
-    errno=104 등 일시 오류는 direct_login.request_with_retry가 silent 3회 재시도."""
     params = {
         "startRowNum": start_row,
         "endRowNum": end_row,
@@ -31,33 +30,8 @@ def _fetch_api_page(session, start_row, end_row):
         "C_RELATION2": 1,
         "searchKeyWord": "",
     }
-    try:
-        r = direct_login.request_with_retry(
-            session, "GET", _LIST_URL, params=params, timeout=20
-        )
-    except Exception as e:
-        return {"error": f"network: {e}", "result": []}
-    if r.status_code == 401:
-        # 토큰 만료 → 강제 갱신 후 1회 재시도
-        direct_login.get_valid_token(force_refresh=True)
-        new_session, _ = direct_login.make_authorized_session()
-        try:
-            r = direct_login.request_with_retry(
-                new_session, "GET", _LIST_URL, params=params, timeout=20
-            )
-        except Exception as e:
-            return {"error": f"network after relogin: {e}", "result": []}
-    if r.status_code != 200:
-        return {"error": f"HTTP {r.status_code}", "result": []}
-    return r.json()
-
-
-def _ensure_browser_context(driver):
-    if driver is None:
-        raise RuntimeError("브라우저 API fallback에는 Selenium driver가 필요합니다.")
-    if "safetyreport.go.kr" not in (driver.current_url or ""):
-        driver.get(settings.myreporturl)
-        sleep(2)
+    payload, session = get_authorized_json(session, _LIST_URL, params=params, timeout=20)
+    return payload, session
 
 
 def _fetch_api_page_via_browser(driver, start_row, end_row):
@@ -84,17 +58,18 @@ def _fetch_api_page_via_browser(driver, start_row, end_row):
 def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False):
     if browser_fallback:
         logger.LoggerFactory.logbot.info("API 방식으로 목록 데이터를 호출합니다. (Selenium 브라우저 fallback)")
-        _ensure_browser_context(driver)
+        ensure_browser_context(driver)
         fetch_page = lambda start_row, end_row: _fetch_api_page_via_browser(driver, start_row, end_row)
     else:
         logger.LoggerFactory.logbot.info("API 방식으로 목록 데이터를 호출합니다. (direct_login 세션)")
         session, _ = direct_login.make_authorized_session()
-        fetch_page = lambda start_row, end_row: _fetch_api_page(session, start_row, end_row)
+        def fetch_page(start_row, end_row):
+            nonlocal session
+            payload, session = _fetch_api_page(session, start_row, end_row)
+            return payload
 
     all_title_dfs = []
     page_size = 200
-    cols = ["ID", "상태", "신고번호", "신고명", "신고일", "만족도조사여부", "감시목록"]
-
     first_payload = fetch_page(1, page_size)
     if "error" in first_payload or "result" not in first_payload:
         logger.LoggerFactory.logbot.error(f"API 목록 호출 실패: {first_payload.get('error', 'No result')}")
@@ -150,9 +125,16 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False):
             else:
                 poll_status = "답변 대기"
 
-            titlelist = [c_no, state, spp_no, title, date, poll_status, "N"]
-            df = pd.DataFrame([titlelist], columns=cols)
-            page_dfs.append(df)
+            page_dfs.append(
+                build_title_dataframe(
+                    c_no,
+                    state,
+                    spp_no,
+                    title,
+                    date,
+                    poll_status,
+                )
+            )
 
         all_title_dfs.extend(page_dfs)
         sleep(0.5)

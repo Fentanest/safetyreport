@@ -164,11 +164,11 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
     - 따라서 현재 구현은 "크롤링 데이터 테이블만 교체"하고, 모바일에 없는 서버 전용
       테이블은 그대로 보존한다.
     """
-    from sqlalchemy import create_engine
     from core.database import database, models
+    from core.database.engine import create_sqlite_engine
 
     backup = _backup_current_db()
-    engine = create_engine(f"sqlite:///{settings.db_path}")
+    engine = create_sqlite_engine()
     database.upgrade_schema(engine)
 
     # 모바일 DB에서 reports 읽기

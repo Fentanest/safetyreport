@@ -6,14 +6,12 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException,
 from selenium.webdriver.common.keys import Keys
 import datetime
 from time import sleep
-import pandas as pd
 import settings.settings as settings
 from core.utils import logger
+from core.crawler.title_pipeline import build_title_dataframe
 
 def _scrape_current_page(driver, max_attempts=3):
     """Scrapes the data from the currently loaded page."""
-    cols = ["ID", "상태", "신고번호", "신고명", "신고일", "만족도조사여부", "감시목록"]
-
     for attempt in range(1, max_attempts + 1):
         page_dfs = []
         found_in_progress = False
@@ -63,9 +61,16 @@ def _scrape_current_page(driver, max_attempts=3):
                     if not poll_status and state == '취하':
                         poll_status = '참여 불가'
 
-                    titlelist = [link, state, reportnumber, reporttitle, date, poll_status, "N"]
-                    df = pd.DataFrame([titlelist], columns=cols)
-                    page_dfs.append(df)
+                    page_dfs.append(
+                        build_title_dataframe(
+                            link,
+                            state,
+                            reportnumber,
+                            reporttitle,
+                            date,
+                            poll_status,
+                        )
+                    )
                 except IndexError:
                     logger.LoggerFactory.logbot.warning(f"페이지의 {index+1}번째 행 파싱 중 오류가 발생했습니다.")
                     continue
