@@ -44,7 +44,7 @@
 │       ├── security.py          # config 암복호화 / 세션 키 관리
 │       └── updater.py           # GitHub Releases 자동 업데이트
 ├── services/
-│   ├── data_service.py          # DB 조회/집계 (대시보드, 필터, crawl_done 등)
+│   ├── data_service.py          # DB 조회/집계 (대시보드, 필터, crawl_done 등, category 전파 포함)
 │   ├── db_backup.py             # DB checkpoint(WAL/SHM 정리) + 서버/모바일 DB 자동 감지/변환
 │   ├── crawl_manager.py         # 크롤링 프로세스 싱글톤 (충돌 방지)
 │   ├── parser.py                # HTML/JSON 파싱 (과태료, 처리상태 등)
@@ -183,7 +183,7 @@ recent_answers  watchlist  exclude_withdraw
 ```
 ID  신고번호  신고명  신고일  답변일  처리기관  담당자  처리상태  결과
 범칙금_과태료  벌점  차량번호  위반법규  위반장소  발생일자  발생시각
-신고내용  처리내용  첨부사진  첨부파일  지도  감시목록
+신고내용  처리내용  첨부사진  첨부파일  지도  감시목록  category
 ```
 **get_duplicate_records():** 위 + `total_count` `valid_count`
 
@@ -201,6 +201,17 @@ by_agency / by_person / police_by_agency / police_by_person / other_by_agency / 
 **stats:** `traffic` / `parking` / `other` / `available_years` / `traffic_total_fine`
 
 Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `safetyreport-mobile` 레포의 CLAUDE.md 참조.
+
+### category 전파 규칙
+
+- `category` (`traffic` / `parking` / `other`) 는 단순 표시용이 아니라
+  웹 상세 모달 링크와 모바일 상세 시트 링크가 원래 카테고리 탭으로 돌아가기 위한
+  구조적 계약이다.
+- `get_dashboard_stats().recent_answers`, `watchlist`, `get_duplicate_records()`,
+  `get_all_watchlist()` 뿐 아니라 `get_all_records()`, `search_by_vehicle()`,
+  `search_by_address()`, `get_unrated_records()` 도 각 행에 `category` 를 유지해야 한다.
+- 카테고리별 목록 함수는 `_get_records_from_table(..., category=...)` 를 통해
+  기본 라벨을 붙이고, 합본/검색 함수는 병합 과정에서 이를 지우지 않아야 한다.
 
 ---
 

@@ -33,6 +33,25 @@
 - 모바일 측 변경: `safetyreport-mobile` 의 동일자 CHANGELOG 참고
 - 추가된 `recent_answers[:200]` 한도는 통상적인 3일 답변 수보다 충분히 큰 안전 캡
 
+### 카테고리 전파 후속 보강 (모바일/웹 상세 링크 원탭 복귀)
+
+상태: 완료
+
+변경:
+- `services/data_service.py`
+  - `_get_records_from_table(..., category=...)` 인자를 추가하고
+    `get_traffic_records`, `get_parking_records`, `get_other_records` 에서
+    각 행의 `category` 를 기본 주입하도록 정리
+  - `get_all_records` 가 raw table 조회 대신 카테고리별 getter 를 합치는 방식으로 변경
+  - `search_by_vehicle`, `search_by_address`, `get_unrated_records` 결과에도
+    각 행의 `category` 를 유지하도록 보강
+
+비고:
+- 초기 변경은 대시보드/감시목록/중복차량 중심이었고, 이번 후속 수정으로
+  합본 목록/차량검색/주소검색/별점 대상 목록까지 category 보존 범위를 맞췄다.
+- 이 필드가 빠지면 웹 상세 모달 링크는 `/data/all` 로, 모바일 상세 링크는 기본 탭으로
+  흐를 수 있어 원래 신고 카테고리 복귀가 깨진다.
+
 ---
 
 ## 2026-05-02
