@@ -229,7 +229,7 @@ def get_dashboard_stats(engine):
         "exclude_withdraw": app_settings.exclude_withdraw
     })
 
-def _get_records_from_table(engine, table_obj, filters=None):
+def _get_records_from_table(engine, table_obj, filters=None, category: str = ''):
     try:
         with engine.connect() as conn:
             df = pd.read_sql_query(select(table_obj).order_by(desc('신고번호')), conn)
@@ -303,24 +303,41 @@ def _get_records_from_table(engine, table_obj, filters=None):
                 df = df[df['별점사유'].fillna('').astype(str).str.contains(rating_cause, na=False, regex=False)]
 
         if not df.empty:
+            if category:
+                df['category'] = category
             df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
             df = df.fillna('')
 
         return df.to_dict(orient="records") if not df.empty else []
 
 def get_traffic_records(engine, filters=None):
-    return _get_records_from_table(engine, database.merge_traffic_table, filters)
+    return _get_records_from_table(
+        engine,
+        database.merge_traffic_table,
+        filters,
+        category='traffic',
+    )
 
 def get_parking_records(engine, filters=None):
-    return _get_records_from_table(engine, database.merge_parking_table, filters)
+    return _get_records_from_table(
+        engine,
+        database.merge_parking_table,
+        filters,
+        category='parking',
+    )
 
 def get_other_records(engine, filters=None):
-    return _get_records_from_table(engine, database.merge_other_table, filters)
+    return _get_records_from_table(
+        engine,
+        database.merge_other_table,
+        filters,
+        category='other',
+    )
 
 def get_all_records(engine, filters=None):
-    traffic = _get_records_from_table(engine, database.merge_traffic_table, filters)
-    parking = _get_records_from_table(engine, database.merge_parking_table, filters)
-    other = _get_records_from_table(engine, database.merge_other_table, filters)
+    traffic = get_traffic_records(engine, filters)
+    parking = get_parking_records(engine, filters)
+    other = get_other_records(engine, filters)
     combined = traffic + parking + other
     combined.sort(key=lambda x: x.get('신고번호', '') or '', reverse=True)
     return combined
@@ -336,7 +353,11 @@ def search_by_vehicle(engine, vehicle_number: str):
         df_watch = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
         watch_ids = set(df_watch['신고번호'].tolist())
 
-        for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
+        for t, cat in [
+            (database.merge_traffic_table, 'traffic'),
+            (database.merge_parking_table, 'parking'),
+            (database.merge_other_table, 'other'),
+        ]:
             if '차량번호' not in t.c:
                 continue
             query = select(t).where(t.c.차량번호.contains(vehicle_number)).order_by(desc(t.c.신고번호))
@@ -351,6 +372,7 @@ def search_by_vehicle(engine, vehicle_number: str):
                 df = df[df['처리상태'] != '취하']
             if df.empty:
                 continue
+            df['category'] = cat
             df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
             results.extend(df.to_dict(orient='records'))
 
@@ -369,7 +391,11 @@ def search_by_address(engine, address: str):
         df_watch = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
         watch_ids = set(df_watch['신고번호'].tolist())
 
-        for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
+        for t, cat in [
+            (database.merge_traffic_table, 'traffic'),
+            (database.merge_parking_table, 'parking'),
+            (database.merge_other_table, 'other'),
+        ]:
             if '위반장소' not in t.c:
                 continue
             query = select(t).where(t.c.위반장소.contains(address)).order_by(desc(t.c.신고번호))
@@ -384,6 +410,7 @@ def search_by_address(engine, address: str):
                 df = df[df['처리상태'] != '취하']
             if df.empty:
                 continue
+            df['category'] = cat
             df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
             results.extend(df.to_dict(orient='records'))
 
@@ -718,7 +745,11 @@ def get_unrated_records(engine):
     """별점 주기 페이지용: 참여 완료/불가이거나 처리상태가 취하인 건은 제외"""
     with engine.connect() as conn:
         results = []
-        for t in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
+        for t, cat in [
+            (database.merge_traffic_table, 'traffic'),
+            (database.merge_parking_table, 'parking'),
+            (database.merge_other_table, 'other'),
+        ]:
             try:
                 df = pd.read_sql_query(select(t), conn)
             except OperationalError:
@@ -729,6 +760,9 @@ def get_unrated_records(engine):
             df = df[~df['만족도조사여부'].isin(['참여 완료', '참여 불가'])]
             # 답변이 없는 상태(처리중/취하 등)는 만족도조사 불가 → 제외
             df = df[~df['처리상태'].isin(['취하', '답변 대기', '처리중', '진행', '진행중'])]
+            if df.empty:
+                continue
+            df['category'] = cat
             results.append(df)
         if not results:
             return []
