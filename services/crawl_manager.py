@@ -5,7 +5,7 @@ import os
 from typing import Optional, List
 
 from services import crawl_state_store
-from services.crawl_control import rotate_crawl_log
+from services.crawl_log_service import rotate_crawl_log
 
 class CrawlManager:
     _instance = None

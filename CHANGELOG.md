@@ -10,6 +10,171 @@
 
 ## 2026-05-06
 
+### 데이터 수정 서비스 분리 + 카드형 목록 정리
+
+상태: 완료
+
+변경:
+- `services/db_editor_service.py`
+  - 데이터 수정 스키마/조회/저장 로직을 서비스 계층으로 분리
+- `web/routers/db_editor_route.py`
+  - DB 수정 화면이 서비스 계층을 사용하도록 정리
+- `web/templates/db_editor.html`
+  - 데이터 수정 목록을 `신고번호 DESC` 카드형 리스트로 재구성
+- `web/templates/db_editor_form.html`
+  - `범칙금_과태료` 예시 문구를 서버 스키마에서 내려받아 표시하도록 정리
+- `web/routers/api_route.py`
+  - `/api/v1/editor/schema`, `/api/v1/editor/{category}/{record_id}` 조회/저장 API 추가
+
+### 크롬 익스텐션용 중복 신고 완료 알림 연결
+
+상태: 완료
+
+변경:
+- `services/crawl_state_store.py`
+  - `crawl_done_ext.json`에 중복 신고 변경 요약을 더 자세히 저장하도록 확장
+  - `duplicate_change_type`, `body`, `representative_mode_label`을 함께 기록
+- `web/routers/api_route.py`
+  - `GET /api/v1/crawl/done/ext` 응답에 `duplicate_changed_count` 포함
+
+검증:
+- `python3 -m compileall services/crawl_state_store.py web/routers/api_route.py` 통과
+
+비고:
+- 이 변경은 크롬 익스텐션이 크롤링 완료 후 일반 신고 변경과 중복 신고 변경을 구분해 알림 문구를 만들 수 있도록 하기 위한 서버 계약 보강이다.
+
+### 대표건/원본 기준 토글 설정 페이지 전역화
+
+상태: 완료
+
+변경:
+- `settings/settings.py`
+  - `SETTINGS.use_representative_records` 설정값 추가
+  - 기본값은 `True`로 두어 기존 기본 집계가 대표건 기준으로 유지되도록 설정
+- `web/routers/settings_route.py`, `web/templates/settings.html`
+  - 설정 페이지 `기타 데이터 필터 세팅`에 `중복 신고 대표건만 반영` 스위치 추가
+  - `취하 데이터 숨기기` 바로 아래에 배치하고, 저장 시 `config.ini`에 전역 반영되도록 연결
+- `web/routers/dashboard.py`, `web/routers/data.py`, `web/routers/stats.py`, `web/routers/api_route.py`
+  - 대시보드, 전체 신고 조회, 차량/주소 검색, 통계, 모바일 API 기본 dedupe 모드가 전역 설정을 따르도록 변경
+  - 설정이 켜져 있으면 `canonical`, 꺼져 있으면 `raw`를 기본값으로 사용
+  - 명시적인 `dedupe` 쿼리 파라미터가 들어오면 그 값은 그대로 허용
+- `web/templates/data_table.html`, `web/templates/stats.html`
+  - 페이지별 `대표건 기준 / 원본 기준` 전환 버튼 제거
+  - 기본 집계 기준은 설정 페이지에서만 바꾸도록 단일화
+
+검증:
+- `python3 -m compileall settings/settings.py web/routers/settings_route.py web/routers/data.py web/routers/stats.py web/routers/dashboard.py web/routers/api_route.py` 통과
+- `./venv/bin/python` import 스모크 테스트:
+  - `use_representative_records=True`일 때 data/stats/dashboard/api 기본 모드가 모두 `canonical`으로 해석됨을 확인
+
+비고:
+- 중복 신고 관리 화면의 그룹별 `대표건 기준 전역 반영` 스위치는 그대로 유지된다.
+  이 스위치는 특정 중복군을 canonical 집계에 포함할지 여부를 정하는 역할이고,
+  이번 설정은 "앱 전체가 canonical 기준으로 보일지 raw 기준으로 보일지"의 기본값을 정하는 전역 스위치다.
+
+### 중복 신고 관리 2차 정리 / 상태 축 분리 / 동영상 프록시 추가
+
+상태: 완료
+
+변경:
+- `services/duplicate_group_service.py`
+  - 중복 상태를 `review_required`, `confirmed_duplicate`, `not_duplicate`로 재정의
+  - 대표건 선택 방식을 `auto`, `manual`로 분리
+  - `auto` 모드에서는 중복군 재생성 때마다 최신 `처분/처리상태/답변일/synced_at/신고번호` 우선순위로 대표건 자동 재선정
+  - `manual` 모드에서는 사용자가 고른 대표건을 유지
+  - `not_duplicate`는 중복 신고 관리 화면에서는 보이지만 canonical projection에서는 일반 원본 신고처럼 모두 반영되도록 조정
+  - 그룹 일괄 상태 변경 API 추가
+- `core/database/models.py`
+  - `mysafety_duplicate_group`에 `representative_mode` 컬럼 추가
+- `web/routers/duplicate_route.py`
+  - 중복 상태 필터를 `duplicate_status` 기준으로 단순화
+  - 선택 그룹 일괄 상태 변경 POST 경로 추가
+- `web/templates/duplicate_groups.html`
+  - 상단 상태 카드를 `전체 / 검토 필요 / 중복 확정 / 중복 아님` 필터로 재구성
+  - 그룹 좌측 체크박스 + 일괄 상태 변경 UI 추가
+  - 일괄 처리 바를 `상태 변경` + `대표건 선정` 2개 드롭다운 구조로 정리
+  - 대표건 선정도 `자동 선정 / 수동 선정`을 그룹 단위로 일괄 변경 가능하게 확장
+  - 그룹별 설정에서 `중복 상태`와 `대표건 선정(자동/수동)`을 분리
+  - 개별 그룹 저장 시 `자동 선정` 상태라도 사용자가 다른 child를 대표건으로 골랐다면 저장 시 자동으로 `수동 고정`으로 전환되도록 보정
+  - child 행은 `신고번호 DESC` 순으로 표시
+  - `ID` 컬럼은 안전신문고 직접 이동 링크, `신고번호`는 상세 모달 링크로 정리
+  - child 표의 `카테고리` 컬럼을 `신고메뉴`로 바꾸고 `entry_value`를 표시하도록 변경
+  - `차량번호`, `담당자` 컬럼을 각 `/data/<category>` 검색 링크로 연결
+  - 일괄 상태 변경 툴바가 줄바꿈되지 않도록 레이아웃 여백 조정
+- `services/media_proxy_service.py`, `web/routers/media_route.py`
+  - 원격 첨부 동영상을 서버가 실시간 스트리밍 프록시하는 `/media/proxy` 경로로 변경
+  - 더 이상 전체 파일을 먼저 캐시한 뒤 응답하지 않도록 수정
+- `web/templates/base.html`, `web/templates/data_table.html`
+  - 상세 모달/첨부 모달의 `<video>`가 원격 원본 URL 대신 `/media/proxy`를 우선 사용하도록 변경
+  - 프록시 실패 시 원본 URL로 fallback
+  - `<video preload>`를 `none`으로 낮춰 모달을 여는 순간 여러 동영상이 동시에 선로딩되지 않도록 조정
+- `services/crawl_log_service.py`, `services/crawl_control.py`, `services/crawl_manager.py`
+  - `rotate_crawl_log()` 공용 모듈 분리로 `crawl_control <-> crawl_manager` 순환 import 제거
+- `web/templates/base.html`
+  - 사이드바의 `중복 신고 관리` 메뉴를 `감시 목록 관리` 바로 아래로 이동
+
+검증:
+- `python3 -m compileall core services web main.py` 통과
+- `./venv/bin/python` 로컬 HTTP 서버 스모크 테스트:
+  - `/media/proxy`가 업스트림 응답을 스트리밍 형태로 열고 전체 파일 선다운로드를 하지 않음을 확인
+- `./venv/bin/python` 인메모리 SQLite 스모크 테스트:
+  - 자동 대표건이 초기에는 `과태료/수용` 건으로 선택됨
+  - 수동 고정 후 재생성해도 대표건 유지 확인
+  - 자동 모드로 되돌린 뒤 데이터 우선순위가 바뀌면 대표건이 다시 자동 전환됨
+  - `not_duplicate` 상태에서는 canonical 조회가 child 전부를 다시 노출함
+  - child 목록이 `신고번호 DESC`로 정렬되고 `entry_value`가 노출됨을 확인
+- `duplicate_route`, `media_route` import 확인
+
+비고:
+- 현재 `대표건 기준 전역 반영`은 `confirmed_duplicate` 또는 `review_required` 그룹에서만 의미가 있다.
+  `not_duplicate`는 canonical에서도 원본 행을 모두 보여주는 방향으로 해석한다.
+- 동영상 seek 문제는 원격 첨부 서버의 range/streaming 호환성 이슈 가능성을 고려해 서버 프록시로 우회했다.
+
+### 중복 신고 관리 1차 구현 / 대표건 canonical 집계 도입
+
+상태: 완료
+
+변경:
+- `core/database/models.py`
+  - `mysafety_duplicate_group`, `mysafety_duplicate_member` 테이블 추가
+- `services/duplicate_group_service.py`
+  - `mysafety_raw_content` 기반 payload exact 중복군 재생성
+  - 대표건 자동 추천
+  - raw/canonical projection 공용 로직
+  - 중복군 상태/대표건/전역 반영 여부 업데이트 로직
+- `core/database/database.py`
+  - `upgrade_schema()`와 `merge_final()` 후 payload exact 중복군 자동 재생성 연결
+- `services/report_query_service.py`
+  - 전체 조회, 카테고리 조회, 차량/주소 검색, 중복차량 조회에 `mode=raw|canonical` 지원 추가
+- `services/report_stats_service.py`
+  - 대시보드와 부서 통계에 `mode=raw|canonical` 지원 추가
+- `web/routers/data.py`, `web/routers/api_route.py`, `web/routers/dashboard.py`, `web/routers/stats.py`
+  - 웹/API 조회 경로에 `dedupe` 모드 연결
+  - 대시보드와 통계는 대표건 기준을 기본값으로 사용
+- `web/routers/duplicate_route.py`, `web/templates/duplicate_groups.html`
+  - 중복 신고 관리 메뉴 추가
+  - 중복군 재생성, 대표건 변경, 상태 변경, 전역 반영 on/off UI 추가
+- `web/templates/data_table.html`, `web/templates/stats.html`, `web/templates/base.html`
+  - raw/canonical 모드 전환 버튼 및 네비게이션 추가
+- `.gitignore`
+  - `README.md`, `CHANGELOG.md`, `CLAUDE.md`를 제외한 기타 `md` 파일은 로컬 보관용으로 되돌림
+  - `IMPLEMENTATION_PLAN.md`, `SYNC_ROUNDTRIP_PLAN.md`는 git 추적 해제
+
+검증:
+- `python3 -m compileall core services web main.py` 통과
+- 인메모리 SQLite 샘플 기준 검증:
+  - payload identical 2건이 1개 중복군으로 생성됨
+  - 대표건이 `과태료/수용` row로 선택됨
+  - canonical projection 결과 ID `1,3`만 남음
+  - canonical 대시보드 total/processing/accept 집계가 기대값으로 계산됨
+  - canonical 기관 통계 total이 1건으로 축소됨
+- `node --check` 기반 템플릿 인라인 스크립트 문법 검사:
+  - `base.html`, `data_table.html`, `stats.html` 통과
+
+비고:
+- 1차 구현은 `mysafety_raw_content`가 있는 payload exact 그룹만 자동 확정 대상으로 삼는다.
+- `raw_content`가 없는 데이터의 review 후보 그룹화는 후속 단계다.
+
 ### 기존 서버 DB synced_at 백필 / 웹 상세·첨부 렌더 방어
 
 상태: 완료

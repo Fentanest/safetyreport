@@ -11,20 +11,28 @@
     border-color: #495057;
   }
 
-  .table-sm td,
-  .table-sm th {
-    font-size: 0.82rem;
+  .editor-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
   }
 
-  .status-badge {
-    font-size: 0.75rem;
+  .editor-card .meta {
+    font-size: 0.78rem;
+    color: #6b7280;
   }
 
-  td.col-content {
-    max-width: 200px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .editor-card .value {
+    font-size: 0.84rem;
+    color: #111827;
+  }
+
+  .editor-card .title {
+    font-size: 0.96rem;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.4;
   }
 </style>
 {% endblock %}
@@ -33,7 +41,7 @@
 <div class="alert alert-danger py-2 mb-2" role="alert">
   <i class="fas fa-exclamation-triangle me-1"></i>
   <strong>주의:</strong> 이 페이지는 DB를 직접 수정합니다. 잘못된 수정은 데이터 불일치 또는 크롤링 오작동을 유발할 수 있습니다.
-  종결여부가 N일 경우 다음 크롤링 시 덮어쓰기 되므로 유의하시기 바랍니다.
+  종결여부가 N일 경우 다음 크롤링 시 덮어쓰기 될 수 있습니다.
 </div>
 
 <ul class="nav nav-tabs category-tabs mb-3" id="categoryTab">
@@ -48,76 +56,56 @@
   </li>
 </ul>
 
-<div class="table-responsive">
-  <table id="dbEditorTable" class="table table-sm table-hover table-bordered align-middle">
-    <thead class="table-dark">
-      <tr>
-        <th>신고번호</th>
-        <th>신고일</th>
-        <th>신고명</th>
-        <th>처리상태</th>
-        <th>범칙금/과태료</th>
-        <th>차량번호</th>
-        <th>처리기관</th>
-        <th>수정</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for r in records %}
-      <tr>
-        <td>{{ r.신고번호 or '' }}</td>
-        <td>{{ r.신고일 or '' }}</td>
-        <td class="col-content" title="{{ r.신고명 or '' }}">{{ r.신고명 or '' }}</td>
-        <td>
-          {% set s = r.처리상태 or '' %}
+{% if not records %}
+<div class="alert alert-light border">표시할 신고 데이터가 없습니다.</div>
+{% else %}
+<div class="row g-3">
+  {% for r in records %}
+  {% set s = r.처리상태 or '' %}
+  <div class="col-xl-4 col-lg-6">
+    <div class="editor-card h-100 p-3">
+      <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+        <div>
+          <div class="meta">신고번호</div>
+          <div class="value fw-semibold">{{ r.신고번호 or '-' }}</div>
+        </div>
+        <div>
           {% if s == '수용' %}
-          <span class="badge bg-success status-badge">{{ s }}</span>
+          <span class="badge bg-success">{{ s }}</span>
           {% elif s == '불수용' %}
-          <span class="badge bg-danger status-badge">{{ s }}</span>
+          <span class="badge bg-danger">{{ s }}</span>
           {% elif s == '일부수용' %}
-          <span class="badge bg-warning text-dark status-badge">{{ s }}</span>
+          <span class="badge bg-warning text-dark">{{ s }}</span>
           {% elif s == '취하' %}
-          <span class="badge bg-secondary status-badge">{{ s }}</span>
+          <span class="badge bg-secondary">{{ s }}</span>
           {% else %}
-          <span class="badge bg-info text-dark status-badge">{{ s or '처리중' }}</span>
+          <span class="badge bg-info text-dark">{{ s or '처리중' }}</span>
           {% endif %}
-        </td>
-        <td>{{ r['범칙금_과태료'] or '' }}</td>
-        <td>{{ r.차량번호 or '' }}</td>
-        <td class="col-content" title="{{ r.처리기관 or '' }}">{{ r.처리기관 or '' }}</td>
-        <td>
-          <a href="/db-editor/{{ category }}/{{ r.ID }}" class="btn btn-sm btn-outline-primary py-0 px-2">
-            <i class="fas fa-edit"></i>
-          </a>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endblock %}
+        </div>
+      </div>
 
-{% block extra_js %}
-<script>
-  $(document).ready(function () {
-    var savedLength = parseInt(sessionStorage.getItem('dbEditorPageLength')) || 25;
-    var dt = $('#dbEditorTable').DataTable({
-      pageLength: savedLength,
-      order: [[1, 'desc']],
-      language: {
-        search: '검색:',
-        lengthMenu: '_MENU_ 건씩 보기',
-        info: '_TOTAL_ 건 중 _START_–_END_',
-        paginate: { previous: '이전', next: '다음' },
-        zeroRecords: '데이터 없음',
-      },
-      columnDefs: [
-        { orderable: false, targets: 7 }
-      ]
-    });
-    dt.on('length.dt', function (e, settings, len) {
-      sessionStorage.setItem('dbEditorPageLength', len);
-    });
-  });
-</script>
+      <div class="title mb-2">{{ r.신고명 or '(제목 없음)' }}</div>
+
+      <div class="meta mb-1">신고일</div>
+      <div class="value mb-2">{{ r.신고일 or '-' }}</div>
+
+      <div class="meta mb-1">차량번호</div>
+      <div class="value mb-2">{{ r.차량번호 or '-' }}</div>
+
+      <div class="meta mb-1">처리기관</div>
+      <div class="value mb-2">{{ r.처리기관 or '-' }}</div>
+
+      <div class="meta mb-1">범칙금/과태료</div>
+      <div class="value mb-3">{{ r['범칙금_과태료'] or '-' }}</div>
+
+      <div class="d-flex justify-content-end">
+        <a href="/db-editor/{{ category }}/{{ r.ID }}" class="btn btn-sm btn-outline-primary">
+          <i class="fas fa-edit me-1"></i>수정
+        </a>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 {% endblock %}

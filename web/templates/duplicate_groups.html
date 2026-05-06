@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+
+{% macro status_card(label, count, value, current_status, classes, icon) -%}
+<a
+    class="text-decoration-none"
+    href="/duplicates/manage{% if value %}?duplicate_status={{ value }}{% endif %}"
+>
+    <div class="card card-custom h-100 {% if current_status == value or (not current_status and not value) %}border-3 border-primary{% else %}{{ classes }}{% endif %}">
+        <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between mb-2">
+                <div class="text-muted small">{{ label }}</div>
+                <i class="{{ icon }} text-muted"></i>
+            </div>
+            <div class="h3 mb-0 fw-bold">{{ count }}</div>
+        </div>
+    </div>
+</a>
+{%- endmacro %}
+
+{% block extra_css %}
+<style>
+@media (min-width: 768px) {
+    .bulk-status-controls {
+        margin-left: 2.5rem;
+    }
+}
+.bulk-status-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+.bulk-status-label-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: nowrap;
+}
+.bulk-status-controls .form-label,
+.bulk-status-controls .text-muted,
+.bulk-status-controls .btn {
+    white-space: nowrap;
+}
+.bulk-inline-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: nowrap;
+}
+.duplicate-members-table {
+    font-size: 0.75rem;
+}
+.duplicate-members-table .form-check-label,
+.duplicate-members-table .form-check-input,
+.duplicate-members-table a,
+.duplicate-members-table td,
+.duplicate-members-table th {
+    font-size: 0.75rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <form method="post" action="/duplicates/manage/refresh" class="d-inline">
+        <button type="submit" class="btn btn-primary">
+            <i class="fas fa-arrows-rotate me-1"></i>중복군 재생성
+        </button>
+    </form>
+    <a class="btn btn-outline-secondary" href="/duplicates/manage">
+        <i class="fas fa-layer-group me-1"></i>전체 보기
+    </a>
+</div>
+
+{% if message %}
+<div class="alert alert-info">{{ message }}</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        {{ status_card("전체", counts.total, "", current_status, "", "fas fa-layer-group") }}
+    </div>
+    <div class="col-md-3">
+        {{ status_card("검토 필요", counts.review_required, "review_required", current_status, "border-warning", "fas fa-triangle-exclamation") }}
+    </div>
+    <div class="col-md-3">
+        {{ status_card("중복 확정", counts.confirmed_duplicate, "confirmed_duplicate", current_status, "border-success", "fas fa-circle-check") }}
+    </div>
+    <div class="col-md-3">
+        {{ status_card("중복 아님", counts.not_duplicate, "not_duplicate", current_status, "border-secondary", "fas fa-circle-minus") }}
+    </div>
+</div>
+
+<form method="post" action="/duplicates/manage/bulk-status" id="bulkStatusForm" class="card card-custom mb-4">
+    <div class="card-body d-flex flex-wrap align-items-center gap-3">
+        <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="selectAllGroups">
+            <label class="form-check-label fw-bold" for="selectAllGroups">현재 목록 전체 선택</label>
+        </div>
+        <div class="bulk-status-controls">
+            <div class="bulk-status-label-row">
+                <span class="fw-bold">일괄 처리</span>
+                <div class="bulk-inline-group">
+                    <label class="form-label mb-0 fw-bold" for="bulkDuplicateStatus">상태 변경</label>
+                    <select class="form-select form-select-sm" id="bulkDuplicateStatus" name="duplicate_status" style="min-width: 180px;">
+                        <option value="review_required">검토 필요</option>
+                        <option value="confirmed_duplicate">중복 확정</option>
+                        <option value="not_duplicate">중복 아님</option>
+                    </select>
+                </div>
+                <div class="bulk-inline-group">
+                    <label class="form-label mb-0 fw-bold" for="bulkRepresentativeMode">대표건 선정</label>
+                    <select class="form-select form-select-sm" id="bulkRepresentativeMode" name="representative_mode" style="min-width: 160px;">
+                        <option value="auto">자동 선정</option>
+                        <option value="manual">수동 선정</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        <button type="submit" class="btn btn-outline-primary btn-sm">
+            <i class="fas fa-check-double me-1"></i>선택 그룹 적용
+        </button>
+        <span class="text-muted small">대표건 자체 선택은 각 그룹에서 개별 저장합니다.</span>
+    </div>
+</form>
+
+{% if not groups %}
+<div class="alert alert-light border">현재 조건에 맞는 중복 신고 그룹이 없습니다.</div>
+{% else %}
+<div class="accordion" id="duplicateGroupsAccordion">
+    {% for group in groups %}
+    {% set representative = group.representative or {} %}
+    <div class="accordion-item mb-3 border rounded shadow-sm">
+        <h2 class="accordion-header" id="heading-{{ loop.index }}">
+            <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#group-{{ loop.index }}">
+                <div class="w-100 d-flex flex-wrap align-items-center gap-3">
+                    <span class="form-check d-inline-flex align-items-center mb-0 me-1">
+                        <input
+                            class="form-check-input duplicate-group-checkbox"
+                            type="checkbox"
+                            name="group_ids"
+                            value="{{ group.group_id }}"
+                            form="bulkStatusForm"
+                            onclick="event.stopPropagation();"
+                        >
+                    </span>
+                    <span class="badge bg-primary">멤버 {{ group.member_count }}건</span>
+                    <span class="fw-bold">{{ representative['차량번호'] or '차량번호 없음' }}</span>
+                    <span class="text-muted">대표 신고번호 {{ representative['신고번호'] or '-' }}</span>
+                    <span class="badge {% if group.status == 'confirmed_duplicate' %}bg-success{% elif group.status == 'review_required' %}bg-warning text-dark{% else %}bg-secondary{% endif %}">
+                        {% if group.status == 'confirmed_duplicate' %}중복 확정{% elif group.status == 'review_required' %}검토 필요{% else %}중복 아님{% endif %}
+                    </span>
+                    <span class="badge {% if group.representative_mode == 'manual' %}bg-dark{% else %}bg-info text-dark{% endif %}">
+                        {% if group.representative_mode == 'manual' %}수동 고정{% else %}자동 선정{% endif %}
+                    </span>
+                    <span class="text-muted">{{ representative['처리상태'] or '-' }}</span>
+                    <span class="text-muted">{{ representative['범칙금_과태료'] or '-' }}</span>
+                </div>
+            </button>
+        </h2>
+        <div id="group-{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" data-bs-parent="#duplicateGroupsAccordion">
+            <div class="accordion-body">
+                <form method="post" action="/duplicates/manage/{{ group.group_id }}/update">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">중복 상태</label>
+                            <select class="form-select" name="duplicate_status">
+                                <option value="confirmed_duplicate" {% if group.status == 'confirmed_duplicate' %}selected{% endif %}>중복 확정</option>
+                                <option value="review_required" {% if group.status == 'review_required' %}selected{% endif %}>검토 필요</option>
+                                <option value="not_duplicate" {% if group.status == 'not_duplicate' %}selected{% endif %}>중복 아님</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">대표건 선정</label>
+                            <select class="form-select" name="representative_mode">
+                                <option value="auto" {% if group.representative_mode != 'manual' %}selected{% endif %}>자동 선정</option>
+                                <option value="manual" {% if group.representative_mode == 'manual' %}selected{% endif %}>수동 고정</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">비고</label>
+                            <input type="text" class="form-control" name="note" value="{{ group.note or '' }}">
+                        </div>
+                    </div>
+
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped align-middle duplicate-members-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 90px;">대표건</th>
+                                    <th>ID</th>
+                                    <th>신고번호</th>
+                                    <th>신고메뉴</th>
+                                    <th>발생일</th>
+                                    <th>발생시각</th>
+                                    <th>주소</th>
+                                    <th>차량번호</th>
+                                    <th>담당자</th>
+                                    <th>처리상태</th>
+                                    <th>처분</th>
+                                    <th>답변일</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for member in group.members %}
+                                <tr class="{% if member.is_representative %}table-primary{% endif %}">
+                                    <td>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="representative_id" value="{{ member.report_id }}" id="rep-{{ loop.index0 }}-{{ member.report_id }}" {% if member.is_representative %}checked{% endif %}>
+                                            <label class="form-check-label" for="rep-{{ loop.index0 }}-{{ member.report_id }}">
+                                                선택
+                                            </label>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <a
+                                            href="https://www.safetyreport.go.kr/#mypage/mysafereport/{{ member.report_id }}"
+                                            target="_blank"
+                                            rel="noopener"
+                                            class="fw-semibold text-decoration-underline"
+                                        >
+                                            {{ member.report_id }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <a href="#" class="report-detail-link fw-semibold text-decoration-underline" data-report="{{ member | tojson | forceescape }}">
+                                            {{ member['신고번호'] or '-' }}
+                                        </a>
+                                    </td>
+                                    <td>{{ member.entry_value or member.category or '-' }}</td>
+                                    <td>{{ member['발생일자'] or '-' }}</td>
+                                    <td>{{ member['발생시각'] or '-' }}</td>
+                                    <td>{{ member['위반장소'] or '-' }}</td>
+                                    <td>
+                                        {% if member['차량번호'] %}
+                                        <a href="/data/{{ member.category or 'all' }}?car={{ member['차량번호'] | urlencode }}" class="text-decoration-underline">
+                                            {{ member['차량번호'] }}
+                                        </a>
+                                        {% else %}
+                                        -
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if member['담당자'] %}
+                                        <a href="/data/{{ member.category or 'all' }}?person={{ member['담당자'] | urlencode }}" class="text-decoration-underline">
+                                            {{ member['담당자'] }}
+                                        </a>
+                                        {% else %}
+                                        -
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ member['처리상태'] or '-' }}</td>
+                                    <td>{{ member['범칙금_과태료'] or '-' }}</td>
+                                    <td>{{ member['답변일'] or '-' }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="d-flex justify-content-end mt-3">
+                        <button type="submit" class="btn btn-success">
+                            <i class="fas fa-save me-1"></i>설정 저장
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var selectAll = document.getElementById('selectAllGroups');
+    if (!selectAll) return;
+
+    selectAll.addEventListener('change', function() {
+        document.querySelectorAll('.duplicate-group-checkbox').forEach(function(checkbox) {
+            checkbox.checked = selectAll.checked;
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -11,10 +11,14 @@ from core.utils.templating import templates
 engine = get_engine()
 router = APIRouter()
 
+
+def _default_dedupe_mode() -> str:
+    return "canonical" if settings.use_representative_records else "raw"
+
 @router.get("/")
 async def dashboard(request: Request):
     try:
-        stats = data_service.get_dashboard_stats(engine)
+        stats = data_service.get_dashboard_stats(engine, mode=_default_dedupe_mode())
     except Exception as e:
         print(f"Error loading dashboard data: {e}")
         stats = {

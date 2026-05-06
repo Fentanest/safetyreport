@@ -4,6 +4,7 @@ from sqlalchemy.exc import OperationalError
 
 from core.database import database
 import settings.settings as app_settings
+from services import duplicate_group_service
 
 
 def _safe_read(conn, table):
@@ -31,6 +32,18 @@ def _filter_withdraw(df):
     if app_settings.exclude_withdraw and not df.empty and "처리상태" in df.columns:
         return df[df["처리상태"] != "취하"]
     return df
+
+
+def _normalize_mode(mode: str | None) -> str:
+    normalized = str(mode or "raw").strip().lower()
+    return normalized if normalized in {"raw", "canonical"} else "raw"
+
+
+def _project_records(engine, records, *, mode="raw"):
+    normalized_mode = _normalize_mode(mode)
+    if normalized_mode == "raw":
+        return records
+    return duplicate_group_service.project_records(engine, records, mode=normalized_mode)
 
 
 def _build_records_query(table_obj, filters=None):
@@ -87,7 +100,7 @@ def _build_records_query(table_obj, filters=None):
     return query
 
 
-def _get_records_from_table(engine, table_obj, filters=None, category: str = ""):
+def _get_records_from_table(engine, table_obj, filters=None, category: str = "", mode: str = "raw"):
     try:
         with engine.connect() as conn:
             df = pd.read_sql_query(_build_records_query(table_obj, filters), conn)
@@ -120,32 +133,33 @@ def _get_records_from_table(engine, table_obj, filters=None, category: str = "")
                     df = df[rating_series == wanted]
 
     df = _apply_record_defaults(df, watch_ids=watch_ids, category=category)
-    return df.to_dict(orient="records") if not df.empty else []
+    records = df.to_dict(orient="records") if not df.empty else []
+    return _project_records(engine, records, mode=mode)
 
 
-def get_traffic_records(engine, filters=None):
-    return _get_records_from_table(engine, database.merge_traffic_table, filters, category="traffic")
+def get_traffic_records(engine, filters=None, mode: str = "raw"):
+    return _get_records_from_table(engine, database.merge_traffic_table, filters, category="traffic", mode=mode)
 
 
-def get_parking_records(engine, filters=None):
-    return _get_records_from_table(engine, database.merge_parking_table, filters, category="parking")
+def get_parking_records(engine, filters=None, mode: str = "raw"):
+    return _get_records_from_table(engine, database.merge_parking_table, filters, category="parking", mode=mode)
 
 
-def get_other_records(engine, filters=None):
-    return _get_records_from_table(engine, database.merge_other_table, filters, category="other")
+def get_other_records(engine, filters=None, mode: str = "raw"):
+    return _get_records_from_table(engine, database.merge_other_table, filters, category="other", mode=mode)
 
 
-def get_all_records(engine, filters=None):
+def get_all_records(engine, filters=None, mode: str = "raw"):
     combined = (
-        get_traffic_records(engine, filters)
-        + get_parking_records(engine, filters)
-        + get_other_records(engine, filters)
+        get_traffic_records(engine, filters, mode=mode)
+        + get_parking_records(engine, filters, mode=mode)
+        + get_other_records(engine, filters, mode=mode)
     )
     combined.sort(key=lambda item: item.get("신고번호", "") or "", reverse=True)
     return combined
 
 
-def search_by_vehicle(engine, vehicle_number: str):
+def search_by_vehicle(engine, vehicle_number: str, mode: str = "raw"):
     vehicle_number = vehicle_number.strip()
     if not vehicle_number:
         return []
@@ -172,10 +186,10 @@ def search_by_vehicle(engine, vehicle_number: str):
             results.extend(df.to_dict(orient="records"))
 
     results.sort(key=lambda item: item.get("신고번호", "") or "", reverse=True)
-    return results
+    return _project_records(engine, results, mode=mode)
 
 
-def search_by_address(engine, address: str):
+def search_by_address(engine, address: str, mode: str = "raw"):
     address = address.strip()
     if not address:
         return []
@@ -202,10 +216,10 @@ def search_by_address(engine, address: str):
             results.extend(df.to_dict(orient="records"))
 
     results.sort(key=lambda item: item.get("신고번호", "") or "", reverse=True)
-    return results
+    return _project_records(engine, results, mode=mode)
 
 
-def get_duplicate_records(engine):
+def get_duplicate_records(engine, mode: str = "raw"):
     with engine.connect() as conn:
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
         df_p = _safe_read(conn, database.merge_parking_table)
@@ -247,7 +261,8 @@ def get_duplicate_records(engine):
                 if single_after_filter:
                     df_dups = df_dups[~df_dups["차량번호"].isin(single_after_filter)]
 
-        return df_dups.fillna("").to_dict("records")
+        records = df_dups.fillna("").to_dict("records")
+        return _project_records(engine, records, mode=mode)
 
 
 def resolve_to_report_numbers(engine, mixed_list):

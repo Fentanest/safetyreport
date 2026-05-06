@@ -55,7 +55,7 @@ input.form-control { font-size: 0.82rem; }
     <div class="col-md-2">
       <label class="form-label">범칙금_과태료</label>
       <input type="text" name="범칙금_과태료" class="form-control" value="{{ record['범칙금_과태료'] or '' }}">
-      <div class="form-text">예: 과태료: 40,000원 / 범칙금: 30,000원 / 경고 / 미확인</div>
+      <div class="form-text">{{ fine_info_example }}</div>
     </div>
     <div class="col-md-2">
       <label class="form-label">벌점</label>

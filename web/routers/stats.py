@@ -1,10 +1,17 @@
 from fastapi import APIRouter, Request
 from core.database.engine import get_engine
+import settings.settings as app_settings
 from services import data_service
 from core.utils.templating import templates
 
 router = APIRouter()
 engine = get_engine()
+
+
+def _normalize_dedupe_mode(value: str | None) -> str:
+    default_mode = "canonical" if app_settings.use_representative_records else "raw"
+    normalized = (value or default_mode).strip().lower()
+    return normalized if normalized in {"raw", "canonical"} else default_mode
 
 @router.get("/stats")
 async def view_stats(
@@ -25,6 +32,7 @@ async def view_stats(
     excludePolice: bool = False,
     onlyPolice: bool = False,
     year: str = None,
+    dedupe: str | None = None,
 ):
     filters = {
         'reportName': reportName,
@@ -44,7 +52,8 @@ async def view_stats(
         'onlyPolice': onlyPolice,
         'year': year,
     }
-    records = data_service.get_agency_stats(engine, filters)
+    dedupe_mode = _normalize_dedupe_mode(dedupe)
+    records = data_service.get_agency_stats(engine, filters, mode=dedupe_mode)
 
     return templates.TemplateResponse(request, "stats.html", {
         "title": "부서 통계",
@@ -78,5 +87,5 @@ async def view_stats(
         "records_other_other_agency":     records["other"]["other_by_agency"],
         "records_other_other_person":     records["other"]["other_by_person"],
         "records_other_law":              records["other"]["by_law"],
-        "f": filters
+        "f": filters,
     })

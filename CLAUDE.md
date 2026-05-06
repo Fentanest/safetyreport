@@ -7,7 +7,8 @@
 - 작업 완료 후: 구조 변경은 CLAUDE.md, 작업 이력은 CHANGELOG.md에 기록 + 코드 git 커밋
 - 구조/운영 메모는 CLAUDE.md, 작업/버그/세션 이력은 CHANGELOG.md로 분리 관리
 - `CLAUDE.md`에는 프로젝트 구조, 작동 방식, 운영상 주의점만 남긴다.
-- `CLAUDE.md`, `CHANGELOG.md`는 git 추적 대상이고, `REFACTOR.md`는 로컬 원문 보관용이다.
+- `README.md`, `CLAUDE.md`, `CHANGELOG.md`만 주요 문서로 git 추적한다.
+- 그 외 계획/메모용 `md` 파일은 로컬 보관용으로 두고 추적하지 않는다.
 
 ---
 
@@ -50,12 +51,15 @@
 │       └── updater.py           # GitHub Releases 자동 업데이트
 ├── services/
 │   ├── crawl_control.py         # 크롤링 시작/중지/재개, 큐 파일, 로그 헤더/회전 공용화
+│   ├── crawl_log_service.py     # current_crawl.log 경로/회전 공용 헬퍼 (순환 import 방지)
 │   ├── crawl_state_store.py     # crawl_done / crawl_done_ext / crawl_changes JSON 상태 저장소
 │   ├── data_service.py          # 기존 import 호환 facade (query/stats/state 재노출)
 │   ├── db_backup.py             # DB checkpoint(WAL/SHM 정리) + 서버/모바일 DB 자동 감지/변환
 │   ├── export_service.py        # 엑셀/구글시트 export 흐름 조립
 │   ├── file_service.py          # 웹/API 파일 브라우저 공용 로직
 │   ├── crawl_manager.py         # 크롤링 프로세스 싱글톤 (충돌 방지)
+│   ├── duplicate_group_service.py # raw_content 기반 중복군/대표건 관리 + canonical projection
+│   ├── media_proxy_service.py   # 원격 첨부 동영상/미디어 스트리밍 프록시
 │   ├── parser.py                # HTML/JSON 파싱 (과태료, 처리상태 등)
 │   ├── rating_service.py        # 모바일/웹 별점 batch 시작 + 현재 별점 로그 준비
 │   ├── report_query_service.py  # 목록/검색/감시목록/중복차량 조회
@@ -75,7 +79,9 @@
 │   │   ├── data.py              # /data/** 데이터 조회
 │   │   ├── db_editor_route.py   # DB 수정/수동 편집 UI
 │   │   ├── devices_route.py     # /devices/** 기기 연동 (API 키 + WS 연결 현황)
+│   │   ├── duplicate_route.py   # /duplicates/manage 중복 신고 관리 UI
 │   │   ├── file_browser_route.py # /file-browser/** 파일 브라우저
+│   │   ├── media_route.py       # /media/proxy 원격 미디어 프록시
 │   │   ├── rating_route.py      # /rating/** 별점 관리
 │   │   ├── settings_route.py    # /settings/** 설정 페이지
 │   │   ├── stats.py             # /stats/** 통계
@@ -112,9 +118,34 @@
 - API/legacy 상세/목록 파싱 결과는 `title_pipeline.py`, `detail_pipeline.py`로 공통 row 스키마에 맞춘다.
 - 조회 계층은 `report_query_service.py`, 통계 계층은 `report_stats_service.py`, 크롤링 상태 파일 계층은 `crawl_state_store.py`로 분리되었고, `data_service.py`는 기존 import 경로 호환용 facade만 남겼다.
 - 라우터는 가능한 얇게 유지하고, 크롤링 제어/파일 브라우저/별점 시작은 각각 `crawl_control.py`, `file_service.py`, `rating_service.py`를 통해 공통 처리한다.
+- 데이터 수정 화면과 API는 `db_editor_service.py`가 스키마/조회/저장을 맡고, 웹 목록은 `신고번호 DESC` 카드형 리스트를 기본 UI로 사용한다.
+- 중복 신고 관리는 `duplicate_group_service.py`가 맡는다.
+  - `mysafety_raw_content.raw_content`가 자동 중복 감지의 source of truth다.
+  - 같은 payload hash를 가진 신고를 중복군으로 묶고, 중복 상태와 대표건 선정 모드를 별도로 관리한다.
+  - 중복 상태는 `review_required`, `confirmed_duplicate`, `not_duplicate` 세 가지다.
+  - 대표건 모드는 `auto` 또는 `manual` 이다.
+  - `auto` 모드에서는 refresh 때마다 우선순위(`과태료 > 경고/범칙금 > 처리상태 > 답변일 > synced_at > 신고번호`)로 대표건을 다시 고른다.
+  - `manual` 모드에서는 사용자가 저장한 대표건을 유지한다.
+  - 단, 저장 요청이 `auto` 모드더라도 사용자가 auto 추천값이 아닌 다른 child를 직접 대표건으로 선택해 저장하면, 서버는 그 의도를 우선해 자동으로 `manual`로 승격시킨다.
+  - 조회/통계는 `raw` 또는 `canonical` projection으로 대표건 기준 집계를 선택할 수 있다.
+  - `not_duplicate` 상태 그룹은 중복 신고 관리 메뉴에서는 유지하되, canonical projection에서는 일반 원본 신고처럼 모두 반영한다.
+  - child 표는 `신고번호 DESC` 순이며, `ID`는 안전신문고 링크, `신고번호`는 내부 상세 모달 링크다.
+  - child 표의 `신고메뉴` 컬럼은 `entry_value`를 보여준다.
+  - 웹 중복 신고 관리의 일괄 처리 바는 `상태 변경`과 `대표건 선정`을 동시에 일괄 적용할 수 있다.
+- `crawl_state_store.py`의 `crawl_done_ext.json`은 크롬 익스텐션 전용 완료 알림 payload 저장소다.
+  - 일반 신고 변경은 `notification_kind=report`
+  - 중복 신고 변경은 `notification_kind=duplicate`
+  - 중복 항목에는 `duplicate_change_type`, `status_label`, `representative_mode_label`, `member_count`, `representative_report_number`, `body`가 함께 들어간다.
+- 웹 첨부 동영상은 `media_proxy_service.py` + `/media/proxy`를 우선 사용한다.
+  - 원격 파일을 서버가 range 헤더와 함께 스트리밍 프록시하고,
+  - 프록시 실패 시 브라우저가 원본 URL로 fallback 한다.
+  - `<video preload="none">`으로 두어 모달 오픈만으로 모든 동영상이 동시에 선로딩되지 않게 유지한다.
+- 크롤링 로그 회전은 `crawl_log_service.py`로 분리했다.
+  - `crawl_control.py`와 `crawl_manager.py`가 같은 회전 함수를 공유하지만 서로를 import하지 않게 유지해야 한다.
 - 서버 시작 시 `database.upgrade_schema()`가 실행되며, 기존 DB에 새 컬럼이 생긴 경우 단순 `ALTER TABLE`만 하지 않고 필요한 후속 마이그레이션까지 같이 처리한다.
   - 2026-05-06 이후에는 `mysafetydetail_*`.`synced_at` 공백을 `답변일` 우선, 없으면 `신고일` 기준으로 자동 백필하고 `mysafetymerge_*`를 다시 만든다.
   - `/backup/upload`로 서버 형식 DB를 덮어쓴 경우에도 같은 업그레이드/백필을 즉시 수행하므로, 앱 재시작 전까지 구스키마가 남아 있지 않게 한다.
+  - 같은 흐름에서 payload exact 중복군도 재생성되어 merge 결과와 대표건 집계층을 함께 갱신한다.
 - `legacy` 상세 파서는 처리결과가 여러 개일 때 마지막 `처리결과` 테이블을 최신 답변으로 사용한다.
 - `legacy` 목록 파서는 페이지 전환 중 `stale element reference`가 나면 같은 페이지를 다시 읽도록 재시도한다.
 - 비회원 모드는 direct login을 타지 않고, Chrome 창에서 사용자가 로그인한 뒤 `재개` 신호를 기다리는 수동 흐름이다.
@@ -125,6 +156,11 @@
 - `sunwi_service`는 로그인 없이 안전신문고 통계 API를 별도로 호출하고, 서버 시작 후 즉시 1회 + 이후 3시간마다 대분류/소분류 기준 행정구역 Top5를 갱신한다.
 - `web/templates/base.html`의 신고 상세 모달과 `web/templates/data_table.html`의 첨부 렌더는 이제 문자열 외 값도 받아들인다.
   - `지도`, `첨부사진`, `첨부파일`이 배열/객체/비정상 타입으로 들어와도 정규화 후 렌더하며, 상세 모달 렌더 중 일부 예외가 나도 페이지 전체가 죽지 않도록 fallback 모달을 띄운다.
+- 전체 신고 조회/통계/대시보드/API의 기본 dedupe 기준은 `SETTINGS.use_representative_records`가 정한다.
+  - `True`: 대표건 기준(`canonical`)
+  - `False`: 원본 기준(`raw`)
+  - 웹 페이지에는 별도 토글을 두지 않고 설정 페이지에서만 바꾼다.
+  - 내부적으로 `dedupe=canonical|raw` 쿼리 파라미터가 명시되면 그 값은 여전히 우선 적용된다.
 - 빌드 계층은 `scripts/build/build_exe.py`와 `.github/workflows/*.yml`이 담당한다.
   - `build.yml`: 정식 릴리즈 (macOS x64 + arm64 포함)
   - `build-windows-manual.yml`: 태그 체크 없이 수동으로 Windows 아티팩트 생성
@@ -147,7 +183,7 @@ username / password / phone_number
 telegram_token / chat_id / telegram_enabled
 google_api_auth_file / google_sheet_key / google_sheet_enabled
 scheduler_enabled / scheduler_mode / scheduler_interval_hours / scheduler_cron_times / scheduler_interval_start
-normalize_police / exclude_withdraw / auto_export_excel / auto_export_sheet
+normalize_police / exclude_withdraw / use_representative_records / auto_export_excel / auto_export_sheet
 crawl_mode / crawl_type / max_empty_pages / retry_interval / max_retry_attemps
 session_max_age / log_level / TZ / trusted_proxies
 ```
@@ -160,7 +196,8 @@ session_max_age / log_level / TZ / trusted_proxies
 [SCHEDULER]   enabled / mode / interval_hours / cron_times / interval_start
 [RATING]      phone_number
 [SETTINGS]    normalize_police / auto_export_excel / auto_export_sheet / crawl_mode
-              exclude_withdraw / retry_interval / max_retry_attemps / max_empty_pages
+              exclude_withdraw / use_representative_records
+              retry_interval / max_retry_attemps / max_empty_pages
               session_max_age / log_level / TZ / trusted_proxies
 [Crawler]     crawl_type
 [GOOGLESHEET] sheet_key
@@ -255,6 +292,8 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 | `mysafetymerge_other` | 최종 병합 (other) |
 | `mysafety_entry_value` | 신고별 entry_value 저장 (ID, entry_value) — 카테고리 재분류 기반 |
 | `mysafety_raw_content` | 신고별 원본 payload 저장 (ID, raw_content, raw_type, saved_at) |
+| `mysafety_duplicate_group` | payload exact 중복군 메타데이터 (대표건, 대표건 모드, 중복 상태, 전역 반영 여부) |
+| `mysafety_duplicate_member` | 중복군 멤버 목록 (report_id, category, 대표건 여부) |
 | `api_keys` | 모바일 API 인증 키 |
 | `admin_users` | 웹 관리자 계정 |
 | `mysafety_watchlist` | 감시 목록 (신고번호) |
@@ -267,6 +306,12 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
   - 백필 규칙: `답변일`이 있으면 그 날짜를, 없으면 title의 `신고일`을 기준으로 epoch ms 생성
   - 날짜 문자열에 시각이 없으면 그날의 마지막 시각(23:59:59.999)으로 채워 같은 날짜끼리는 `신고번호 DESC`가 tie-break로 작동하게 한다.
 - `raw_content` 는 목록/통계 테이블에 싣지 않고 `mysafety_raw_content` 별도 테이블에 보관한다.
+- 중복군 자동 감지는 `mysafety_raw_content.raw_content`가 있는 row만 대상으로 한다.
+  - 같은 payload hash라도 `차량번호`, `category`, `entry_value`가 충돌하면 기본 상태는 `review_required` + `apply_globally=0`이다.
+  - 기본 자동 감지 결과에서 충돌이 없으면 `confirmed_duplicate`, 충돌이 있으면 `review_required`로 시작한다.
+  - `not_duplicate`는 “화면에서 숨김”이 아니라 “중복군 메타는 유지하되 canonical projection에서 원본 child를 모두 살려둠”을 뜻한다.
+  - `representative_mode='auto'`인 그룹은 refresh 때마다 대표건이 다시 계산될 수 있고, `manual`은 저장된 대표건을 유지한다.
+  - `raw_content`가 없는 과거 데이터는 자동 확정 대상이 아니라 후속 검토 후보 경로로 다룬다.
 
 ---
 
@@ -316,6 +361,7 @@ main()
 | `max_empty_pages` | `SETTINGS` | 빈 페이지 허용 횟수 | `3` |
 | `normalize_police` | `SETTINGS` | 경찰 기관명 정규화 | `True` |
 | `exclude_withdraw` | `SETTINGS` | 취하 데이터 숨기기 | `True` |
+| `use_representative_records` | `SETTINGS` | 대표건 기준 canonical 집계를 전역 기본값으로 사용 | `True` |
 | `auto_export_excel` | `SETTINGS` | 크롤링 후 엑셀 자동 저장 | `True` |
 | `auto_export_sheet` | `SETTINGS` | 크롤링 후 구글 시트 자동 업로드 | `True` |
 
@@ -447,8 +493,8 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 | POST | `/crawl/start` | 모바일에서 크롤링 시작 |
 | POST | `/crawl/kill` | 크롤링 강제 중지 |
 | POST | `/crawl/resume` | 비회원 로그인 완료 신호 |
-| GET | `/app/config` | 앱 설정 (exclude_withdraw, normalize_police 등) |
-| POST | `/settings` | 필터 설정 저장 (normalize_police, exclude_withdraw) |
+| GET | `/app/config` | 앱 설정 (`exclude_withdraw`, `normalize_police`, `use_representative_records` 등) |
+| POST | `/settings` | 필터 설정 저장 (`normalize_police`, `exclude_withdraw`, `use_representative_records`) |
 | GET | `/files?path=` | 서버 파일 브라우저 (logs/results 한정) |
 | GET | `/files/download?path=&api_key=` | 파일 다운로드 (헤더 또는 쿼리 파라미터 인증) |
 | GET | `/server/version` | 서버 버전 + GitHub 최신 버전 (모바일·크롬 확장 공통) |

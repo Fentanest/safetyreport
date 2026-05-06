@@ -46,6 +46,15 @@ def _derive_backfill_synced_at(answer_date, report_date):
     )
 
 
+def _refresh_duplicate_groups(engine, *, track_changes: bool = False):
+    try:
+        from services import duplicate_group_service
+        return duplicate_group_service.refresh_duplicate_groups(engine, track_changes=track_changes)
+    except Exception as exc:
+        logger.LoggerFactory.logbot.error(f"[duplicate] 중복군 재생성 실패: {exc}")
+        return {"group_count": 0, "member_count": 0, "changes": []}
+
+
 def backfill_synced_at(engine):
     """기존 서버 DB의 synced_at 공백을 답변일/신고일 기준으로 채운다."""
     updated_total = 0
@@ -218,6 +227,7 @@ def upgrade_schema(engine):
 
     migrate_by_entry_value(engine)
     backfill_synced_at(engine)
+    _refresh_duplicate_groups(engine)
 
 def _get_title_ids_for_scan(conn, *, message: str):
     logger.LoggerFactory.logbot.info(message)
@@ -535,13 +545,14 @@ def _merge_for_table(conn, merge_target, detail_source):
     insert_stmt = merge_target.insert().from_select([c.name for c in merge_target.c], select_stmt)
     conn.execute(insert_stmt)
 
-def merge_final(engine, conn=None):
+def merge_final(engine, conn=None, *, track_duplicate_changes: bool = False):
     with engine.connect() as conn:
         _merge_for_table(conn, merge_traffic_table, detail_traffic_table)
         _merge_for_table(conn, merge_parking_table, detail_parking_table)
         _merge_for_table(conn, merge_other_table, detail_other_table)
         conn.commit()
         logger.LoggerFactory.logbot.info("최종 데이터 병합 완료 (Traffic/Parking/Other 분리)")
+    return _refresh_duplicate_groups(engine, track_changes=track_duplicate_changes)
 
 def clear_old_attachments(engine):
     six_months_ago = datetime.now() - relativedelta(months=6)

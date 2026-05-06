@@ -9,7 +9,7 @@ from starlette.background import BackgroundTask
 import settings.settings as settings
 from core.database import database
 from core.database.engine import get_engine
-from services import crawl_control, crawl_state_store, data_service, file_service, rating_service, sunwi_service
+from services import crawl_control, crawl_state_store, data_service, db_editor_service, duplicate_group_service, file_service, rating_service, sunwi_service
 from services.crawl_manager import crawl_manager
 from services.ws_manager import ws_manager
 
@@ -36,25 +36,37 @@ def _require_api_key_flex(request: Request, header_key: str = Depends(_api_key_q
     return api_key
 
 
+def _default_dedupe_mode() -> str:
+    return "canonical" if settings.use_representative_records else "raw"
+
+
+def _normalize_dedupe_mode(value: str | None, *, default: str | None = None) -> str:
+    resolved_default = default or _default_dedupe_mode()
+    normalized = (value or resolved_default).strip().lower()
+    return normalized if normalized in {"raw", "canonical"} else resolved_default
+
+
 @router.get("/summary")
-async def get_summary(request: Request, _: str = Depends(_require_api_key)):
+async def get_summary(request: Request, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
-        return {"status": "success", "data": data_service.get_dashboard_stats(engine)}
+        dedupe_mode = _normalize_dedupe_mode(dedupe)
+        return {"status": "success", "data": data_service.get_dashboard_stats(engine, mode=dedupe_mode)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/reports/{category}")
-async def get_reports(category: str, _: str = Depends(_require_api_key)):
+async def get_reports(category: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
+        dedupe_mode = _normalize_dedupe_mode(dedupe)
         if category == "traffic":
-            records = data_service.get_traffic_records(engine)
+            records = data_service.get_traffic_records(engine, mode=dedupe_mode)
         elif category == "parking":
-            records = data_service.get_parking_records(engine)
+            records = data_service.get_parking_records(engine, mode=dedupe_mode)
         elif category == "other":
-            records = data_service.get_other_records(engine)
+            records = data_service.get_other_records(engine, mode=dedupe_mode)
         elif category == "duplicates":
-            records = data_service.get_duplicate_records(engine)
+            records = data_service.get_duplicate_records(engine, mode=dedupe_mode)
         else:
             raise HTTPException(status_code=400, detail="Invalid category")
         return {"status": "success", "category": category, "count": len(records), "data": records}
@@ -65,32 +77,35 @@ async def get_reports(category: str, _: str = Depends(_require_api_key)):
 
 
 @router.get("/vehicle/{vehicle_number}")
-async def get_vehicle_reports(vehicle_number: str, _: str = Depends(_require_api_key)):
+async def get_vehicle_reports(vehicle_number: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
-        results = data_service.search_by_vehicle(engine, vehicle_number)
+        dedupe_mode = _normalize_dedupe_mode(dedupe)
+        results = data_service.search_by_vehicle(engine, vehicle_number, mode=dedupe_mode)
         return {"status": "success", "vehicle_number": vehicle_number, "count": len(results), "data": results}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/address")
-async def get_address_reports(q: str, _: str = Depends(_require_api_key)):
+async def get_address_reports(q: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
-        results = data_service.search_by_address(engine, q)
+        dedupe_mode = _normalize_dedupe_mode(dedupe)
+        results = data_service.search_by_address(engine, q, mode=dedupe_mode)
         return {"status": "success", "address": q, "count": len(results), "data": results}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/stats")
-async def get_stats(_: str = Depends(_require_api_key), year: str = None, law: str = None):
+async def get_stats(_: str = Depends(_require_api_key), year: str = None, law: str = None, dedupe: str | None = None):
     try:
         filters = {}
         if year and year != "all":
             filters["year"] = year
         if law:
             filters["law"] = law
-        return {"status": "success", "data": data_service.get_agency_stats(engine, filters or None)}
+        dedupe_mode = _normalize_dedupe_mode(dedupe)
+        return {"status": "success", "data": data_service.get_agency_stats(engine, filters or None, mode=dedupe_mode)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -143,6 +158,87 @@ async def update_watchlist(request: Request, _: str = Depends(_require_api_key))
         return {"status": "success", "updated": updated}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/duplicates/groups")
+async def get_duplicate_groups(status: str | None = None, _: str = Depends(_require_api_key)):
+    try:
+        groups = duplicate_group_service.get_duplicate_groups(engine, status=status)
+        return {"status": "success", "count": len(groups), "data": groups}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/duplicates/groups/{group_id}")
+async def update_duplicate_group_api(group_id: str, request: Request, _: str = Depends(_require_api_key)):
+    body = await request.json()
+    try:
+        updated = duplicate_group_service.update_duplicate_group(
+            engine,
+            group_id,
+            representative_id=body.get("representative_id"),
+            duplicate_status=body.get("duplicate_status"),
+            representative_mode=body.get("representative_mode"),
+            note=body.get("note"),
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="중복군을 찾을 수 없습니다.")
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/duplicates/groups/bulk-status")
+async def bulk_update_duplicate_group_status_api(request: Request, _: str = Depends(_require_api_key)):
+    body = await request.json()
+    group_ids = body.get("group_ids", [])
+    duplicate_status = body.get("duplicate_status", "")
+    representative_mode = body.get("representative_mode", "")
+    if not isinstance(group_ids, list) or not group_ids:
+        raise HTTPException(status_code=400, detail="group_ids is required")
+    try:
+        updated = duplicate_group_service.bulk_update_duplicate_status(
+            engine,
+            group_ids,
+            duplicate_status,
+            representative_mode=representative_mode,
+        )
+        return {"status": "success", "updated": updated}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/editor/schema")
+async def get_editor_schema(_: str = Depends(_require_api_key)):
+    return {"status": "success", "data": db_editor_service.get_editor_schema()}
+
+
+@router.get("/editor/{category}/{record_id}")
+async def get_editor_record(category: str, record_id: str, _: str = Depends(_require_api_key)):
+    record = db_editor_service.get_record(engine, category, record_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="수정 대상을 찾을 수 없습니다.")
+    return {
+        "status": "success",
+        "category": category,
+        "record_id": record_id,
+        "data": {
+            "record": record,
+            **db_editor_service.get_editor_schema(),
+        },
+    }
+
+
+@router.post("/editor/{category}/{record_id}")
+async def save_editor_record(category: str, record_id: str, request: Request, _: str = Depends(_require_api_key)):
+    body = await request.json()
+    values = body.get("values") if isinstance(body.get("values"), dict) else body
+    updated = db_editor_service.update_record(engine, category, record_id, values or {})
+    if not updated:
+        raise HTTPException(status_code=404, detail="수정 대상을 찾을 수 없습니다.")
+    return {"status": "success", "message": "데이터가 저장되었습니다."}
 
 
 @router.post("/rating/start")
@@ -242,6 +338,7 @@ async def get_crawl_done_ext(_: str = Depends(_require_api_key)):
             "timestamp": done["timestamp"],
             "changed_count": done["changed_count"],
             "changes": done.get("changes", []),
+            "duplicate_changed_count": done.get("duplicate_changed_count", 0),
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -378,9 +475,10 @@ async def get_app_config(_: str = Depends(_require_api_key)):
             "version": "1.0.0",
             "support_email": "support@example.com",
             "exclude_withdraw": settings.exclude_withdraw,
+            "use_representative_records": settings.use_representative_records,
             "normalize_police": settings.normalize_police,
             "auto_export_excel": settings.config.getboolean("SETTINGS", "auto_export_excel", fallback=True),
-            "auto_export_sheet": settings.config.getboolean("SETTINGS", "auto_export_sheet", fallback=True),
+            "auto_export_sheet": settings.config.getboolean("SETTINGS", "auto_export_sheet", fallback=False),
         },
     }
 
@@ -457,6 +555,8 @@ async def update_settings(request: Request, _: str = Depends(_require_api_key)):
         settings._instance.update_config("SETTINGS", "normalize_police", body["normalize_police"])
     if "exclude_withdraw" in body:
         settings._instance.update_config("SETTINGS", "exclude_withdraw", body["exclude_withdraw"])
+    if "use_representative_records" in body:
+        settings._instance.update_config("SETTINGS", "use_representative_records", body["use_representative_records"])
     if "crawl_type" in body:
         settings._instance.update_config("Crawler", "crawl_type", "api" if body["crawl_type"] == "api" else "legacy")
     if "auto_export_excel" in body:

@@ -39,13 +39,14 @@ def _take_json(path: str, default):
     return payload
 
 
-def save_crawl_changes(engine, changed_item_ids):
-    if not changed_item_ids:
+def save_crawl_changes(engine, changed_item_ids, duplicate_changes=None):
+    duplicate_changes = list(duplicate_changes or [])
+    if not changed_item_ids and not duplicate_changes:
         return
 
     change_type_map = {item["id"]: item["change_type"] for item in changed_item_ids}
     changed_records = database.get_merged_records_by_ids(engine, list(change_type_map.keys()))
-    if not changed_records:
+    if not changed_records and not duplicate_changes:
         return
 
     changes = []
@@ -75,6 +76,11 @@ def save_crawl_changes(engine, changed_item_ids):
             "지도": str(record.get("지도", "")),
         })
 
+    for duplicate_change in duplicate_changes:
+        item = dict(duplicate_change)
+        item["notification_kind"] = "duplicate"
+        changes.append(item)
+
     _write_json(_state_file("crawl_changes.json"), changes)
 
 
@@ -95,12 +101,14 @@ def get_and_clear_crawl_changes():
     return _take_json(_state_file("crawl_changes.json"), [])
 
 
-def save_crawl_done(changed_count: int):
+def save_crawl_done(changed_count: int, *, report_changed_count: int | None = None, duplicate_changed_count: int = 0):
     _write_json(
         _state_file("crawl_done.json"),
         {
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "changed_count": changed_count,
+            "report_changed_count": changed_count if report_changed_count is None else report_changed_count,
+            "duplicate_changed_count": duplicate_changed_count,
         },
     )
 
@@ -111,6 +119,8 @@ def get_and_clear_crawl_done():
 
 
 def save_crawl_done_ext(changed_count: int, changes: list):
+    report_changes = [change for change in (changes or []) if change.get("notification_kind") != "duplicate"]
+    duplicate_changes = [change for change in (changes or []) if change.get("notification_kind") == "duplicate"]
     _write_json(
         _state_file("crawl_done_ext.json"),
         {
@@ -121,9 +131,24 @@ def save_crawl_done_ext(changed_count: int, changes: list):
                     "신고번호": change.get("신고번호", ""),
                     "신고명": change.get("신고명", ""),
                     "처리상태": change.get("처리상태", ""),
+                    "notification_kind": "report",
                 }
-                for change in (changes or [])
+                for change in report_changes
+            ] + [
+                {
+                    "notification_kind": "duplicate",
+                    "group_id": change.get("group_id", ""),
+                    "duplicate_change_type": change.get("duplicate_change_type", ""),
+                    "title": change.get("title", ""),
+                    "body": change.get("body", ""),
+                    "status_label": change.get("status_label", ""),
+                    "representative_mode_label": change.get("representative_mode_label", ""),
+                    "member_count": change.get("member_count", 0),
+                    "representative_report_number": (change.get("representative") or {}).get("신고번호", "") or change.get("신고번호", ""),
+                }
+                for change in duplicate_changes
             ],
+            "duplicate_changed_count": len(duplicate_changes),
         },
     )
 

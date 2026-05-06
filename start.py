@@ -223,15 +223,21 @@ def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fal
 
 def _process_and_save_results(engine, changed_item_ids):
     logger.LoggerFactory.logbot.info("최종 데이터 병합 및 저장 시작")
-    database.merge_final(engine=engine)
+    duplicate_refresh = database.merge_final(engine=engine, track_duplicate_changes=True) or {}
     database.clear_old_attachments(engine=engine)
+    duplicate_changes = list(duplicate_refresh.get("changes") or [])
+    total_changed_count = len(changed_item_ids) + len(duplicate_changes)
 
     # 모바일 개별 알림용 변경 목록 파일 저장 + 완료 마커
-    if changed_item_ids:
-        crawl_state_store.save_crawl_changes(engine, changed_item_ids)
+    if changed_item_ids or duplicate_changes:
+        crawl_state_store.save_crawl_changes(engine, changed_item_ids, duplicate_changes=duplicate_changes)
     else:
         crawl_state_store.clear_crawl_changes()
-    crawl_state_store.save_crawl_done(len(changed_item_ids))
+    crawl_state_store.save_crawl_done(
+        total_changed_count,
+        report_changed_count=len(changed_item_ids),
+        duplicate_changed_count=len(duplicate_changes),
+    )
 
     # get_merged_records_by_ids에 전달할 순수 ID 목록
     all_ids = [item["id"] for item in changed_item_ids]

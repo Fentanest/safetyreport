@@ -1,35 +1,18 @@
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 import threading
-from datetime import datetime
 
 import settings.settings as settings
 
+from services.crawl_log_service import get_current_crawl_log_path, rotate_crawl_log
 from services.crawl_manager import crawl_manager
 from services.ws_manager import ws_manager
 
 
 def get_work_dir():
     return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-
-
-def get_current_crawl_log_path():
-    os.makedirs(settings.logpath, exist_ok=True)
-    return os.path.join(settings.logpath, "current_crawl.log")
-
-
-def rotate_crawl_log(log_file: str | None = None):
-    target = log_file or get_current_crawl_log_path()
-    if not os.path.exists(target):
-        return
-    try:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H_%M_%S")
-        shutil.copy2(target, os.path.join(os.path.dirname(target), f"crawl_{timestamp}.log"))
-    except Exception:
-        pass
 
 
 def _write_log_header(header: str, *, rotate_existing: bool = False):

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Query
 from typing import Optional
 from core.database.engine import get_engine
+import settings.settings as app_settings
 from services import data_service
 from core.utils.templating import templates
 
@@ -19,6 +20,12 @@ def _build_filters(status=None, fine=None, agency=None, person=None, agencyExact
     if rating: f['rating'] = rating
     if ratingCause: f['ratingCause'] = ratingCause
     return f or None
+
+
+def _normalize_dedupe_mode(value: str | None) -> str:
+    default_mode = "canonical" if app_settings.use_representative_records else "raw"
+    normalized = (value or default_mode).strip().lower()
+    return normalized if normalized in {"raw", "canonical"} else default_mode
 
 
 def _filter_title(base, status=None, fine=None, agency=None, person=None, law=None, rating=None, ratingCause=None):
@@ -45,14 +52,16 @@ async def view_traffic(
     law: Optional[str] = Query(None),
     rating: Optional[str] = Query(None),
     ratingCause: Optional[str] = Query(None),
+    dedupe: str | None = Query(None),
 ):
     filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
-    records = data_service.get_traffic_records(engine, filters)
+    dedupe_mode = _normalize_dedupe_mode(dedupe)
+    records = data_service.get_traffic_records(engine, filters, mode=dedupe_mode)
     title = _filter_title("교통위반 전체 보기", status, fine, agency, person, law, rating, ratingCause)
     return templates.TemplateResponse(request, "data_table.html", {
         "title": title,
         "records": records, "table_id": "trafficTable",
-        "order_col": '[ 4, "desc" ]'
+        "order_col": '[ 4, "desc" ]',
     })
 
 
@@ -67,14 +76,16 @@ async def view_parking(
     law: Optional[str] = Query(None),
     rating: Optional[str] = Query(None),
     ratingCause: Optional[str] = Query(None),
+    dedupe: str | None = Query(None),
 ):
     filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
-    records = data_service.get_parking_records(engine, filters)
+    dedupe_mode = _normalize_dedupe_mode(dedupe)
+    records = data_service.get_parking_records(engine, filters, mode=dedupe_mode)
     title = _filter_title("주정차위반 내역", status, fine, agency, person, law, rating, ratingCause)
     return templates.TemplateResponse(request, "data_table.html", {
         "title": title,
         "records": records, "table_id": "parkingTable",
-        "order_col": '[ 4, "desc" ]'
+        "order_col": '[ 4, "desc" ]',
     })
 
 
@@ -89,14 +100,16 @@ async def view_other(
     law: Optional[str] = Query(None),
     rating: Optional[str] = Query(None),
     ratingCause: Optional[str] = Query(None),
+    dedupe: str | None = Query(None),
 ):
     filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
-    records = data_service.get_other_records(engine, filters)
+    dedupe_mode = _normalize_dedupe_mode(dedupe)
+    records = data_service.get_other_records(engine, filters, mode=dedupe_mode)
     title = _filter_title("기타 위반 조회", status, fine, agency, person, law, rating, ratingCause)
     return templates.TemplateResponse(request, "data_table.html", {
         "title": title,
         "records": records, "table_id": "otherTable",
-        "order_col": '[ 4, "desc" ]'
+        "order_col": '[ 4, "desc" ]',
     })
 
 
@@ -109,22 +122,25 @@ async def view_all(
     person: Optional[str] = Query(None),
     rating: Optional[str] = Query(None),
     ratingCause: Optional[str] = Query(None),
+    dedupe: str | None = Query(None),
 ):
     filters = _build_filters(status, fine, agency, person, False, None, rating, ratingCause)
-    records = data_service.get_all_records(engine, filters)
+    dedupe_mode = _normalize_dedupe_mode(dedupe)
+    records = data_service.get_all_records(engine, filters, mode=dedupe_mode)
     title = _filter_title("전체 신고 조회", status, fine, agency, person, None, rating, ratingCause)
     return templates.TemplateResponse(request, "data_table.html", {
         "title": title,
         "records": records, "table_id": "allTable",
-        "order_col": '[ 4, "desc" ]'
+        "order_col": '[ 4, "desc" ]',
     })
 
 
 @router.get("/duplicates")
-async def view_duplicates(request: Request):
-    records = data_service.get_duplicate_records(engine)
+async def view_duplicates(request: Request, dedupe: str | None = Query(None)):
+    dedupe_mode = _normalize_dedupe_mode(dedupe)
+    records = data_service.get_duplicate_records(engine, mode=dedupe_mode)
     return templates.TemplateResponse(request, "data_table.html", {
         "title": "중복 차량 (2건 이상) 보기",
         "records": records, "table_id": "duplicateTable",
-        "order_col": '[ 6, "asc" ]'
+        "order_col": '[ 6, "asc" ]',
     })

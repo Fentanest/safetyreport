@@ -98,3 +98,28 @@ raw_content_table = Table('mysafety_raw_content', metadata,
                           Column('raw_content', String, nullable=False, default=''),
                           Column('raw_type', String, nullable=False, default=''),
                           Column('saved_at', Integer))
+
+duplicate_group_table = Table('mysafety_duplicate_group', metadata,
+                              Column('group_id', String, primary_key=True),
+                              Column('fingerprint', String, nullable=False),
+                              Column('match_type', String, nullable=False),
+                              Column('status', String, nullable=False),
+                              Column('representative_mode', String, nullable=False, default='auto'),
+                              Column('representative_id', String),
+                              Column('member_count', Integer, nullable=False, default=0),
+                              Column('apply_globally', Integer, nullable=False, default=1),
+                              Column('note', String),
+                              Column('created_at', Integer),
+                              Column('updated_at', Integer))
+
+duplicate_member_table = Table('mysafety_duplicate_member', metadata,
+                               Column('group_id', String, primary_key=True),
+                               Column('report_id', String, primary_key=True),
+                               Column('report_number', String, nullable=False),
+                               Column('category', String, nullable=False),
+                               Column('is_representative', Integer, nullable=False, default=0),
+                               Column('priority_score', Integer, nullable=False, default=0),
+                               Column('raw_match', Integer, nullable=False, default=0),
+                               Column('field_match', Integer, nullable=False, default=0),
+                               Column('created_at', Integer),
+                               Column('updated_at', Integer))

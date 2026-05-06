@@ -16,8 +16,6 @@ config.ini
 !CLAUDE.md
 !README.md
 !CHANGELOG.md
-!IMPLEMENTATION_PLAN.md
-!SYNC_ROUNDTRIP_PLAN.md
 test_*
 
 # Build & Packaging

@@ -8,11 +8,14 @@ from sqlalchemy.exc import OperationalError
 
 from core.database import database
 import settings.settings as app_settings
+from services import duplicate_group_service
 from services.report_query_service import _safe_read
 
 
 _STATS_COLUMNS = [
+    "ID",
     "신고명",
+    "신고번호",
     "신고일",
     "답변일",
     "처리기관",
@@ -24,6 +27,7 @@ _STATS_COLUMNS = [
     "발생일자",
     "발생시각",
     "별점",
+    "synced_at",
 ]
 
 
@@ -222,6 +226,33 @@ def _read_stats_frame(conn, table_obj, filters=None):
         return pd.DataFrame()
 
 
+def _normalize_mode(mode: str | None) -> str:
+    normalized = _text_or_empty(mode).lower() or "raw"
+    return normalized if normalized in {"raw", "canonical"} else "raw"
+
+
+def _project_stats_frame(engine, df: pd.DataFrame, *, mode: str = "raw") -> pd.DataFrame:
+    normalized_mode = _normalize_mode(mode)
+    if normalized_mode == "raw" or df.empty or "ID" not in df.columns:
+        return df
+    records = duplicate_group_service.project_records(engine, df.to_dict(orient="records"), mode=normalized_mode)
+    if not records:
+        return pd.DataFrame(columns=df.columns)
+    projected = pd.DataFrame(records)
+    for column in df.columns:
+        if column not in projected.columns:
+            projected[column] = ""
+    return projected[df.columns]
+
+
+def _ensure_id_column(df: pd.DataFrame) -> pd.DataFrame:
+    if "ID" not in df.columns:
+        df["ID"] = ""
+    else:
+        df["ID"] = df["ID"].fillna("").astype(str)
+    return df
+
+
 def _load_available_years(conn):
     available_years = set()
     for table_obj in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
@@ -243,7 +274,7 @@ def _load_available_years(conn):
     return sorted(available_years, reverse=True)
 
 
-def get_dashboard_stats(engine):
+def get_dashboard_stats(engine, mode: str = "canonical"):
     total = 0
     accept_count = 0
     partial_count = 0
@@ -285,39 +316,15 @@ def get_dashboard_stats(engine):
         database.merge_other_table: "other",
     }
 
+    combined_frames = []
     with engine.connect() as conn:
         for table_obj in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
             df = _safe_read(conn, table_obj)
             if df.empty:
                 continue
-
-            status_series = _status_series(df)
-            total += len(df)
-            accept_count += int((status_series == "수용").sum())
-            reject_count += int(status_series.isin(["불수용", "기타"]).sum())
-            partial_count += int((status_series == "일부수용").sum())
-            processing_count += int(status_series.isin(["처리중", "진행", "진행중"]).sum())
-            completed_count += int(status_series.isin(["수용", "불수용", "일부수용", "기타", "답변완료"]).sum())
-            withdraw_count += int((status_series == "취하").sum())
-
-            if table_obj == database.merge_traffic_table:
-                fine_series = _text_series(df, "범칙금_과태료")
-                t_fine_count += int(fine_series.str.contains("과태료", na=False).sum())
-                t_penalty_count += int(fine_series.str.contains("경고|범칙금", na=False).sum())
-                t_reject_count += int(status_series.isin(["불수용", "기타"]).sum())
-                t_unconfirmed_count += int(((fine_series == "미확인") & (~status_series.isin(["불수용", "기타"]))).sum())
-
-            response_dates = _response_dates(df)
-            recent_mask = response_dates.notna() & (response_dates >= three_days_ago) & (response_dates <= today)
-            recent_df = df[recent_mask]
-            if app_settings.exclude_withdraw:
-                recent_df = recent_df[_status_series(recent_df) != "취하"]
-
             category = table_category_map.get(table_obj, "")
-            for _, row in recent_df.iterrows():
-                item = _row_to_dict(row)
-                item["category"] = category
-                recent_answers.append(item)
+            df["category"] = category
+            combined_frames.append(df)
 
         try:
             watch_df = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
@@ -337,6 +344,39 @@ def get_dashboard_stats(engine):
                     item = _row_to_dict(row)
                     item["category"] = category
                     watchlist_items.append(item)
+
+    combined_df = pd.concat(combined_frames, ignore_index=True) if combined_frames else pd.DataFrame()
+    combined_df = _project_stats_frame(engine, combined_df, mode=mode)
+
+    if not combined_df.empty:
+        status_series = _status_series(combined_df)
+        total += len(combined_df)
+        accept_count += int((status_series == "수용").sum())
+        reject_count += int(status_series.isin(["불수용", "기타"]).sum())
+        partial_count += int((status_series == "일부수용").sum())
+        processing_count += int(status_series.isin(["처리중", "진행", "진행중"]).sum())
+        completed_count += int(status_series.isin(["수용", "불수용", "일부수용", "기타", "답변완료"]).sum())
+        withdraw_count += int((status_series == "취하").sum())
+
+        traffic_df = combined_df[combined_df["category"].fillna("").astype(str) == "traffic"] if "category" in combined_df.columns else pd.DataFrame()
+        if not traffic_df.empty:
+            fine_series = _text_series(traffic_df, "범칙금_과태료")
+            traffic_status = _status_series(traffic_df)
+            t_fine_count += int(fine_series.str.contains("과태료", na=False).sum())
+            t_penalty_count += int(fine_series.str.contains("경고|범칙금", na=False).sum())
+            t_reject_count += int(traffic_status.isin(["불수용", "기타"]).sum())
+            t_unconfirmed_count += int(((fine_series == "미확인") & (~traffic_status.isin(["불수용", "기타"]))).sum())
+
+        response_dates = _response_dates(combined_df)
+        recent_mask = response_dates.notna() & (response_dates >= three_days_ago) & (response_dates <= today)
+        recent_df = combined_df[recent_mask]
+        if app_settings.exclude_withdraw:
+            recent_df = recent_df[_status_series(recent_df) != "취하"]
+
+        for _, row in recent_df.iterrows():
+            item = _row_to_dict(row)
+            item["category"] = _text_or_empty(row.get("category"))
+            recent_answers.append(item)
 
     recent_answers.sort(
         key=_recent_answer_sort_key,
@@ -372,15 +412,37 @@ def get_dashboard_stats(engine):
         "recent_answers": recent_answers[:200],
         "watchlist": watchlist_items,
         "exclude_withdraw": app_settings.exclude_withdraw,
+        "dedupe_mode": _normalize_mode(mode),
     })
 
 
-def get_agency_stats(engine, filters=None):
+def get_agency_stats(engine, filters=None, mode: str = "canonical"):
     with engine.connect() as conn:
         available_years = _load_available_years(conn)
         df_t = _read_stats_frame(conn, database.merge_traffic_table, filters)
         df_p = _read_stats_frame(conn, database.merge_parking_table, filters)
         df_o = _read_stats_frame(conn, database.merge_other_table, filters)
+
+    df_t = _ensure_id_column(df_t)
+    df_p = _ensure_id_column(df_p)
+    df_o = _ensure_id_column(df_o)
+
+    if not df_t.empty:
+        df_t["category"] = "traffic"
+    if not df_p.empty:
+        df_p["category"] = "parking"
+    if not df_o.empty:
+        df_o["category"] = "other"
+
+    combined_df = pd.concat([df_t, df_p, df_o], ignore_index=True) if not (df_t.empty and df_p.empty and df_o.empty) else pd.DataFrame()
+    combined_df = _project_stats_frame(engine, combined_df, mode=mode)
+    if not combined_df.empty and "category" in combined_df.columns:
+        df_t = combined_df[combined_df["category"] == "traffic"].copy()
+        df_p = combined_df[combined_df["category"] == "parking"].copy()
+        df_o = combined_df[combined_df["category"] == "other"].copy()
+        for df_cat in (df_t, df_p, df_o):
+            if "category" in df_cat.columns:
+                df_cat.drop(columns=["category"], inplace=True, errors="ignore")
 
     def _calc_avg_days(group_df):
         try:
@@ -583,4 +645,5 @@ def get_agency_stats(engine, filters=None):
         "other": res_o,
         "available_years": available_years,
         "traffic_total_fine": int(df_t["범칙금_과태료"].apply(_extract_fine_amount).sum()) if not df_t.empty else 0,
+        "dedupe_mode": _normalize_mode(mode),
     })

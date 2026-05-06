@@ -35,10 +35,16 @@
                         name="normalize_police" value="true" {% if normalize_police %}checked{% endif %}>
                     <label class="form-check-label" for="normalizePoliceSwitch">경찰소속기관명 정규화 (보여주기용 그룹핑)</label>
                 </div>
-                <div class="form-check form-switch mb-4">
+                <div class="form-check form-switch mb-2">
                     <input class="form-check-input" type="checkbox" role="switch" id="excludeWithdrawSwitch"
                         name="exclude_withdraw" value="true" {% if exclude_withdraw %}checked{% endif %}>
                     <label class="form-check-label" for="excludeWithdrawSwitch">취하 데이터 숨기기</label>
+                </div>
+                <div class="form-check form-switch mb-4">
+                    <input class="form-check-input" type="checkbox" role="switch" id="useRepresentativeRecordsSwitch"
+                        name="use_representative_records" value="true" {% if use_representative_records %}checked{% endif %}>
+                    <label class="form-check-label" for="useRepresentativeRecordsSwitch">중복 신고 대표건만 반영</label>
+                    <div class="form-text">전체 신고 조회, 차량/주소 검색, 대시보드, 통계 등의 기본 집계 기준을 대표건 1건으로 맞춥니다.<br>비활성화할 경우 원본 신고 row를 모두 반영합니다.</div>
                 </div>
 
                 <h6 class="mb-3 text-primary border-bottom pb-2">시스템 설정</h6>

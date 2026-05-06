@@ -113,6 +113,7 @@
                 <a href="/crawl" class="{% if request.url.path.startswith('/crawl') %}active{% endif %}"><i class="fas fa-spider fa-fw me-2"></i>크롤링 제어</a>
                 <a href="/rating" class="{% if request.url.path.startswith('/rating') %}active{% endif %}"><i class="fas fa-star fa-fw text-warning me-2"></i>자동 별점 주기</a>
                 <a href="/watchlist" class="{% if request.url.path.startswith('/watchlist') %}active{% endif %}"><i class="fas fa-eye fa-fw text-danger me-2"></i>감시 목록 관리</a>
+                <a href="/duplicates/manage" class="{% if request.url.path.startswith('/duplicates/manage') %}active{% endif %}"><i class="fas fa-object-group fa-fw me-2"></i>중복 신고 관리</a>
                 
                 <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-white fw-bold">
                   <span>데이터 조회</span>
@@ -329,6 +330,18 @@ document.addEventListener('click', function(e) {
     function isImage(url) {
         try { var p = new URL(url, location.href).pathname.toLowerCase(); return /\.(jpg|jpeg|png|gif|webp|bmp)$/.test(p); } catch(e) { return false; }
     }
+    function proxyMediaUrl(url) {
+        return '/media/proxy?url=' + encodeURIComponent(normalizeDisplayValue(url));
+    }
+    window.proxyMediaUrl = proxyMediaUrl;
+    window.handleProxyVideoError = function(videoEl) {
+        if (!videoEl || videoEl.dataset.proxyFallbackApplied === '1') return;
+        var rawUrl = videoEl.getAttribute('data-raw-src');
+        if (!rawUrl) return;
+        videoEl.dataset.proxyFallbackApplied = '1';
+        videoEl.src = rawUrl;
+        videoEl.load();
+    };
 
     function statusBadge(s) {
         s = normalizeDisplayValue(s);
@@ -496,9 +509,11 @@ document.addEventListener('click', function(e) {
             var videoDiv = document.getElementById('rdVideos');
             if (videoUrls.length > 0) {
                 document.getElementById('rdVideoList').innerHTML = videoUrls.map(function(url) {
+                    var proxyUrl = proxyMediaUrl(url);
                     return '<div class="mb-3 border rounded p-2 bg-light">' +
-                        '<video controls class="w-100 rounded mb-1" style="max-height:340px;background:#000">' +
-                        '<source src="' + url + '">브라우저가 동영상 재생을 지원하지 않습니다.</video>' +
+                        '<video controls preload="none" class="w-100 rounded mb-1" style="max-height:340px;background:#000" ' +
+                        'src="' + proxyUrl + '" data-raw-src="' + url + '" onerror="window.handleProxyVideoError(this)">' +
+                        '브라우저가 동영상 재생을 지원하지 않습니다.</video>' +
                         '<a href="' + url + '" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="fas fa-download me-1"></i>다운로드</a>' +
                         '</div>';
                 }).join('');
