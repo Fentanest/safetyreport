@@ -8,6 +8,46 @@
 
 ---
 
+## 2026-05-06
+
+### 공용 서비스 계층 분리 / 크롤러 공통 파이프라인 정리 / 모바일 Client 계약 유지 리팩토링
+
+상태: 완료
+
+변경:
+- `core/database/engine.py`
+  - 라우터/서비스 전반이 공용 `get_engine()` 경로를 사용하도록 정리
+- `core/utils/retry.py`
+  - API/크롤링 공용 재시도 설정 헬퍼 추가
+- `core/crawler/api_client.py`
+  - direct login 세션과 Selenium 브라우저 fallback 컨텍스트 생성을 공용화
+- `core/crawler/title_pipeline.py`, `core/crawler/detail_pipeline.py`
+  - API/legacy 크롤러가 같은 목록/상세 정규화 파이프라인을 타도록 정리
+- `services/crawl_control.py`
+  - 크롤링 시작/중지/재개, 큐 파일 생성, 로그 헤더/회전 처리 로직을 공용화
+- `services/crawl_state_store.py`
+  - `crawl_done.json`, `crawl_done_ext.json`, `crawl_changes.json` 읽기/쓰기 로직 집중
+- `services/export_service.py`, `services/file_service.py`, `services/rating_service.py`
+  - export, 파일 브라우저, 모바일/웹 별점 batch 시작 흐름을 공용 서비스로 분리
+- `services/report_query_service.py`, `services/report_stats_service.py`
+  - 조회/검색과 대시보드/통계를 분리
+  - 기존 `services/data_service.py` 는 import 호환용 facade 로 축소
+- `core/database/database.py`
+  - `get_pending_detail_ids`, `detail_to_sql`, `normalize_police_agency` 공개 함수 추가
+  - 기존 `get_cNo`, `deatil_to_sql` 는 호환 alias 로 유지
+- `web/routers/*.py`
+  - 모바일 API, 웹 크롤링, 파일 브라우저, 별점 라우터가 공용 서비스 계층을 사용하도록 연결
+- `services/report_stats_service.py`
+  - 통계 조회에서 필요한 컬럼만 읽고, 연도/날짜/시간/경찰 포함 여부/단순 텍스트 일부를 SQL 단계로 먼저 내리도록 개선
+- `IMPLEMENTATION_PLAN.md`
+  - 서버/모바일 릴리즈 체크리스트와 배포 순서/롤백 기준 추가
+
+비고:
+- 모바일 앱 쪽 Client 계약 상수화 작업은 `safetyreport-mobile` 레포의 동일자 CHANGELOG 참고
+- 이번 변경은 API 경로/이벤트 이름은 유지하고, 중복 구현만 공용 계층으로 모으는 데 초점을 둠
+
+---
+
 ## 2026-05-05
 
 ### 모바일 대시보드 더보기 / 상세 모달 필드 링크 (모바일과 함께 작업)

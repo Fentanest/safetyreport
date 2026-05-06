@@ -23,6 +23,9 @@
 │   └── build-macos-arm64-manual.yml # macOS arm64 수동 테스트 빌드 (artifact only)
 ├── core/
 │   ├── crawler/
+│   │   ├── api_client.py        # direct login 세션 + Selenium 브라우저 fallback 공용화
+│   │   ├── title_pipeline.py    # API/legacy 공용 목록 row 정규화
+│   │   ├── detail_pipeline.py   # API/legacy 공용 상세 row 정규화 + 만족도 보강
 │   │   ├── direct_login.py       # curl_cffi + RSA + OAuth 기반 직접 로그인
 │   │   ├── driv.py               # Selenium Chrome driver 생성 (desktop/remote/hub)
 │   │   ├── login.py              # Selenium 로그인 UI 처리
@@ -31,7 +34,8 @@
 │   │   ├── crawltitle.py         # 레거시 Selenium 목록 크롤러
 │   │   └── crawldetail.py        # 레거시 Selenium 상세 크롤러
 │   ├── database/
-│   │   ├── database.py           # SQLAlchemy 테이블 정의 + DB 쿼리
+│   │   ├── engine.py             # 공용 SQLAlchemy engine 생성/재사용
+│   │   ├── database.py           # SQLAlchemy 테이블 정의 + DB 쿼리 + merge/save 보조
 │   │   └── models.py             # 테이블 모델/metadata 보조 정의
 │   └── utils/
 │       ├── logger.py            # LoggerFactory (web/crawl/star 로거 분리)
@@ -40,14 +44,22 @@
 │       ├── templating.py        # 중앙 집중식 Jinja2Templates
 │       ├── message_formatter.py # 텔레그램 메시지 포맷
 │       ├── notifier.py          # 텔레그램 알림 발송
+│       ├── retry.py             # 공용 재시도 횟수/백오프 설정 헬퍼
 │       ├── scheduler.py         # 자동 스케줄러
 │       ├── security.py          # config 암복호화 / 세션 키 관리
 │       └── updater.py           # GitHub Releases 자동 업데이트
 ├── services/
-│   ├── data_service.py          # DB 조회/집계 (대시보드, 필터, crawl_done 등, category 전파 포함)
+│   ├── crawl_control.py         # 크롤링 시작/중지/재개, 큐 파일, 로그 헤더/회전 공용화
+│   ├── crawl_state_store.py     # crawl_done / crawl_done_ext / crawl_changes JSON 상태 저장소
+│   ├── data_service.py          # 기존 import 호환 facade (query/stats/state 재노출)
 │   ├── db_backup.py             # DB checkpoint(WAL/SHM 정리) + 서버/모바일 DB 자동 감지/변환
+│   ├── export_service.py        # 엑셀/구글시트 export 흐름 조립
+│   ├── file_service.py          # 웹/API 파일 브라우저 공용 로직
 │   ├── crawl_manager.py         # 크롤링 프로세스 싱글톤 (충돌 방지)
 │   ├── parser.py                # HTML/JSON 파싱 (과태료, 처리상태 등)
+│   ├── rating_service.py        # 모바일/웹 별점 batch 시작 + 현재 별점 로그 준비
+│   ├── report_query_service.py  # 목록/검색/감시목록/중복차량 조회
+│   ├── report_stats_service.py  # 대시보드/기관 통계/연도 목록
 │   ├── satisfaction_fetcher.py  # 만족도조사 점수+사유 조회 (HTTP + Selenium)
 │   ├── star_rating_service.py   # 별점 배치 처리
 │   ├── sunwi_fetcher.py         # 안전신문고 통계 API 수집/대분류-소분류 Top5 CSV 가공 유틸
@@ -63,7 +75,7 @@
 │   │   ├── data.py              # /data/** 데이터 조회
 │   │   ├── db_editor_route.py   # DB 수정/수동 편집 UI
 │   │   ├── devices_route.py     # /devices/** 기기 연동 (API 키 + WS 연결 현황)
-│   │   ├── file_browser_route.py # /files/** 파일 브라우저
+│   │   ├── file_browser_route.py # /file-browser/** 파일 브라우저
 │   │   ├── rating_route.py      # /rating/** 별점 관리
 │   │   ├── settings_route.py    # /settings/** 설정 페이지
 │   │   ├── stats.py             # /stats/** 통계
@@ -92,11 +104,14 @@
 
 - FastAPI 웹앱은 `main.py`에서 기동하고, 실제 크롤링은 `start.py`를 **별도 서브프로세스**로 실행한다.
 - 설정 저장/조회는 `settings/settings.py`의 `AppSettings` 싱글톤을 중심으로 돌고, 실데이터는 `data/config.ini`, `data/data.db`, `data/auth/*`에 쌓인다.
-- 모바일 API는 `web/routers/api_route.py`, 웹 UI는 `web/routers/*.py` + `web/templates/*.html` 조합으로 구성된다.
+- 모바일 API는 `web/routers/api_route.py`, 웹 UI는 `web/routers/*.py` + `web/templates/*.html` 조합으로 구성되며, 실제 공통 작업은 `services/` 계층으로 최대한 이동했다.
 - 크롤링은 크게 세 갈래다.
   - `legacy`: Selenium 로그인 + Selenium HTML 파싱
   - `api`: `direct_login` + `curl_cffi` API 호출
   - `api fallback`: direct login 실패 시 Selenium 로그인 후 브라우저 컨텍스트 `$.get` API 호출
+- API/legacy 상세/목록 파싱 결과는 `title_pipeline.py`, `detail_pipeline.py`로 공통 row 스키마에 맞춘다.
+- 조회 계층은 `report_query_service.py`, 통계 계층은 `report_stats_service.py`, 크롤링 상태 파일 계층은 `crawl_state_store.py`로 분리되었고, `data_service.py`는 기존 import 경로 호환용 facade만 남겼다.
+- 라우터는 가능한 얇게 유지하고, 크롤링 제어/파일 브라우저/별점 시작은 각각 `crawl_control.py`, `file_service.py`, `rating_service.py`를 통해 공통 처리한다.
 - `legacy` 상세 파서는 처리결과가 여러 개일 때 마지막 `처리결과` 테이블을 최신 답변으로 사용한다.
 - `legacy` 목록 파서는 페이지 전환 중 `stale element reference`가 나면 같은 페이지를 다시 읽도록 재시도한다.
 - 비회원 모드는 direct login을 타지 않고, Chrome 창에서 사용자가 로그인한 뒤 `재개` 신호를 기다리는 수동 흐름이다.
@@ -167,7 +182,10 @@ STTEMNT_IMAGE_URL  ARR_C_FILES  answers
 
 **ARR_C_FILES[*]:** `FILE_URL` `ATCH_FILE_ID` `FILE_TY` `ORGINL_FILE_NM` `FILE_EXTSN` `EXT`
 
-### data_service.py 반환 딕셔너리 키
+### 조회/통계 서비스 반환 딕셔너리 키
+
+`services/data_service.py` 는 현재 `report_query_service.py`, `report_stats_service.py`,
+`crawl_state_store.py` 를 재노출하는 호환 facade다. 아래 키는 실제 서비스 구현이 유지해야 하는 외부 계약이다.
 
 **get_dashboard_stats():**
 ```
@@ -254,17 +272,16 @@ main()
       → (큐 모드) extract_ids_from_queue()
           → missing_rnums 있으면 최대 100페이지 단건 크롤링으로 탐색
           → 발견 즉시 detaillist 추가, 모두 찾으면 조기 종료
-      → database.deatil_to_sql()
+      → database.detail_to_sql()   # 기존 deatil_to_sql alias 유지
   → _process_and_save_results()
       → database.merge_final()
-      → save_crawl_done()    # crawl_done.json 저장 → 모바일 폴링용
-      → save_crawl_changes() # 변경 목록 저장
-      → (auto_export_excel) save_to_excel()
-      → (auto_export_sheet) save_to_google_sheet()
+      → crawl_state_store.save_crawl_done()    # crawl_done.json 저장 → 모바일 폴링용
+      → crawl_state_store.save_crawl_changes() # 변경 목록 저장
+      → export_service.export_results()        # auto_export_* 설정 반영
 ```
 
 - `start.py`는 FastAPI와 **별도 서브프로세스**로 실행 → ws_manager 싱글톤에 직접 접근 불가
-- 크롤링 완료 알림은 FastAPI의 `wait_and_rotate` 배경 스레드가 완료 마커 확인 후 브로드캐스트
+- 크롤링 완료 후 로그 회전/완료 마커 기록/WS 브로드캐스트는 `crawl_manager.run_after_crawl()` 경로로 수렴
 - `login.py`는 Selenium 회원 로그인 담당, `direct_login.py`는 API용 직접 로그인 담당으로 역할을 분리한다.
 
 ---
@@ -331,21 +348,21 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 **서버 측 완료 마커 파일 구조:**
 
 ### crawl_done.json
-- `save_crawl_done(changed_count)` — 크롤링 완료 시 저장
-- `get_and_clear_crawl_done()` — 읽고 즉시 삭제 (한 번만 읽힘)
+- `services.crawl_state_store.save_crawl_done(changed_count)` — 크롤링 완료 시 저장
+- `services.crawl_state_store.get_and_clear_crawl_done()` — 읽고 즉시 삭제 (한 번만 읽힘)
 - 위치: `data/crawl_done.json`
 
 ### crawl_done_ext.json (크롬 확장 전용)
-- `save_crawl_done_ext(changed_count, changes)` — 크롤링 완료 시 저장, changes에 신고번호/신고명 포함
-- `get_and_clear_crawl_done_ext()` — 읽고 즉시 삭제
+- `services.crawl_state_store.save_crawl_done_ext(changed_count, changes)` — 크롤링 완료 시 저장, changes에 신고번호/신고명 포함
+- `services.crawl_state_store.get_and_clear_crawl_done_ext()` — 읽고 즉시 삭제
 - 위치: `data/crawl_done_ext.json`
 - **주의**: `crawl_done.json`(모바일용)과 별도 파일 — 크롬 확장이 소비해도 모바일 흐름 무영향
-- 완료 핸들러 3곳에서 모두 저장: `crawl.py:wait_and_rotate_log`, `crawl.py:_wait`, `api_route.py:_run_after_crawl`
+- 저장/회전/브로드캐스트 후처리는 `services/crawl_manager.py` 의 `run_after_crawl()` 내부에서 공통 처리
 
 ### crawl_changes.json
-- `save_crawl_changes(changed_item_ids)` — `[{"id": ..., "change_type": "신규"|"변경", "신고내용": ..., "처리내용": ...}]` 형태로 저장
-- `peek_crawl_changes()` — 읽기만 (삭제 안 함) → WS 브로드캐스트용
-- `get_and_clear_crawl_changes()` — 읽고 즉시 삭제 → 모바일 API 폴링용
+- `services.crawl_state_store.save_crawl_changes(engine, changed_item_ids)` — `[{"ID": ..., "change_type": "신규"|"변경", "신고번호": ..., "신고명": ...}]` 형태로 저장
+- `services.crawl_state_store.peek_crawl_changes()` — 읽기만 (삭제 안 함) → WS 브로드캐스트용
+- `services.crawl_state_store.get_and_clear_crawl_changes()` — 읽고 즉시 삭제 → 모바일 API 폴링용
 - 위치: `data/crawl_changes.json`
 
 ### 연속 알림 큐 처리 (crawl_manager.py)
@@ -504,7 +521,7 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 - 두 드롭다운 모두 선택된 항목 우측에 초록 `v`를 표시.
 - `만족도 조사 여부`는 `참여 완료`, `참여 가능` 단일선택 `<select>` 드롭다운으로 렌더링. 모바일 `SearchFilterSheet`에도 동일하게 추가.
 
-### 웹 통계 상세검색 문법 (stats.html, services/data_service.py)
+### 웹 통계 상세검색 문법 (stats.html, services/report_stats_service.py)
 - `처리기관`, `신고명`, `위반장소`는 `_parse_and_or_groups()` / `_matches_and_or_text()` / `_apply_text_query()` 헬퍼로 같은 `&` / `,` 문법 처리.
 - `agencyExact`는 단일어 입력일 때만 exact match를 사용하고, `&` 또는 `,`가 포함되면 AND/OR 부분검색 규칙이 우선한다.
 
@@ -558,7 +575,7 @@ python scripts/debug/extractor.py 59216726 40871819  # 내부 ID 다중
 
 ---
 
-## 크롬 확장 연동 (`web/routers/api_route.py`, `services/data_service.py`)
+## 크롬 확장 연동 (`web/routers/api_route.py`, `services/report_query_service.py`)
 
 크롬 확장(`safetyreport-chromeextension`)에서 차량번호 검색 지원.
 
@@ -567,7 +584,7 @@ GET /api/v1/vehicle/{vehicle_number}
 ```
 - 인증: `X-API-Key` 헤더
 - 동작: 교통/주정차/기타 전체 merge 테이블에서 차량번호 부분 일치 검색, 신고번호 역순 정렬
-- `search_by_vehicle(engine, vehicle_number)` — `data_service.py`에 추가
+- `search_by_vehicle(engine, vehicle_number)` — 현재 구현은 `report_query_service.py`, `data_service.py`는 호환 재노출만 담당
 
 ---
 
