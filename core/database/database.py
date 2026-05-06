@@ -8,7 +8,11 @@ from dateutil.relativedelta import relativedelta
 
 from .models import (metadata, title_table, detail_traffic_table, detail_parking_table, detail_other_table,
                      merge_traffic_table, merge_parking_table, merge_other_table, watchlist_table, admin_users_table,
-                     api_keys_table, entry_value_table)
+                     api_keys_table, entry_value_table, raw_content_table)
+
+
+def _current_epoch_millis() -> int:
+    return int(datetime.now().timestamp() * 1000)
 
 def normalize_police_agency(x: str) -> str:
     idx = x.find('경찰서')
@@ -324,18 +328,25 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
 
                 is_new = existing_record_proxy is None
                 is_changed = False
+                now_ms = _current_epoch_millis()
 
                 if is_new:
                     changed_item_ids.append({"id": record_id, "change_type": "신규"})
+                    new_record["synced_at"] = now_ms
                 else:
                     existing_record = dict(existing_record_proxy._mapping)
                     for key, new_value in new_record.items():
+                        if key == "synced_at":
+                            continue
                         if key in existing_record and str(existing_record[key]) != str(new_value):
                             is_changed = True
                             break
 
                     if is_changed:
                         changed_item_ids.append({"id": record_id, "change_type": "변경"})
+                        new_record["synced_at"] = now_ms
+                    else:
+                        new_record["synced_at"] = existing_record.get("synced_at")
 
                 insert_stmt = insert(target_table).values(new_record)
                 update_dict = {col.name: getattr(insert_stmt.excluded, col.name) for col in target_table.c if col.name != 'ID'}
@@ -428,7 +439,8 @@ def _merge_for_table(conn, merge_target, detail_source):
         detail_source.c.처리내용,
         detail_source.c.지도,
         detail_source.c.첨부사진,
-        detail_source.c.첨부파일
+        detail_source.c.첨부파일,
+        detail_source.c.synced_at,
     ).select_from(j_inner)
 
     insert_stmt = merge_target.insert().from_select([c.name for c in merge_target.c], select_stmt)

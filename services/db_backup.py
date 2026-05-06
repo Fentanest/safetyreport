@@ -20,6 +20,29 @@ from core.utils import logger
 DbKind = Literal["server", "mobile", "unknown"]
 
 
+def _load_mobile_raw_payloads(src_conn: sqlite3.Connection) -> dict[str, dict[str, object]]:
+    payloads: dict[str, dict[str, object]] = {}
+
+    try:
+        rows = src_conn.execute(
+            "SELECT ID, raw_content, raw_type, saved_at FROM report_raw"
+        ).fetchall()
+    except Exception:
+        rows = []
+
+    for row in rows:
+        record_id = str(row["ID"] or "")
+        if not record_id:
+            continue
+        payloads[record_id] = {
+            "raw_content": row["raw_content"] or "",
+            "raw_type": row["raw_type"] or "",
+            "saved_at": row["saved_at"],
+        }
+
+    return payloads
+
+
 def _wal_checkpoint(db_path: str) -> None:
     """WAL/SHM을 메인 DB로 머지하고 WAL 파일을 잘라낸다."""
     try:
@@ -175,6 +198,7 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
     src_conn = sqlite3.connect(f"file:{uploaded_path}?mode=ro", uri=True)
     src_conn.row_factory = sqlite3.Row
     rows = src_conn.execute("SELECT * FROM reports").fetchall()
+    raw_payloads = _load_mobile_raw_payloads(src_conn)
 
     # 모바일 reports 컬럼 확인
     src_cols = {desc[0] for desc in src_conn.execute("SELECT * FROM reports LIMIT 0").description}
@@ -185,6 +209,7 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
 
     title_records = []
     detail_records_by_cat = {"traffic": [], "parking": [], "other": []}
+    raw_content_records = []
 
     for r in rows:
         rd = dict(r)
@@ -223,7 +248,22 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
             "지도": rd.get("지도", ""),
             "첨부사진": rd.get("첨부사진", ""),
             "첨부파일": rd.get("첨부파일", ""),
+            "synced_at": rd.get("synced_at"),
         })
+
+        record_id = rd.get("ID", "")
+        raw_payload = raw_payloads.get(record_id, {})
+        raw_content = raw_payload.get("raw_content")
+        if raw_content is None:
+            raw_content = rd.get("raw_content", "")
+        raw_content = str(raw_content or "")
+        if raw_content:
+            raw_content_records.append({
+                "ID": record_id,
+                "raw_content": raw_content,
+                "raw_type": str(raw_payload.get("raw_type") or ""),
+                "saved_at": raw_payload.get("saved_at", rd.get("synced_at")),
+            })
 
     # 감시목록(sync_meta('watchlist') CSV) → mysafety_watchlist
     watchlist_nums = []
@@ -263,8 +303,8 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
         conn.execute(models.title_table.delete())
         if watchlist_found:
             conn.execute(models.watchlist_table.delete())
-        if "entry_value" in src_cols:
-            conn.execute(models.entry_value_table.delete())
+        conn.execute(models.entry_value_table.delete())
+        conn.execute(models.raw_content_table.delete())
 
         # title
         for i in range(0, len(title_records), BATCH):
@@ -296,6 +336,13 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
                 conn.execute(
                     models.entry_value_table.insert(),
                     entry_value_records[i:i + BATCH],
+                )
+
+        if raw_content_records:
+            for i in range(0, len(raw_content_records), BATCH):
+                conn.execute(
+                    models.raw_content_table.insert(),
+                    raw_content_records[i:i + BATCH],
                 )
 
     # title + detail → merge 재생성

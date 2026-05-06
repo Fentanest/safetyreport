@@ -33,7 +33,8 @@ def get_detail_columns():
         Column('처리내용', String),
         Column('지도', String),
         Column('첨부사진', String),
-        Column('첨부파일', String)
+        Column('첨부파일', String),
+        Column('synced_at', Integer),
     ]
 
 detail_traffic_table = Table(settings.table_detail_traffic, metadata, *get_detail_columns())
@@ -67,7 +68,8 @@ def get_merge_columns():
         Column('처리내용', String),
         Column('지도', String),
         Column('첨부사진', String),
-        Column('첨부파일', String)
+        Column('첨부파일', String),
+        Column('synced_at', Integer),
     ]
 
 merge_traffic_table = Table(settings.table_merge_traffic, metadata, *get_merge_columns())
@@ -90,3 +92,9 @@ api_keys_table = Table('api_keys', metadata,
 entry_value_table = Table('mysafety_entry_value', metadata,
                           Column('ID', String, primary_key=True),
                           Column('entry_value', String, nullable=False))
+
+raw_content_table = Table('mysafety_raw_content', metadata,
+                          Column('ID', String, primary_key=True),
+                          Column('raw_content', String, nullable=False, default=''),
+                          Column('raw_type', String, nullable=False, default=''),
+                          Column('saved_at', Integer))

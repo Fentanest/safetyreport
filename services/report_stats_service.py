@@ -64,6 +64,7 @@ _REPORT_FIELDS = [
     "별점",
     "별점사유",
     "감시목록",
+    "synced_at",
 ]
 
 
@@ -95,6 +96,29 @@ def _text_or_empty(value) -> str:
     if pd.isna(value):
         return ""
     return str(value).strip()
+
+
+def _int_or_default(value, default: int = -1) -> int:
+    if value is None or pd.isna(value):
+        return default
+    if isinstance(value, str) and not value.strip():
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return default
+
+
+def _recent_answer_sort_key(item):
+    synced_at = _int_or_default(item.get("synced_at"))
+    report_number = _text_or_empty(item.get("신고번호"))
+    response_date = _text_or_empty(item.get("답변일"))
+    if synced_at >= 0:
+        return (1, synced_at, report_number, "")
+    return (0, response_date, report_number, "")
 
 
 def _parse_and_or_groups(query: str):
@@ -314,7 +338,10 @@ def get_dashboard_stats(engine):
                     item["category"] = category
                     watchlist_items.append(item)
 
-    recent_answers.sort(key=lambda item: item["답변일"], reverse=True)
+    recent_answers.sort(
+        key=_recent_answer_sort_key,
+        reverse=True,
+    )
     watchlist_items.sort(key=lambda item: item["신고번호"] or "", reverse=True)
 
     valid_total = (accept_count + partial_count + reject_count + processing_count) if app_settings.exclude_withdraw else total

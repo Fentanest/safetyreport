@@ -10,6 +10,40 @@
 
 ## 2026-05-06
 
+### 서버-모바일 round-trip 메타데이터 보존 / 최근 답변 synced_at 정렬
+
+상태: 완료
+
+변경:
+- `SYNC_ROUNDTRIP_PLAN.md`
+  - `synced_at`, `entry_value`, `raw_content` round-trip 보존 계획과 실행 순서를 전용 문서로 정리
+- `core/database/models.py`
+  - `mysafetydetail_*`, `mysafetymerge_*` 에 `synced_at INTEGER` 추가
+  - 원본 payload 보존용 `mysafety_raw_content` 테이블 추가
+- `core/database/database.py`
+  - detail upsert 시 `신규/실제 변경`일 때만 `synced_at` 를 현재 시각으로 갱신
+  - 동일 내용 재크롤은 기존 `synced_at` 를 유지
+  - `merge_final()` 이 detail 의 `synced_at` 를 merge 로 전파하도록 수정
+- `services/report_stats_service.py`
+  - 최근 3일 답변 목록을 `synced_at DESC` 기준으로 정렬
+  - `synced_at` 가 없는 과거 데이터는 `답변일 DESC`, `신고번호 DESC` fallback 정렬
+- `services/db_backup.py`
+  - 모바일 DB 복원 시 `reports.synced_at` 를 detail/merge 로 보존
+  - `report_raw` 또는 `reports.raw_content` 의 payload 를 `mysafety_raw_content` 로 보존
+  - `entry_value` 와 함께 raw payload 테이블도 복원 시 초기화/재적재
+
+검증:
+- `python3 -m compileall core services web start.py main.py` 통과
+- 임시 SQLite DB 기준으로 `detail_to_sql()` 검증:
+  - 신규 insert 시 `synced_at` 생성
+  - 동일 내용 재크롤 시 `synced_at` 유지
+  - 실제 변경 재크롤 시 `synced_at` 갱신
+  - `merge_*` 로 `synced_at` 전파 확인
+
+비고:
+- 모바일 import/export 대응과 `report_raw` 도입은 `safetyreport-mobile` 레포의 동일자 CHANGELOG 참고
+- 이번 변경으로 서버 DB 는 모바일의 `entry_value`/`raw_content`/`synced_at` 를 이전보다 훨씬 덜 잃어버리게 됨
+
 ### 만족도 재분류 무결성 보강 (조회 실패 vs 실제 미참여 구분)
 
 상태: 완료

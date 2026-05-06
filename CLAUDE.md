@@ -249,9 +249,16 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 | `mysafetymerge_parking` | 최종 병합 (parking) |
 | `mysafetymerge_other` | 최종 병합 (other) |
 | `mysafety_entry_value` | 신고별 entry_value 저장 (ID, entry_value) — 카테고리 재분류 기반 |
+| `mysafety_raw_content` | 신고별 원본 payload 저장 (ID, raw_content, raw_type, saved_at) |
 | `api_keys` | 모바일 API 인증 키 |
 | `admin_users` | 웹 관리자 계정 |
 | `mysafety_watchlist` | 감시 목록 (신고번호) |
+
+- `mysafetydetail_*`, `mysafetymerge_*` 는 2026-05-06부터 `synced_at INTEGER` 컬럼을 가진다.
+  값은 Unix epoch milliseconds 이며, "이 detail/merge 레코드가 마지막으로 실제 반영된 시각"을 뜻한다.
+- `synced_at` 는 신규 insert 또는 실제 detail 변경 시에만 갱신된다.
+  내용이 같은 단건 재크롤은 기존 값을 유지해야 최근 답변 정렬이 재조회 순서로 오염되지 않는다.
+- `raw_content` 는 목록/통계 테이블에 싣지 않고 `mysafety_raw_content` 별도 테이블에 보관한다.
 
 ---
 
@@ -287,6 +294,8 @@ main()
 - `start.py`는 FastAPI와 **별도 서브프로세스**로 실행 → ws_manager 싱글톤에 직접 접근 불가
 - 크롤링 완료 후 로그 회전/완료 마커 기록/WS 브로드캐스트는 `crawl_manager.run_after_crawl()` 경로로 수렴
 - `login.py`는 Selenium 회원 로그인 담당, `direct_login.py`는 API용 직접 로그인 담당으로 역할을 분리한다.
+- 최근 3일 답변 목록은 `답변일` 필터 후 `synced_at DESC`, 동순위 `신고번호 DESC` 로 정렬한다.
+  `synced_at` 가 없는 과거 데이터는 `답변일 DESC`, `신고번호 DESC` fallback 이 필요하다.
 
 ---
 
