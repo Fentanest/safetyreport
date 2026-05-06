@@ -118,7 +118,7 @@
 - API/legacy 상세/목록 파싱 결과는 `title_pipeline.py`, `detail_pipeline.py`로 공통 row 스키마에 맞춘다.
 - 조회 계층은 `report_query_service.py`, 통계 계층은 `report_stats_service.py`, 크롤링 상태 파일 계층은 `crawl_state_store.py`로 분리되었고, `data_service.py`는 기존 import 경로 호환용 facade만 남겼다.
 - 라우터는 가능한 얇게 유지하고, 크롤링 제어/파일 브라우저/별점 시작은 각각 `crawl_control.py`, `file_service.py`, `rating_service.py`를 통해 공통 처리한다.
-- 데이터 수정 화면과 API는 `db_editor_service.py`가 스키마/조회/저장을 맡고, 웹 목록은 `신고번호 DESC` 카드형 리스트를 기본 UI로 사용한다.
+- 데이터 수정 화면과 API는 `db_editor_service.py`가 스키마/조회/저장을 맡고, 웹 목록은 `신고번호 DESC` 표형 리스트를 기본 UI로 사용한다.
 - 중복 신고 관리는 `duplicate_group_service.py`가 맡는다.
   - `mysafety_raw_content.raw_content`가 자동 중복 감지의 source of truth다.
   - 같은 payload hash를 가진 신고를 중복군으로 묶고, 중복 상태와 대표건 선정 모드를 별도로 관리한다.
