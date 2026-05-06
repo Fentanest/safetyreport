@@ -115,6 +115,10 @@
 - `legacy` 상세 파서는 처리결과가 여러 개일 때 마지막 `처리결과` 테이블을 최신 답변으로 사용한다.
 - `legacy` 목록 파서는 페이지 전환 중 `stale element reference`가 나면 같은 페이지를 다시 읽도록 재시도한다.
 - 비회원 모드는 direct login을 타지 않고, Chrome 창에서 사용자가 로그인한 뒤 `재개` 신호를 기다리는 수동 흐름이다.
+- 만족도 보강은 API/legacy 각각 다른 조회 경로를 유지한다.
+  - API 상세: 점수 API 우선, 필요 시 만족도 팝업 HTML로 사유 보강
+  - legacy 상세: 만족도 팝업 HTML 직접 조회
+  - 공통 원칙: 조회 실패는 미참여로 간주하지 않고, 확정 미참여일 때만 `참여 완료 -> 참여 가능` 재분류
 - `sunwi_service`는 로그인 없이 안전신문고 통계 API를 별도로 호출하고, 서버 시작 후 즉시 1회 + 이후 3시간마다 대분류/소분류 기준 행정구역 Top5를 갱신한다.
 - 빌드 계층은 `scripts/build/build_exe.py`와 `.github/workflows/*.yml`이 담당한다.
   - `build.yml`: 정식 릴리즈 (macOS x64 + arm64 포함)

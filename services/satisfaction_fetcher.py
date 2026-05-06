@@ -11,7 +11,8 @@ API 방식: /api/v1/portal/statistics/satisfactionstatistics/score/{spp}/{phone}
 import html as _html
 import re as _re
 import time
-from typing import Optional, Tuple
+from dataclasses import dataclass
+from typing import Optional
 import settings.settings as settings
 from core.utils import logger
 from core.utils.retry import get_configured_attempts, get_retry_interval
@@ -21,6 +22,18 @@ _PAGE_URL = "https://www.safetyreport.go.kr/html/common/popup/comptSatisfaction.
 
 
 _SCORE_URL = "https://www.safetyreport.go.kr/api/v1/portal/statistics/satisfactionstatistics/score/{spp}/{phone}"
+
+
+@dataclass(frozen=True)
+class SatisfactionLookupResult:
+    score: Optional[int]
+    cause: str
+    confirmed: bool
+
+    def __iter__(self):
+        yield self.score
+        yield self.cause
+
 
 def _extract_cause_from_page_html(html_text: str) -> str:
     if not html_text:
@@ -42,7 +55,7 @@ def _extract_cause_from_page_html(html_text: str) -> str:
     return ""
 
 
-def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], str]:
+def fetch_score_via_api(session_or_driver, spp_no: str) -> SatisfactionLookupResult:
     """만족도조사 점수+사유 조회.
 
     session_or_driver:
@@ -51,7 +64,7 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], 
     """
     phone = settings.phone_number
     if not phone or not spp_no:
-        return None, ""
+        return SatisfactionLookupResult(None, "", False)
 
     # curl_cffi 세션 모드 — get 메서드 보유 + execute_async_script 미보유로 식별
     if hasattr(session_or_driver, "get") and not hasattr(session_or_driver, "execute_async_script"):
@@ -62,10 +75,10 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], 
                 session_or_driver, "GET", url, timeout=10
             )
             if r.status_code != 200:
-                return None, ""
+                return SatisfactionLookupResult(None, "", False)
             data = r.json()
             if not data or "result" not in data or not data["result"]:
-                return None, ""
+                return SatisfactionLookupResult(None, "", True)
             score_raw = data["result"].get("STSFDG_SCORE", 0)
             score = int(score_raw) if score_raw else 0
             cause = (data["result"].get("STSFDG_CAUSE") or "").strip()
@@ -76,11 +89,11 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], 
                 )
                 if page_res.status_code == 200:
                     cause = _extract_cause_from_page_html(page_res.text)
-            return (score if score > 0 else None), cause
+            return SatisfactionLookupResult(score if score > 0 else None, cause, True)
         except Exception as e:
             if logger.LoggerFactory.logbot:
                 logger.LoggerFactory.logbot.debug(f"[satisfaction] HTTP 조회 실패 {spp_no}: {e}")
-            return None, ""
+            return SatisfactionLookupResult(None, "", False)
 
     # 레거시: Selenium driver 모드 (jQuery 컨텍스트)
     script = """
@@ -101,13 +114,15 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], 
                 if attempt < max_attempts:
                     time.sleep(get_retry_interval())
                     continue
-                return None, ""
+                if isinstance(data, dict) and "error" in data:
+                    return SatisfactionLookupResult(None, "", False)
+                return SatisfactionLookupResult(None, "", True)
             score_raw = data["result"].get("STSFDG_SCORE", 0)
             score = int(score_raw) if score_raw else 0
             cause = (data["result"].get("STSFDG_CAUSE") or "").strip()
             if score > 0 and not cause:
                 _, cause = fetch_score_via_selenium_page(session_or_driver, spp_no)
-            return (score if score > 0 else None), cause
+            return SatisfactionLookupResult(score if score > 0 else None, cause, True)
         except Exception as e:
             last_error = e
             if attempt < max_attempts:
@@ -115,13 +130,13 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> Tuple[Optional[int], 
                 continue
             if logger.LoggerFactory.logbot:
                 logger.LoggerFactory.logbot.debug(f"[satisfaction] API 조회 실패 {spp_no}: {e}")
-            return None, ""
+            return SatisfactionLookupResult(None, "", False)
     if logger.LoggerFactory.logbot and last_error:
         logger.LoggerFactory.logbot.debug(f"[satisfaction] API 재시도 실패 {spp_no}: {last_error}")
-    return None, ""
+    return SatisfactionLookupResult(None, "", False)
 
 
-def fetch_score_via_selenium_page(driver, spp_no: str, timeout: int = 8) -> Tuple[Optional[int], str]:
+def fetch_score_via_selenium_page(driver, spp_no: str, timeout: int = 8) -> SatisfactionLookupResult:
     """레거시 백업 경로: 만족도 팝업 페이지를 띄워 DOM에서 점수+사유 추출.
 
     API 경로가 막혔을 때 사용. driver는 안전신문고에 이미 로그인된 세션을 권장하나,
@@ -133,7 +148,7 @@ def fetch_score_via_selenium_page(driver, spp_no: str, timeout: int = 8) -> Tupl
 
     phone = settings.phone_number
     if not phone or not spp_no:
-        return None, ""
+        return SatisfactionLookupResult(None, "", False)
     url = _PAGE_URL.format(spp=spp_no, phone=phone)
     last_error = None
     max_attempts = get_configured_attempts()
@@ -152,20 +167,27 @@ def fetch_score_via_selenium_page(driver, spp_no: str, timeout: int = 8) -> Tupl
                 cause = (cause_elem.get_attribute("value") or cause_elem.text or "").strip()
             except Exception:
                 pass
-            return (score if score > 0 else None), cause
+            return SatisfactionLookupResult(score if score > 0 else None, cause, True)
         except TimeoutException as e:
             last_error = e
+            page_source = ""
+            try:
+                page_source = driver.page_source or ""
+            except Exception:
+                page_source = ""
+            if "STSFDG_SCORE" in page_source or "STSFDG_CAUSE" in page_source:
+                return SatisfactionLookupResult(None, "", True)
             if attempt < max_attempts:
                 time.sleep(get_retry_interval())
                 continue
-            return None, ""
+            return SatisfactionLookupResult(None, "", False)
         except Exception as e:
             last_error = e
             if attempt < max_attempts:
                 time.sleep(get_retry_interval())
                 continue
             logger.LoggerFactory.logbot.debug(f"[satisfaction] Selenium 조회 실패 {spp_no}: {e}")
-            return None, ""
+            return SatisfactionLookupResult(None, "", False)
     if logger.LoggerFactory.logbot and last_error:
         logger.LoggerFactory.logbot.debug(f"[satisfaction] Selenium 재시도 실패 {spp_no}: {last_error}")
-    return None, ""
+    return SatisfactionLookupResult(None, "", False)

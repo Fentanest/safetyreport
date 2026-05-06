@@ -66,10 +66,17 @@ def enrich_title_fields_with_satisfaction(
         return current
 
     spp_no = current.get("신고번호", "")
-    score, cause = satisfaction_fetcher(satisfaction_client, spp_no)
+    lookup_result = satisfaction_fetcher(satisfaction_client, spp_no)
+    score, cause = lookup_result
     if score:
         current["별점"] = score
         current["별점사유"] = cause
+        return current
+
+    if not getattr(lookup_result, "confirmed", False):
+        logger.LoggerFactory.logbot.warning(
+            f"[satisfaction] {spp_no} 조회 실패 -> 기존 '참여 완료' 상태 유지"
+        )
         return current
 
     current["만족도조사여부"] = "참여 가능"

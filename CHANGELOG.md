@@ -10,6 +10,28 @@
 
 ## 2026-05-06
 
+### 만족도 재분류 무결성 보강 (조회 실패 vs 실제 미참여 구분)
+
+상태: 완료
+
+변경:
+- `services/satisfaction_fetcher.py`
+  - 만족도 조회 결과를 `SatisfactionLookupResult(score, cause, confirmed)` 로 표준화
+  - 네트워크/HTTP/DOM 조회 실패는 `confirmed=False` 로 구분하고, 실제 조회 성공 후 점수 없음인 경우만 `confirmed=True` 로 처리
+  - Selenium 팝업 경로는 `STSFDG_SCORE`/`STSFDG_CAUSE` 마커가 보이는데 체크 점수만 없는 경우를 미참여로 간주
+- `core/crawler/detail_pipeline.py`
+  - `만족도조사여부 == "참여 완료"` 건 보강 시, 조회 실패면 기존 상태를 유지하고
+    확정 미참여일 때만 `참여 가능` 으로 다운그레이드하도록 수정
+
+검증:
+- 리팩토링 직전(`e2d0f1e^`)의 `services/parser.py` 와 현재 `parse_json_details()` 를
+  저장된 API raw fixture(`testresults/*_api_raw.json`) 기준으로 대조했고 결과가 모두 동일함을 확인
+- `detail_pipeline` 의 만족도 분기(점수 있음 / 확정 미참여 / 조회 실패 유지)는 스텁 테스트로 확인
+
+비고:
+- 이번 수정은 리팩토링 이전부터 있던 잠재 리스크를 줄이는 안전장치다.
+  초기 DB 재구축 시 만족도 조회 일시 실패가 `참여 완료 -> 참여 가능` 오분류로 이어지는 경로를 막는다.
+
 ### 공용 서비스 계층 분리 / 크롤러 공통 파이프라인 정리 / 모바일 Client 계약 유지 리팩토링
 
 상태: 완료
