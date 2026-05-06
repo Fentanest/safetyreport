@@ -1,10 +1,11 @@
 import settings.settings as settings
 import pandas as pd
-from sqlalchemy import select, func, exists, update, text, inspect
+from sqlalchemy import select, func, exists, update, text, inspect, bindparam
 from sqlalchemy.dialects.sqlite import insert
 from core.utils import logger
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+import re
 
 from .models import (metadata, title_table, detail_traffic_table, detail_parking_table, detail_other_table,
                      merge_traffic_table, merge_parking_table, merge_other_table, watchlist_table, admin_users_table,
@@ -13,6 +14,93 @@ from .models import (metadata, title_table, detail_traffic_table, detail_parking
 
 def _current_epoch_millis() -> int:
     return int(datetime.now().timestamp() * 1000)
+
+
+_DATE_ONLY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DETAIL_TABLES = [detail_traffic_table, detail_parking_table, detail_other_table]
+
+
+def _parse_epoch_millis_from_text(value, *, prefer_end_of_day: bool = False):
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+
+    parsed = pd.to_datetime(raw, errors="coerce")
+    if pd.isna(parsed):
+        return None
+
+    timestamp = pd.Timestamp(parsed)
+    if timestamp.tzinfo is not None:
+        timestamp = timestamp.tz_convert(None)
+
+    if prefer_end_of_day and _DATE_ONLY_PATTERN.match(raw):
+        timestamp = timestamp + pd.Timedelta(days=1) - pd.Timedelta(milliseconds=1)
+
+    return int(timestamp.to_pydatetime().timestamp() * 1000)
+
+
+def _derive_backfill_synced_at(answer_date, report_date):
+    return (
+        _parse_epoch_millis_from_text(answer_date, prefer_end_of_day=True)
+        or _parse_epoch_millis_from_text(report_date, prefer_end_of_day=True)
+    )
+
+
+def backfill_synced_at(engine):
+    """기존 서버 DB의 synced_at 공백을 답변일/신고일 기준으로 채운다."""
+    updated_total = 0
+    unresolved_total = 0
+
+    with engine.begin() as conn:
+        for detail_table in _DETAIL_TABLES:
+            join_stmt = detail_table.outerjoin(title_table, detail_table.c.ID == title_table.c.ID)
+            rows = conn.execute(
+                select(
+                    detail_table.c.ID,
+                    detail_table.c.답변일,
+                    title_table.c.신고일,
+                )
+                .select_from(join_stmt)
+                .where(detail_table.c.synced_at.is_(None))
+            ).fetchall()
+
+            updates = []
+            unresolved = 0
+            for row in rows:
+                synced_at = _derive_backfill_synced_at(row.답변일, row.신고일)
+                if synced_at is None:
+                    unresolved += 1
+                    continue
+                updates.append({"target_id": row.ID, "synced_at": synced_at})
+
+            if updates:
+                conn.execute(
+                    update(detail_table)
+                    .where(detail_table.c.ID == bindparam("target_id"))
+                    .values(synced_at=bindparam("synced_at")),
+                    updates,
+                )
+                updated_total += len(updates)
+
+            if rows:
+                unresolved_total += unresolved
+                logger.LoggerFactory.logbot.info(
+                    f"[migration] {detail_table.name} synced_at 백필: {len(updates)}건, 미해결 {unresolved}건"
+                )
+
+    if updated_total:
+        logger.LoggerFactory.logbot.info(
+            f"[migration] synced_at 백필 완료: 총 {updated_total}건 갱신, merge 재생성 시작"
+        )
+        merge_final(engine)
+    elif unresolved_total:
+        logger.LoggerFactory.logbot.warning(
+            f"[migration] synced_at 백필 대상이 있었지만 날짜 파싱 불가로 {unresolved_total}건은 유지되었습니다."
+        )
+    else:
+        logger.LoggerFactory.logbot.debug("[migration] synced_at 백필 대상 없음.")
+
+    return updated_total
 
 def normalize_police_agency(x: str) -> str:
     idx = x.find('경찰서')
@@ -129,6 +217,7 @@ def upgrade_schema(engine):
         connection.commit()
 
     migrate_by_entry_value(engine)
+    backfill_synced_at(engine)
 
 def _get_title_ids_for_scan(conn, *, message: str):
     logger.LoggerFactory.logbot.info(message)

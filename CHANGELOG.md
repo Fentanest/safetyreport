@@ -10,6 +10,38 @@
 
 ## 2026-05-06
 
+### 기존 서버 DB synced_at 백필 / 웹 상세·첨부 렌더 방어
+
+상태: 완료
+
+변경:
+- `core/database/database.py`
+  - `upgrade_schema()`가 스키마 업그레이드 뒤 `backfill_synced_at()`를 자동 실행하도록 변경
+  - 기존 서버 DB에서 `mysafetydetail_*`.`synced_at`가 비어 있으면 `답변일` 우선, 없으면 `신고일` 기준으로 epoch ms를 백필
+  - 백필이 발생한 경우 `merge_final()`을 다시 돌려 `mysafetymerge_*`에도 `synced_at`를 즉시 전파
+- `services/db_backup.py`
+  - `/backup/upload`로 서버 형식 DB를 복원할 때도 복사 직후 `upgrade_schema()`를 실행해, 앱 재시작 없이 `synced_at`/`mysafety_raw_content` 마이그레이션과 백필이 적용되도록 수정
+- `web/templates/base.html`
+  - 신고 상세 모달이 `지도/첨부사진/첨부파일` 등을 문자열로 가정하다가 죽지 않도록 값 정규화 계층 추가
+  - 배열/객체/빈값/예상 밖 타입이 와도 문자열화 또는 안전한 빈값 처리로 떨어지게 수정
+  - 상세 렌더 중 예외가 나면 전체 페이지를 멈추지 않고, 경고 메시지와 핵심 필드만 보여주는 fallback 모달로 복구
+- `web/templates/data_table.html`
+  - 목록 렌더, 첨부 일괄확인 모달, CSV 내보내기에서 첨부 필드를 모두 공용 정규화 함수로 처리
+  - `data-links`를 단순 콤마 join 대신 JSON payload로 바꿔 URL 값과 타입 차이에 더 강하게 수정
+
+검증:
+- `python3 -m compileall core services web main.py start.py` 통과
+- `./venv/bin/python` + 임시 복사본 `data-example.db` 기준 검증:
+  - `mysafetydetail_*` / `mysafetymerge_*`에 `synced_at` 컬럼 자동 추가 확인
+  - 백필 결과 `traffic 2665`, `parking 35`, `other 22`건 채움
+  - 백필 후 detail/merge 6개 테이블 모두 `synced_at NULL 0건` 확인
+- `node --check` 기반 템플릿 인라인 스크립트 문법 검사:
+  - `base.html` 통과
+  - `data_table.html`은 Jinja 값 치환 후 통과
+
+비고:
+- 이번 백필은 기존 데이터의 실제 동기화 시각을 복원하는 작업이 아니라, 최근 답변 정렬을 깨지 않기 위한 초기 기준 시각을 `답변일/신고일`에서 안전하게 추정해 채우는 일회성 호환 작업이다.
+
 ### 서버-모바일 round-trip 메타데이터 보존 / 최근 답변 synced_at 정렬
 
 상태: 완료

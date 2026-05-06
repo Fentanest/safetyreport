@@ -147,11 +147,15 @@ def _remove_sidecar_files(db_path: str) -> None:
 
 def restore_from_server_db(uploaded_path: str) -> Tuple[str, int]:
     """서버 형식 DB 파일로 현재 DB를 교체. (current_backup_path, imported_count) 반환."""
+    from core.database import database
+    from core.database.engine import create_sqlite_engine
+
     backup = _backup_current_db()
     dst = settings.db_path
 
     _remove_sidecar_files(dst)
     shutil.copy2(uploaded_path, dst)
+    database.upgrade_schema(create_sqlite_engine(db_path=dst))
 
     # imported count: 검증용 — mysafety 행 수 반환
     try:

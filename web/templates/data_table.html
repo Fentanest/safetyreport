@@ -444,8 +444,50 @@ $(document).ready(function() {
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
+    function normalizeCellText(value) {
+        if (value == null) return '';
+        if (Array.isArray(value)) {
+            return value.map(normalizeCellText).filter(Boolean).join('\n');
+        }
+        if (typeof value === 'object') {
+            if (typeof value.url === 'string') return value.url.trim();
+            if (typeof value.href === 'string') return value.href.trim();
+            try { return JSON.stringify(value); } catch (_) { return String(value); }
+        }
+        return String(value).trim();
+    }
+
+    function splitMultilineLinks(value) {
+        const text = normalizeCellText(value);
+        if (!text || text === '6개월 초과') return [];
+        return text.split(/\n|%0A|%0a/).map(link => link.trim()).filter(Boolean);
+    }
+
+    function encodeLinksPayload(links) {
+        try {
+            return esc(JSON.stringify(Array.isArray(links) ? links : []));
+        } catch (_) {
+            return '[]';
+        }
+    }
+
+    function decodeLinksPayload(raw) {
+        if (!raw) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed.map(normalizeCellText).filter(Boolean) : [];
+        } catch (_) {
+            return String(raw).split(',').map(part => part.trim()).filter(Boolean);
+        }
+    }
+
+    function labelFromUrl(url, index) {
+        const text = normalizeCellText(url);
+        return text.split('?')[0].split('/').filter(Boolean).pop() || ('파일 ' + index);
+    }
+
     function renderBadge(d) {
-        const v = d || '';
+        const v = normalizeCellText(d);
         const map = { '수용': 'bg-success', '불수용': 'bg-danger', '기타': 'bg-danger',
                       '취하': 'bg-secondary', '일부수용': 'bg-warning text-dark', '처리중': 'bg-primary' };
         const cls = map[v] || 'bg-light text-dark border';
@@ -453,27 +495,31 @@ $(document).ready(function() {
     }
 
     function renderEllipsis(d, type, maxWidth) {
-        if (type !== 'display') return d || '';
-        const v = esc(d);
+        const raw = normalizeCellText(d);
+        if (type !== 'display') return raw;
+        const v = esc(raw);
         return `<span class="ellipsis-cell" style="max-width:${maxWidth}px;display:block" title="${v}">${v}</span>`;
     }
 
     function renderAttach(d, type, btnLabel, btnClass) {
-        if (type !== 'display') return d || '';
-        if (!d || d === '') return '';
-        if (d === '6개월 초과') return '만료';
-        const links = d.split('\n').filter(l => l.trim());
-        const joined = links.join(',');
+        const text = normalizeCellText(d);
+        if (type !== 'display') return text;
+        if (!text) return '';
+        if (text === '6개월 초과') return '만료';
+        const links = splitMultilineLinks(text);
         const unit = btnLabel === '일괄확인' ? '장' : '개';
         var dataType = btnLabel === '일괄확인' ? 'photo' : 'file';
-        return `${links.length}${unit} <button class="btn btn-sm ${btnClass} py-0 px-1 view-all-btn" data-links="${esc(joined)}" data-type="${dataType}">${btnLabel}</button>`;
+        return `${links.length}${unit} <button class="btn btn-sm ${btnClass} py-0 px-1 view-all-btn" data-links="${encodeLinksPayload(links)}" data-type="${dataType}">${btnLabel}</button>`;
     }
 
     function renderMap(d, type) {
-        if (type !== 'display') return d || '';
-        if (!d || d === '') return '';
-        if (d === '6개월 초과') return '만료';
-        const first = esc(d.split('\n')[0]);
+        const text = normalizeCellText(d);
+        if (type !== 'display') return text;
+        if (!text) return '';
+        if (text === '6개월 초과') return '만료';
+        const links = splitMultilineLinks(text);
+        if (!links.length) return '';
+        const first = esc(links[0]);
         return `<a href="${first}" target="_blank">다운로드</a>`;
     }
 
@@ -863,12 +909,13 @@ $(document).ready(function() {
 
     $(document).on('click', '.view-all-btn', function() {
         var isPhoto = $(this).data('type') === 'photo';
-        var links = $(this).attr('data-links').split(',').map(s => s.trim()).filter(Boolean);
+        var links = decodeLinksPayload($(this).attr('data-links'));
         var title = isPhoto ? '첨부사진' : '첨부파일';
         $('#attachModalLabel').text(title);
 
         var $body = $('#attachModalBody').empty();
         links.forEach(function(url, idx) {
+            url = normalizeCellText(url);
             var ext = url.split('?')[0].toLowerCase();
             var isImg = /\.(jpg|jpeg|png|gif|webp|bmp)$/.test(ext);
             var isVid = /\.(mp4|mov|avi|webm|mkv)$/.test(ext);
@@ -896,7 +943,7 @@ $(document).ready(function() {
                 $item.append(`
                     <div class="d-flex align-items-center gap-2 p-2">
                         <i class="fas fa-file me-1 text-muted"></i>
-                        <span class="text-truncate flex-grow-1 small">${url.split('/').pop() || ('파일 ' + num)}</span>
+                        <span class="text-truncate flex-grow-1 small">${esc(labelFromUrl(url, num))}</span>
                         <a href="${url}" download class="btn btn-sm btn-outline-primary">다운로드</a>
                     </div>`);
             }
@@ -915,21 +962,21 @@ $(document).ready(function() {
         table.rows({search:'applied'}).data().each(function(row) {
             let rowObj = { raw: row, photos: [], files: [] };
 
-            let photos = (row['첨부사진'] || '').trim();
+            let photos = normalizeCellText(row['첨부사진']);
             if (photos === '6개월 초과') {
                 rowObj.photos = ['만료'];
             } else if (photos) {
-                rowObj.photos = photos.split('\n').filter(x => x.trim() !== '');
+                rowObj.photos = splitMultilineLinks(photos);
             }
             if (rowObj.photos.length > maxLinksLength["첨부사진"]) {
                 maxLinksLength["첨부사진"] = rowObj.photos.length;
             }
 
-            let files = (row['첨부파일'] || '').trim();
+            let files = normalizeCellText(row['첨부파일']);
             if (files === '6개월 초과') {
                 rowObj.files = ['만료'];
             } else if (files) {
-                rowObj.files = files.split('\n').filter(x => x.trim() !== '');
+                rowObj.files = splitMultilineLinks(files);
             }
             if (rowObj.files.length > maxLinksLength["첨부파일"]) {
                 maxLinksLength["첨부파일"] = rowObj.files.length;
@@ -972,14 +1019,14 @@ $(document).ready(function() {
                             rowArray.push('""');
                         } else {
                             for (let i = 0; i < maxCount; i++) {
-                                let linkStr = i < links.length ? links[i].trim() : '';
+                                let linkStr = i < links.length ? normalizeCellText(links[i]) : '';
                                 rowArray.push('"' + linkStr.replace(/"/g, '""') + '"');
                             }
                         }
                     } else {
                         // JSON 소스: colFields 매핑으로 필드명 조회
                         let field = colFields[idx];
-                        let cellText = field != null ? String(rowObj.raw[field] == null ? '' : rowObj.raw[field]).trim() : '';
+                        let cellText = field != null ? normalizeCellText(rowObj.raw[field]) : '';
                         // 엑셀에서 긴 숫자가 지수표기법으로 바뀌거나 잘리는 것을 방지
                         if (title === "신고번호" || title === "차량번호" || title === "연락처") {
                             rowArray.push('="' + cellText.replace(/"/g, '""') + '"');

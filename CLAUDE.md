@@ -112,6 +112,9 @@
 - API/legacy 상세/목록 파싱 결과는 `title_pipeline.py`, `detail_pipeline.py`로 공통 row 스키마에 맞춘다.
 - 조회 계층은 `report_query_service.py`, 통계 계층은 `report_stats_service.py`, 크롤링 상태 파일 계층은 `crawl_state_store.py`로 분리되었고, `data_service.py`는 기존 import 경로 호환용 facade만 남겼다.
 - 라우터는 가능한 얇게 유지하고, 크롤링 제어/파일 브라우저/별점 시작은 각각 `crawl_control.py`, `file_service.py`, `rating_service.py`를 통해 공통 처리한다.
+- 서버 시작 시 `database.upgrade_schema()`가 실행되며, 기존 DB에 새 컬럼이 생긴 경우 단순 `ALTER TABLE`만 하지 않고 필요한 후속 마이그레이션까지 같이 처리한다.
+  - 2026-05-06 이후에는 `mysafetydetail_*`.`synced_at` 공백을 `답변일` 우선, 없으면 `신고일` 기준으로 자동 백필하고 `mysafetymerge_*`를 다시 만든다.
+  - `/backup/upload`로 서버 형식 DB를 덮어쓴 경우에도 같은 업그레이드/백필을 즉시 수행하므로, 앱 재시작 전까지 구스키마가 남아 있지 않게 한다.
 - `legacy` 상세 파서는 처리결과가 여러 개일 때 마지막 `처리결과` 테이블을 최신 답변으로 사용한다.
 - `legacy` 목록 파서는 페이지 전환 중 `stale element reference`가 나면 같은 페이지를 다시 읽도록 재시도한다.
 - 비회원 모드는 direct login을 타지 않고, Chrome 창에서 사용자가 로그인한 뒤 `재개` 신호를 기다리는 수동 흐름이다.
@@ -120,6 +123,8 @@
   - legacy 상세: 만족도 팝업 HTML 직접 조회
   - 공통 원칙: 조회 실패는 미참여로 간주하지 않고, 확정 미참여일 때만 `참여 완료 -> 참여 가능` 재분류
 - `sunwi_service`는 로그인 없이 안전신문고 통계 API를 별도로 호출하고, 서버 시작 후 즉시 1회 + 이후 3시간마다 대분류/소분류 기준 행정구역 Top5를 갱신한다.
+- `web/templates/base.html`의 신고 상세 모달과 `web/templates/data_table.html`의 첨부 렌더는 이제 문자열 외 값도 받아들인다.
+  - `지도`, `첨부사진`, `첨부파일`이 배열/객체/비정상 타입으로 들어와도 정규화 후 렌더하며, 상세 모달 렌더 중 일부 예외가 나도 페이지 전체가 죽지 않도록 fallback 모달을 띄운다.
 - 빌드 계층은 `scripts/build/build_exe.py`와 `.github/workflows/*.yml`이 담당한다.
   - `build.yml`: 정식 릴리즈 (macOS x64 + arm64 포함)
   - `build-windows-manual.yml`: 태그 체크 없이 수동으로 Windows 아티팩트 생성
@@ -258,6 +263,9 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
   값은 Unix epoch milliseconds 이며, "이 detail/merge 레코드가 마지막으로 실제 반영된 시각"을 뜻한다.
 - `synced_at` 는 신규 insert 또는 실제 detail 변경 시에만 갱신된다.
   내용이 같은 단건 재크롤은 기존 값을 유지해야 최근 답변 정렬이 재조회 순서로 오염되지 않는다.
+- 구버전 서버 DB를 열면 `upgrade_schema()`가 `synced_at` 컬럼을 추가한 뒤 기존 row도 자동 백필한다.
+  - 백필 규칙: `답변일`이 있으면 그 날짜를, 없으면 title의 `신고일`을 기준으로 epoch ms 생성
+  - 날짜 문자열에 시각이 없으면 그날의 마지막 시각(23:59:59.999)으로 채워 같은 날짜끼리는 `신고번호 DESC`가 tie-break로 작동하게 한다.
 - `raw_content` 는 목록/통계 테이블에 싣지 않고 `mysafety_raw_content` 별도 테이블에 보관한다.
 
 ---
