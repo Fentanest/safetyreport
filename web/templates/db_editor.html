@@ -11,7 +11,7 @@
     border-color: #495057;
   }
   .editor-table {
-    font-size: 0.92rem;
+    font-size: 0.88rem;
   }
 
   .editor-table th {
@@ -23,9 +23,26 @@
     vertical-align: middle;
   }
 
+  .editor-table .report-no-col {
+    min-width: 136px;
+  }
+
+  .editor-table .date-col {
+    min-width: 104px;
+  }
+
   .editor-table .title-cell {
-    min-width: 280px;
+    min-width: 256px;
     line-height: 1.45;
+  }
+
+  .editor-table .agency-cell {
+    min-width: 152px;
+  }
+
+  .editor-table .report-no-cell,
+  .editor-table .date-cell {
+    white-space: nowrap;
   }
 
   .editor-table .edit-col {
@@ -68,8 +85,8 @@
       <table class="table table-striped table-hover align-middle mb-0 editor-table">
         <thead class="table-dark">
           <tr>
-            <th>신고번호</th>
-            <th>신고일</th>
+            <th class="report-no-col">신고번호</th>
+            <th class="date-col">신고일</th>
             <th>신고명</th>
             <th>차량번호</th>
             <th>처리기관</th>
@@ -84,11 +101,11 @@
           {% for r in records %}
           {% set s = r.처리상태 or '' %}
           <tr>
-            <td class="fw-semibold">{{ r.신고번호 or '-' }}</td>
-            <td>{{ r.신고일 or '-' }}</td>
+            <td class="fw-semibold report-no-cell">{{ r.신고번호 or '-' }}</td>
+            <td class="date-cell">{{ r.신고일 or '-' }}</td>
             <td class="title-cell">{{ r.신고명 or '(제목 없음)' }}</td>
             <td>{{ r.차량번호 or '-' }}</td>
-            <td>{{ r.처리기관 or '-' }}</td>
+            <td class="agency-cell">{{ r.처리기관 or '-' }}</td>
             <td>{{ r.담당자 or '-' }}</td>
             <td>
               {% if s == '수용' %}
