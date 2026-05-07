@@ -935,7 +935,7 @@ $(document).ready(function() {
             } else if (isVid) {
                 var proxyUrl = window.proxyMediaUrl ? window.proxyMediaUrl(url) : url;
                 $item.append(`
-                    <video controls preload="auto" class="w-100 rounded mb-2" style="max-height:480px;background:#000;" src="${proxyUrl}" data-raw-src="${url}" onerror="window.handleProxyVideoError && window.handleProxyVideoError(this)">
+                    <video controls preload="metadata" class="w-100 rounded mb-2" style="max-height:480px;background:#000;" src="${proxyUrl}" data-raw-src="${url}" onerror="window.handleProxyVideoError && window.handleProxyVideoError(this)">
                         브라우저가 동영상 재생을 지원하지 않습니다.
                     </video>
                     <div class="d-flex gap-2 mt-1">

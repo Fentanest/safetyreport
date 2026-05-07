@@ -146,7 +146,8 @@
 - 웹 첨부 동영상은 `media_proxy_service.py` + `/media/proxy`를 우선 사용한다.
   - 원격 파일을 서버가 range 헤더와 함께 스트리밍 프록시하고,
   - 프록시 실패 시 브라우저가 원본 URL로 fallback 한다.
-  - `<video preload="auto">`로 모달 오픈 즉시 선로딩하되, 모달 `hidden.bs.modal` 이벤트에서 내부 `<video>`를 `pause()` → `removeAttribute('src')` → `load()` 순으로 정리해 진행 중 다운로드와 백그라운드 오디오를 abort 한다.
+  - `<video preload="metadata">`로 모달 오픈 시 메타데이터 + 첫 프레임만 선로딩해 즉시 재생 가능 상태를 만들되, 본체 다운로드는 재생 시점부터 시작한다. (`auto`는 프록시 range 협상과 충돌해 스피너가 멈추지 않는 사례가 있어 사용하지 않는다.)
+  - 모달 `hidden.bs.modal` 이벤트에서 내부 `<video>`를 `pause()` → `removeAttribute('src')` → `load()` 순으로 정리해 진행 중 다운로드와 백그라운드 오디오를 abort 한다.
   - 적용 대상: `base.html`의 `#reportDetailModal`, `data_table.html`의 `#attachModal` 두 곳 모두 동일 패턴.
 - 크롤링 로그 회전은 `crawl_log_service.py`로 분리했다.
   - `crawl_control.py`와 `crawl_manager.py`가 같은 회전 함수를 공유하지만 서로를 import하지 않게 유지해야 한다.
