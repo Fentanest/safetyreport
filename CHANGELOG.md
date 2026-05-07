@@ -10,6 +10,26 @@
 
 ## 2026-05-07
 
+### 상세 모달 동영상 자동 로딩 복원 + 닫기 시 다운로드/오디오 abort
+
+상태: 완료
+
+변경:
+- `web/templates/base.html`
+  - `#reportDetailModal` 동영상 태그를 `preload="auto"`로 복원해 모달 오픈 즉시 선로딩 동작을 되살림
+  - 모달 생성 시점에 `hidden.bs.modal` 이벤트 핸들러를 한 번 등록해, 닫힐 때 내부 `<video>`를 `pause()` → `removeAttribute('src')` → `load()` 순으로 정리
+- `web/templates/data_table.html`
+  - 첨부파일 인라인 미디어용 `#attachModal` 동영상도 `preload="auto"`로 복원
+  - `#attachModal`에 동일한 `hidden.bs.modal` 핸들러 추가
+
+검증:
+- 별도 빌드 없음 (HTML 템플릿 변경)
+
+비고:
+- 직전 중복 신고 관리 패치(2026-05-06)에서 모달 오픈 시 모든 동영상이 동시에 선로딩되는 문제를 막으려 `preload="none"`을 적용했었으나, 그 결과 재생 버튼을 눌러야만 다운로드가 시작되는 회귀가 생겼다.
+- 또한 영상 재생 중 모달을 백드롭/X/ESC로 닫아도 `<video>` 요소가 DOM에 남아 오디오가 계속 재생되던 문제도 동일 핸들러로 함께 해결됨.
+- `pause()`만으로는 in-flight HTTP 요청이 끊기지 않는 브라우저가 있어 `removeAttribute('src') + load()`로 abort까지 강제한다.
+
 ### 모바일 Client 다중 파일 다운로드/삭제 302 리다이렉트 수정
 
 상태: 완료

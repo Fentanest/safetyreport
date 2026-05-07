@@ -935,7 +935,7 @@ $(document).ready(function() {
             } else if (isVid) {
                 var proxyUrl = window.proxyMediaUrl ? window.proxyMediaUrl(url) : url;
                 $item.append(`
-                    <video controls preload="none" class="w-100 rounded mb-2" style="max-height:480px;background:#000;" src="${proxyUrl}" data-raw-src="${url}" onerror="window.handleProxyVideoError && window.handleProxyVideoError(this)">
+                    <video controls preload="auto" class="w-100 rounded mb-2" style="max-height:480px;background:#000;" src="${proxyUrl}" data-raw-src="${url}" onerror="window.handleProxyVideoError && window.handleProxyVideoError(this)">
                         브라우저가 동영상 재생을 지원하지 않습니다.
                     </video>
                     <div class="d-flex gap-2 mt-1">
@@ -1200,7 +1200,13 @@ $(document).ready(function() {
         </div>
     `);
 
-    var _attachModal = new bootstrap.Modal(document.getElementById('attachModal'));
+    var _attachModalEl = document.getElementById('attachModal');
+    var _attachModal = new bootstrap.Modal(_attachModalEl);
+    _attachModalEl.addEventListener('hidden.bs.modal', function() {
+        _attachModalEl.querySelectorAll('video').forEach(function(v) {
+            try { v.pause(); v.removeAttribute('src'); v.load(); } catch(_) {}
+        });
+    });
 
     // 신고번호 클릭 → 상세 팝업
     $('#{{ table_id }}').on('click', 'a.report-detail-link', function(e) {
