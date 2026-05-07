@@ -10,6 +10,31 @@
 
 ## 2026-05-07
 
+### 서버-모바일 DB 왕복 변환 항목 전수 점검 + 메타데이터 보존 보강
+
+상태: 완료
+
+변경:
+- `core/database/models.py`
+  - `mysafety_sync_meta` 테이블 추가
+  - 모바일 `sync_meta`의 `last_sync`, `watchlist`, 기타 key/value 메타를 서버 DB에도 보존할 수 있게 구조 확장
+- `services/db_backup.py`
+  - 모바일 DB 복원 시 `reports`, `report_raw`, `entry_value`, `watchlist`뿐 아니라 `sync_meta`, `duplicate_group`, `duplicate_member`도 함께 서버 DB로 이관
+  - 중복군은 모바일 레거시 hash가 들어와도 `raw_content` 기준 SHA-256 canonical group_id로 재매핑해 서버와 같은 그룹을 유지
+  - `merge_final()`이 중복군을 재생성한 뒤, 모바일에서 들고 온 `note`, `representative_mode`, `representative_id`, `apply_globally`, 멤버 메타(created/updated/priority/raw_match/field_match)를 다시 덮어써 exact 보존
+
+검증:
+- `python3 -m compileall core/database/models.py core/database/database.py services/db_backup.py` 통과
+- `./venv/bin/python` 임시 모바일 DB → 서버 복원 검증:
+  - title/detail/entry_value/raw_content/synced_at 보존 확인
+  - `sync_meta(last_sync/watchlist/custom_key)` 보존 확인
+  - `duplicate_group(note/apply_globally/manual representative)` 보존 확인
+  - `duplicate_member(priority_score/raw_match/field_match/created_at/updated_at)` 보존 확인
+
+비고:
+- 서버 전용 `admin_users`, `api_keys`는 모바일 DB에 대응 스키마가 없으므로 모바일 복원 시에도 기존 서버 값을 유지한다.
+- 이번 검증 기준으로 일반 신고 row, raw payload, sync meta, 중복군/중복멤버 메타는 서버-모바일 round-trip에서 더 이상 빠지지 않는다.
+
 ### API 큐 크롤링 목록 재탐색 누락 수정
 
 상태: 완료

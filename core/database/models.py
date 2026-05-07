@@ -99,6 +99,10 @@ raw_content_table = Table('mysafety_raw_content', metadata,
                           Column('raw_type', String, nullable=False, default=''),
                           Column('saved_at', Integer))
 
+sync_meta_table = Table('mysafety_sync_meta', metadata,
+                        Column('key', String, primary_key=True),
+                        Column('value', String, nullable=False, default=''))
+
 duplicate_group_table = Table('mysafety_duplicate_group', metadata,
                               Column('group_id', String, primary_key=True),
                               Column('fingerprint', String, nullable=False),

@@ -54,7 +54,7 @@
 │   ├── crawl_log_service.py     # current_crawl.log 경로/회전 공용 헬퍼 (순환 import 방지)
 │   ├── crawl_state_store.py     # crawl_done / crawl_done_ext / crawl_changes JSON 상태 저장소
 │   ├── data_service.py          # 기존 import 호환 facade (query/stats/state 재노출)
-│   ├── db_backup.py             # DB checkpoint(WAL/SHM 정리) + 서버/모바일 DB 자동 감지/변환
+│   ├── db_backup.py             # DB checkpoint(WAL/SHM 정리) + 서버/모바일 DB 자동 감지/변환 + sync_meta/중복군 메타 보존
 │   ├── export_service.py        # 엑셀/구글시트 export 흐름 조립
 │   ├── file_service.py          # 웹/API 파일 브라우저 공용 로직
 │   ├── crawl_manager.py         # 크롤링 프로세스 싱글톤 (충돌 방지)
@@ -295,6 +295,7 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 | `mysafetymerge_other` | 최종 병합 (other) |
 | `mysafety_entry_value` | 신고별 entry_value 저장 (ID, entry_value) — 카테고리 재분류 기반 |
 | `mysafety_raw_content` | 신고별 원본 payload 저장 (ID, raw_content, raw_type, saved_at) |
+| `mysafety_sync_meta` | 모바일 `sync_meta` 대응 key/value 메타 (`last_sync`, `watchlist`, 기타 확장 키) |
 | `mysafety_duplicate_group` | payload exact 중복군 메타데이터 (대표건, 대표건 모드, 중복 상태, 전역 반영 여부) |
 | `mysafety_duplicate_member` | 중복군 멤버 목록 (report_id, category, 대표건 여부) |
 | `api_keys` | 모바일 API 인증 키 |
@@ -309,6 +310,13 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
   - 백필 규칙: `답변일`이 있으면 그 날짜를, 없으면 title의 `신고일`을 기준으로 epoch ms 생성
   - 날짜 문자열에 시각이 없으면 그날의 마지막 시각(23:59:59.999)으로 채워 같은 날짜끼리는 `신고번호 DESC`가 tie-break로 작동하게 한다.
 - `raw_content` 는 목록/통계 테이블에 싣지 않고 `mysafety_raw_content` 별도 테이블에 보관한다.
+- 서버-모바일 DB 변환 시 아래 항목은 round-trip 보존 대상으로 취급한다.
+  - 신고 row: title/detail/merge 필드, `entry_value`, `synced_at`
+  - payload 메타: `raw_content`, `raw_type`, `saved_at`
+  - 모바일 메타: `mysafety_sync_meta` (`last_sync`, `watchlist`, 기타 key/value)
+  - 중복군 메타: `status`, `representative_mode`, `representative_id`, `apply_globally`, `note`
+  - 중복 멤버 메타: `priority_score`, `raw_match`, `field_match`, `created_at`, `updated_at`
+- `db_backup.restore_from_mobile_db()` 는 모바일 레거시 duplicate hash가 들어와도 `raw_content` 기준 SHA-256 canonical group_id로 재매핑한 뒤 저장한다.
 - 중복군 자동 감지는 `mysafety_raw_content.raw_content`가 있는 row만 대상으로 한다.
   - 같은 payload hash라도 `차량번호`, `category`, `entry_value`가 충돌하면 기본 상태는 `review_required` + `apply_globally=0`이다.
   - 기본 자동 감지 결과에서 충돌이 없으면 `confirmed_duplicate`, 충돌이 있으면 `review_required`로 시작한다.

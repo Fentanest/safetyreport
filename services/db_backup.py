@@ -6,7 +6,9 @@
 - restore_from_mobile_db(): 모바일 단일 reports 테이블 → 서버 3개 merge 테이블로 변환 복원.
 """
 from __future__ import annotations
+import hashlib
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -41,6 +43,36 @@ def _load_mobile_raw_payloads(src_conn: sqlite3.Connection) -> dict[str, dict[st
         }
 
     return payloads
+
+
+def _load_mobile_sync_meta(src_conn: sqlite3.Connection) -> list[dict[str, str]]:
+    rows = []
+    try:
+        fetched = src_conn.execute("SELECT key, value FROM sync_meta").fetchall()
+    except Exception:
+        fetched = []
+
+    for row in fetched:
+        key = str(row["key"] or "").strip()
+        if not key:
+            continue
+        rows.append({
+            "key": key,
+            "value": str(row["value"] or ""),
+        })
+
+    return rows
+
+
+def _normalize_duplicate_raw_content(raw_content) -> str:
+    text = str(raw_content or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n+", "\n", text)
+    return text.strip()
+
+
+def _duplicate_payload_hash(raw_content: str) -> str:
+    return hashlib.sha256(raw_content.encode("utf-8")).hexdigest()
 
 
 def _wal_checkpoint(db_path: str) -> None:
@@ -203,6 +235,7 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
     src_conn.row_factory = sqlite3.Row
     rows = src_conn.execute("SELECT * FROM reports").fetchall()
     raw_payloads = _load_mobile_raw_payloads(src_conn)
+    sync_meta_records = _load_mobile_sync_meta(src_conn)
 
     # 모바일 reports 컬럼 확인
     src_cols = {desc[0] for desc in src_conn.execute("SELECT * FROM reports LIMIT 0").description}
@@ -291,6 +324,92 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
             if ev:
                 entry_value_records.append({"ID": dict(r).get("ID", ""), "entry_value": ev})
 
+    sync_meta_lookup = {row["key"]: row["value"] for row in sync_meta_records}
+
+    duplicate_member_ids_by_group: dict[str, list[str]] = {}
+    duplicate_member_records = []
+    duplicate_group_id_map: dict[str, str] = {}
+    try:
+        member_rows = src_conn.execute(
+            """
+            SELECT group_id, report_id, report_number, category, is_representative,
+                   priority_score, raw_match, field_match, created_at, updated_at
+            FROM duplicate_member
+            """
+        ).fetchall()
+        for row in member_rows:
+            group_id = str(row["group_id"] or "").strip()
+            report_id = str(row["report_id"] or "").strip()
+            if not group_id or not report_id:
+                continue
+            duplicate_member_ids_by_group.setdefault(group_id, []).append(report_id)
+            duplicate_member_records.append({
+                "group_id": group_id,
+                "report_id": report_id,
+                "report_number": str(row["report_number"] or "").strip(),
+                "category": str(row["category"] or "").strip() or "other",
+                "is_representative": int(row["is_representative"] or 0),
+                "priority_score": int(row["priority_score"] or 0),
+                "raw_match": int(row["raw_match"] or 0),
+                "field_match": int(row["field_match"] or 0),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            })
+    except Exception:
+        pass
+
+    report_lookup_by_id = {str(dict(r).get("ID", "")).strip(): dict(r) for r in rows}
+
+    duplicate_group_records = []
+    try:
+        dup_rows = src_conn.execute(
+            "SELECT * FROM duplicate_group"
+        ).fetchall()
+        for row in dup_rows:
+            source_group_id = str(row["group_id"] or "").strip()
+            if not source_group_id:
+                continue
+            status = str(row["status"] or "").strip() or "confirmed_duplicate"
+            canonical_group_id = source_group_id
+            for report_id in duplicate_member_ids_by_group.get(source_group_id, []):
+                raw_payload = raw_payloads.get(report_id, {})
+                raw_content = raw_payload.get("raw_content")
+                if raw_content is None or str(raw_content).strip() == "":
+                    raw_content = report_lookup_by_id.get(report_id, {}).get("raw_content", "")
+                normalized_raw = _normalize_duplicate_raw_content(raw_content)
+                if normalized_raw:
+                    canonical_group_id = _duplicate_payload_hash(normalized_raw)
+                    break
+            duplicate_group_id_map[source_group_id] = canonical_group_id
+            duplicate_group_records.append({
+                "group_id": canonical_group_id,
+                "fingerprint": canonical_group_id,
+                "match_type": str(row["match_type"] or "payload_exact").strip() or "payload_exact",
+                "status": status,
+                "representative_mode": str(row["representative_mode"] or "auto").strip() or "auto",
+                "representative_id": str(row["representative_id"] or "").strip(),
+                "member_count": int(row["member_count"] or 0),
+                "apply_globally": int(row["apply_globally"] or 0)
+                if "apply_globally" in row.keys()
+                else (1 if status == "confirmed_duplicate" else 0),
+                "note": str(row["note"] or ""),
+                "created_at": row["created_at"],
+                "updated_at": row["updated_at"],
+            })
+    except Exception:
+        pass
+
+    valid_duplicate_group_ids = {row["group_id"] for row in duplicate_group_records}
+    mapped_duplicate_member_records = []
+    for row in duplicate_member_records:
+        mapped_group_id = duplicate_group_id_map.get(row["group_id"], row["group_id"])
+        if mapped_group_id not in valid_duplicate_group_ids:
+            continue
+        mapped_duplicate_member_records.append({
+            **row,
+            "group_id": mapped_group_id,
+        })
+
     src_conn.close()
 
     # bulk INSERT (배치)
@@ -309,6 +428,9 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
             conn.execute(models.watchlist_table.delete())
         conn.execute(models.entry_value_table.delete())
         conn.execute(models.raw_content_table.delete())
+        conn.execute(models.sync_meta_table.delete())
+        conn.execute(models.duplicate_member_table.delete())
+        conn.execute(models.duplicate_group_table.delete())
 
         # title
         for i in range(0, len(title_records), BATCH):
@@ -349,8 +471,37 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
                     raw_content_records[i:i + BATCH],
                 )
 
+        if sync_meta_records:
+            for i in range(0, len(sync_meta_records), BATCH):
+                conn.execute(
+                    models.sync_meta_table.insert(),
+                    sync_meta_records[i:i + BATCH],
+                )
+
+        elif "last_sync" in sync_meta_lookup:
+            conn.execute(
+                models.sync_meta_table.insert(),
+                [{"key": "last_sync", "value": sync_meta_lookup["last_sync"]}],
+            )
+
     # title + detail → merge 재생성
     database.merge_final(engine)
+
+    if duplicate_group_records:
+        with engine.begin() as conn:
+            conn.execute(models.duplicate_member_table.delete())
+            conn.execute(models.duplicate_group_table.delete())
+            for i in range(0, len(duplicate_group_records), BATCH):
+                conn.execute(
+                    models.duplicate_group_table.insert(),
+                    duplicate_group_records[i:i + BATCH],
+                )
+            if mapped_duplicate_member_records:
+                for i in range(0, len(mapped_duplicate_member_records), BATCH):
+                    conn.execute(
+                        models.duplicate_member_table.insert(),
+                        mapped_duplicate_member_records[i:i + BATCH],
+                    )
 
     logger.LoggerFactory.logbot.info(
         f"모바일 DB 복원 완료. 백업: {backup}, 신고건수: {len(title_records)}"

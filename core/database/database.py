@@ -9,7 +9,7 @@ import re
 
 from .models import (metadata, title_table, detail_traffic_table, detail_parking_table, detail_other_table,
                      merge_traffic_table, merge_parking_table, merge_other_table, watchlist_table, admin_users_table,
-                     api_keys_table, entry_value_table, raw_content_table)
+                     api_keys_table, entry_value_table, raw_content_table, sync_meta_table)
 
 
 def _current_epoch_millis() -> int:
