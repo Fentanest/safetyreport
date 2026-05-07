@@ -10,25 +10,28 @@
 
 ## 2026-05-07
 
-### 상세 모달 동영상 자동 로딩 복원 + 닫기 시 다운로드/오디오 abort
+### 상세 모달 동영상 직결 재생 복원 + 닫기 시 다운로드/오디오 abort
 
 상태: 완료
 
 변경:
 - `web/templates/base.html`
-  - `#reportDetailModal` 동영상 태그를 `preload="metadata"`로 변경해 모달 오픈 시 메타데이터 + 첫 프레임만 받아두고, 재생 클릭 즉시 시작되는 패치 이전 동작을 복원
+  - `#reportDetailModal` 동영상 src를 `/media/proxy?url=...` 경유 → 원본 URL 직결로 되돌림
+  - `proxyMediaUrl()`, `window.handleProxyVideoError` 헬퍼 제거 (호출처 제거에 따라 dead code)
+  - `<video preload="metadata">` 유지로 모달 오픈 시 메타데이터 + 첫 프레임만 선로딩
   - 모달 생성 시점에 `hidden.bs.modal` 이벤트 핸들러를 한 번 등록해, 닫힐 때 내부 `<video>`를 `pause()` → `removeAttribute('src')` → `load()` 순으로 정리
 - `web/templates/data_table.html`
-  - 첨부파일 인라인 미디어용 `#attachModal` 동영상도 `preload="metadata"`로 변경
+  - 첨부파일 인라인 미디어용 `#attachModal` 동영상 src도 원본 URL 직결로 변경
   - `#attachModal`에 동일한 `hidden.bs.modal` 핸들러 추가
 
 검증:
 - 별도 빌드 없음 (HTML 템플릿 변경)
 
 비고:
-- 직전 중복 신고 관리 패치(2026-05-06)에서 모달 오픈 시 모든 동영상이 동시에 선로딩되는 문제를 막으려 `preload="none"`을 적용했었으나, 그 결과 재생 버튼을 눌러야만 다운로드가 시작되는 회귀가 생겼다.
-- 처음에는 `preload="auto"`로 복원했으나, `/media/proxy` range 협상과 충돌해 스피너가 끝없이 도는 사례가 있어 `preload="metadata"`로 재조정했다. 패치 이전 동작은 사실상 브라우저 기본값(`metadata`)이었기 때문에 이 값이 가장 가깝다.
-- 또한 영상 재생 중 모달을 백드롭/X/ESC로 닫아도 `<video>` 요소가 DOM에 남아 오디오가 계속 재생되던 문제도 동일 핸들러로 함께 해결됨.
+- 직전 중복 신고 관리 패치(2026-05-06)에서 동영상 재생 경로를 `/media/proxy` 통과 + `preload="none"`로 바꿨었다. 그 결과 (1) 재생 버튼을 눌러야 다운로드가 시작되는 회귀, (2) `/media/proxy`가 단순 통과 프록시여서 Range 협상이 안 되어 upstream이 200으로만 응답 → MP4 `moov` 위치에 따라 스피너가 끝없이 도는 회귀가 동시에 생겼다.
+- 본 패치는 영상 src를 원본 URL 직결로 되돌려 패치 이전과 동일한 Range 협상 경로를 복원한다. 원본 URL 직결은 브라우저가 직접 Range 헤더를 협상해 정상 재생된다.
+- `media_proxy_service.py` + `/media/proxy` 라우트는 코드만 남기고 호출처는 없는 dormant 상태로 둔다. 추후 진짜 Range 핸들링을 갖춘 프록시가 필요해질 때 재활성화 가능.
+- 영상 재생 중 모달을 백드롭/X/ESC로 닫아도 `<video>` 요소가 DOM에 남아 오디오가 계속 재생되던 문제는 `hidden.bs.modal` 핸들러로 해결.
 - `pause()`만으로는 in-flight HTTP 요청이 끊기지 않는 브라우저가 있어 `removeAttribute('src') + load()`로 abort까지 강제한다.
 
 ### 모바일 Client 다중 파일 다운로드/삭제 302 리다이렉트 수정
