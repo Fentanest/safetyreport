@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import time
+from sqlalchemy import select
 import settings.settings as settings
 from core.crawler import driv, login, crawltitle, crawldetail
 try:
@@ -141,8 +142,11 @@ def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fal
         detaillist, missing_rnums = extract_ids_from_queue(engine, q_items)
 
         # DB에 없는 신고번호가 있으면 목록 크롤링으로 탐색
-        if missing_rnums and driver is not None:
-            logger.LoggerFactory.logbot.info(f"미확인 신고번호 {len(missing_rnums)}건을 목록 크롤링으로 탐색합니다.")
+        can_search_queue = crawl_type == 'api' or driver is not None
+        if missing_rnums and can_search_queue:
+            logger.LoggerFactory.logbot.info(
+                f"미확인 신고번호 {len(missing_rnums)}건을 목록 크롤링으로 탐색합니다."
+            )
             MAX_SEARCH_PAGES = 100
             for page_num in range(1, MAX_SEARCH_PAGES + 1):
                 if not missing_rnums:
@@ -178,6 +182,11 @@ def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fal
                 missing_rnums = still_missing
             if missing_rnums:
                 logger.LoggerFactory.logbot.warning(f"탐색 완료 후에도 찾지 못한 신고번호: {missing_rnums}")
+        elif missing_rnums:
+            logger.LoggerFactory.logbot.warning(
+                f"미확인 신고번호 {len(missing_rnums)}건이 있지만 현재 크롤링 방식에서는 "
+                "목록 재탐색에 필요한 브라우저 세션이 없어 건너뜁니다."
+            )
 
         logger.LoggerFactory.logbot.info(f"큐 파일에서 {len(detaillist)}개의 아이템 크롤링 시작.")
     elif args["page_range"]:

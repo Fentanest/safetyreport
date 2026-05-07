@@ -116,6 +116,9 @@
   - `api`: `direct_login` + `curl_cffi` API 호출
   - `api fallback`: direct login 실패 시 Selenium 로그인 후 브라우저 컨텍스트 `$.get` API 호출
 - API/legacy 상세/목록 파싱 결과는 `title_pipeline.py`, `detail_pipeline.py`로 공통 row 스키마에 맞춘다.
+- `start.py`의 큐 지정 크롤링은 전체 목록 갱신은 건너뛰지만,
+  큐 신고번호가 DB에 아직 없으면 목록 페이지를 다시 순회해 ID를 찾아낸 뒤 상세 크롤링으로 이어가야 한다.
+  특히 API direct-login 모드는 Selenium driver가 없어도 이 재탐색이 동작해야 한다.
 - 조회 계층은 `report_query_service.py`, 통계 계층은 `report_stats_service.py`, 크롤링 상태 파일 계층은 `crawl_state_store.py`로 분리되었고, `data_service.py`는 기존 import 경로 호환용 facade만 남겼다.
 - 라우터는 가능한 얇게 유지하고, 크롤링 제어/파일 브라우저/별점 시작은 각각 `crawl_control.py`, `file_service.py`, `rating_service.py`를 통해 공통 처리한다.
 - 데이터 수정 화면과 API는 `db_editor_service.py`가 스키마/조회/저장을 맡고, 웹 목록은 `신고번호 DESC` 표형 리스트를 기본 UI로 사용한다.
