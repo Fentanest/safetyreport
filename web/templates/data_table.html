@@ -235,6 +235,7 @@
 <!-- 데이터 도구 상단 툴바 -->
 <div class="d-flex flex-wrap gap-2 mb-3">
     <button type="button" class="btn btn-warning shadow-sm btn-add-watchlist"><i class="fas fa-eye me-1"></i> 감시목록 추가</button>
+    <button type="button" class="btn btn-primary shadow-sm btn-enqueue-crawl"><i class="fas fa-play me-1"></i> 선택건 크롤링</button>
     <button type="button" class="btn btn-success shadow-sm btn-export-excel"><i class="fas fa-file-excel me-1"></i> 엑셀 다운로드</button>
     <button type="button" class="btn btn-secondary text-white shadow-sm btn-copy-selected-ids"><i class="fas fa-clipboard-check me-1"></i> 선택된 신고번호 복사</button>
     <button type="button" class="btn btn-outline-info shadow-sm btn-copy-page-ids"><i class="fas fa-file-alt me-1"></i> 현재 페이지 신고번호 복사</button>
@@ -290,6 +291,7 @@
 <!-- 데이터 도구 하단 툴바 -->
 <div class="d-flex flex-wrap gap-2 mt-3">
     <button type="button" class="btn btn-warning shadow-sm btn-add-watchlist"><i class="fas fa-eye me-1"></i> 감시목록 추가</button>
+    <button type="button" class="btn btn-primary shadow-sm btn-enqueue-crawl"><i class="fas fa-play me-1"></i> 선택건 크롤링</button>
     <button type="button" class="btn btn-success shadow-sm btn-export-excel"><i class="fas fa-file-excel me-1"></i> 엑셀 다운로드</button>
     <button type="button" class="btn btn-secondary text-white shadow-sm btn-copy-selected-ids"><i class="fas fa-clipboard-check me-1"></i> 선택된 신고번호 복사</button>
     <button type="button" class="btn btn-outline-info shadow-sm btn-copy-page-ids"><i class="fas fa-file-alt me-1"></i> 현재 페이지 신고번호 복사</button>
@@ -1263,6 +1265,36 @@ $(document).ready(function() {
                 }
             });
         }
+    });
+
+    $('.btn-enqueue-crawl').on('click', function() {
+        var selected = [...selectedRows].filter(Boolean);
+
+        if (selected.length === 0) {
+            alert('크롤링할 항목을 체크박스로 선택해주세요.');
+            return;
+        }
+
+        if (!confirm(selected.length + '건을 큐 크롤링에 추가하시겠습니까?')) {
+            return;
+        }
+
+        $.ajax({
+            url: '/crawl/enqueue-selected',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ report_numbers: selected }),
+            success: function(res) {
+                alert(res.message || '요청이 처리되었습니다.');
+            },
+            error: function(xhr) {
+                var message = '요청 처리 중 오류가 발생했습니다.';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    message = xhr.responseJSON.message;
+                }
+                alert(message);
+            }
+        });
     });
 
 });

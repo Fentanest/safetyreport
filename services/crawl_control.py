@@ -141,6 +141,56 @@ def enqueue_report(report_number: str):
     return {"status": "success", "queue_size": 1}
 
 
+def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
+    normalized = []
+    seen = set()
+    for report_number in report_numbers:
+        value = str(report_number).strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        normalized.append(value)
+
+    if not normalized:
+        raise ValueError("report_numbers is required")
+
+    if crawl_manager.is_crawling():
+        queue_size = 0
+        for report_number in normalized:
+            queue_size = crawl_manager.append_to_pending(report_number)
+        return {
+            "status": "queued",
+            "requested_count": len(normalized),
+            "queue_size": queue_size,
+        }
+
+    queue_file = _write_queue_file("web_selected_queue.txt", "\n".join(normalized))
+    log_file = _write_log_header(
+        f"=== [웹 선택 크롤링] 신고번호 {len(normalized)}건 ===\n"
+        + "\n".join(f"  - {report_number}" for report_number in normalized),
+        rotate_existing=True,
+    )
+    command = _build_command(queue_file=queue_file)
+    if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file):
+        raise RuntimeError("크롤링 프로세스를 시작하지 못했습니다.")
+
+    ws_manager.broadcast_from_thread(
+        "crawl_started",
+        {
+            "source": source,
+            "count": len(normalized),
+            "crawl_mode": settings.crawl_mode,
+            "crawl_type": settings.crawl_type,
+        },
+    )
+    _start_after_crawl_hook(log_file)
+    return {
+        "status": "success",
+        "requested_count": len(normalized),
+        "queue_size": len(normalized),
+    }
+
+
 def stop_crawl():
     if not crawl_manager.is_crawling():
         return False

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 import asyncio
 import os
 
@@ -10,6 +11,10 @@ from services import crawl_control, export_service
 from services.crawl_manager import crawl_manager
 
 router = APIRouter(prefix="/crawl")
+
+
+class QueueCrawlReq(BaseModel):
+    report_numbers: list[str]
 
 
 @router.get("/")
@@ -64,6 +69,29 @@ async def kill_crawl():
     if not crawl_control.stop_crawl():
         return JSONResponse({"status": "error", "message": "현재 실행 중인 크롤링 프로세스가 없습니다."})
     return JSONResponse({"status": "success", "message": "크롤링 프로세스가 강제로 종료되었습니다."})
+
+
+@router.post("/enqueue-selected")
+async def enqueue_selected_crawl(req: QueueCrawlReq):
+    if not req.report_numbers:
+        return JSONResponse({"status": "error", "message": "신고번호를 하나 이상 선택해주세요."})
+    try:
+        result = crawl_control.enqueue_reports(req.report_numbers, source="web_selected")
+    except ValueError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)})
+    except RuntimeError as exc:
+        return JSONResponse({"status": "error", "message": str(exc)})
+
+    if result["status"] == "queued":
+        return JSONResponse({
+            "status": "queued",
+            "message": f"선택한 {result['requested_count']}건이 현재 크롤링 종료 후 대기열에 추가되었습니다. (대기 중: {result['queue_size']}건)",
+        })
+
+    return JSONResponse({
+        "status": "success",
+        "message": f"선택한 {result['requested_count']}건 크롤링이 시작되었습니다.",
+    })
 
 
 @router.post("/export/excel")

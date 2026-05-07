@@ -121,6 +121,10 @@
   특히 API direct-login 모드는 Selenium driver가 없어도 이 재탐색이 동작해야 한다.
 - 조회 계층은 `report_query_service.py`, 통계 계층은 `report_stats_service.py`, 크롤링 상태 파일 계층은 `crawl_state_store.py`로 분리되었고, `data_service.py`는 기존 import 경로 호환용 facade만 남겼다.
 - 라우터는 가능한 얇게 유지하고, 크롤링 제어/파일 브라우저/별점 시작은 각각 `crawl_control.py`, `file_service.py`, `rating_service.py`를 통해 공통 처리한다.
+- 웹 `data_table.html` 기반 페이지(전체/교통/주정차/기타/중복차량)는
+  선택된 신고번호를 `POST /crawl/enqueue-selected`로 보내 다건 큐 크롤링을 걸 수 있다.
+  이 경로도 모바일 enqueue와 같은 `crawl_control.py`를 타므로,
+  이미 실행 중이면 pending queue에 붙고 아니면 큐 지정 크롤링을 즉시 시작한다.
 - 데이터 수정 화면과 API는 `db_editor_service.py`가 스키마/조회/저장을 맡고, 웹 목록은 `신고번호 DESC` 표형 리스트를 기본 UI로 사용한다.
 - 중복 신고 관리는 `duplicate_group_service.py`가 맡는다.
   - `mysafety_raw_content.raw_content`가 자동 중복 감지의 source of truth다.

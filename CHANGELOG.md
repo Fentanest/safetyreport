@@ -10,6 +10,30 @@
 
 ## 2026-05-07
 
+### 데이터 테이블 선택건 큐 크롤링 추가
+
+상태: 완료
+
+변경:
+- `services/crawl_control.py`
+  - 웹에서 여러 신고번호를 한 번에 큐 크롤링으로 넘길 수 있는 `enqueue_reports()` 추가
+  - 이미 크롤링이 실행 중이면 모바일 enqueue와 같은 방식으로 pending queue에 붙이고,
+    비실행 중이면 선택된 신고번호만 담은 큐 파일로 즉시 크롤링 시작
+- `web/routers/crawl.py`
+  - `POST /crawl/enqueue-selected` 추가
+  - 선택 신고번호 목록을 받아 다건 큐 크롤링 시작 또는 pending queue 추가 처리
+- `web/templates/data_table.html`
+  - 전체/교통위반/주정차위반/기타위반/중복차량 공용 `data_table` 툴바에
+    `선택건 크롤링` 버튼 추가 (상단/하단)
+  - 체크된 신고번호를 `/crawl/enqueue-selected`로 보내는 AJAX 연결
+
+검증:
+- `python3 -m compileall services/crawl_control.py web/routers/crawl.py` 통과
+
+비고:
+- 웹 선택건 큐 크롤링도 모바일 단건 enqueue와 동일하게
+  "실행 중이면 대기열, 아니면 즉시 큐 지정 크롤링" 규칙을 따른다.
+
 ### 서버-모바일 DB 왕복 변환 항목 전수 점검 + 메타데이터 보존 보강
 
 상태: 완료
