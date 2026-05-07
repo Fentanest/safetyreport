@@ -70,6 +70,20 @@ def build_download_zip(paths):
     return zip_buffer, filename
 
 
+def build_api_download_zip(paths):
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as archive:
+        for path in paths:
+            try:
+                resolved = resolve_api_file(path)
+            except Exception:
+                continue
+            archive.write(resolved, os.path.basename(resolved))
+    zip_buffer.seek(0)
+    filename = f"safetyreport_files_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    return zip_buffer, filename
+
+
 def delete_file(path: str):
     abs_path = ensure_browser_file(path)
     if abs_path in get_protected_paths():
@@ -96,6 +110,39 @@ def delete_files(paths):
                 deleted_count += 1
             except Exception as exc:
                 errors.append(f"{os.path.basename(path)}: {exc}")
+
+    return deleted_count, errors
+
+
+def delete_api_files(paths):
+    deleted_count = 0
+    errors = []
+    protected = get_protected_paths()
+
+    for path in paths:
+        try:
+            resolved = resolve_api_file(path)
+        except PermissionError:
+            errors.append(f"{os.path.basename(path)}: 접근 불가")
+            continue
+        except FileNotFoundError:
+            errors.append(f"{os.path.basename(path)}: 파일을 찾을 수 없습니다")
+            continue
+        except IsADirectoryError:
+            errors.append(f"{os.path.basename(path)}: 디렉토리는 삭제할 수 없습니다")
+            continue
+
+        abs_path = os.path.abspath(resolved)
+        if abs_path in protected:
+            errors.append(
+                f"{os.path.basename(path)}: 현재 사용 중인 로그 파일은 삭제 대상에서 제외되었습니다."
+            )
+            continue
+        try:
+            os.remove(abs_path)
+            deleted_count += 1
+        except Exception as exc:
+            errors.append(f"{os.path.basename(path)}: {exc}")
 
     return deleted_count, errors
 

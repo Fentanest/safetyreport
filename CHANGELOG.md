@@ -10,6 +10,30 @@
 
 ## 2026-05-07
 
+### 모바일 Client 다중 파일 다운로드/삭제 302 리다이렉트 수정
+
+상태: 완료
+
+변경:
+- `web/routers/api_route.py`
+  - API 키 인증으로 동작하는 `POST /api/v1/files/download-multi`, `POST /api/v1/files/delete-multi` 추가
+- `services/file_service.py`
+  - 모바일 Client가 받는 상대 경로(`logs/...`, `results/...`) 기준의 다중 ZIP 생성/삭제 공용 로직 추가
+- `safetyreport-mobile/lib/services/server_contract.dart`
+- `safetyreport-mobile/lib/services/api_service.dart`
+  - 모바일 Client의 다중 파일 다운로드/삭제 호출을 세션 로그인용 `/file-browser/*` 레거시 경로 대신
+    API 키 기반 `/api/v1/files/*` 경로로 전환
+
+검증:
+- `python3 -m compileall services/file_service.py web/routers/api_route.py` 통과
+- `dart analyze lib/services/server_contract.dart lib/services/api_service.dart`
+  - 에러 없음
+  - 기존 style info 4건만 잔존
+
+비고:
+- 원인은 모바일 Client가 API 키만 가진 상태에서 세션 로그인용 `/file-browser/download-multi`를 호출해
+  `/login`으로 `302` 리다이렉트되던 것이었다.
+
 ### 데이터 테이블 선택건 큐 크롤링 추가
 
 상태: 완료

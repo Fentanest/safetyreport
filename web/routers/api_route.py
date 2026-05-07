@@ -2,7 +2,7 @@ import os
 import tempfile
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
 from starlette.background import BackgroundTask
 
@@ -463,6 +463,34 @@ async def download_file(path: str = "", _: str = Depends(_require_api_key_flex))
         media_type="application/octet-stream",
         background=BackgroundTask(_cleanup, cleanup_path) if cleanup_path else None,
     )
+
+
+@router.post("/files/download-multi")
+async def download_files_archive(request: Request, _: str = Depends(_require_api_key)):
+    body = await request.json()
+    paths = body.get("paths", [])
+    if not isinstance(paths, list) or not paths:
+        raise HTTPException(status_code=400, detail="paths is required")
+    zip_buffer, filename = file_service.build_api_download_zip(paths)
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/x-zip-compressed",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.post("/files/delete-multi")
+async def delete_files_archive(request: Request, _: str = Depends(_require_api_key)):
+    body = await request.json()
+    paths = body.get("paths", [])
+    if not isinstance(paths, list) or not paths:
+        raise HTTPException(status_code=400, detail="paths is required")
+    deleted_count, errors = file_service.delete_api_files(paths)
+    return {
+        "status": "success" if not errors else "partial_success",
+        "deleted_count": deleted_count,
+        "errors": errors,
+    }
 
 
 @router.get("/app/config")
