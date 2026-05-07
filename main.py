@@ -110,6 +110,14 @@ async def lifespan(app: FastAPI):
     scheduler.init_scheduler()
     sunwi_service.start_background_refresh()
 
+    try:
+        from services import media_proxy_service
+        removed = media_proxy_service.cleanup_cache()
+        if removed:
+            logger.LoggerFactory.logbot.info(f"media cache cleanup: {removed} stale file(s) removed")
+    except Exception as exc:
+        logger.LoggerFactory.logbot.warning(f"media cache cleanup failed: {exc}")
+
     # 직접 로그인 토큰 keep-alive (55분 주기). 자격증명 없으면 자동 스킵.
     try:
         from core.crawler import direct_login

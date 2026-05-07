@@ -10,6 +10,45 @@
 
 ## 2026-05-07
 
+### 동영상 프록시에 자체 Range 핸들링 + 로컬 캐시 도입 (seek 바 복원)
+
+상태: 완료
+
+변경:
+- `services/media_proxy_service.py`
+  - 단순 pass-through 스트리머에서 "캐시 + Range 핸들러" 모델로 재작성
+  - `ensure_cached(url)` → `data/media_cache/<sha256(url)>` 로 upstream 파일을 통째 다운로드 (URL별 `threading.Lock`으로 race 방지, atomic write)
+  - `guess_media_type(url)` → URL 경로 기반 `mimetypes` 사용으로 upstream의 `application/download` 덮어쓰기
+  - `cleanup_cache(max_age_seconds=7d)` → 만료 캐시 정리 헬퍼
+- `web/routers/media_route.py`
+  - 캐시 파일을 열어 `Range: bytes=start-end` 헤더를 직접 파싱 후 `206 Partial Content` (또는 `200 OK`)로 응답
+  - `Accept-Ranges`, `Content-Range`, `Content-Length` 정확히 세팅
+  - upstream 다운로드는 `asyncio.to_thread`로 이벤트 루프 블로킹 없이 처리
+- `web/templates/base.html`
+  - `proxyMediaUrl()` 헬퍼 부활, 동영상 src를 다시 `/media/proxy?url=...` 경유로 변경
+  - `preload="metadata"` 유지, `hidden.bs.modal` abort 핸들러 유지
+- `web/templates/data_table.html`
+  - 첨부 모달 동영상 src도 프록시 경유로 변경
+- `main.py`
+  - lifespan startup에서 `media_proxy_service.cleanup_cache()` 호출 (7일 이상 된 캐시 자동 정리)
+- `CLAUDE.md`
+  - 동영상 재생 운영 메모를 캐시 + Range 모델로 갱신
+
+검증:
+- `python3 -m compileall services/media_proxy_service.py web/routers/media_route.py main.py` 통과
+- 로컬 스모크:
+  - `ensure_cached()` 첫 호출 ~3초(35MB), 2회차 즉시 (cache hit)
+  - 라우트 직접 호출:
+    - Range 없음 → `200 OK`, `Content-Length=37393212`, `Accept-Ranges=bytes`
+    - `bytes=0-1023` → `206`, `Content-Length=1024`, `Content-Range=bytes 0-1023/37393212`
+    - `bytes=1000000-` → `206`, `Content-Range=bytes 1000000-37393211/37393212`
+
+비고:
+- 직접 `curl -H "Range: bytes=0-1023" <upstream URL>`로 확인한 결과 upstream(`safetyreport.go.kr`)이 Range를 무시하고 `200 OK`로 전체 파일을 보낸다. 또한 `Content-Disposition: attachment`, `Content-Type: application/download`까지 붙여 직결 시 브라우저가 streaming 미디어로 다루지 않는다.
+- 따라서 직결 + pass-through 프록시 둘 다 seek 동작을 보장하지 못하므로, 프록시에서 자체적으로 Range를 처리해야 함이 확정되었다.
+- 첫 요청은 전체 다운로드가 끝나야 첫 바이트가 나가지만, 같은 URL에 대한 이후 요청은 디스크에서 즉시 부분 응답된다. 모달을 닫았다 다시 열어 seek해도 재다운로드 없음.
+- 캐시 파일은 `data/media_cache/<sha256(url)>` 한 단계 평면 구조이며, gitignore의 `data/` 규칙에 의해 자동 제외된다.
+
 ### 상세 모달 동영상 직결 재생 복원 + 닫기 시 다운로드/오디오 abort
 
 상태: 완료

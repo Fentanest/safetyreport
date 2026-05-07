@@ -933,8 +933,9 @@ $(document).ready(function() {
                         <a href="${url}" download class="btn btn-sm btn-outline-primary">다운로드</a>
                     </div>`);
             } else if (isVid) {
+                var proxyUrl = window.proxyMediaUrl ? window.proxyMediaUrl(url) : url;
                 $item.append(`
-                    <video controls preload="metadata" class="w-100 rounded mb-2" style="max-height:480px;background:#000;" src="${url}">
+                    <video controls preload="metadata" class="w-100 rounded mb-2" style="max-height:480px;background:#000;" src="${proxyUrl}">
                         브라우저가 동영상 재생을 지원하지 않습니다.
                     </video>
                     <div class="d-flex gap-2 mt-1">

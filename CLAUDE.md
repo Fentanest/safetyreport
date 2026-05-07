@@ -143,9 +143,12 @@
   - 일반 신고 변경은 `notification_kind=report`
   - 중복 신고 변경은 `notification_kind=duplicate`
   - 중복 항목에는 `duplicate_change_type`, `status_label`, `representative_mode_label`, `member_count`, `representative_report_number`, `body`가 함께 들어간다.
-- 웹 첨부 동영상은 `<video src="원본 URL">` 직결 방식으로 재생한다.
-  - 과거에 `/media/proxy`를 거쳐 서비스했으나, 단순 통과 프록시는 Range 협상이 제대로 안 되어 upstream이 200으로만 응답 → MP4 `moov` 끝쪽 배치와 합쳐 스피너가 멈추지 않는 회귀가 있었다. 원본 URL은 브라우저가 직접 Range 협상하면 정상 재생된다.
-  - `media_proxy_service.py` + `/media/proxy` 라우트는 코드만 남고 호출처가 없는 dormant 상태다. 이후 진짜 Range 핸들링을 갖춘 프록시가 필요해질 때 다시 활성화할 여지를 남긴 것.
+- 웹 첨부 동영상은 `media_proxy_service.py` + `/media/proxy`를 통해 캐시된 로컬 파일에서 Range 부분 응답으로 재생한다.
+  - 원본(`safetyreport.go.kr` 첨부 다운로드)은 Range를 지원하지 않고(`200 OK` 응답 + `Content-Disposition: attachment` + `Content-Type: application/download`) 직결 시 seek 바가 동작하지 않는다.
+  - 프록시는 첫 요청에서 upstream 파일을 `data/media_cache/<sha256(url)>` 로 통째로 받아두고, 이후 모든 요청은 캐시 파일에서 Range 헤더에 맞춰 `206 Partial Content`/`200`을 직접 만들어 응답한다.
+  - 동시 요청 race는 URL별 `threading.Lock`으로 직렬화하고, atomic write(`.tmp` → rename)로 부분 쓰기 노출을 막는다.
+  - `Content-Type`은 URL 경로 기반 `mimetypes.guess_type`으로 결정해 upstream의 `application/download`를 덮어쓴다.
+  - 캐시 만료: 서버 시작 시 7일 이상 된 캐시 파일을 자동 정리(`cleanup_cache()`).
   - `<video preload="metadata">`로 모달 오픈 시 메타데이터 + 첫 프레임만 받아 즉시 재생 가능 상태를 만들고, 본체 다운로드는 재생 시점부터 시작한다.
   - 모달 `hidden.bs.modal` 이벤트에서 내부 `<video>`를 `pause()` → `removeAttribute('src')` → `load()` 순으로 정리해 진행 중 다운로드와 백그라운드 오디오를 abort 한다. (백드롭/X/ESC 닫기 모두 동일 경로)
   - 적용 대상: `base.html`의 `#reportDetailModal`, `data_table.html`의 `#attachModal` 두 곳 모두 동일 패턴.
