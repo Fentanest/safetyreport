@@ -10,6 +10,55 @@
 
 ## 2026-05-07
 
+### 동영상 시킹 복구 + 프록시 캐시 준비를 비동기 분리
+
+상태: 완료
+
+변경:
+- `services/media_proxy_service.py`
+  - 미디어 URL 호스트를 `*.safetyreport.go.kr`로 제한
+  - `prime_cache()` / `get_cache_status()` 추가로 캐시 준비를 백그라운드 작업으로 분리
+  - 준비 워커를 4개로 늘려 여러 동영상이 한 번에 warm-up 되도록 조정
+- `web/routers/media_route.py`
+  - `POST /media/prepare`, `GET /media/status` 추가
+  - 실제 `/media/proxy` 파일 응답은 캐시 준비 완료 뒤에만 브라우저가 붙도록 프론트와 연동
+- `web/templates/base.html`
+  - 상세 모달 동영상을 다시 `/media/proxy` 경유로 되돌림
+  - `<video src>`를 즉시 넣지 않고, 준비 상태 문구를 띄운 뒤 캐시 완료 후 `src`를 연결하도록 변경
+- `web/templates/data_table.html`
+  - 첨부 모달도 동일한 준비/연결 흐름 적용
+- `main.py`
+  - `/media/` 경로를 로그인 리다이렉트 예외로 처리
+
+검증:
+- `python3 -m compileall main.py services/media_proxy_service.py web/routers/media_route.py` 통과
+- 서비스 스모크:
+  - `prime_cache(url)` 호출 직후 `pending`
+  - 다운로드 완료 후 `get_cache_status(url)` → `ready`
+
+비고:
+- 원본 첨부 서버는 여전히 `Range`를 무시하고 `200 OK + application/download`만 내려서 직결 재생 시 탐색바가 동작하지 않는다.
+- 이번 수정은 "직결로 웹은 덜 막히지만 seek 불가"와 "프록시는 seek 가능하지만 첫 요청이 오래 붙는 문제" 사이에서,
+  캐시 준비를 짧은 JSON polling으로 분리해 둘 다 완화하는 방향이다.
+- 아래 "동영상 재생 경로 원본 URL 직결로 재복구"는 같은 날의 임시 우회였고, 현재 최종 상태는 이 항목의 비동기 준비 + 프록시 재생 모델이다.
+
+### 동영상 재생 경로 원본 URL 직결로 재복구
+
+상태: 후속 패치로 대체됨
+
+변경:
+- `web/templates/base.html`
+  - `proxyMediaUrl()`이 다시 원본 URL을 그대로 반환하도록 조정
+  - 상세 모달 동영상 `<video src>`가 결과적으로 `/media/proxy` 대신 원본 첨부 URL을 사용
+- `web/templates/data_table.html`
+  - 첨부 모달 동영상 `<video src>`도 같은 헬퍼를 통해 원본 URL 직결 사용
+
+비고:
+- `cache + Range` 프록시 모델은 seek 자체는 처리할 수 있어도, 실제 웹 사용 중에는 같은 오리진의 `/media/proxy` 요청이 누적되면서
+  "한 동영상 재생 뒤 다른 화면 로딩 정체"와 `/media/proxy -> /login` 리다이렉트 회귀가 발생했다.
+- 이번 복구는 2026-05-07 `09f41c0` 시점과 같은 사용자 체감 동작으로 되돌리는 목적이며,
+  프록시 라우트/서비스 코드는 남겨두되 현재 웹 템플릿에서는 사용하지 않는다.
+
 ### 동영상 프록시에 자체 Range 핸들링 + 로컬 캐시 도입 (seek 바 복원)
 
 상태: 완료

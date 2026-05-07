@@ -933,11 +933,12 @@ $(document).ready(function() {
                         <a href="${url}" download class="btn btn-sm btn-outline-primary">다운로드</a>
                     </div>`);
             } else if (isVid) {
-                var proxyUrl = window.proxyMediaUrl ? window.proxyMediaUrl(url) : url;
+                var mediaUrl = window.proxyMediaUrl ? window.proxyMediaUrl(url) : url;
                 $item.append(`
-                    <video controls preload="metadata" class="w-100 rounded mb-2" style="max-height:480px;background:#000;" src="${proxyUrl}">
+                    <video controls preload="metadata" class="w-100 rounded mb-2" style="max-height:480px;background:#000;" data-source-url="${esc(url)}" data-proxy-src="${esc(mediaUrl)}">
                         브라우저가 동영상 재생을 지원하지 않습니다.
                     </video>
+                    <div class="text-muted small mb-2" data-proxy-video-status>동영상 준비 중...</div>
                     <div class="d-flex gap-2 mt-1">
                         <a href="${url}" download class="btn btn-sm btn-outline-primary">다운로드</a>
                     </div>`);
@@ -952,6 +953,10 @@ $(document).ready(function() {
             $body.append($item);
         });
 
+        $body.attr('data-proxy-video-scope', 'attach');
+        if (window.prepareProxyVideos) {
+            window.prepareProxyVideos($body[0]);
+        }
         _attachModal.show();
     });
 
@@ -1203,9 +1208,9 @@ $(document).ready(function() {
     var _attachModalEl = document.getElementById('attachModal');
     var _attachModal = new bootstrap.Modal(_attachModalEl);
     _attachModalEl.addEventListener('hidden.bs.modal', function() {
-        _attachModalEl.querySelectorAll('video').forEach(function(v) {
-            try { v.pause(); v.removeAttribute('src'); v.load(); } catch(_) {}
-        });
+        if (window.resetProxyVideos) {
+            window.resetProxyVideos(_attachModalEl);
+        }
     });
 
     // 신고번호 클릭 → 상세 팝업

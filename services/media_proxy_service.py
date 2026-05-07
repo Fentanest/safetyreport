@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import Future, ThreadPoolExecutor
 import hashlib
 import mimetypes
 import os
@@ -14,13 +15,20 @@ import settings.settings as settings
 
 
 _ALLOWED_SCHEMES = {"http", "https"}
+_ALLOWED_HOST_SUFFIX = ".safetyreport.go.kr"
+_ALLOWED_HOSTS = {"safetyreport.go.kr", "www.safetyreport.go.kr"}
 _USER_AGENT = "safetyreport-media-proxy/1.0"
 _CHUNK_SIZE = 1024 * 256
 _CACHE_DIR_NAME = "media_cache"
 _CACHE_MAX_AGE_SECONDS = 7 * 86400
+_PRIME_WORKERS = 4
 
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
+_prime_executor = ThreadPoolExecutor(max_workers=_PRIME_WORKERS, thread_name_prefix="media-cache")
+_prime_futures: dict[str, Future[Path]] = {}
+_prime_errors: dict[str, str] = {}
+_prime_guard = threading.Lock()
 
 
 def _validate_remote_url(url: str) -> str:
@@ -28,6 +36,9 @@ def _validate_remote_url(url: str) -> str:
     parsed = urlparse(normalized)
     if parsed.scheme not in _ALLOWED_SCHEMES or not parsed.netloc:
         raise ValueError("invalid remote media url")
+    hostname = (parsed.hostname or "").lower()
+    if hostname not in _ALLOWED_HOSTS and not hostname.endswith(_ALLOWED_HOST_SUFFIX):
+        raise ValueError("unsupported remote media host")
     return normalized
 
 
@@ -51,6 +62,10 @@ def _get_lock(url: str) -> threading.Lock:
         return lock
 
 
+def _is_cached_file(path: Path) -> bool:
+    return path.exists() and path.stat().st_size > 0
+
+
 def guess_media_type(url: str) -> str:
     parsed_path = urlparse(url).path
     return mimetypes.guess_type(parsed_path)[0] or "application/octet-stream"
@@ -60,12 +75,12 @@ def ensure_cached(url: str) -> Path:
     """Download `url` fully into local cache (idempotent). Returns cache file path."""
     normalized = _validate_remote_url(url)
     path = _cache_path(normalized)
-    if path.exists() and path.stat().st_size > 0:
+    if _is_cached_file(path):
         return path
 
     lock = _get_lock(normalized)
     with lock:
-        if path.exists() and path.stat().st_size > 0:
+        if _is_cached_file(path):
             return path
         tmp = path.with_suffix(".tmp")
         try:
@@ -90,6 +105,64 @@ def ensure_cached(url: str) -> Path:
                 pass
             raise
     return path
+
+
+def _finish_prime(url: str, future: Future[Path]) -> None:
+    error = None
+    if future.cancelled():
+        error = "cancelled"
+    else:
+        exc = future.exception()
+        if exc:
+            error = str(exc)
+
+    with _prime_guard:
+        if _prime_futures.get(url) is future:
+            _prime_futures.pop(url, None)
+        if error:
+            _prime_errors[url] = error
+        else:
+            _prime_errors.pop(url, None)
+
+
+def get_cache_status(url: str) -> dict[str, object]:
+    normalized = _validate_remote_url(url)
+    path = _cache_path(normalized)
+    if _is_cached_file(path):
+        return {
+            "status": "ready",
+            "ready": True,
+            "bytes": path.stat().st_size,
+        }
+
+    with _prime_guard:
+        future = _prime_futures.get(normalized)
+        error = _prime_errors.get(normalized)
+
+    if future is not None and not future.done():
+        return {"status": "pending", "ready": False}
+    if error:
+        return {"status": "error", "ready": False, "error": error}
+    return {"status": "missing", "ready": False}
+
+
+def prime_cache(url: str) -> dict[str, object]:
+    normalized = _validate_remote_url(url)
+    status = get_cache_status(normalized)
+    if status["ready"]:
+        return status
+    if status["status"] == "pending":
+        return status
+
+    with _prime_guard:
+        future = _prime_futures.get(normalized)
+        if future is None or future.done():
+            _prime_errors.pop(normalized, None)
+            future = _prime_executor.submit(ensure_cached, normalized)
+            _prime_futures[normalized] = future
+            future.add_done_callback(lambda done, key=normalized: _finish_prime(key, done))
+
+    return {"status": "pending", "ready": False}
 
 
 def cleanup_cache(max_age_seconds: int = _CACHE_MAX_AGE_SECONDS) -> int:

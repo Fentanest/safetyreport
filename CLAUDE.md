@@ -145,11 +145,14 @@
   - 중복 항목에는 `duplicate_change_type`, `status_label`, `representative_mode_label`, `member_count`, `representative_report_number`, `body`가 함께 들어간다.
 - 웹 첨부 동영상은 `media_proxy_service.py` + `/media/proxy`를 통해 캐시된 로컬 파일에서 Range 부분 응답으로 재생한다.
   - 원본(`safetyreport.go.kr` 첨부 다운로드)은 Range를 지원하지 않고(`200 OK` 응답 + `Content-Disposition: attachment` + `Content-Type: application/download`) 직결 시 seek 바가 동작하지 않는다.
-  - 프록시는 첫 요청에서 upstream 파일을 `data/media_cache/<sha256(url)>` 로 통째로 받아두고, 이후 모든 요청은 캐시 파일에서 Range 헤더에 맞춰 `206 Partial Content`/`200`을 직접 만들어 응답한다.
+  - 프록시는 캐시 준비 단계(`POST /media/prepare` + `GET /media/status`)에서 upstream 파일을 `data/media_cache/<sha256(url)>` 로 먼저 받아두고, 실제 `<video src>`는 캐시 완료 후에만 `/media/proxy`를 붙인다.
+  - 캐시 준비는 백그라운드 워커 4개로 병렬 수행해 여러 동영상이 동시에 warm-up 될 수 있게 한다.
+  - 이후 모든 요청은 캐시 파일에서 Range 헤더에 맞춰 `206 Partial Content`/`200`을 직접 만들어 응답한다.
   - 동시 요청 race는 URL별 `threading.Lock`으로 직렬화하고, atomic write(`.tmp` → rename)로 부분 쓰기 노출을 막는다.
   - `Content-Type`은 URL 경로 기반 `mimetypes.guess_type`으로 결정해 upstream의 `application/download`를 덮어쓴다.
+  - `/media/`는 로그인 리다이렉트 예외 경로이며, 프록시 대상 호스트는 `*.safetyreport.go.kr`로 제한한다.
   - 캐시 만료: 서버 시작 시 7일 이상 된 캐시 파일을 자동 정리(`cleanup_cache()`).
-  - `<video preload="metadata">`로 모달 오픈 시 메타데이터 + 첫 프레임만 받아 즉시 재생 가능 상태를 만들고, 본체 다운로드는 재생 시점부터 시작한다.
+  - 모달 오픈 시에는 먼저 "동영상 준비 중" 상태로 캐시를 비동기 준비하고, 준비가 끝나면 `<video preload="metadata">`를 연결해 메타데이터/첫 프레임 로딩을 시작한다.
   - 모달 `hidden.bs.modal` 이벤트에서 내부 `<video>`를 `pause()` → `removeAttribute('src')` → `load()` 순으로 정리해 진행 중 다운로드와 백그라운드 오디오를 abort 한다. (백드롭/X/ESC 닫기 모두 동일 경로)
   - 적용 대상: `base.html`의 `#reportDetailModal`, `data_table.html`의 `#attachModal` 두 곳 모두 동일 패턴.
 - 크롤링 로그 회전은 `crawl_log_service.py`로 분리했다.

@@ -258,7 +258,7 @@ def _login_redirect(request: Request):
 # ── 인증 미들웨어 ──────────────────────────────────────────────────────────────
 
 _PUBLIC_PATHS = {"/login", "/setup", "/logout", "/health"}
-_PUBLIC_PREFIXES = ("/static/", "/api/v1/", "/ws/")
+_PUBLIC_PREFIXES = ("/static/", "/api/v1/", "/ws/", "/media/")
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):

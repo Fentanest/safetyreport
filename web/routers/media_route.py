@@ -4,7 +4,7 @@ import asyncio
 import re
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from services import media_proxy_service
 
@@ -68,3 +68,25 @@ async def proxy_media(request: Request, url: str = Query(...)):
         media_type=media_type,
         headers=response_headers,
     )
+
+
+@router.post("/prepare")
+async def prepare_media(url: str = Query(...)):
+    try:
+        status = await asyncio.to_thread(media_proxy_service.prime_cache, url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"media prepare failed: {exc}") from exc
+    return JSONResponse(status)
+
+
+@router.get("/status")
+async def media_status(url: str = Query(...)):
+    try:
+        status = await asyncio.to_thread(media_proxy_service.get_cache_status, url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"media status failed: {exc}") from exc
+    return JSONResponse(status)

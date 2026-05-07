@@ -295,9 +295,7 @@ document.addEventListener('click', function(e) {
             var el = document.getElementById('reportDetailModal');
             _modal = new bootstrap.Modal(el);
             el.addEventListener('hidden.bs.modal', function() {
-                el.querySelectorAll('video').forEach(function(v) {
-                    try { v.pause(); v.removeAttribute('src'); v.load(); } catch(_) {}
-                });
+                resetProxyVideos(el);
             });
         }
         return _modal;
@@ -342,6 +340,113 @@ document.addEventListener('click', function(e) {
         return '/media/proxy?url=' + encodeURIComponent(normalizeDisplayValue(url));
     }
     window.proxyMediaUrl = proxyMediaUrl;
+
+    function sleep(ms) {
+        return new Promise(function(resolve) { window.setTimeout(resolve, ms); });
+    }
+
+    function setProxyVideoStatus(video, message, isError) {
+        var statusEl = video && video.parentElement ? video.parentElement.querySelector('[data-proxy-video-status]') : null;
+        if (!statusEl) return;
+        if (!message) {
+            statusEl.style.display = 'none';
+            return;
+        }
+        statusEl.textContent = message;
+        statusEl.style.display = '';
+        statusEl.classList.toggle('text-danger', !!isError);
+        statusEl.classList.toggle('text-muted', !isError);
+    }
+
+    function activateProxyVideo(video, proxyUrl) {
+        if (video.getAttribute('src') === proxyUrl) return;
+        video.setAttribute('src', proxyUrl);
+        video.load();
+        setProxyVideoStatus(video, '');
+    }
+
+    async function waitUntilProxyReady(video, sourceUrl, token, preparePayload) {
+        if (preparePayload && preparePayload.ready) {
+            return preparePayload;
+        }
+        for (var attempt = 0; attempt < 120; attempt++) {
+            if (!document.body.contains(video)) return { status: 'cancelled', ready: false };
+            var scope = video.closest('[data-proxy-video-scope]');
+            if (scope && scope.getAttribute('data-proxy-video-token') !== token) {
+                return { status: 'cancelled', ready: false };
+            }
+
+            var response = await fetch('/media/status?url=' + encodeURIComponent(sourceUrl), {
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store'
+            });
+            if (!response.ok) {
+                throw new Error('media_status_http_' + response.status);
+            }
+            var payload = await response.json();
+            if (payload.ready) {
+                return payload;
+            }
+            if (payload.status === 'error') {
+                throw new Error(payload.error || 'media_prepare_error');
+            }
+            await sleep(500);
+        }
+        throw new Error('media_prepare_timeout');
+    }
+
+    async function prepareSingleProxyVideo(video, token) {
+        var sourceUrl = normalizeDisplayValue(video.getAttribute('data-source-url'));
+        var proxyUrl = normalizeDisplayValue(video.getAttribute('data-proxy-src'));
+        if (!sourceUrl || !proxyUrl) return;
+
+        setProxyVideoStatus(video, '동영상 준비 중...');
+
+        var prepareResponse = await fetch('/media/prepare?url=' + encodeURIComponent(sourceUrl), {
+            method: 'POST',
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store'
+        });
+        if (!prepareResponse.ok) {
+            throw new Error('media_prepare_http_' + prepareResponse.status);
+        }
+        var preparePayload = await prepareResponse.json();
+        var finalStatus = await waitUntilProxyReady(video, sourceUrl, token, preparePayload);
+        if (finalStatus.status === 'cancelled') {
+            return;
+        }
+        activateProxyVideo(video, proxyUrl);
+    }
+
+    function prepareProxyVideos(scope) {
+        if (!scope || !scope.querySelectorAll) return;
+        var token = String(Date.now()) + Math.random().toString(16).slice(2);
+        scope.setAttribute('data-proxy-video-token', token);
+        Array.prototype.forEach.call(scope.querySelectorAll('video[data-proxy-src]'), function(video) {
+            try { video.removeAttribute('src'); video.load(); } catch (_) {}
+            setProxyVideoStatus(video, '동영상 준비 중...');
+            prepareSingleProxyVideo(video, token).catch(function(error) {
+                console.error('proxy video prepare failed', error);
+                setProxyVideoStatus(video, '동영상 준비 실패', true);
+            });
+        });
+    }
+    window.prepareProxyVideos = prepareProxyVideos;
+
+    function resetProxyVideos(scope) {
+        if (!scope || !scope.querySelectorAll) return;
+        scope.setAttribute('data-proxy-video-token', 'closed-' + Date.now());
+        Array.prototype.forEach.call(scope.querySelectorAll('video'), function(video) {
+            try { video.pause(); video.removeAttribute('src'); video.load(); } catch(_) {}
+        });
+        Array.prototype.forEach.call(scope.querySelectorAll('[data-proxy-video-status]'), function(statusEl) {
+            statusEl.style.display = '';
+            statusEl.textContent = '동영상 준비 중...';
+            statusEl.classList.remove('text-danger');
+            statusEl.classList.add('text-muted');
+        });
+    }
+    window.resetProxyVideos = resetProxyVideos;
 
     function statusBadge(s) {
         s = normalizeDisplayValue(s);
@@ -509,14 +614,17 @@ document.addEventListener('click', function(e) {
             var videoDiv = document.getElementById('rdVideos');
             if (videoUrls.length > 0) {
                 document.getElementById('rdVideoList').innerHTML = videoUrls.map(function(url) {
-                    var proxyUrl = proxyMediaUrl(url);
+                    var mediaUrl = proxyMediaUrl(url);
                     return '<div class="mb-3 border rounded p-2 bg-light">' +
-                        '<video controls preload="metadata" class="w-100 rounded mb-1" style="max-height:340px;background:#000" src="' + proxyUrl + '">' +
+                        '<video controls preload="metadata" class="w-100 rounded mb-1" style="max-height:340px;background:#000" data-source-url="' + esc(url) + '" data-proxy-src="' + esc(mediaUrl) + '">' +
                         '브라우저가 동영상 재생을 지원하지 않습니다.</video>' +
+                        '<div class="text-muted small mb-2" data-proxy-video-status>동영상 준비 중...</div>' +
                         '<a href="' + url + '" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="fas fa-download me-1"></i>다운로드</a>' +
                         '</div>';
                 }).join('');
                 videoDiv.style.display = '';
+                videoDiv.setAttribute('data-proxy-video-scope', 'detail');
+                prepareProxyVideos(videoDiv);
             } else { videoDiv.style.display = 'none'; }
 
             // 기타 파일 섹션
