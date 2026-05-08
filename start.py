@@ -2,7 +2,9 @@ import os
 import sys
 import subprocess
 import time
+from datetime import datetime
 from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import settings.settings as settings
 from core.crawler import driv, login, crawltitle, crawldetail
 try:
@@ -262,9 +264,18 @@ def _process_and_save_results(engine, changed_item_ids):
         duplicate_changed_count=len(duplicate_changes),
     )
 
-    # 마지막 크롤링 시각을 mysafety_sync_meta.last_sync 에 영속 저장.
-    # 모바일이 서버 DB 를 import 할 때 그대로 받아 자기 last_sync 로 사용한다.
-    crawl_state_store.set_last_crawl_time(engine)
+    # 마지막 크롤링 시각을 mysafety_sync_meta.last_sync 에 ISO8601 로 영속 저장.
+    # 모바일 sync_engine.dart 가 같은 키/형식으로 자기 sync_meta 에 기록하므로
+    # 서버 ↔ 모바일 DB import 시 round-trip 으로 보존된다.
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    with engine.begin() as conn:
+        stmt = sqlite_insert(database.sync_meta_table).values(
+            key="last_sync", value=now_iso
+        )
+        conn.execute(stmt.on_conflict_do_update(
+            index_elements=[database.sync_meta_table.c.key],
+            set_={"value": now_iso},
+        ))
 
     # get_merged_records_by_ids에 전달할 순수 ID 목록
     all_ids = [item["id"] for item in changed_item_ids]
