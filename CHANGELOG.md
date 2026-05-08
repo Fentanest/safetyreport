@@ -10,6 +10,28 @@
 
 ## 2026-05-08
 
+### `last_sync` 처리에 둔 헬퍼/방어 로직 제거 (정공법으로 인라인)
+
+상태: 완료
+
+변경:
+- `services/crawl_state_store.py`
+  - `set_last_crawl_time` / `get_last_crawl_time` 두 줄짜리 wrapper 제거
+- `start.py`
+  - `_process_and_save_results` 가 `mysafety_sync_meta` 에 `sqlite_insert(...).on_conflict_do_update(...)` 를 직접 실행 (한 블록)
+- `services/report_stats_service.py`
+  - `_format_last_sync` 다중 포맷 방어 함수 제거
+  - `get_dashboard_stats` 가 `mysafety_sync_meta.last_sync` 를 직접 SELECT 해서 `datetime.fromisoformat(...).strftime(...)` 로 표시
+  - `current_crawl.log` mtime fallback 제거 (값이 없으면 `기록 없음`)
+  - 사용 안 하게 된 `import os` 정리
+- `CLAUDE.md`
+  - 위 변경 반영
+
+비고:
+- 서버는 항상 `datetime.now().isoformat(timespec='seconds')` 로만 쓰기 때문에 다중 포맷 방어 (`T` ↔ space, `%Y-%m-%d %H:%M:%S` 시도) 는 모두 사용처가 없는 코드였다.
+- 헬퍼 두 개도 호출부 1곳씩에서만 쓰이고 SQL 한 줄을 감싸기만 하던 구조라, 인라인 후 호출부 가독성/추적성이 더 좋아진다.
+- mtime fallback 은 `last_sync` 가 비어있는 (= 이번 변경 직후 첫 크롤링 전) 경우에만 의미 있던 임시 다리 — 다음 크롤링 한 번이면 자연 해소되므로 제거.
+
 ### `--reset` 초기화 누락 보강 + 마지막 크롤링 시각을 `last_sync` 로 영속화
 
 상태: 완료
