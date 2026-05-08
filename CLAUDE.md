@@ -307,7 +307,7 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 | `mysafetymerge_other` | 최종 병합 (other) |
 | `mysafety_entry_value` | 신고별 entry_value 저장 (ID, entry_value) — 카테고리 재분류 기반 |
 | `mysafety_raw_content` | 신고별 원본 payload 저장 (ID, raw_content, raw_type, saved_at) |
-| `mysafety_sync_meta` | 모바일 `sync_meta` 대응 key/value 메타 (`last_sync`, `watchlist`, 기타 확장 키) |
+| `mysafety_sync_meta` | key/value 메타. `last_sync`(서버 마지막 크롤링 시각, ISO8601), `watchlist`(감시목록 mirror), 기타 확장 키 |
 | `mysafety_duplicate_group` | payload exact 중복군 메타데이터 (대표건, 대표건 모드, 중복 상태, 전역 반영 여부) |
 | `mysafety_duplicate_member` | 중복군 멤버 목록 (report_id, category, 대표건 여부) |
 | `api_keys` | 모바일 API 인증 키 |
@@ -322,6 +322,15 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
   - 백필 규칙: `답변일`이 있으면 그 날짜를, 없으면 title의 `신고일`을 기준으로 epoch ms 생성
   - 날짜 문자열에 시각이 없으면 그날의 마지막 시각(23:59:59.999)으로 채워 같은 날짜끼리는 `신고번호 DESC`가 tie-break로 작동하게 한다.
 - `raw_content` 는 목록/통계 테이블에 싣지 않고 `mysafety_raw_content` 별도 테이블에 보관한다.
+- 서버 "마지막 크롤링 시각"은 `mysafety_sync_meta.last_sync` 에 ISO8601 문자열로 저장된다.
+  - `start.py` 의 `_process_and_save_results` 가 매 크롤링 종료 직후 `crawl_state_store.set_last_crawl_time(engine)` 호출로 갱신한다.
+  - 모바일 `sync_engine.dart._saveSyncTime()` 와 같은 키/형식이라 서버↔모바일 DB import 시 round-trip 으로 의미가 보존된다.
+  - 대시보드는 `report_stats_service._format_last_sync` 로 ISO8601/legacy `%Y-%m-%d %H:%M:%S` 둘 다 표시 가능하다.
+  - 값이 없으면 `current_crawl.log` mtime 으로 fallback 한다.
+- `--reset` 크롤링은 신고 ID 에 매여 있는 사이드카 테이블도 같이 비운다.
+  - drop 대상: `mysafety*`, `mysafetydetail_*`, `mysafetymerge_*`, `mysafety_entry_value`, `mysafety_raw_content`, `mysafety_duplicate_member`, `mysafety_duplicate_group`
+  - `mysafety_sync_meta` 는 통째로 drop 하지 않고 `key='watchlist'` 만 보존한 채 `last_sync` 등 나머지 키를 삭제한다.
+  - `admin_users`, `api_keys`, `mysafety_watchlist` 는 보존.
 - 서버-모바일 DB 변환 시 아래 항목은 round-trip 보존 대상으로 취급한다.
   - 신고 row: title/detail/merge 필드, `entry_value`, `synced_at`
   - payload 메타: `raw_content`, `raw_type`, `saved_at`

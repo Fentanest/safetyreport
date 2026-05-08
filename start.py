@@ -57,8 +57,14 @@ def _validate_settings():
 def _prepare_database(engine, reset=False):
     if reset:
         logger.LoggerFactory.logbot.warning("--reset 옵션이 사용되어 크롤링 데이터 테이블을 초기화합니다.")
-        # 관리자 계정(admin_users), API 키(api_keys), 감시 목록(watchlist)은 보존
+        # 관리자 계정(admin_users), API 키(api_keys), 감시 목록(watchlist)은 보존.
+        # 신고 ID 에 매여 있는 사이드카(entry_value, raw_content, duplicate_*)도 같이 비운다.
         data_tables = [
+            # 중복 멤버는 group 보다 먼저 — 의미상 group 의 부속이므로
+            database.duplicate_member_table,
+            database.duplicate_group_table,
+            database.entry_value_table,
+            database.raw_content_table,
             database.title_table,
             database.detail_traffic_table,
             database.detail_parking_table,
@@ -68,6 +74,14 @@ def _prepare_database(engine, reset=False):
             database.merge_other_table,
         ]
         database.metadata.drop_all(engine, tables=data_tables)
+        # sync_meta 는 통째로 drop 하지 않고 watchlist 키만 보존한 채 비운다.
+        # last_sync 는 reset 의미상 같이 지운다 — 다음 크롤링이 다시 채워준다.
+        with engine.begin() as conn:
+            conn.execute(
+                database.sync_meta_table.delete().where(
+                    database.sync_meta_table.c.key != "watchlist"
+                )
+            )
     database.upgrade_schema(engine)
 
 def extract_ids_from_queue(engine, queuelist):
@@ -247,6 +261,10 @@ def _process_and_save_results(engine, changed_item_ids):
         report_changed_count=len(changed_item_ids),
         duplicate_changed_count=len(duplicate_changes),
     )
+
+    # 마지막 크롤링 시각을 mysafety_sync_meta.last_sync 에 영속 저장.
+    # 모바일이 서버 DB 를 import 할 때 그대로 받아 자기 last_sync 로 사용한다.
+    crawl_state_store.set_last_crawl_time(engine)
 
     # get_merged_records_by_ids에 전달할 순수 ID 목록
     all_ids = [item["id"] for item in changed_item_ids]

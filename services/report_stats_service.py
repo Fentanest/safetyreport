@@ -8,8 +8,36 @@ from sqlalchemy.exc import OperationalError
 
 from core.database import database
 import settings.settings as app_settings
-from services import duplicate_group_service
+from services import crawl_state_store, duplicate_group_service
 from services.report_query_service import _safe_read
+
+
+def _format_last_sync(raw: str | None) -> str:
+    """`mysafety_sync_meta.last_sync` 값을 대시보드 표시용 문자열로 정규화.
+
+    모바일은 `DateTime.now().toIso8601String()`(예: `2026-05-08T12:34:56`)을 쓰고
+    서버는 `datetime.now().isoformat(timespec='seconds')` 를 쓴다.
+    구버전 서버에서 `%Y-%m-%d %H:%M:%S` 형식이 들어와 있어도 그대로 받아준다.
+    """
+    if not raw:
+        return "기록 없음"
+    text_value = raw.strip()
+    if not text_value:
+        return "기록 없음"
+    candidates = [text_value]
+    if "T" in text_value:
+        candidates.append(text_value.replace("T", " ", 1))
+    for value in candidates:
+        try:
+            parsed = datetime.fromisoformat(value)
+            return parsed.strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+    try:
+        parsed = datetime.strptime(text_value[:19], "%Y-%m-%d %H:%M:%S")
+        return parsed.strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return text_value
 
 
 _STATS_COLUMNS = [
@@ -289,10 +317,14 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
     recent_answers = []
     watchlist_items = []
 
-    last_crawl_time = "기록 없음"
-    log_file = os.path.join(app_settings.datapath, "logs", "current_crawl.log")
-    if os.path.exists(log_file):
-        last_crawl_time = datetime.fromtimestamp(os.path.getmtime(log_file)).strftime("%Y-%m-%d %H:%M:%S")
+    # 서버는 크롤링 종료 시 mysafety_sync_meta.last_sync 에 ISO8601 시각을 저장한다.
+    # 모바일도 standalone 동기화 후 같은 키에 같은 형식으로 기록하므로,
+    # 모바일 → 서버 DB 업로드 시에도 round-trip 으로 의미가 보존된다.
+    last_crawl_time = _format_last_sync(crawl_state_store.get_last_crawl_time(engine))
+    if last_crawl_time == "기록 없음":
+        log_file = os.path.join(app_settings.datapath, "logs", "current_crawl.log")
+        if os.path.exists(log_file):
+            last_crawl_time = datetime.fromtimestamp(os.path.getmtime(log_file)).strftime("%Y-%m-%d %H:%M:%S")
 
     today = datetime.now().date()
     three_days_ago = today - timedelta(days=3)

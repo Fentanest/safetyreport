@@ -4,9 +4,48 @@ import json
 import os
 from datetime import datetime
 
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy import select
+
 import settings.settings as app_settings
 
 from core.database import database
+from core.database.models import sync_meta_table
+
+
+_LAST_SYNC_KEY = "last_sync"
+
+
+def set_last_crawl_time(engine, when: datetime | None = None) -> str:
+    """`mysafety_sync_meta.last_sync` 를 ISO8601 문자열로 upsert.
+
+    모바일(`sync_engine.dart`) 의 `_saveSyncTime()` 와 동일한 형식이라
+    서버 → 모바일 import 시 그대로 재사용된다.
+    """
+    moment = (when or datetime.now()).isoformat(timespec="seconds")
+    with engine.begin() as conn:
+        stmt = sqlite_insert(sync_meta_table).values(
+            key=_LAST_SYNC_KEY, value=moment
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=[sync_meta_table.c.key],
+            set_={"value": moment},
+        )
+        conn.execute(stmt)
+    return moment
+
+
+def get_last_crawl_time(engine) -> str | None:
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(sync_meta_table.c.value).where(
+                sync_meta_table.c.key == _LAST_SYNC_KEY
+            )
+        ).fetchone()
+    if not row:
+        return None
+    value = (row[0] or "").strip()
+    return value or None
 
 
 def _state_file(name: str) -> str:

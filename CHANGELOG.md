@@ -10,6 +10,31 @@
 
 ## 2026-05-08
 
+### `--reset` 초기화 누락 보강 + 마지막 크롤링 시각을 `last_sync` 로 영속화
+
+상태: 완료
+
+변경:
+- `start.py`
+  - `_prepare_database(reset=True)` 가 신고 ID 에 매여 있는 사이드카 테이블 (`mysafety_entry_value`, `mysafety_raw_content`, `mysafety_duplicate_member`, `mysafety_duplicate_group`) 까지 drop 하도록 보강
+  - `mysafety_sync_meta` 는 통째로 drop 하지 않고 `key='watchlist'` 만 남긴 채 `last_sync` 등 나머지 키를 삭제 — 다음 크롤링이 다시 채워준다
+  - `_process_and_save_results` 가 merge 직후 `crawl_state_store.set_last_crawl_time(engine)` 호출로 마지막 크롤링 시각을 영속 저장
+- `services/crawl_state_store.py`
+  - `set_last_crawl_time(engine)` / `get_last_crawl_time(engine)` 헬퍼 추가. ISO8601 문자열 (모바일 `_saveSyncTime` 와 동일 형식) upsert
+- `services/report_stats_service.py`
+  - 대시보드 `last_crawl_time` 을 `current_crawl.log` mtime 대신 `mysafety_sync_meta.last_sync` 에서 읽도록 변경
+  - `_format_last_sync` 가 ISO8601 / 레거시 `%Y-%m-%d %H:%M:%S` 형식을 모두 받아 정규화
+  - 값이 없으면 기존 mtime fallback 유지
+- `core/database/database.py`
+  - `duplicate_group_table`, `duplicate_member_table` 모듈 노출 추가 (reset 에서 사용)
+- `CLAUDE.md`
+  - `mysafety_sync_meta`, reset 정책, last_sync 운영 메모 갱신
+
+비고:
+- 기존에는 reset 후에도 옛 신고 ID 의 `entry_value`/`raw_content`/`duplicate_*` row 가 그대로 남아 재크롤링 후 중복군 재계산이나 모바일 import 시 잠재적 orphan 이 될 수 있었다.
+- 마지막 크롤링 시각이 로그 파일 mtime 에만 의존했어서 로그 회전/삭제 시 "기록 없음" 으로 떨어졌다. 이제 DB 메타에 영속 보관되며, 모바일과 같은 형식이라 서버↔모바일 DB import 시 round-trip 으로 보존된다.
+- `db_backup.restore_from_mobile_db` 의 sync_meta 일괄 교체 동작은 그대로 유지 — 모바일 DB 업로드 시 모바일의 `last_sync` 가 서버의 표시값이 되며, 이는 "방금 모바일 데이터로 서버를 갈아치웠다" 라는 사용자 의도와 일치한다.
+
 ### 동영상 프록시 첫 연결 간헐적 실패(TCP RST) 우회
 
 상태: 완료
