@@ -44,15 +44,42 @@ def save_crawl_changes(engine, changed_item_ids, duplicate_changes=None):
     if not changed_item_ids and not duplicate_changes:
         return
 
+    def _text_or_empty(value) -> str:
+        return str(value or "").strip()
+
+    def _int_or_default(value, default: int = -1) -> int:
+        if value is None:
+            return default
+        text = _text_or_empty(value)
+        if not text:
+            return default
+        try:
+            return int(text)
+        except (TypeError, ValueError):
+            try:
+                return int(float(text))
+            except (TypeError, ValueError):
+                return default
+
+    def _report_change_sort_key(record):
+        synced_at = _int_or_default(record.get("synced_at"))
+        report_number = _text_or_empty(record.get("신고번호"))
+        response_date = _text_or_empty(record.get("답변일"))
+        if synced_at >= 0:
+            return (1, synced_at, report_number, "")
+        return (0, response_date, report_number, "")
+
     change_type_map = {item["id"]: item["change_type"] for item in changed_item_ids}
     changed_records = database.get_merged_records_by_ids(engine, list(change_type_map.keys()))
     if not changed_records and not duplicate_changes:
         return
+    changed_records.sort(key=_report_change_sort_key, reverse=True)
 
     changes = []
     for record in changed_records:
         record_id = record.get("ID", "")
         changes.append({
+            "notification_kind": "report",
             "ID": str(record_id),
             "change_type": change_type_map.get(record_id, "변경"),
             "신고번호": str(record.get("신고번호", "")),
@@ -74,6 +101,7 @@ def save_crawl_changes(engine, changed_item_ids, duplicate_changes=None):
             "첨부사진": str(record.get("첨부사진", "")),
             "첨부파일": str(record.get("첨부파일", "")),
             "지도": str(record.get("지도", "")),
+            "synced_at": record.get("synced_at"),
         })
 
     for duplicate_change in duplicate_changes:

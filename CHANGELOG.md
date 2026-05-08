@@ -10,6 +10,22 @@
 
 ## 2026-05-08
 
+### Client `crawl_changes` 순서 흔들림 보정 + `synced_at` payload 복구
+
+상태: 완료
+
+변경:
+- `services/crawl_state_store.py`
+  - `crawl_changes.json` 생성 시 일반 신고 변경 payload에 `notification_kind=report`, `synced_at` 포함
+  - `get_merged_records_by_ids()` 결과를 그대로 쓰지 않고 `synced_at DESC`, fallback `답변일 DESC`, `신고번호 DESC` 로 재정렬
+
+검증:
+- `python3 -m py_compile services/crawl_state_store.py`
+
+비고:
+- 기존에는 모바일 Client가 WS `crawl_changes` 를 받아도 `synced_at` 없이 기록하게 되어 "최근 답변" / 알림 상세 순서를 서버 대시보드와 같은 기준으로 맞출 수 없었다.
+- `get_merged_records_by_ids()` 는 내부적으로 `traffic → parking → other` 순으로 결과를 모으므로, 서버가 한 번 더 정렬하지 않으면 모바일 쪽에서 "알림이 온 순서와 비슷한 순서"가 쉽게 흔들릴 수 있었다.
+
 ### `last_sync` 처리에 둔 헬퍼/방어 로직 제거 (정공법으로 인라인)
 
 상태: 완료

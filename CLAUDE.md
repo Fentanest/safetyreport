@@ -381,6 +381,10 @@ main()
 - `login.py`는 Selenium 회원 로그인 담당, `direct_login.py`는 API용 직접 로그인 담당으로 역할을 분리한다.
 - 최근 3일 답변 목록은 `답변일` 필터 후 `synced_at DESC`, 동순위 `신고번호 DESC` 로 정렬한다.
   `synced_at` 가 없는 과거 데이터는 `답변일 DESC`, `신고번호 DESC` fallback 이 필요하다.
+- 모바일 Client용 `crawl_changes` 일반 신고 payload도 `synced_at` 을 포함해야 한다.
+  서버가 내부적으로 category별 merge 테이블에서 결과를 모으므로, 저장 전 한 번 더
+  `synced_at DESC` / `답변일 DESC` / `신고번호 DESC` 로 재정렬해 줘야 모바일 알림 히스토리와
+  최근 답변 재계산이 서버 대시보드와 같은 기준을 쓴다.
 
 ---
 
@@ -459,7 +463,8 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 - 저장/회전/브로드캐스트 후처리는 `services/crawl_manager.py` 의 `run_after_crawl()` 내부에서 공통 처리
 
 ### crawl_changes.json
-- `services.crawl_state_store.save_crawl_changes(engine, changed_item_ids)` — `[{"ID": ..., "change_type": "신규"|"변경", "신고번호": ..., "신고명": ...}]` 형태로 저장
+- `services.crawl_state_store.save_crawl_changes(engine, changed_item_ids)` — 일반 신고는 `notification_kind=report`, `synced_at` 을 포함한 payload로 저장
+- 일반 신고 변경 목록은 저장 전에 `synced_at DESC`, fallback `답변일 DESC`, `신고번호 DESC` 로 재정렬한다.
 - `services.crawl_state_store.peek_crawl_changes()` — 읽기만 (삭제 안 함) → WS 브로드캐스트용
 - `services.crawl_state_store.get_and_clear_crawl_changes()` — 읽고 즉시 삭제 → 모바일 API 폴링용
 - 위치: `data/crawl_changes.json`
