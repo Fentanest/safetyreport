@@ -23,6 +23,20 @@ _CACHE_DIR_NAME = "media_cache"
 _CACHE_MAX_AGE_SECONDS = 7 * 86400
 _PRIME_WORKERS = 4
 
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+_session = requests.Session()
+_retry_strategy = Retry(
+    total=settings.max_retry_attemps,
+    status_forcelist=[429, 500, 502, 503, 504],
+    allowed_methods=["HEAD", "GET", "OPTIONS"],
+    backoff_factor=1,
+)
+_adapter = HTTPAdapter(max_retries=_retry_strategy)
+_session.mount("https://", _adapter)
+_session.mount("http://", _adapter)
+
 _locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 _prime_executor = ThreadPoolExecutor(max_workers=_PRIME_WORKERS, thread_name_prefix="media-cache")
@@ -84,7 +98,7 @@ def ensure_cached(url: str) -> Path:
             return path
         tmp = path.with_suffix(".tmp")
         try:
-            with requests.get(
+            with _session.get(
                 normalized,
                 headers={"User-Agent": _USER_AGENT},
                 stream=True,
