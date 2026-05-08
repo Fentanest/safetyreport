@@ -30,29 +30,28 @@ DETAIL_COLUMNS = [
 
 
 def build_detail_dataframe(report_id: str, details: dict):
-    return pd.DataFrame(
-        [[
-            report_id,
-            details["processing_status"],
-            details["car_number"],
-            details["violation_law"],
-            details["penalty_amount"],
-            details["penalty_points"],
-            details["processing_agency"],
-            details["person_in_charge"],
-            details["response_date"],
-            details["occurrence_date"],
-            details["occurrence_time"],
-            details["violation_location"],
-            details["processing_finish"],
-            details["report_content"],
-            details["processing_content"],
-            details["map_image"],
-            details["attached_photos"],
-            details["attachment_files"],
-        ]],
-        columns=DETAIL_COLUMNS,
-    )
+    row_data = [
+        report_id,
+        details["processing_status"],
+        details["car_number"],
+        details["violation_law"],
+        details["penalty_amount"],
+        details["penalty_points"],
+        details["processing_agency"],
+        details["person_in_charge"],
+        details["response_date"],
+        details["occurrence_date"],
+        details["occurrence_time"],
+        details["violation_location"],
+        details["processing_finish"],
+        details["report_content"],
+        details["processing_content"],
+        details["map_image"],
+        details["attached_photos"],
+        details["attachment_files"],
+    ]
+    logger.LoggerFactory.logbot.info(row_data)
+    return pd.DataFrame([row_data], columns=DETAIL_COLUMNS)
 
 
 def enrich_title_fields_with_satisfaction(
