@@ -365,7 +365,7 @@ $(document).ready(function() {
 
     function canonicalStatus(value) {
         const status = String(value == null ? '' : value).trim();
-        if (status === '진행' || status === '진행중' || status === '처리중') {
+        if (status === '진행' || status === '진행중' || status === '검토중' || status === '처리중') {
             return '처리중';
         }
         return status;

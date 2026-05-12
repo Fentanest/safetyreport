@@ -62,8 +62,10 @@
                             <span class="badge bg-secondary text-white">{{ r.처리상태 }}</span>
                         {% elif r.처리상태 == '일부수용' %}
                             <span class="badge bg-warning text-dark">{{ r.처리상태 }}</span>
-                        {% elif r.처리상태 == '처리중' %}
+                        {% elif r.처리상태 in ['처리중', '진행', '진행중', '검토중'] %}
                             <span class="badge bg-primary">{{ r.처리상태 }}</span>
+                        {% elif r.처리상태 == '보완요청' %}
+                            <span class="badge text-white" style="background-color: #fd7e14;">{{ r.처리상태 }}</span>
                         {% else %}
                             <span class="badge bg-light text-dark border">{{ r.처리상태 }}</span>
                         {% endif %}

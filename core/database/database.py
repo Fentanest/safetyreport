@@ -1,6 +1,6 @@
 import settings.settings as settings
 import pandas as pd
-from sqlalchemy import select, func, exists, update, text, inspect, bindparam
+from sqlalchemy import select, func, exists, update, text, inspect, bindparam, or_
 from sqlalchemy.dialects.sqlite import insert
 from core.utils import logger
 from datetime import datetime
@@ -19,6 +19,8 @@ def _current_epoch_millis() -> int:
 
 _DATE_ONLY_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DETAIL_TABLES = [detail_traffic_table, detail_parking_table, detail_other_table]
+_FINAL_RAW_STATUSES = ("수용", "일부수용", "불수용", "기타", "답변완료", "취하", "이송")
+_LEGACY_ONGOING_STATUSES = ("", "진행", "진행중", "처리중", "검토중")
 
 
 def _parse_epoch_millis_from_text(value, *, prefer_end_of_day: bool = False):
@@ -109,6 +111,84 @@ def backfill_synced_at(engine):
         )
     else:
         logger.LoggerFactory.logbot.debug("[migration] synced_at 백필 대상 없음.")
+
+    return updated_total
+
+
+def _normalize_processing_layers(engine):
+    updated_total = 0
+    final_status_ids = select(title_table.c.ID).where(title_table.c.상태.in_(_FINAL_RAW_STATUSES))
+
+    with engine.begin() as conn:
+        for detail_table in _DETAIL_TABLES:
+            raw_status_value = (
+                select(title_table.c.상태)
+                .where(title_table.c.ID == detail_table.c.ID)
+                .scalar_subquery()
+            )
+            supplement_status_ids = select(title_table.c.ID).where(title_table.c.상태 == "보완요청")
+            result = conn.execute(
+                update(detail_table)
+                .where(detail_table.c.ID.in_(final_status_ids))
+                .where(
+                    or_(
+                        detail_table.c.처리상태.is_(None),
+                        detail_table.c.처리상태.in_(_LEGACY_ONGOING_STATUSES),
+                        detail_table.c.보완_미응답 == 'Y',
+                    )
+                )
+                .values(
+                    처리상태=raw_status_value,
+                    종결여부='Y',
+                    보완_미응답='N',
+                )
+            )
+            updated_total += result.rowcount or 0
+
+            result = conn.execute(
+                update(detail_table)
+                .where(detail_table.c.ID.in_(supplement_status_ids))
+                .where(~detail_table.c.ID.in_(final_status_ids))
+                .where(
+                    or_(
+                        detail_table.c.처리상태.is_(None),
+                        detail_table.c.처리상태.in_(_LEGACY_ONGOING_STATUSES),
+                        detail_table.c.처리상태 == '보완요청',
+                    )
+                )
+                .values(처리상태='보완요청', 종결여부='N', 보완_미응답='Y')
+            )
+            updated_total += result.rowcount or 0
+
+            result = conn.execute(
+                update(detail_table)
+                .where(detail_table.c.보완_미응답 == 'Y')
+                .where(~detail_table.c.ID.in_(final_status_ids))
+                .where(detail_table.c.처리상태 != '보완요청')
+                .values(처리상태='보완요청', 종결여부='N')
+            )
+            updated_total += result.rowcount or 0
+
+            result = conn.execute(
+                update(detail_table)
+                .where(~detail_table.c.ID.in_(final_status_ids))
+                .where(detail_table.c.보완_미응답 != 'Y')
+                .where(
+                    or_(
+                        detail_table.c.처리상태.is_(None),
+                        detail_table.c.처리상태.in_(_LEGACY_ONGOING_STATUSES),
+                    )
+                )
+                .values(처리상태='처리중', 종결여부='N')
+            )
+            updated_total += result.rowcount or 0
+
+    if updated_total:
+        logger.LoggerFactory.logbot.info(
+            f"[migration] raw/canonical 상태 정규화 완료: 총 {updated_total}건 갱신"
+        )
+    else:
+        logger.LoggerFactory.logbot.debug("[migration] raw/canonical 상태 정규화 대상 없음.")
 
     return updated_total
 
@@ -228,6 +308,9 @@ def upgrade_schema(engine):
 
     migrate_by_entry_value(engine)
     backfill_synced_at(engine)
+    normalized_rows = _normalize_processing_layers(engine)
+    if normalized_rows:
+        merge_final(engine)
     _refresh_duplicate_groups(engine)
 
 def _get_title_ids_for_scan(conn, *, message: str):
@@ -245,47 +328,20 @@ def _get_new_and_incomplete_ids(conn):
         ~exists().where(title_table.c.ID == detail_other_table.c.ID)
     )
 
-    # items where state has changed between title and detail
-    query_changed_traffic = select(title_table.c.ID).select_from(
-        title_table.join(detail_traffic_table, title_table.c.ID == detail_traffic_table.c.ID)
-    ).where(
-        (title_table.c.상태 != detail_traffic_table.c.처리상태) &
-        (detail_traffic_table.c.종결여부 != 'Y')
-    )
-
-    query_changed_parking = select(title_table.c.ID).select_from(
-        title_table.join(detail_parking_table, title_table.c.ID == detail_parking_table.c.ID)
-    ).where(
-        (title_table.c.상태 != detail_parking_table.c.처리상태) &
-        (detail_parking_table.c.종결여부 != 'Y')
-    )
-
-    query_changed_other = select(title_table.c.ID).select_from(
-        title_table.join(detail_other_table, title_table.c.ID == detail_other_table.c.ID)
-    ).where(
-        (title_table.c.상태 != detail_other_table.c.처리상태) &
-        (detail_other_table.c.종결여부 != 'Y')
-    )
-
-    # detail.보완_미응답='Y' 인 row (보완요청 진행 중) 도 항상 재크롤링 대상.
-    # 추가 보완 round 부여 / 답변 부여 변화를 잡기 위함.
-    supplement_pending_queries = [
-        select(detail_traffic_table.c.ID).where(detail_traffic_table.c.보완_미응답 == 'Y'),
-        select(detail_parking_table.c.ID).where(detail_parking_table.c.보완_미응답 == 'Y'),
-        select(detail_other_table.c.ID).where(detail_other_table.c.보완_미응답 == 'Y'),
+    incomplete_queries = [
+        select(detail_traffic_table.c.ID).where(detail_traffic_table.c.종결여부 != 'Y'),
+        select(detail_parking_table.c.ID).where(detail_parking_table.c.종결여부 != 'Y'),
+        select(detail_other_table.c.ID).where(detail_other_table.c.종결여부 != 'Y'),
     ]
 
     df_new = pd.read_sql_query(query_new, conn)
-    df_changed_t = pd.read_sql_query(query_changed_traffic, conn)
-    df_changed_p = pd.read_sql_query(query_changed_parking, conn)
-    df_changed_o = pd.read_sql_query(query_changed_other, conn)
-    df_supplement_pending = pd.concat(
-        [pd.read_sql_query(q, conn) for q in supplement_pending_queries],
+    df_incomplete = pd.concat(
+        [pd.read_sql_query(q, conn) for q in incomplete_queries],
         ignore_index=True,
     )
 
     merged = pd.concat([
-        df_new, df_changed_t, df_changed_p, df_changed_o, df_supplement_pending,
+        df_new, df_incomplete,
     ]).drop_duplicates()
     return merged
 

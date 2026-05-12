@@ -21,6 +21,7 @@ _STATUS_PRIORITY = {
     "처리중": 0,
     "진행": 0,
     "진행중": 0,
+    "검토중": 0,
     "취하": -1,
 }
 _DUPLICATE_STATUS_LABELS = {

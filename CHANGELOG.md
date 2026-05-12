@@ -8,6 +8,37 @@
 
 ---
 
+## 2026-05-13
+
+### 상태 계층 재설계 구현
+
+상태: 완료
+
+변경:
+- `services/parser.py`
+  - API/레거시 상세 파서가 `상태(raw)` 와 `처리상태(canonical)` 를 분리해 저장하도록 정리.
+  - API `C_NOW=0` 일반 미종결은 `상태=진행`, `처리상태=처리중` 으로 저장하고, 열린 보완은 `처리상태=보완요청` 으로 승격.
+  - 닫힌 샘플 `57822934` 같은 케이스에서 raw `답변완료` + canonical `수용` 이 유지되도록 final 상태 분기 보강.
+- `core/database/database.py`
+  - `upgrade_schema()` 에 legacy row 정규화(backfill) 추가.
+  - `get_pending_detail_ids()` 가 더 이상 `상태 != 처리상태` mismatch 에 의존하지 않고, `detail 없음 / 종결여부 != 'Y' / 보완_미응답='Y'` 중심으로 재크롤링 대상을 선정.
+- `services/report_query_service.py`, `services/report_stats_service.py`, `web/templates/*.html`
+  - 검색/통계/대시보드/감시목록이 canonical `처리상태` 기준으로 동작하도록 정리.
+  - raw legacy 값 `진행/진행중/검토중` 은 UI에서 `처리중` 버킷으로만 취급.
+- `web/templates/db_editor_form.html`
+  - 처리상태 수동 편집 옵션을 canonical 상태 전체(`처리중/보완요청/수용/일부수용/불수용/기타/답변완료/취하/이송`)로 확장.
+- `docs/status-layer-redesign-plan-2026-05.md`
+  - 구현 메모와 샘플 검증 결과 반영.
+
+검증:
+- `python3 -m compileall services core web/routers start.py`
+- `venv/bin/python` 으로 `upgrade_schema(sqlite:///:memory:)` smoke test 통과
+- 샘플 JSON 파싱 확인
+  - `59614484`: raw `진행`, canonical `보완요청`
+  - `57822934`: raw `답변완료`, canonical `수용`
+  - `40871819`: raw/canonical `취하`
+  - `59216726`: raw `진행`, canonical `처리중`
+
 ## 2026-05-12 (문서/마무리)
 
 ### 보완요청 검색 항목과 대시보드 노출 문서 반영

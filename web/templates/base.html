@@ -455,9 +455,11 @@ document.addEventListener('click', function(e) {
         if (s === '수용') cls = 'bg-success';
         else if (s === '일부수용') cls = 'bg-warning text-dark';
         else if (s === '불수용' || s === '기타') cls = 'bg-danger';
-        else if (s === '처리중') cls = 'bg-primary';
+        else if (s === '처리중' || s === '진행' || s === '진행중' || s === '검토중') cls = 'bg-primary';
+        else if (s === '보완요청') cls = 'text-white';
         else if (s === '취하') cls = 'bg-secondary';
-        return '<span class="badge ' + cls + '">' + esc(s) + '</span>';
+        var style = s === '보완요청' ? ' style="background-color:#fd7e14;"' : '';
+        return '<span class="badge ' + cls + '"' + style + '>' + esc(s) + '</span>';
     }
 
     function field(icon, label, value) {

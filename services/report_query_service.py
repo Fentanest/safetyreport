@@ -57,7 +57,7 @@ def _build_records_query(table_obj, filters=None):
     status = filters.get("status")
     if status and "처리상태" in table_obj.c:
         if status == "처리중":
-            query = query.where(table_obj.c["처리상태"].in_(["처리중", "진행", "진행중"]))
+            query = query.where(table_obj.c["처리상태"].in_(["처리중", "진행", "진행중", "검토중"]))
         elif status == "완료":
             query = query.where(table_obj.c["처리상태"].in_(["수용", "불수용", "일부수용", "기타", "답변완료"]))
         elif status == "불수용":
@@ -302,7 +302,7 @@ def get_unrated_records(engine):
             if df.empty:
                 continue
             df = df[~df["만족도조사여부"].isin(["참여 완료", "참여 불가"])]
-            df = df[~df["처리상태"].isin(["취하", "답변 대기", "처리중", "진행", "진행중"])]
+            df = df[~df["처리상태"].isin(["취하", "답변 대기", "처리중", "진행", "진행중", "검토중"])]
             if df.empty:
                 continue
             df["category"] = category

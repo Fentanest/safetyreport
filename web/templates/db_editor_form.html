@@ -39,7 +39,7 @@ input.form-control { font-size: 0.82rem; }
     <div class="col-md-3">
       <label class="form-label">처리상태</label>
       <select name="처리상태" class="form-select form-select-sm">
-        {% for opt in ['', '처리중', '수용', '일부수용', '불수용', '취하'] %}
+        {% for opt in ['', '처리중', '보완요청', '수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송'] %}
           <option value="{{ opt }}" {% if record.처리상태 == opt %}selected{% endif %}>{{ opt or '(없음)' }}</option>
         {% endfor %}
       </select>

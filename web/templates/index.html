@@ -346,20 +346,20 @@
                             <td>{{ item.처리기관 }}</td>
                             <td>{{ item.담당자 }}</td>
                             <td>
-                                {% if item.상태 == '수용' %}
-                                <span class="badge bg-success">{{ item.상태 }}</span>
-                                {% elif item.상태 in ['불수용', '기타'] %}
-                                <span class="badge bg-danger">{{ item.상태 }}</span>
-                                {% elif item.상태 == '취하' %}
-                                <span class="badge bg-secondary text-white">{{ item.상태 }}</span>
-                                {% elif item.상태 == '일부수용' %}
-                                <span class="badge bg-warning text-dark">{{ item.상태 }}</span>
-                                {% elif item.상태 == '처리중' %}
-                                <span class="badge bg-primary">{{ item.상태 }}</span>
-                                {% elif item.상태 == '보완요청' %}
-                                <span class="badge text-white" style="background-color: #fd7e14;">{{ item.상태 }}</span>
+                                {% if item.결과 == '수용' %}
+                                <span class="badge bg-success">{{ item.결과 }}</span>
+                                {% elif item.결과 in ['불수용', '기타'] %}
+                                <span class="badge bg-danger">{{ item.결과 }}</span>
+                                {% elif item.결과 == '취하' %}
+                                <span class="badge bg-secondary text-white">{{ item.결과 }}</span>
+                                {% elif item.결과 == '일부수용' %}
+                                <span class="badge bg-warning text-dark">{{ item.결과 }}</span>
+                                {% elif item.결과 in ['처리중', '진행', '진행중', '검토중'] %}
+                                <span class="badge bg-primary">{{ item.결과 }}</span>
+                                {% elif item.결과 == '보완요청' %}
+                                <span class="badge text-white" style="background-color: #fd7e14;">{{ item.결과 }}</span>
                                 {% else %}
-                                <span class="badge bg-light text-dark border">{{ item.상태 }}</span>
+                                <span class="badge bg-light text-dark border">{{ item.결과 }}</span>
                                 {% endif %}
                             </td>
                             <td class="text-danger fw-bold">{{ item.범칙금_과태료 }}</td>
@@ -409,7 +409,7 @@
                                 <span class="badge bg-secondary text-white">{{ item.결과 }}</span>
                                 {% elif item.결과 == '일부수용' %}
                                 <span class="badge bg-warning text-dark">{{ item.결과 }}</span>
-                                {% elif item.결과 == '처리중' %}
+                                {% elif item.결과 in ['처리중', '진행', '진행중', '검토중'] %}
                                 <span class="badge bg-primary">{{ item.결과 }}</span>
                                 {% elif item.결과 == '보완요청' %}
                                 <span class="badge text-white" style="background-color: #fd7e14;">{{ item.결과 }}</span>

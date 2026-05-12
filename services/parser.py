@@ -4,6 +4,7 @@ from services import supplement_parser
 
 _C_NOW_STATUS = {0: "진행", 10: "답변완료", 11: "일부수용", 12: "검토중",
                  14: "불수용", 15: "기타", 20: "취하", 30: "이송"}
+_CANONICAL_DONE_STATUSES = {"수용", "일부수용", "불수용", "기타", "답변완료", "취하", "이송"}
 
 _REJECT_KEYWORDS = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
 _WARNING_KEYWORDS = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
@@ -146,7 +147,7 @@ def _parse_processing_result_table(result_soup, entry_value):
             processing_status_text = processing_status_td.get_text(strip=True)
 
     processing_finish_text = "N"
-    if processing_status_text in ["수용", "불수용", "일부수용", "기타", "검토중", "답변완료"]:
+    if processing_status_text in _CANONICAL_DONE_STATUSES:
         processing_finish_text = "Y"
 
     processing_agency_th = result_soup.find('th', string='처리기관')
@@ -262,12 +263,6 @@ def parse_details(driver, report_soup, result_soup=None, page_soup=None):
             "processing_finish": "N",
         }
 
-    if progress_status == "취하":
-        processing_details["processing_finish"] = "Y"
-        processing_details["processing_status"] = "취하"
-        processing_details["penalty_amount"] = ""
-        processing_details["penalty_points"] = ""
-
     all_details = {**report_details, **processing_details}
 
     supplement_rounds = supplement_parser.parse_supplement_rounds_from_html(page_soup)
@@ -277,15 +272,28 @@ def parse_details(driver, report_soup, result_soup=None, page_soup=None):
         if value:
             all_details[field] = value
 
-    # 보완요청이 열려 있고 페이지의 진행상황도 보완요청이면 detail 처리상태를 같은 의미로 통일.
-    if any(entry.get("is_open") == "Y" for entry in supplement_rounds) and progress_status == "보완요청":
-        all_details["processing_status"] = "보완요청"
-        all_details["processing_finish"] = "N"
+    supplement_open = any(entry.get("is_open") == "Y" for entry in supplement_rounds)
+    processing_status = (all_details.get("processing_status") or "").strip()
 
-    # 신고 자체가 종결된 경우(취하/답변완료 등) 미응답 round 도 더 이상 열린 상태가 아니다.
-    if progress_status != "보완요청":
+    if progress_status in ("취하", "이송"):
+        processing_status = progress_status
+    elif processing_status not in _CANONICAL_DONE_STATUSES and progress_status in _CANONICAL_DONE_STATUSES:
+        processing_status = progress_status
+
+    if processing_status in _CANONICAL_DONE_STATUSES:
+        all_details["processing_status"] = processing_status
+        all_details["processing_finish"] = "Y"
         for entry in supplement_rounds:
             entry["is_open"] = "N"
+        if processing_status == "취하":
+            all_details["penalty_amount"] = ""
+            all_details["penalty_points"] = ""
+    elif supplement_open or progress_status == "보완요청":
+        all_details["processing_status"] = "보완요청"
+        all_details["processing_finish"] = "N"
+    else:
+        all_details["processing_status"] = "처리중"
+        all_details["processing_finish"] = "N"
 
     all_details["supplement_summary"] = _build_supplement_summary(supplement_rounds)
 
@@ -312,7 +320,6 @@ def parse_json_details(result_data):
         content_text = result_data.get("C_A_BODY", "")
     content_text_clean = content_text.translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
     
-    import re
     entry_match = re.search(r'본 신고는 안전신문고 (?:앱의|포털의) (.*?) 메뉴로 접수된 신고입니다', content_text_clean)
     entry_value = entry_match.group(1).strip() if entry_match else result_data.get("C_APP_GUBUN_NM", "")
     
@@ -369,10 +376,7 @@ def parse_json_details(result_data):
         and c_now == 0
     )
 
-    if splmnt_open:
-        process_status = "보완요청"
-    else:
-        process_status = _C_NOW_STATUS.get(c_now, str(c_now) if c_now > 0 else "진행")
+    raw_status = _C_NOW_STATUS.get(c_now, str(c_now) if c_now > 0 else "진행")
     
     report_content = ""
     if content_text_clean:
@@ -396,10 +400,10 @@ def parse_json_details(result_data):
             
         if not processing_status or processing_status in ["진행", "처리중"]:
             # If C_NOW indicates completion but agency left status as 진행
-            if process_status in ["답변완료", "수용", "불수용", "일부수용", "기타"]:
-                processing_status = process_status
+            if raw_status in _CANONICAL_DONE_STATUSES:
+                processing_status = raw_status
                 
-        if processing_status in ["수용", "불수용", "일부수용", "기타", "검토중", "답변완료"]:
+        if processing_status in _CANONICAL_DONE_STATUSES:
             processing_finish = "Y"
         processing_agency = latest_ans.get("C_MANAGE_ORG_NAME", latest_ans.get("C_MANAGER_TYPE_NM", ""))
         person_in_charge = latest_ans.get("C_MANAGE_MAN", latest_ans.get("C_R_MOD_ID", ""))
@@ -487,24 +491,26 @@ def parse_json_details(result_data):
     attached_photos = "\n".join(img_links)
     attachment_files = "\n".join(other_links)
 
-    if not processing_status:
+    processing_status = (processing_status or "").strip()
+    if raw_status in ("취하", "이송"):
+        processing_status = raw_status
+    elif processing_status in _CANONICAL_DONE_STATUSES:
+        pass
+    elif processing_status not in _CANONICAL_DONE_STATUSES and raw_status in _CANONICAL_DONE_STATUSES:
+        processing_status = raw_status
+    elif splmnt_open:
+        processing_status = "보완요청"
+    else:
         processing_status = "처리중"
 
-    if process_status == "취하":
-        processing_finish = "Y"
-        processing_status = "취하"
+    processing_finish = "Y" if processing_status in _CANONICAL_DONE_STATUSES else "N"
+    if processing_status == "취하":
         penalty_amount = ""
         penalty_points = ""
 
-    # 현재 열려 있는 보완요청은 detail 처리상태도 동일하게 표시하고 종결여부=N 유지.
-    # 같은 흐름의 차량번호/시간/장소 override 는 위에서 이미 처리.
-    if splmnt_open and process_status == "보완요청":
-        processing_status = "보완요청"
-        processing_finish = "N"
-
     # JSON 만으로 마지막 round 요약 만들기. 다회차 이력 전체는 보존하지 않음.
     last_round = _build_last_supplement_round_from_json(result_data)
-    if last_round and process_status != "보완요청":
+    if last_round and processing_status != "보완요청":
         last_round["is_open"] = "N"
     supplement_summary = _build_supplement_summary(
         [last_round] if last_round else []
@@ -530,11 +536,12 @@ def parse_json_details(result_data):
         poll_status = '답변 대기'
     title_raw = result_data.get('C_A_TITLE', '')
     title_text = title_raw.split(')', 1)[-1].strip() if ')' in title_raw else title_raw.strip()
+    report_date = (result_data.get('C_DATE', '') or '').split()
     title_fields = {
-        '상태': process_status,
+        '상태': raw_status,
         '신고번호': result_data.get('STTEMNT_NO', ''),
         '신고명': title_text,
-        '신고일': (result_data.get('C_DATE', '') or '').split()[0],
+        '신고일': report_date[0] if report_date else '',
         '만족도조사여부': poll_status,
     }
 
@@ -544,7 +551,7 @@ def parse_json_details(result_data):
         "occurrence_date": occurrence_date,
         "occurrence_time": occurrence_time,
         "violation_location": violation_location,
-        "progress_status": process_status,
+        "progress_status": raw_status,
         "processing_status": processing_status,
         "processing_finish": processing_finish,
         "processing_agency": processing_agency,

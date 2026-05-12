@@ -368,7 +368,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
         accept_count += int((status_series == "수용").sum())
         reject_count += int(status_series.isin(["불수용", "기타"]).sum())
         partial_count += int((status_series == "일부수용").sum())
-        processing_count += int(status_series.isin(["처리중", "진행", "진행중"]).sum())
+        processing_count += int(status_series.isin(["처리중", "진행", "진행중", "검토중"]).sum())
         supplement_count += int((status_series == "보완요청").sum())
         completed_count += int(status_series.isin(["수용", "불수용", "일부수용", "기타", "답변완료"]).sum())
         withdraw_count += int((status_series == "취하").sum())
@@ -550,9 +550,9 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
 
         df["처리기관"] = df.get("처리기관", pd.Series()).fillna("알수없음")
         df["담당자"] = df.get("담당자", pd.Series()).fillna("미지정")
-        df["처리상태"] = df.get("처리상태", pd.Series()).fillna("진행중")
+        df["처리상태"] = df.get("처리상태", pd.Series()).fillna("처리중")
         df["범칙금_과태료"] = df.get("범칙금_과태료", pd.Series()).fillna("")
-        df = df[~((df["담당자"].isin(["", "미지정"])) & (df["처리상태"].isin(["처리중", "진행", "진행중", "취하"])))]
+        df = df[~((df["담당자"].isin(["", "미지정"])) & (df["처리상태"].isin(["처리중", "진행", "진행중", "검토중", "취하"])))]
 
         stats_person = []
         for (agency, person), group in df.groupby(["처리기관", "담당자"]):
