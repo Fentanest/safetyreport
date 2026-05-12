@@ -156,8 +156,12 @@
                 </div>
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">과태료</label>
+                <label class="form-label fw-bold">범칙금/과태료</label>
                 <input type="text" class="form-control" id="searchFine">
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold">보완횟수</label>
+                <input type="text" class="form-control" id="searchSupplementCount" placeholder="예: 1, 2">
             </div>
             <div class="col-12">
                 <label class="form-label fw-bold">별점</label>
@@ -323,7 +327,7 @@ $(document).ready(function() {
     const isDuplicate = '{{ table_id }}' === 'duplicateTable';
     const offset = isDuplicate ? 1 : 0;
     const searchState = { statuses: [], ratings: [] };
-    const preferredStatusOrder = ['수용', '일부수용', '불수용', '처리중', '진행', '진행중', '보완요청', '취하', '기타', '답변완료'];
+    const preferredStatusOrder = ['수용', '일부수용', '불수용', '처리중', '보완요청', '취하', '기타', '답변완료'];
     const ratingOptions = [
         { value: '__none__', label: '없음' },
         { value: '1', label: '1점' },
@@ -357,6 +361,14 @@ $(document).ready(function() {
         const numeric = Number(text);
         if (!Number.isFinite(numeric) || numeric <= 0) return '__none__';
         return String(Math.trunc(numeric));
+    }
+
+    function canonicalStatus(value) {
+        const status = String(value == null ? '' : value).trim();
+        if (status === '진행' || status === '진행중' || status === '처리중') {
+            return '처리중';
+        }
+        return status;
     }
 
     function summarizeSelections(options, values) {
@@ -427,13 +439,13 @@ $(document).ready(function() {
         const seen = new Set();
         const discovered = [];
         _tableData.forEach(function(row) {
-            const status = String(row['처리상태'] || '').trim();
+            const status = canonicalStatus(row['처리상태']);
             if (!status || seen.has(status)) return;
             seen.add(status);
             discovered.push(status);
         });
 
-        const ordered = preferredStatusOrder.filter(status => seen.has(status));
+        const ordered = preferredStatusOrder.slice();
         const extras = discovered
             .filter(status => !preferredStatusOrder.includes(status))
             .sort((a, b) => a.localeCompare(b, 'ko'));
@@ -785,6 +797,7 @@ $(document).ready(function() {
             if (!matchesAndOr(row['위반장소'], $('#searchLocation').val())) return false;
             if (!matchesAndOr(row['처리기관'], $('#searchAgency').val())) return false;
             if (!matchesAndOr(row['범칙금_과태료'], $('#searchFine').val())) return false;
+            if (!matchesAndOr(row['보완횟수'], $('#searchSupplementCount').val())) return false;
             if (!matchesAndOr(row['별점사유'], $('#searchRatingCause').val())) return false;
 
             var pollFilter = $('#searchPollStatus').val();
@@ -796,7 +809,7 @@ $(document).ready(function() {
             if (!matchesAndOr(row['처리내용'], $('#searchProcessContent').val())) return false;
 
             if (searchState.statuses.length) {
-                const currentStatus = String(row['처리상태'] || '').trim();
+                const currentStatus = canonicalStatus(row['처리상태']);
                 if (!searchState.statuses.includes(currentStatus)) return false;
             }
 
