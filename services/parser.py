@@ -641,20 +641,6 @@ def _build_last_supplement_round_from_json(result_data: dict) -> dict | None:
     }
 
 
-def _format_yyyy_mm_dd(value) -> str:
-    text = str(value or "")
-    if len(text) == 8 and text.isdigit():
-        return f"{text[:4]}-{text[4:6]}-{text[6:]}"
-    return ""
-
-
-def _format_hh_mm(value) -> str:
-    text = str(value or "")
-    if len(text) >= 4 and text[:4].isdigit():
-        return f"{text[:2]}:{text[2:4]}"
-    return ""
-
-
 def _format_phone(value) -> str:
     text = str(value or "").strip()
     if not text:

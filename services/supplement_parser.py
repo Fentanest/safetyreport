@@ -132,7 +132,8 @@ def parse_supplement_rounds_from_html(page_html_or_soup, *, source_type: str) ->
     """splmntDivBody 안의 모든 보완 round 를 추출해 list 로 돌려준다.
 
     source_type 는 history row 에 함께 저장되는 출처 라벨 ('legacy_html', 'api_html_supp', ...).
-    각 round dict 키 — _SUPPLEMENT_HISTORY_FIELDS 와 같은 한글 키 + round_no/is_open.
+    각 round dict 키 — 한글 필드명 (`보완_요청자`, `보완_요청자_연락처`, `보완_요청_일시`,
+    `보완_요청_내용`, `보완_완료_일시`, `신고자_보완_의견` ...) + round_no/is_open/source_type.
     """
     if not page_html_or_soup:
         return []
