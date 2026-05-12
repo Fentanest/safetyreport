@@ -26,10 +26,15 @@ DETAIL_COLUMNS = [
     "지도",
     "첨부사진",
     "첨부파일",
+    "보완횟수",
+    "보완_미응답",
+    "보완_요청_내용",
+    "보완_신고자_의견",
 ]
 
 
 def build_detail_dataframe(report_id: str, details: dict):
+    supplement = details.get("supplement_summary") or {}
     row_data = [
         report_id,
         details["processing_status"],
@@ -49,6 +54,10 @@ def build_detail_dataframe(report_id: str, details: dict):
         details["map_image"],
         details["attached_photos"],
         details["attachment_files"],
+        int(supplement.get("count") or 0),
+        supplement.get("is_open") or "N",
+        supplement.get("request_text") or "",
+        supplement.get("reporter_opinion") or "",
     ]
     logger.LoggerFactory.logbot.info(row_data)
     return pd.DataFrame([row_data], columns=DETAIL_COLUMNS)
@@ -108,5 +117,4 @@ def build_detail_result(
         entry_value,
         progress_status,
         title_fields,
-        details.get("supplement_history") or [],
     )

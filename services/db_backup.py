@@ -410,42 +410,6 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
             "group_id": mapped_group_id,
         })
 
-    # 모바일 standalone 이 자체 관리하는 보완 history (있을 때만).
-    supplement_history_records = []
-    try:
-        supp_rows = src_conn.execute("SELECT * FROM report_supplement_history").fetchall()
-        for row in supp_rows:
-            mapped = dict(row)
-            # 빠진 키는 빈 문자열로 채우고 round_no/synced_at 만 정수화.
-            record = {
-                "ID": str(mapped.get("ID", "")),
-                "round_no": int(mapped.get("round_no") or 0),
-                "신고번호": str(mapped.get("신고번호") or ""),
-                "보완_요청자": str(mapped.get("보완_요청자") or ""),
-                "보완_요청자_연락처": str(mapped.get("보완_요청자_연락처") or ""),
-                "보완_요청_일시": str(mapped.get("보완_요청_일시") or ""),
-                "보완_요청_내용": str(mapped.get("보완_요청_내용") or ""),
-                "보완_완료_일시": str(mapped.get("보완_완료_일시") or ""),
-                "신고자_보완_의견": str(mapped.get("신고자_보완_의견") or ""),
-                "신고자_보완_차량번호": str(mapped.get("신고자_보완_차량번호") or ""),
-                "신고자_보완_발생일자": str(mapped.get("신고자_보완_발생일자") or ""),
-                "신고자_보완_발생시각": str(mapped.get("신고자_보완_발생시각") or ""),
-                "신고자_보완_위반장소": str(mapped.get("신고자_보완_위반장소") or ""),
-                "신고자_보완_첨부파일": str(mapped.get("신고자_보완_첨부파일") or ""),
-                "신고자_보완_지도": str(mapped.get("신고자_보완_지도") or ""),
-                "is_open": str(mapped.get("is_open") or "N"),
-                "source_type": str(mapped.get("source_type") or "mobile_standalone"),
-                "synced_at": mapped.get("synced_at"),
-            }
-            if record["ID"] and record["round_no"]:
-                supplement_history_records.append(record)
-    except sqlite3.OperationalError:
-        # 모바일 standalone 빌드가 아직 없는 경우. 건너뛴다.
-        supplement_history_records = []
-    except Exception as exc:
-        logger.LoggerFactory.logbot.warning(f"모바일 보완 history 읽기 실패: {exc}")
-        supplement_history_records = []
-
     src_conn.close()
 
     # bulk INSERT (배치)
@@ -467,7 +431,6 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
         conn.execute(models.sync_meta_table.delete())
         conn.execute(models.duplicate_member_table.delete())
         conn.execute(models.duplicate_group_table.delete())
-        conn.execute(models.supplement_history_table.delete())
 
         # title
         for i in range(0, len(title_records), BATCH):
@@ -520,13 +483,6 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
                 models.sync_meta_table.insert(),
                 [{"key": "last_sync", "value": sync_meta_lookup["last_sync"]}],
             )
-
-        if supplement_history_records:
-            for i in range(0, len(supplement_history_records), BATCH):
-                conn.execute(
-                    models.supplement_history_table.insert(),
-                    supplement_history_records[i:i + BATCH],
-                )
 
     # title + detail → merge 재생성
     database.merge_final(engine)

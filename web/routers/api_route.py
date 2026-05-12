@@ -306,32 +306,6 @@ async def get_crawl_results(_: str = Depends(_require_api_key)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.get("/supplements/{record_id}")
-async def get_supplement_history(record_id: str, _: str = Depends(_require_api_key)):
-    try:
-        history = database.get_supplement_history_for_report(engine, record_id)
-        return {"status": "success", "count": len(history), "data": history}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.get("/supplements")
-async def get_supplements_overview(_: str = Depends(_require_api_key)):
-    """현재 열려 있는 (is_open=Y) 보완 round 만 모아 모바일 batch fetch 용으로 반환."""
-    try:
-        from sqlalchemy import select
-        with engine.connect() as conn:
-            rows = conn.execute(
-                select(database.supplement_history_table).where(
-                    database.supplement_history_table.c.is_open == "Y"
-                )
-            ).fetchall()
-        items = [dict(row._mapping) for row in rows]
-        return {"status": "success", "count": len(items), "data": items}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
 @router.get("/crawl/status")
 async def get_crawl_status(_: str = Depends(_require_api_key)):
     return {"status": "success", "running": crawl_manager.is_crawling()}

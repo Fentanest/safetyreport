@@ -8,6 +8,69 @@
 
 ---
 
+## 2026-05-12 (오후)
+
+### 보완요청 저장 모델 단순화 — 마지막 round 1세트 + 누적 횟수만 보존
+
+상태: 완료
+
+배경:
+- 같은 날 오전에 추가한 `mysafety_supplement_history` 다회차 보존 모델은 (a) API 모드에서 한 번 더 HTML 페이지를 크롤링해야 했고 (b) 모바일/웹 양쪽에 별도 endpoint·테이블·UI 가 필요해 비용 대비 정보 가치가 낮았다.
+- 정책 변경: 신고 row 에 **마지막 round 1세트 + 누적 횟수** 만 보존한다. 마지막 답변자와 최종 판정자가 다를 수 있으므로 보완 요청 내용 본문 prefix 에 요청자/연락처/요청·완료 일시를 함께 텍스트로 묶어 표시.
+
+변경:
+- `core/database/models.py`
+  - `mysafety_supplement_history` 테이블 정의 삭제
+  - `detail_traffic/parking/other_*`, `mysafetymerge_*` 에 `보완횟수 (INTEGER)`, `보완_미응답 (TEXT 'Y'/'N')`, `보완_요청_내용 (TEXT)`, `보완_신고자_의견 (TEXT)` 4개 컬럼 추가 — `upgrade_schema()` 가 기존 DB 에 ALTER TABLE 자동 적용
+- `core/database/database.py`
+  - `supplement_history_to_sql`, `get_supplement_history_for_report`, `get_open_supplement_count`, `_normalize_supplement_round`, `_SUPPLEMENT_HISTORY_FIELDS` 모두 삭제
+  - `_get_new_and_incomplete_ids()` 가 `detail.보완_미응답='Y'` 도 항상 재크롤링 대상에 포함하도록 일원화 (예전의 supplement_history 조회 + `처리상태='보완요청'` 이중 클로즈 제거)
+  - `detail_to_sql()` 다시 5-tuple 입력으로 복귀, 보완 history 별도 upsert 호출 없음
+  - `_merge_for_table()` SELECT 에 새 컬럼 4개 포함
+- `services/parser.py`
+  - `_build_supplement_summary(rounds)` 신규 — round 리스트 → `{count, is_open, request_text, reporter_opinion}` 단일 dict
+  - 레거시 `parse_details()` 가 round 리스트 추출 후 마지막 round 만 summary 로 압축. 본문 prefix: `"보완 요청자: <name> (<phone>) · 요청 일시: ... · 완료 일시: ..."` 또는 미응답 시 `완료 일시: (미응답)` 마커
+  - `parse_json_details()` 에서 `_build_last_supplement_round_from_json()` 으로 단일 round 추출. JSON 의 `SPLMNT_DMND_NO` 가 누적 횟수 source of truth
+  - 종결 상태(취하/답변완료 등) 인 신고는 미응답 마지막 round 도 `is_open='N'` 로 강제 마감
+  - `supplement_history` 키 emit 제거, 대신 `supplement_summary` 키 emit
+- `core/crawler/detail_pipeline.py`
+  - `DETAIL_COLUMNS` 에 보완요청 컬럼 4개 추가
+  - `build_detail_dataframe()` 가 `details["supplement_summary"]` 를 읽어 row 에 합쳐 넣음
+  - `build_detail_result()` 다시 5-tuple 반환 (supplement_history 제거)
+- `core/crawler/crawldetail_api.py`
+  - `_fetch_supplement_html_via_browser`, `_fetch_supplement_html_via_http`, `_maybe_enrich_supplement_history` 모두 삭제 — JSON 만으로 마지막 round 충분
+- `services/crawl_state_store.py`
+  - `save_crawl_changes()` 이 detail row 의 `보완횟수 / 보완_미응답 / 보완_요청_내용 / 보완_신고자_의견` 을 그대로 payload 에 옮긴다. `change_reason` 은 `보완_미응답='Y'` 또는 `처리상태='보완요청'` 이면 `supplement`
+  - `save_crawl_done_ext()` 의 report change 항목에 `supplement_count` 전파
+- `services/report_query_service.py`
+  - `_load_supplement_round_counts`, `_inject_supplement_counts` 삭제 (이제 `보완횟수` 가 detail/merge 의 실제 컬럼)
+- `services/report_stats_service.py`
+  - `_REPORT_FIELDS` 에 보완 컬럼 4개 추가 → recent_answers/watchlist 카드도 자동 포함
+  - 대시보드 별도 보완 카운트 후처리 코드 삭제
+- `services/db_backup.py`
+  - 모바일 → 서버 import 시 `report_supplement_history` round-trip 코드 삭제. 새 4 컬럼은 reports 테이블 import 경로에서 자연스레 따라옴
+- `web/routers/api_route.py`
+  - `GET /api/v1/supplements`, `GET /api/v1/supplements/{record_id}` 삭제
+- `web/routers/data.py`
+  - `GET /data/supplements/{record_id}` 삭제
+- `web/templates/base.html`
+  - 상세 모달의 `rdSupplements` 섹션을 마지막 round 단일 카드로 단순화. record.보완_요청_내용 / 보완_신고자_의견 / 보완횟수 / 보완_미응답 만 사용, 비동기 fetch 제거
+- `start.py`
+  - `--reset` drop 대상에서 `supplement_history_table` 제거
+
+검증:
+- `services.parser.parse_json_details(testresults/59614484)` → `progress_status='보완요청'`, `processing_finish='N'`, `supplement_summary={count:1, is_open:'Y', request_text=...}` (이민지 prefix 포함)
+- `services.parser.parse_json_details(testresults/40871819)` → `progress_status='취하'`, `supplement_summary={count:2, is_open:'N', request_text=...}` (마지막 round = 이미숙)
+- `parse_details()` 레거시 HTML 도 같은 4-key summary 산출. 다회차여도 마지막 round 만 보존 + count 정확.
+- `database.detail_to_sql([...])` 시나리오: 신규 → '신규', 같은 입력 → 빈 changed_item_ids, 보완 요약 변경 → '변경'. detail row `처리상태='보완요청'`, `보완_미응답='Y'`, `보완횟수=1`, `보완_요청_내용` prefix 정상.
+- `database.get_pending_detail_ids()` 가 `보완_미응답='Y'` row 를 항상 재크롤링 대상으로 포함.
+
+비고:
+- 마이그레이션: 이전 빌드의 `mysafety_supplement_history` 테이블은 그대로 남아 있어도 무해 (참조 없음). 다음 정기 정리 때 수동 DROP 권장.
+- 모바일 standalone 빌드도 같은 4 컬럼만 보존하도록 동시에 정리됨 (mobile 레포 별도 커밋).
+
+---
+
 ## 2026-05-12
 
 ### 보완요청 상태 및 다회차 보완 이력 보존

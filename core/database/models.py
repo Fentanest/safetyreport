@@ -35,6 +35,10 @@ def get_detail_columns():
         Column('첨부사진', String),
         Column('첨부파일', String),
         Column('synced_at', Integer),
+        Column('보완횟수', Integer),
+        Column('보완_미응답', String),
+        Column('보완_요청_내용', String),
+        Column('보완_신고자_의견', String),
     ]
 
 detail_traffic_table = Table(settings.table_detail_traffic, metadata, *get_detail_columns())
@@ -70,6 +74,10 @@ def get_merge_columns():
         Column('첨부사진', String),
         Column('첨부파일', String),
         Column('synced_at', Integer),
+        Column('보완횟수', Integer),
+        Column('보완_미응답', String),
+        Column('보완_요청_내용', String),
+        Column('보완_신고자_의견', String),
     ]
 
 merge_traffic_table = Table(settings.table_merge_traffic, metadata, *get_merge_columns())
@@ -128,22 +136,3 @@ duplicate_member_table = Table('mysafety_duplicate_member', metadata,
                                Column('created_at', Integer),
                                Column('updated_at', Integer))
 
-supplement_history_table = Table('mysafety_supplement_history', metadata,
-                                 Column('ID', String, primary_key=True),
-                                 Column('round_no', Integer, primary_key=True),
-                                 Column('신고번호', String),
-                                 Column('보완_요청자', String),
-                                 Column('보완_요청자_연락처', String),
-                                 Column('보완_요청_일시', String),
-                                 Column('보완_요청_내용', String),
-                                 Column('보완_완료_일시', String),
-                                 Column('신고자_보완_의견', String),
-                                 Column('신고자_보완_차량번호', String),
-                                 Column('신고자_보완_발생일자', String),
-                                 Column('신고자_보완_발생시각', String),
-                                 Column('신고자_보완_위반장소', String),
-                                 Column('신고자_보완_첨부파일', String),
-                                 Column('신고자_보완_지도', String),
-                                 Column('is_open', String, nullable=False, default='N'),
-                                 Column('source_type', String, nullable=False, default=''),
-                                 Column('synced_at', Integer))

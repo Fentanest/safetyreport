@@ -313,7 +313,8 @@ def get_unrated_records(engine):
 
         df_all = pd.concat(results, ignore_index=True)
         df_all = df_all.sort_values(by="신고번호", ascending=False)
-        return df_all.fillna("").to_dict("records")
+        records = df_all.fillna("").to_dict("records")
+        return records
 
 
 def get_all_watchlist(engine):
@@ -343,7 +344,8 @@ def get_all_watchlist(engine):
 
         df["감시목록"] = "Y"
         df = df.sort_values(by="신고번호", ascending=False)
-        return df.fillna("").to_dict("records")
+        records = df.fillna("").to_dict("records")
+        return records
 
 
 def update_watchlist_status(engine, report_numbers, status):

@@ -494,6 +494,43 @@ document.addEventListener('click', function(e) {
         return 'https://www.safetyreport.go.kr/#mypage/mysafereport/' + encodeURIComponent(id || '');
     }
 
+    function renderSupplementHistory(record) {
+        var section = document.getElementById('rdSupplements');
+        var bodyEl = document.getElementById('rdSupplementsBody');
+        var badgeEl = document.getElementById('rdSupplementsBadge');
+        if (!section || !bodyEl) return;
+
+        var count = parseInt(record['보완횟수'], 10);
+        var requestText = normalizeDisplayValue(record['보완_요청_내용']);
+        var opinion = normalizeDisplayValue(record['보완_신고자_의견']);
+        var isOpen = String(record['보완_미응답'] || 'N') === 'Y';
+
+        if ((!Number.isFinite(count) || count <= 0) && !requestText && !opinion) {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = '';
+        if (badgeEl) {
+            badgeEl.textContent = (Number.isFinite(count) && count > 0 ? (count + '회') : '');
+            badgeEl.style.display = (Number.isFinite(count) && count > 0) ? '' : 'none';
+        }
+
+        var statusBadge = isOpen
+            ? '<span class="badge bg-danger ms-1">미응답</span>'
+            : '<span class="badge bg-secondary ms-1">응답 완료</span>';
+
+        var html = '';
+        html += '<div class="fw-bold small mb-2">마지막 보완 요청' + statusBadge + '</div>';
+        if (requestText) {
+            html += '<div class="bg-light rounded p-2 border" style="font-size:.82rem;line-height:1.6;white-space:pre-wrap">' + esc(requestText) + '</div>';
+        }
+        if (opinion) {
+            html += '<div class="fw-bold text-muted small mt-2 mb-1">신고자 의견</div>';
+            html += '<div class="bg-light rounded p-2 border" style="font-size:.82rem;line-height:1.6;white-space:pre-wrap">' + esc(opinion) + '</div>';
+        }
+        bodyEl.innerHTML = html;
+    }
+
     function fileLabel(url, index) {
         var text = normalizeDisplayValue(url);
         return text.split('?')[0].split('/').filter(Boolean).pop() || ('파일 ' + index);
@@ -513,6 +550,7 @@ document.addEventListener('click', function(e) {
         document.getElementById('rdMedia').style.display = 'none';
         document.getElementById('rdVideos').style.display = 'none';
         document.getElementById('rdFiles').style.display = 'none';
+        document.getElementById('rdSupplements').style.display = 'none';
         document.getElementById('rdViewBtn').onclick = function() {
             var url = safetyUrl(normalizeDisplayValue(record['ID']));
             fetch('https://www.safetyreport.go.kr/', { mode: 'no-cors', cache: 'no-store' })
@@ -562,6 +600,9 @@ document.addEventListener('click', function(e) {
                 field('fas fa-calendar-day',     '발생일자',    occur) +
                 field('fas fa-star',             '별점',        ratingDisplay) +
                 field('fas fa-comment-dots',     '별점사유',    record['별점사유']);
+
+            // 보완 이력 (보완횟수 > 0 일 때만 비동기 로드)
+            renderSupplementHistory(record);
 
             // 신고내용
             var rc = document.getElementById('rdReportContent');
@@ -681,6 +722,10 @@ document.addEventListener('click', function(e) {
         <div id="rdProcessContent" class="mb-3" style="display:none">
           <div class="fw-bold text-muted small mb-1">처리내용</div>
           <div class="bg-light rounded p-2 border" style="font-size:.83rem;line-height:1.7;white-space:pre-wrap" id="rdProcessContentText"></div>
+        </div>
+        <div id="rdSupplements" class="mb-3" style="display:none">
+          <div class="fw-bold text-muted small mb-2">보완 요청 <span id="rdSupplementsBadge" class="badge text-white" style="background-color:#fd7e14;font-size:.7rem"></span></div>
+          <div id="rdSupplementsBody" class="border rounded p-2"></div>
         </div>
         <div id="rdMedia" class="mb-3" style="display:none">
           <div class="fw-bold text-muted small mb-2">첨부 사진</div>

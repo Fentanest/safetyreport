@@ -67,7 +67,6 @@ def _prepare_database(engine, reset=False):
             database.duplicate_group_table,
             database.entry_value_table,
             database.raw_content_table,
-            database.supplement_history_table,
             database.title_table,
             database.detail_traffic_table,
             database.detail_parking_table,

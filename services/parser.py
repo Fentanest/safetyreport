@@ -214,6 +214,54 @@ def _extract_supplement_history_from_legacy(page_soup):
     return supplement_parser.parse_supplement_rounds_from_html(page_soup, source_type="legacy_html")
 
 
+def _build_supplement_summary(rounds: list[dict] | None) -> dict:
+    """round 리스트를 detail row 에 저장할 단일 요약 dict 로 압축.
+
+    - count: 총 round 수
+    - is_open: 마지막 round 의 is_open (Y/N)
+    - request_text: 마지막 round 의 요청자/연락처/요청일시 prefix + 본문
+    - reporter_opinion: 마지막 round 의 신고자 보완 의견 (있을 때)
+
+    마지막 답변자와 최종 판정자가 다를 수 있으므로, 보완 요청자 정보를 본문 prefix 로 보존.
+    다회차 이력 전체는 별도 보관하지 않는다.
+    """
+    if not rounds:
+        return {"count": 0, "is_open": "N", "request_text": "", "reporter_opinion": ""}
+    last = rounds[-1]
+    requester = (last.get("보완_요청자") or "").strip()
+    phone = (last.get("보완_요청자_연락처") or "").strip()
+    requested_at = (last.get("보완_요청_일시") or "").strip()
+    completed_at = (last.get("보완_완료_일시") or "").strip()
+    content = (last.get("보완_요청_내용") or "").strip()
+
+    header_parts = []
+    if requester or phone:
+        meta = requester if requester else "(요청자 미상)"
+        if phone:
+            meta += f" ({phone})"
+        header_parts.append(f"보완 요청자: {meta}")
+    if requested_at:
+        header_parts.append(f"요청 일시: {requested_at}")
+    if completed_at:
+        header_parts.append(f"완료 일시: {completed_at}")
+    else:
+        header_parts.append("완료 일시: (미응답)")
+
+    if header_parts and content:
+        request_text = " · ".join(header_parts) + "\n\n" + content
+    elif header_parts:
+        request_text = " · ".join(header_parts)
+    else:
+        request_text = content
+
+    return {
+        "count": len(rounds),
+        "is_open": last.get("is_open") or "N",
+        "request_text": request_text,
+        "reporter_opinion": (last.get("신고자_보완_의견") or "").strip(),
+    }
+
+
 def _extract_poll_status_from_html(page_soup, progress_status):
     """btnArea 버튼 id와 진행상황으로 만족도조사여부 결정."""
     if page_soup:
@@ -273,7 +321,7 @@ def parse_details(driver, report_soup, result_soup=None, page_soup=None):
         for entry in supplement_rounds:
             entry["is_open"] = "N"
 
-    all_details["supplement_history"] = supplement_rounds
+    all_details["supplement_summary"] = _build_supplement_summary(supplement_rounds)
 
     # title 갱신용 필드 구성
     report_number = all_details.pop("_report_number_raw", "")
@@ -488,13 +536,16 @@ def parse_json_details(result_data):
         processing_status = "보완요청"
         processing_finish = "N"
 
-    # JSON 만으로 만들 수 있는 보완 history 조각.
-    # 보통 직전 완료 round + 현재 open round 일부만 포함되며, HTML 전체 이력으로 덮어쓰는 게 권장.
-    # 신고 자체가 종결된 경우(취하/답변완료 등) 미응답 round 도 더 이상 열린 상태가 아니다.
-    supplement_history = _build_supplement_history_from_json(result_data)
-    if process_status != "보완요청":
-        for entry in supplement_history:
-            entry["is_open"] = "N"
+    # JSON 만으로 마지막 round 요약 만들기. 다회차 이력 전체는 보존하지 않음.
+    last_round = _build_last_supplement_round_from_json(result_data)
+    if last_round and process_status != "보완요청":
+        last_round["is_open"] = "N"
+    supplement_summary = _build_supplement_summary(
+        [last_round] if last_round else []
+    )
+    if last_round:
+        # 횟수는 SPLMNT_DMND_NO 가 더 정확 (직전 round 까지 누적된 라운드 번호).
+        supplement_summary["count"] = max(splmnt_dmnd_no, supplement_summary["count"])
 
     # title 갱신용 필드 구성
     c_now_int = result_data.get('C_NOW', 0)
@@ -542,12 +593,7 @@ def parse_json_details(result_data):
         "attached_photos": attached_photos,
         "map_image": map_image,
         "title_fields": title_fields,
-        "supplement_history": supplement_history,
-        "supplement_meta": {
-            "open": bool(splmnt_open),
-            "dmnd_no": splmnt_dmnd_no,
-            "has_trace": bool(splmnt_dmnd_no) or bool(result_data.get("SPLMNT_DMND_CONTENTS")),
-        },
+        "supplement_summary": supplement_summary,
     }
 
 
@@ -561,71 +607,38 @@ def _format_epoch_millis_to_datetime(epoch_ms) -> str:
         return ""
 
 
-def _build_supplement_history_from_json(result_data: dict) -> list[dict]:
-    """API JSON 으로부터 추출 가능한 보완 round 조각을 만든다. 한계가 크니 HTML 로 보강하는 것이 권장."""
-    rounds: list[dict] = []
+def _build_last_supplement_round_from_json(result_data: dict) -> dict | None:
+    """API JSON 응답에서 가장 최근(=현재) round 한 건만 dict 로 만든다.
+
+    SPA 의 다회차 보완 history 전체는 별도 AJAX 가 채우므로 JSON 만으로는 알 수 없다.
+    프로젝트 정책상 마지막 round 1개와 누적 횟수만 보존한다.
+    """
     dmnd_no = result_data.get("SPLMNT_DMND_NO") or 0
     try:
         dmnd_no = int(dmnd_no)
     except (TypeError, ValueError):
         dmnd_no = 0
     if dmnd_no <= 0 and not result_data.get("SPLMNT_DMND_CONTENTS") and not result_data.get("SPLMNT_CMPTN_DT"):
-        return rounds
+        return None
 
-    # 직전 완료 round (있다면) 부터.
-    if result_data.get("SPLMNT_CMPTN_DT") and dmnd_no >= 1:
-        prev_round_no = max(dmnd_no - 1, 1) if dmnd_no > 1 else dmnd_no
-        opinion = result_data.get("SPLMNT_ANS_CONTENTS") or ""
-        loc = (result_data.get("SPLMNT_RN_ADRES") or result_data.get("SPLMNT_C_A_ADD2") or "").strip()
-        rounds.append({
-            "round_no": prev_round_no,
-            "보완_요청자": "",
-            "보완_요청자_연락처": "",
-            "보완_요청_일시": "",
-            "보완_완료_일시": _format_epoch_millis_to_datetime(result_data.get("SPLMNT_CMPTN_DT")),
-            "보완_요청_내용": "",
-            "신고자_보완_의견": opinion,
-            "신고자_보완_차량번호": (result_data.get("SPLMNT_VHRNO") or "").strip(),
-            "신고자_보완_발생일자": _format_yyyy_mm_dd(result_data.get("SPLMNT_DEVEL_DATE")),
-            "신고자_보완_발생시각": _format_hh_mm(result_data.get("SPLMNT_DEVEL_TIME")),
-            "신고자_보완_위반장소": loc,
-            "신고자_보완_첨부파일": "",
-            "신고자_보완_지도": "",
-            "is_open": "N",
-            "source_type": "api_json",
-        })
-
-    # 현재 round (열려 있거나 가장 최근 round).
-    if dmnd_no >= 1:
-        is_open = "Y" if result_data.get("SPLMNT_FNSH_YN") == "N" and result_data.get("SPLMNT_CMPTN_YN") == "N" else "N"
-        rounds.append({
-            "round_no": dmnd_no,
-            "보완_요청자": result_data.get("SPLMNT_RQSTR") or "",
-            "보완_요청자_연락처": _format_phone(result_data.get("SPLMNT_RQSTR_TELNO")),
-            "보완_요청_일시": _format_epoch_millis_to_datetime(result_data.get("SPLMNT_DMND_DT")),
-            "보완_완료_일시": _format_epoch_millis_to_datetime(result_data.get("SPLMNT_FNSH_DT")),
-            "보완_요청_내용": result_data.get("SPLMNT_DMND_CONTENTS") or "",
-            "신고자_보완_의견": "" if is_open == "Y" else (result_data.get("SPLMNT_ANS_CONTENTS") or ""),
-            "신고자_보완_차량번호": "",
-            "신고자_보완_발생일자": "",
-            "신고자_보완_발생시각": "",
-            "신고자_보완_위반장소": "",
-            "신고자_보완_첨부파일": "",
-            "신고자_보완_지도": "",
-            "is_open": is_open,
-            "source_type": "api_json",
-        })
-
-    # round_no 중복 제거 (직전 완료 round 가 현재 round 와 같은 번호로 충돌하지 않게).
-    seen = set()
-    deduped = []
-    for entry in rounds:
-        round_no = entry["round_no"]
-        if round_no in seen:
-            continue
-        seen.add(round_no)
-        deduped.append(entry)
-    return deduped
+    is_open = (
+        "Y"
+        if result_data.get("SPLMNT_FNSH_YN") == "N"
+        and result_data.get("SPLMNT_CMPTN_YN") == "N"
+        else "N"
+    )
+    return {
+        "round_no": max(dmnd_no, 1),
+        "보완_요청자": result_data.get("SPLMNT_RQSTR") or "",
+        "보완_요청자_연락처": _format_phone(result_data.get("SPLMNT_RQSTR_TELNO")),
+        "보완_요청_일시": _format_epoch_millis_to_datetime(result_data.get("SPLMNT_DMND_DT")),
+        "보완_완료_일시": _format_epoch_millis_to_datetime(result_data.get("SPLMNT_FNSH_DT")),
+        "보완_요청_내용": result_data.get("SPLMNT_DMND_CONTENTS") or "",
+        "신고자_보완_의견": ""
+        if is_open == "Y"
+        else (result_data.get("SPLMNT_ANS_CONTENTS") or ""),
+        "is_open": is_open,
+    }
 
 
 def _format_yyyy_mm_dd(value) -> str:

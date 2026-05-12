@@ -268,6 +268,7 @@
                     <th style="width: 270.64px;">처리기관</th>
                     <th style="width: 44.17px;">담당자</th>
                     <th style="width: 64.19px;">답변일</th>
+                    <th style="width: 48px;">보완</th>
                     <th style="width: 64.19px;">발생일자</th>
                     <th style="width: 58.89px;">발생시각</th>
                     <th style="width: 310.45px;">위반장소</th>
@@ -559,6 +560,13 @@ $(document).ready(function() {
         { data: '처리기관' },
         { data: '담당자' },
         { data: '답변일' },
+        { data: '보완횟수', className: 'text-center',
+          render: (d, t) => {
+              const n = parseInt(d, 10);
+              if (t !== 'display') return Number.isFinite(n) ? n : 0;
+              if (!Number.isFinite(n) || n <= 0) return '';
+              return `<span class="badge text-white" style="background-color: #fd7e14;">${n}회</span>`;
+          } },
         { data: '발생일자' },
         { data: '발생시각', className: 'text-center' },
         { data: '위반장소',
@@ -589,7 +597,7 @@ $(document).ready(function() {
     const colFields = [
         null, 'ID', '상태', '신고번호', '신고명', '신고일', '처리상태', '차량번호',
         ...(isDuplicate ? ['valid_count'] : []),
-        '위반법규', '범칙금_과태료', '벌점', '처리기관', '담당자', '답변일', '발생일자',
+        '위반법규', '범칙금_과태료', '벌점', '처리기관', '담당자', '답변일', '보완횟수', '발생일자',
         '발생시각', '위반장소', '종결여부', '신고내용', '처리내용', '지도',
         '첨부사진', '첨부파일', '만족도조사여부', '별점', '별점사유', '감시목록'
     ];
@@ -619,19 +627,20 @@ $(document).ready(function() {
             { targets: 11 + offset, width: '270.64px' },
             { targets: 12 + offset, width: '44.17px' },
             { targets: 13 + offset, width: '64.19px' },
-            { targets: 14 + offset, width: '64.19px' },
-            { targets: 15 + offset, width: '58.89px' },
-            { targets: 16 + offset, width: '310.45px' },
-            { targets: 17 + offset, width: '58.89px' },
-            { targets: 18 + offset, width: '182px' },
+            { targets: 14 + offset, width: '48px' },
+            { targets: 15 + offset, width: '64.19px' },
+            { targets: 16 + offset, width: '58.89px' },
+            { targets: 17 + offset, width: '310.45px' },
+            { targets: 18 + offset, width: '58.89px' },
             { targets: 19 + offset, width: '182px' },
-            { targets: 20 + offset, width: '40.89px' },
-            { targets: 21 + offset, width: '71.63px' },
+            { targets: 20 + offset, width: '182px' },
+            { targets: 21 + offset, width: '40.89px' },
             { targets: 22 + offset, width: '71.63px' },
-            { targets: 23 + offset, width: '73.61px' },
-            { targets: 24 + offset, width: '58.89px' },
-            { targets: 25 + offset, width: '182px' },
-            { targets: 26 + offset, width: '58.89px' }
+            { targets: 23 + offset, width: '71.63px' },
+            { targets: 24 + offset, width: '73.61px' },
+            { targets: 25 + offset, width: '58.89px' },
+            { targets: 26 + offset, width: '182px' },
+            { targets: 27 + offset, width: '58.89px' }
         ],
         language: {
             url: '//cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json'
