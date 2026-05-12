@@ -10,7 +10,7 @@ import re
 from .models import (metadata, title_table, detail_traffic_table, detail_parking_table, detail_other_table,
                      merge_traffic_table, merge_parking_table, merge_other_table, watchlist_table, admin_users_table,
                      api_keys_table, entry_value_table, raw_content_table, sync_meta_table,
-                     duplicate_group_table, duplicate_member_table)
+                     duplicate_group_table, duplicate_member_table, supplement_history_table)
 
 
 def _current_epoch_millis() -> int:
@@ -267,12 +267,34 @@ def _get_new_and_incomplete_ids(conn):
         (detail_other_table.c.종결여부 != 'Y')
     )
 
+    # detail에 종결여부=N 인 보완요청 진행 중 row 도 항상 재크롤링 대상으로 본다.
+    # 같은 신고에 추가 보완 round 가 붙거나 답변이 달렸을 때 자동 반영.
+    query_open_supplement = select(supplement_history_table.c.ID.label('ID')).where(
+        supplement_history_table.c.is_open == 'Y'
+    )
+
+    # 처리상태='보완요청' 인 detail 도 (title 과 상태가 일치하더라도) 재크롤링 대상.
+    # 추가 보완 round / 답변 변화를 잡기 위함.
+    supplement_status_queries = [
+        select(detail_traffic_table.c.ID).where(detail_traffic_table.c.처리상태 == '보완요청'),
+        select(detail_parking_table.c.ID).where(detail_parking_table.c.처리상태 == '보완요청'),
+        select(detail_other_table.c.ID).where(detail_other_table.c.처리상태 == '보완요청'),
+    ]
+
     df_new = pd.read_sql_query(query_new, conn)
     df_changed_t = pd.read_sql_query(query_changed_traffic, conn)
     df_changed_p = pd.read_sql_query(query_changed_parking, conn)
     df_changed_o = pd.read_sql_query(query_changed_other, conn)
+    df_open_supplement = pd.read_sql_query(query_open_supplement, conn)
+    df_supplement_status = pd.concat(
+        [pd.read_sql_query(q, conn) for q in supplement_status_queries],
+        ignore_index=True,
+    )
 
-    merged = pd.concat([df_new, df_changed_t, df_changed_p, df_changed_o]).drop_duplicates()
+    merged = pd.concat([
+        df_new, df_changed_t, df_changed_p, df_changed_o,
+        df_open_supplement, df_supplement_status,
+    ]).drop_duplicates()
     return merged
 
 def get_pending_detail_ids(engine, force=False):
@@ -383,14 +405,18 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
     total_records = 0
 
     for item in dataframes_with_category:
-        # 2~5-tuple 모두 지원
+        # 2~6-tuple 모두 지원
         # (df, category)
         # (df, category, entry_value)
         # (df, category, entry_value, progress_status)
         # (df, category, entry_value, progress_status, title_fields)
+        # (df, category, entry_value, progress_status, title_fields, supplement_history)
         progress_status = None
         title_fields = None
-        if len(item) == 5:
+        supplement_history = None
+        if len(item) == 6:
+            df, category, entry_value, progress_status, title_fields, supplement_history = item
+        elif len(item) == 5:
             df, category, entry_value, progress_status, title_fields = item
         elif len(item) == 4:
             df, category, entry_value, progress_status = item
@@ -499,6 +525,25 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
                             .values(상태=title_status)
                         )
                 # engine.begin() 블록 종료 시 자동 commit
+
+            # 보완 history 는 별도 트랜잭션으로 처리.
+            # detail 자체가 변하지 않았더라도 history 변경이 있으면 알림 대상으로 본다.
+            if supplement_history is not None:
+                report_number_for_history = (title_fields or {}).get("신고번호", "") if title_fields else ""
+                normalized_rounds = []
+                for entry in supplement_history:
+                    entry = dict(entry or {})
+                    entry.setdefault("신고번호", report_number_for_history or "")
+                    normalized_rounds.append(entry)
+                try:
+                    history_changed = supplement_history_to_sql(engine, record_id, normalized_rounds)
+                except Exception as supp_exc:
+                    logger.LoggerFactory.logbot.error(
+                        f"ID {record_id} 보완 history 저장 실패: {supp_exc}"
+                    )
+                else:
+                    if history_changed and not is_new and not is_changed:
+                        changed_item_ids.append({"id": record_id, "change_type": "변경"})
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"ID {record_id} upsert 실패, 건너뜀: {e}")
 
@@ -508,6 +553,130 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
 
 def deatil_to_sql(dataframes_with_category, engine, conn=None):
     return detail_to_sql(dataframes_with_category=dataframes_with_category, engine=engine, conn=conn)
+
+_SUPPLEMENT_HISTORY_FIELDS = [
+    "신고번호",
+    "보완_요청자",
+    "보완_요청자_연락처",
+    "보완_요청_일시",
+    "보완_요청_내용",
+    "보완_완료_일시",
+    "신고자_보완_의견",
+    "신고자_보완_차량번호",
+    "신고자_보완_발생일자",
+    "신고자_보완_발생시각",
+    "신고자_보완_위반장소",
+    "신고자_보완_첨부파일",
+    "신고자_보완_지도",
+    "is_open",
+    "source_type",
+]
+
+
+def _normalize_supplement_round(record_id: str, round_no: int, fields: dict) -> dict:
+    row = {"ID": str(record_id), "round_no": int(round_no)}
+    for field in _SUPPLEMENT_HISTORY_FIELDS:
+        value = fields.get(field, "")
+        if value is None:
+            value = ""
+        row[field] = str(value)
+    return row
+
+
+def supplement_history_to_sql(engine, record_id: str, rounds: list[dict] | None) -> bool:
+    """주어진 신고의 보완 이력을 통째로 다시 쓴다. row-level diff 여부를 반환.
+
+    rounds: [{round_no, 신고번호, 보완_요청자, ..., is_open, source_type}, ...]
+    각 round 항목은 _SUPPLEMENT_HISTORY_FIELDS 의 키를 가진다 (없는 키는 빈 문자열).
+    """
+    if record_id is None:
+        return False
+
+    record_id = str(record_id)
+    rounds = rounds or []
+    now_ms = _current_epoch_millis()
+
+    incoming_rows = []
+    for entry in rounds:
+        round_no = entry.get("round_no")
+        if round_no is None:
+            continue
+        try:
+            round_no = int(round_no)
+        except (TypeError, ValueError):
+            continue
+        incoming_rows.append(_normalize_supplement_round(record_id, round_no, entry))
+
+    with engine.begin() as conn:
+        existing_rows = [dict(row._mapping) for row in conn.execute(
+            select(supplement_history_table).where(supplement_history_table.c.ID == record_id)
+        ).fetchall()]
+
+        existing_by_round = {int(row["round_no"]): row for row in existing_rows}
+        incoming_by_round = {row["round_no"]: row for row in incoming_rows}
+
+        changed = False
+
+        for round_no, new_row in incoming_by_round.items():
+            existing = existing_by_round.get(round_no)
+            preserved_synced_at = existing.get("synced_at") if existing else None
+            is_changed_row = True
+            if existing:
+                is_changed_row = False
+                for field in _SUPPLEMENT_HISTORY_FIELDS:
+                    if str(existing.get(field) or "") != str(new_row.get(field) or ""):
+                        is_changed_row = True
+                        break
+            if is_changed_row:
+                changed = True
+                new_row["synced_at"] = now_ms
+            else:
+                new_row["synced_at"] = preserved_synced_at
+
+            stmt = insert(supplement_history_table).values(new_row)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['ID', 'round_no'],
+                set_={col.name: getattr(stmt.excluded, col.name)
+                      for col in supplement_history_table.c
+                      if col.name not in ('ID', 'round_no')}
+            )
+            conn.execute(stmt)
+
+        # 사라진 round 는 제거 (서버 측에서 round 가 줄어드는 일은 거의 없지만 정합성 유지).
+        removed_rounds = set(existing_by_round.keys()) - set(incoming_by_round.keys())
+        for round_no in removed_rounds:
+            changed = True
+            conn.execute(
+                supplement_history_table.delete()
+                .where(supplement_history_table.c.ID == record_id)
+                .where(supplement_history_table.c.round_no == round_no)
+            )
+
+    return changed
+
+
+def get_supplement_history_for_report(engine, record_id: str) -> list[dict]:
+    if not record_id:
+        return []
+    record_id = str(record_id)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(supplement_history_table)
+            .where(supplement_history_table.c.ID == record_id)
+            .order_by(supplement_history_table.c.round_no.asc())
+        ).fetchall()
+    return [dict(row._mapping) for row in rows]
+
+
+def get_open_supplement_count(engine) -> int:
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(func.count())
+            .select_from(supplement_history_table)
+            .where(supplement_history_table.c.is_open == 'Y')
+        ).scalar()
+    return int(row or 0)
+
 
 def _merge_for_table(conn, merge_target, detail_source):
     conn.execute(merge_target.delete())

@@ -134,7 +134,7 @@
         </div>
 
         <div class="row mb-1">
-            <div class="col-md-6 col-lg-3 mb-3">
+            <div class="col-md-6 col-lg mb-3">
                 <div class="card card-custom bg-primary text-white h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/all'">
                     <div class="card-body text-center">
                         <h6 class="card-title fw-bold">총 신고</h6>
@@ -142,7 +142,15 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-6 col-lg-3 mb-3">
+            <div class="col-md-6 col-lg mb-3">
+                <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #fd7e14; cursor: pointer;" onclick="window.location.href='/data/all?status=보완요청'">
+                    <div class="card-body text-center">
+                        <h6 class="card-title fw-bold">보완 요청</h6>
+                        <h3 class="card-text fw-bold">{{ supplementCount }}</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6 col-lg mb-3">
                 <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #6c757d; cursor: pointer;" onclick="window.location.href='/data/all?status=처리중'">
                     <div class="card-body text-center">
                         <h6 class="card-title fw-bold">처리 중</h6>
@@ -150,7 +158,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-6 col-lg-3 mb-3">
+            <div class="col-md-6 col-lg mb-3">
                 <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #0dcaf0; cursor: pointer;" onclick="window.location.href='/data/all?status=완료'">
                     <div class="card-body text-center">
                         <h6 class="card-title fw-bold">답변 완료</h6>
@@ -158,7 +166,7 @@
                     </div>
                 </div>
             </div>
-            <div class="col-md-6 col-lg-3 mb-3">
+            <div class="col-md-6 col-lg mb-3">
                 <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #adb5bd; cursor: pointer;" onclick="window.location.href='/data/all?status=취하'">
                     <div class="card-body text-center">
                         <h6 class="card-title fw-bold">취하</h6>
@@ -211,6 +219,11 @@
                     <div class="progress-bar bg-light text-dark progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ processing_pct }}%">
                         {{ processing_pct }}%
                     </div>
+                    {% if supplementCount > 0 %}
+                    <div class="progress-bar progress-bar-striped progress-bar-animated text-white" role="progressbar" style="background-color: #fd7e14; width: 0%; transition: width 1.5s ease" data-width="{{ supplement_pct }}%">
+                        {{ supplement_pct }}%
+                    </div>
+                    {% endif %}
                     {% if not exclude_withdraw and withdrawCount > 0 %}
                     <div class="progress-bar bg-secondary text-white progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ withdraw_pct }}%">
                         {{ withdraw_pct }}%
@@ -343,6 +356,8 @@
                                 <span class="badge bg-warning text-dark">{{ item.상태 }}</span>
                                 {% elif item.상태 == '처리중' %}
                                 <span class="badge bg-primary">{{ item.상태 }}</span>
+                                {% elif item.상태 == '보완요청' %}
+                                <span class="badge text-white" style="background-color: #fd7e14;">{{ item.상태 }}</span>
                                 {% else %}
                                 <span class="badge bg-light text-dark border">{{ item.상태 }}</span>
                                 {% endif %}
@@ -396,6 +411,8 @@
                                 <span class="badge bg-warning text-dark">{{ item.결과 }}</span>
                                 {% elif item.결과 == '처리중' %}
                                 <span class="badge bg-primary">{{ item.결과 }}</span>
+                                {% elif item.결과 == '보완요청' %}
+                                <span class="badge text-white" style="background-color: #fd7e14;">{{ item.결과 }}</span>
                                 {% else %}
                                 <span class="badge bg-light text-dark border">{{ item.결과 }}</span>
                                 {% endif %}

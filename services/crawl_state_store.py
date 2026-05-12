@@ -78,10 +78,19 @@ def save_crawl_changes(engine, changed_item_ids, duplicate_changes=None):
     changes = []
     for record in changed_records:
         record_id = record.get("ID", "")
+        history = database.get_supplement_history_for_report(engine, record_id)
+        latest_round = history[-1] if history else None
+        supplement_open = any((r.get("is_open") == "Y") for r in history)
+        is_supplement_status = str(record.get("처리상태", "")) == "보완요청"
+        change_reason = "supplement" if (supplement_open or is_supplement_status) else "report"
         changes.append({
             "notification_kind": "report",
             "ID": str(record_id),
             "change_type": change_type_map.get(record_id, "변경"),
+            "change_reason": change_reason,
+            "supplement_open": bool(supplement_open),
+            "supplement_round_no": int(latest_round["round_no"]) if latest_round else 0,
+            "supplement_round_count": len(history),
             "신고번호": str(record.get("신고번호", "")),
             "신고명": str(record.get("신고명", "")),
             "신고일": str(record.get("신고일", "")),
@@ -160,6 +169,9 @@ def save_crawl_done_ext(changed_count: int, changes: list):
                     "신고명": change.get("신고명", ""),
                     "처리상태": change.get("처리상태", ""),
                     "notification_kind": "report",
+                    "change_reason": change.get("change_reason", "report"),
+                    "supplement_open": change.get("supplement_open", False),
+                    "supplement_round_no": change.get("supplement_round_no", 0),
                 }
                 for change in report_changes
             ] + [

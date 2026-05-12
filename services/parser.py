@@ -1,7 +1,12 @@
 import re
 
+from services import supplement_parser
+
 _C_NOW_STATUS = {0: "진행", 10: "답변완료", 11: "일부수용", 12: "검토중",
                  14: "불수용", 15: "기타", 20: "취하", 30: "이송"}
+
+# 완료 답변 진행상황 (보완요청/검토중 등 진행성 상태는 종결되지 않은 것으로 본다)
+_TERMINAL_PROGRESS_STATUSES = {"답변완료", "수용", "불수용", "일부수용", "기타", "취하", "이송"}
 
 _REJECT_KEYWORDS = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
 _WARNING_KEYWORDS = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
@@ -202,38 +207,11 @@ def _parse_processing_result_table(result_soup, entry_value):
         "processing_finish": processing_finish_text,
     }
 
-def _extract_supplement_overrides_from_html(page_soup):
-    """splmntDivBody의 마지막 보완 테이블이 완료 확정이면 수정 필드 반환, 아니면 None."""
+def _extract_supplement_history_from_legacy(page_soup):
+    """레거시 상세 페이지에서 보완 round 전체를 추출. (None 이면 빈 리스트)"""
     if not page_soup:
-        return None
-    splmnt_div = page_soup.find('div', id='splmntDivBody')
-    if not splmnt_div:
-        return None
-    tables = splmnt_div.find_all('table')
-    if not tables:
-        return None
-    last_text = tables[-1].get_text(' ', strip=True)
-    import re as _re
-    if not _re.search(r'보완 완료 일시\s+\d{4}-\d{2}-\d{2}', last_text):
-        return None
-    opinion_match = _re.search(r'신고자 보완 의견\s+(.+?)(?:신고자 보완 첨부파일|$)', last_text, _re.DOTALL)
-    if not opinion_match:
-        return None
-    opinion = opinion_match.group(1).strip()
-    result = {}
-    m = _re.search(r'차량번호\s*:\s*(.*?)(?=\*|\Z|\n)', opinion)
-    if m:
-        result['car_number'] = _re.sub(r'\s+', '', m.group(1))
-    m = _re.search(r'발생일자\s*:\s*(\d{4})\.(\d{1,2})\.(\d{1,2})\.?', opinion)
-    if m:
-        result['occurrence_date'] = f"{m.group(1)}-{m.group(2).zfill(2)}-{m.group(3).zfill(2)}"
-    m = _re.search(r'발생시각\s*:\s*(\d{2}:\d{2})', opinion)
-    if m:
-        result['occurrence_time'] = m.group(1)
-    m = _re.search(r'위반장소\s*:\s*(.+?)(?=\*|\Z|\n)', opinion)
-    if m:
-        result['violation_location'] = m.group(1).strip()
-    return result if result else None
+        return []
+    return supplement_parser.parse_supplement_rounds_from_html(page_soup, source_type="legacy_html")
 
 
 def _extract_poll_status_from_html(page_soup, progress_status):
@@ -278,12 +256,24 @@ def parse_details(driver, report_soup, result_soup=None, page_soup=None):
 
     all_details = {**report_details, **processing_details}
 
-    # 보완 완료 확정 시 신고 정보 갱신 (레거시 HTML 방식)
-    splmnt = _extract_supplement_overrides_from_html(page_soup)
-    if splmnt:
-        for field in ('car_number', 'occurrence_date', 'occurrence_time', 'violation_location'):
-            if field in splmnt:
-                all_details[field] = splmnt[field]
+    supplement_rounds = _extract_supplement_history_from_legacy(page_soup)
+
+    # 마지막 완료 보완 round 기준으로 차량번호/시간/장소 override.
+    for field, value in supplement_parser.latest_completed_overrides(supplement_rounds).items():
+        if value:
+            all_details[field] = value
+
+    # 보완요청이 열려 있고 페이지의 진행상황도 보완요청이면 detail 처리상태를 같은 의미로 통일.
+    if supplement_parser.has_open_round(supplement_rounds) and progress_status == "보완요청":
+        all_details["processing_status"] = "보완요청"
+        all_details["processing_finish"] = "N"
+
+    # 신고 자체가 종결된 경우(취하/답변완료 등) 미응답 round 도 더 이상 열린 상태가 아니다.
+    if progress_status != "보완요청":
+        for entry in supplement_rounds:
+            entry["is_open"] = "N"
+
+    all_details["supplement_history"] = supplement_rounds
 
     # title 갱신용 필드 구성
     report_number = all_details.pop("_report_number_raw", "")
@@ -344,14 +334,31 @@ def parse_json_details(result_data):
         splmnt_loc = (result_data.get('SPLMNT_RN_ADRES') or result_data.get('SPLMNT_C_A_ADD2') or '').strip()
         if splmnt_loc:
             violation_location = splmnt_loc
-    
+
     c_now = result_data.get("C_NOW", 0)
     try:
         c_now = int(float(c_now))
     except:
         pass
-        
-    process_status = _C_NOW_STATUS.get(c_now, str(c_now) if c_now > 0 else "진행")
+
+    answers = result_data.get("answers", []) or []
+    splmnt_dmnd_no = result_data.get("SPLMNT_DMND_NO") or 0
+    try:
+        splmnt_dmnd_no = int(splmnt_dmnd_no)
+    except (TypeError, ValueError):
+        splmnt_dmnd_no = 0
+    splmnt_open = (
+        splmnt_dmnd_no > 0
+        and result_data.get("SPLMNT_FNSH_YN") == "N"
+        and result_data.get("SPLMNT_CMPTN_YN") == "N"
+        and not answers
+        and c_now == 0
+    )
+
+    if splmnt_open:
+        process_status = "보완요청"
+    else:
+        process_status = _C_NOW_STATUS.get(c_now, str(c_now) if c_now > 0 else "진행")
     
     report_content = ""
     if content_text_clean:
@@ -366,8 +373,7 @@ def parse_json_details(result_data):
     response_date = ""
     processing_content = ""
     processing_finish = "N"
-    
-    answers = result_data.get("answers", [])
+
     if answers:
         latest_ans = answers[-1]
         processing_status = latest_ans.get("C_MANAGER_TYPE_NM")
@@ -476,6 +482,20 @@ def parse_json_details(result_data):
         penalty_amount = ""
         penalty_points = ""
 
+    # 현재 열려 있는 보완요청은 detail 처리상태도 동일하게 표시하고 종결여부=N 유지.
+    # 같은 흐름의 차량번호/시간/장소 override 는 위에서 이미 처리.
+    if splmnt_open and process_status == "보완요청":
+        processing_status = "보완요청"
+        processing_finish = "N"
+
+    # JSON 만으로 만들 수 있는 보완 history 조각.
+    # 보통 직전 완료 round + 현재 open round 일부만 포함되며, HTML 전체 이력으로 덮어쓰는 게 권장.
+    # 신고 자체가 종결된 경우(취하/답변완료 등) 미응답 round 도 더 이상 열린 상태가 아니다.
+    supplement_history = _build_supplement_history_from_json(result_data)
+    if process_status != "보완요청":
+        for entry in supplement_history:
+            entry["is_open"] = "N"
+
     # title 갱신용 필드 구성
     c_now_int = result_data.get('C_NOW', 0)
     try:
@@ -522,4 +542,115 @@ def parse_json_details(result_data):
         "attached_photos": attached_photos,
         "map_image": map_image,
         "title_fields": title_fields,
+        "supplement_history": supplement_history,
+        "supplement_meta": {
+            "open": bool(splmnt_open),
+            "dmnd_no": splmnt_dmnd_no,
+            "has_trace": bool(splmnt_dmnd_no) or bool(result_data.get("SPLMNT_DMND_CONTENTS")),
+        },
     }
+
+
+def _format_epoch_millis_to_datetime(epoch_ms) -> str:
+    if not epoch_ms:
+        return ""
+    try:
+        import datetime as _dt
+        return _dt.datetime.fromtimestamp(int(epoch_ms) / 1000).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError, OSError):
+        return ""
+
+
+def _build_supplement_history_from_json(result_data: dict) -> list[dict]:
+    """API JSON 으로부터 추출 가능한 보완 round 조각을 만든다. 한계가 크니 HTML 로 보강하는 것이 권장."""
+    rounds: list[dict] = []
+    dmnd_no = result_data.get("SPLMNT_DMND_NO") or 0
+    try:
+        dmnd_no = int(dmnd_no)
+    except (TypeError, ValueError):
+        dmnd_no = 0
+    if dmnd_no <= 0 and not result_data.get("SPLMNT_DMND_CONTENTS") and not result_data.get("SPLMNT_CMPTN_DT"):
+        return rounds
+
+    # 직전 완료 round (있다면) 부터.
+    if result_data.get("SPLMNT_CMPTN_DT") and dmnd_no >= 1:
+        prev_round_no = max(dmnd_no - 1, 1) if dmnd_no > 1 else dmnd_no
+        opinion = result_data.get("SPLMNT_ANS_CONTENTS") or ""
+        loc = (result_data.get("SPLMNT_RN_ADRES") or result_data.get("SPLMNT_C_A_ADD2") or "").strip()
+        rounds.append({
+            "round_no": prev_round_no,
+            "보완_요청자": "",
+            "보완_요청자_연락처": "",
+            "보완_요청_일시": "",
+            "보완_완료_일시": _format_epoch_millis_to_datetime(result_data.get("SPLMNT_CMPTN_DT")),
+            "보완_요청_내용": "",
+            "신고자_보완_의견": opinion,
+            "신고자_보완_차량번호": (result_data.get("SPLMNT_VHRNO") or "").strip(),
+            "신고자_보완_발생일자": _format_yyyy_mm_dd(result_data.get("SPLMNT_DEVEL_DATE")),
+            "신고자_보완_발생시각": _format_hh_mm(result_data.get("SPLMNT_DEVEL_TIME")),
+            "신고자_보완_위반장소": loc,
+            "신고자_보완_첨부파일": "",
+            "신고자_보완_지도": "",
+            "is_open": "N",
+            "source_type": "api_json",
+        })
+
+    # 현재 round (열려 있거나 가장 최근 round).
+    if dmnd_no >= 1:
+        is_open = "Y" if result_data.get("SPLMNT_FNSH_YN") == "N" and result_data.get("SPLMNT_CMPTN_YN") == "N" else "N"
+        rounds.append({
+            "round_no": dmnd_no,
+            "보완_요청자": result_data.get("SPLMNT_RQSTR") or "",
+            "보완_요청자_연락처": _format_phone(result_data.get("SPLMNT_RQSTR_TELNO")),
+            "보완_요청_일시": _format_epoch_millis_to_datetime(result_data.get("SPLMNT_DMND_DT")),
+            "보완_완료_일시": _format_epoch_millis_to_datetime(result_data.get("SPLMNT_FNSH_DT")),
+            "보완_요청_내용": result_data.get("SPLMNT_DMND_CONTENTS") or "",
+            "신고자_보완_의견": "" if is_open == "Y" else (result_data.get("SPLMNT_ANS_CONTENTS") or ""),
+            "신고자_보완_차량번호": "",
+            "신고자_보완_발생일자": "",
+            "신고자_보완_발생시각": "",
+            "신고자_보완_위반장소": "",
+            "신고자_보완_첨부파일": "",
+            "신고자_보완_지도": "",
+            "is_open": is_open,
+            "source_type": "api_json",
+        })
+
+    # round_no 중복 제거 (직전 완료 round 가 현재 round 와 같은 번호로 충돌하지 않게).
+    seen = set()
+    deduped = []
+    for entry in rounds:
+        round_no = entry["round_no"]
+        if round_no in seen:
+            continue
+        seen.add(round_no)
+        deduped.append(entry)
+    return deduped
+
+
+def _format_yyyy_mm_dd(value) -> str:
+    text = str(value or "")
+    if len(text) == 8 and text.isdigit():
+        return f"{text[:4]}-{text[4:6]}-{text[6:]}"
+    return ""
+
+
+def _format_hh_mm(value) -> str:
+    text = str(value or "")
+    if len(text) >= 4 and text[:4].isdigit():
+        return f"{text[:2]}:{text[2:4]}"
+    return ""
+
+
+def _format_phone(value) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    digits = re.sub(r"\D", "", text)
+    if len(digits) == 10 and digits.startswith(("02",)):
+        return f"{digits[:2]}-{digits[2:6]}-{digits[6:]}"
+    if len(digits) == 11:
+        return f"{digits[:3]}-{digits[3:7]}-{digits[7:]}"
+    if len(digits) == 10:
+        return f"{digits[:3]}-{digits[3:6]}-{digits[6:]}"
+    return text

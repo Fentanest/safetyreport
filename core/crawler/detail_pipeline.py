@@ -108,4 +108,5 @@ def build_detail_result(
         entry_value,
         progress_status,
         title_fields,
+        details.get("supplement_history") or [],
     )

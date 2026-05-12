@@ -66,6 +66,7 @@
 │   ├── report_stats_service.py  # 대시보드/기관 통계/연도 목록
 │   ├── satisfaction_fetcher.py  # 만족도조사 점수+사유 조회 (HTTP + Selenium)
 │   ├── star_rating_service.py   # 별점 배치 처리
+│   ├── supplement_parser.py     # 보완요청 round 리스트 HTML 파서 (splmntDivBody)
 │   ├── sunwi_fetcher.py         # 안전신문고 통계 API 수집/대분류-소분류 Top5 CSV 가공 유틸
 │   ├── sunwi_service.py         # 행정구역별 안전신문고 Top5 수집/캐시/CSV 저장
 │   └── ws_manager.py            # WebSocket 클라이언트 연결 관리 싱글톤
@@ -251,9 +252,9 @@ STTEMNT_IMAGE_URL  ARR_C_FILES  answers
 **get_dashboard_stats():**
 ```
 last_crawl_time  total
-acceptCount  partialCount  rejectCount  processingCount  completedCount  withdrawCount
+acceptCount  partialCount  rejectCount  processingCount  supplementCount  completedCount  withdrawCount
 tFineCount  tPenaltyCount  tRejectCount  tUnconfirmedCount
-accept_pct  partial_pct  reject_pct  processing_pct  withdraw_pct
+accept_pct  partial_pct  reject_pct  processing_pct  supplement_pct  withdraw_pct
 tfine_pct  tpenalty_pct  treject_pct  tunconfirmed_pct
 recent_answers  watchlist  exclude_withdraw
 ```
@@ -310,6 +311,7 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 | `mysafety_sync_meta` | key/value 메타. `last_sync`(서버 마지막 크롤링 시각, ISO8601), `watchlist`(감시목록 mirror), 기타 확장 키 |
 | `mysafety_duplicate_group` | payload exact 중복군 메타데이터 (대표건, 대표건 모드, 중복 상태, 전역 반영 여부) |
 | `mysafety_duplicate_member` | 중복군 멤버 목록 (report_id, category, 대표건 여부) |
+| `mysafety_supplement_history` | 보완요청 다회차 이력 (PK: `ID + round_no`, round 별 요청자/요청내용/완료일/신고자 의견·차량·시각·장소/첨부, `is_open`, `source_type`) |
 | `api_keys` | 모바일 API 인증 키 |
 | `admin_users` | 웹 관리자 계정 |
 | `mysafety_watchlist` | 감시 목록 (신고번호) |
@@ -328,7 +330,7 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
   - 대시보드는 `report_stats_service.get_dashboard_stats` 가 `mysafety_sync_meta.last_sync` 를 직접 SELECT 해서 `datetime.fromisoformat(...).strftime('%Y-%m-%d %H:%M:%S')` 로 표시한다.
   - 값이 없으면 `기록 없음`. (이전의 `current_crawl.log` mtime fallback 은 제거됨)
 - `--reset` 크롤링은 신고 ID 에 매여 있는 사이드카 테이블도 같이 비운다.
-  - drop 대상: `mysafety*`, `mysafetydetail_*`, `mysafetymerge_*`, `mysafety_entry_value`, `mysafety_raw_content`, `mysafety_duplicate_member`, `mysafety_duplicate_group`
+  - drop 대상: `mysafety*`, `mysafetydetail_*`, `mysafetymerge_*`, `mysafety_entry_value`, `mysafety_raw_content`, `mysafety_duplicate_member`, `mysafety_duplicate_group`, `mysafety_supplement_history`
   - `mysafety_sync_meta` 는 통째로 drop 하지 않고 `key='watchlist'` 만 보존한 채 `last_sync` 등 나머지 키를 삭제한다.
   - `admin_users`, `api_keys`, `mysafety_watchlist` 는 보존.
 - 서버-모바일 DB 변환 시 아래 항목은 round-trip 보존 대상으로 취급한다.
@@ -337,7 +339,16 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
   - 모바일 메타: `mysafety_sync_meta` (`last_sync`, `watchlist`, 기타 key/value)
   - 중복군 메타: `status`, `representative_mode`, `representative_id`, `apply_globally`, `note`
   - 중복 멤버 메타: `priority_score`, `raw_match`, `field_match`, `created_at`, `updated_at`
+  - 보완 history: 서버 `mysafety_supplement_history` ↔ 모바일 `report_supplement_history` (round_no/요청자/요청·완료 일시/요청 내용/신고자 의견·차량번호·발생일자·시각·위반장소·첨부·지도/is_open/source_type)
 - `db_backup.restore_from_mobile_db()` 는 모바일 레거시 duplicate hash가 들어와도 `raw_content` 기준 SHA-256 canonical group_id로 재매핑한 뒤 저장한다.
+- 보완요청(`보완요청` 진행상황) 신고는 `mysafety_supplement_history` 에 round 별로 이력을 통째로 보존한다.
+  - `core/database/database.py:supplement_history_to_sql()` 가 PK(ID+round_no) 단위 row-level diff 후 upsert. 사라진 round 는 정리.
+  - `services/supplement_parser.py:parse_supplement_rounds_from_html()` 가 `splmntDivBody` 의 `<table>` 들을 round 리스트로 만들고, round 별 신고자 보완 의견에서 차량번호/발생일자/발생시각/위반장소 override 값을 함께 정규화.
+  - 마지막 완료 round 의 신고자 의견은 기존처럼 신고 메인 행의 차량번호/발생일자·시각/위반장소를 덮어쓴다 (`latest_completed_overrides()`).
+  - 신고 본 row 의 `처리상태/종결여부` 는 보완요청이 열려 있으면 `보완요청 / N` 로, 종결 상태(취하/답변완료 등)에서는 모든 round 의 `is_open` 을 `N` 로 닫는다.
+  - `get_pending_detail_ids()` 가 `is_open='Y'` round 가 있는 ID 와 `처리상태='보완요청'` detail row 를 항상 재크롤링 대상에 포함 → 다음 크롤링에서 답변·추가 round 변화가 자동 반영된다.
+  - API 모드는 JSON 응답이 보통 "현재 round + 직전 완료 round" 일부만 노출하므로 다회차 이력의 완전한 보존은 레거시 모드 또는 동일 ID 재크롤링으로 보강된다. (HTML 전체 supplement 영역 hybrid fetch 는 후속 작업)
+  - crawl_changes payload 의 `change_reason` 은 신고 자체가 보완요청 상태이거나 보완 history 에 열린 round 가 있을 때 `supplement`, 그 외는 `report`.
 - 중복군 자동 감지는 `mysafety_raw_content.raw_content`가 있는 row만 대상으로 한다.
   - 같은 payload hash라도 `차량번호`, `category`, `entry_value`가 충돌하면 기본 상태는 `review_required` + `apply_globally=0`이다.
   - 기본 자동 감지 결과에서 충돌이 없으면 `confirmed_duplicate`, 충돌이 있으면 `review_required`로 시작한다.
@@ -465,6 +476,7 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 ### crawl_changes.json
 - `services.crawl_state_store.save_crawl_changes(engine, changed_item_ids)` — 일반 신고는 `notification_kind=report`, `synced_at` 을 포함한 payload로 저장
 - 일반 신고 변경 목록은 저장 전에 `synced_at DESC`, fallback `답변일 DESC`, `신고번호 DESC` 로 재정렬한다.
+- 각 report payload 에는 `change_reason ('supplement' | 'report')`, `supplement_open`, `supplement_round_no`, `supplement_round_count` 도 함께 들어간다. `supplement` 는 신고가 보완요청 상태이거나 보완 history 에 열린 round 가 있을 때.
 - `services.crawl_state_store.peek_crawl_changes()` — 읽기만 (삭제 안 함) → WS 브로드캐스트용
 - `services.crawl_state_store.get_and_clear_crawl_changes()` — 읽고 즉시 삭제 → 모바일 API 폴링용
 - 위치: `data/crawl_changes.json`
@@ -495,6 +507,7 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 | 카드 | URL |
 |------|-----|
 | 총 신고 | `/data/all` |
+| 보완 요청 | `/data/all?status=보완요청` |
 | 처리중 | `/data/all?status=처리중` |
 | 답변완료 | `/data/all?status=완료` |
 | 취하 | `/data/all?status=취하` |
@@ -537,6 +550,8 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 | GET | `/server/version` | 서버 버전 + GitHub 최신 버전 (모바일·크롬 확장 공통) |
 | GET | `/crawl/done/ext` | 크롤링 완료 마커 조회 (크롬 확장 전용, 확인 후 자동 삭제) |
 | GET | `/vehicle/{vehicle_number}` | 차량번호 부분 일치 검색 (전체 카테고리, 크롬 확장용) |
+| GET | `/supplements` | 현재 열린(`is_open=Y`) 보완 round 전체 목록 |
+| GET | `/supplements/{record_id}` | 단일 신고의 보완 round 이력 (round_no 오름차순) |
 
 ---
 

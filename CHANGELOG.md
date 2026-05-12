@@ -8,6 +8,64 @@
 
 ---
 
+## 2026-05-12
+
+### 보완요청 상태 및 다회차 보완 이력 보존
+
+상태: 완료
+
+변경:
+- `core/database/models.py`
+  - `mysafety_supplement_history` 테이블 추가 (PK: `ID + round_no`)
+  - round별 보완 요청자/연락처/요청·완료 일시/요청 내용/신고자 보완 의견·차량번호·발생일자·시각·위반장소·첨부파일·지도·`is_open`·`source_type` 저장
+- `core/database/database.py`
+  - `supplement_history_to_sql()` row-level diff 후 upsert + 사라진 round 정리, `get_supplement_history_for_report()`, `get_open_supplement_count()` 추가
+  - `_get_new_and_incomplete_ids()` 가 `is_open='Y'` 보완 history 와 `처리상태='보완요청'` detail row 도 항상 재크롤링 대상에 포함
+  - `detail_to_sql()` 6-tuple 입력 지원: detail 변화가 없어도 history 변경이 있으면 `changed_item_ids` 에 추가해서 알림에 잡히게
+- `services/supplement_parser.py` (신규)
+  - `splmntDivBody` 의 table 들을 round 리스트로 추출. round 별 신고자 보완 의견에서 차량번호/발생일자/발생시각/위반장소 정규화
+  - `latest_completed_overrides()` 가 마지막 완료 round 기준 detail field override 반환
+- `services/parser.py`
+  - 레거시 `parse_details()` 가 `supplement_parser` 로 round 전체를 추출해 `supplement_history` 로 반환
+  - 보완요청이 열려 있으면 `processing_status='보완요청' / 종결여부='N'`, 종결 상태에서는 모든 round 의 `is_open` 을 `N` 로 닫는다
+  - API `parse_json_details()` 가 `SPLMNT_DMND_NO + SPLMNT_FNSH_YN/CMPTN_YN + answers + C_NOW` 조합으로 `보완요청` 진행상황 판정. JSON 만으로 만들 수 있는 round 조각도 `supplement_history` 로 반환
+- `core/crawler/detail_pipeline.py`
+  - `build_detail_result()` 결과 tuple 에 `supplement_history` 추가 (6-tuple)
+- `start.py`
+  - `--reset` drop 대상에 `mysafety_supplement_history` 추가
+- `services/crawl_state_store.py`
+  - `save_crawl_changes()` 각 report payload 에 `change_reason ('supplement' | 'report')`, `supplement_open`, `supplement_round_no`, `supplement_round_count` 추가
+  - `save_crawl_done_ext()` 의 report change 항목에 동일 메타 전파 (크롬 확장 알림에서 보완요청 구분 가능)
+- `services/report_stats_service.py`
+  - 대시보드 `supplementCount` / `supplement_pct` 산출 추가. valid_total 분모에 포함
+- `web/templates/index.html`
+  - `총 신고 → 보완 요청 → 처리 중 → 답변 완료 → 취하` 5-카드 레이아웃. 보완 카드 클릭 시 `/data/all?status=보완요청`
+  - 처리상태 progress bar 에 보완 요청 구간 표시 (`supplementCount > 0` 일 때)
+  - watchlist/recent_answers 배지 보완요청 색상 (`#fd7e14`) 처리
+- `web/templates/data_table.html`
+  - `preferredStatusOrder` 에 `보완요청` 포함, `renderBadge()` 에 보완요청 색상 분기 추가
+- `web/routers/api_route.py`
+  - `GET /api/v1/supplements` (전체 열린 round 목록)
+  - `GET /api/v1/supplements/{record_id}` (단일 신고 round 이력)
+- `services/db_backup.py`
+  - 모바일 standalone `report_supplement_history` 테이블이 있으면 round-trip 으로 보존 (`OperationalError` 무시 — 구버전 모바일 DB 호환)
+  - 복원 단계에서 supplement_history 도 통째로 비우고 다시 채움
+
+검증:
+- `python3 -c "from core.database import database; ..."` 모듈 import OK
+- `services.supplement_parser.parse_supplement_rounds_from_html(...)` 가 testresults/40871819 (다회차 — 양훈석/이미숙), 59614484 (단일 open round — 이민지) 양쪽에서 round 수/요청자/완료일/override 정확히 산출
+- `services.parser.parse_json_details(testresults/59614484_api_raw.json)` → `progress_status='보완요청'`, `processing_status='보완요청'`, `processing_finish='N'`, history 1 round (open=Y)
+- `services.parser.parse_json_details(testresults/40871819_api_raw.json)` → `progress_status='취하'`, history 2 round (둘 다 is_open=N)
+- `database.detail_to_sql([6-tuple], engine)` 시나리오: 신규 → '신규', 같은 입력 재실행 → 빈, history 만 변경 → '변경'
+- `database.get_pending_detail_ids(engine)` 가 detail/title 가 모두 보완요청 상태로 일치해 있어도 supplement history 의 `is_open='Y'` 만으로 ID 를 다시 잡아오는 것을 확인
+
+비고:
+- 신고 본 row 는 현 상태의 projection 으로 유지하되, 보완 이력 전체는 별도 history 테이블에 저장 — 신고 메인 필드(차량번호/발생일자·시각/위반장소)는 기존처럼 마지막 완료 round 의 신고자 의견으로 override
+- API 모드는 JSON 응답이 보통 "현재 round + 직전 완료 round" 일부만 노출하므로 다회차 이력은 레거시 모드 또는 동일 ID 재크롤링으로 보강된다 (HTML 전체 supplement 영역 hybrid fetch 는 후속 작업)
+- crawl_changes payload 의 `change_reason` 은 신고 자체가 보완요청 상태이거나 보완 history 에 열린 round 가 있을 때 `supplement`, 그 외는 `report` — 모바일/크롬 확장에서 알림 라벨에 활용 가능
+
+---
+
 ## 2026-05-08
 
 ### Client `crawl_changes` 순서 흔들림 보정 + `synced_at` payload 복구

@@ -279,6 +279,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
     partial_count = 0
     reject_count = 0
     processing_count = 0
+    supplement_count = 0
     completed_count = 0
     withdraw_count = 0
     t_fine_count = 0
@@ -361,6 +362,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
         reject_count += int(status_series.isin(["불수용", "기타"]).sum())
         partial_count += int((status_series == "일부수용").sum())
         processing_count += int(status_series.isin(["처리중", "진행", "진행중"]).sum())
+        supplement_count += int((status_series == "보완요청").sum())
         completed_count += int(status_series.isin(["수용", "불수용", "일부수용", "기타", "답변완료"]).sum())
         withdraw_count += int((status_series == "취하").sum())
 
@@ -390,7 +392,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
     )
     watchlist_items.sort(key=lambda item: item["신고번호"] or "", reverse=True)
 
-    valid_total = (accept_count + partial_count + reject_count + processing_count) if app_settings.exclude_withdraw else total
+    valid_total = (accept_count + partial_count + reject_count + processing_count + supplement_count) if app_settings.exclude_withdraw else total
     t_bar_total = t_fine_count + t_penalty_count + t_reject_count + t_unconfirmed_count
 
     return _sanitize_jsonable({
@@ -400,6 +402,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
         "partialCount": partial_count,
         "rejectCount": reject_count,
         "processingCount": processing_count,
+        "supplementCount": supplement_count,
         "completedCount": completed_count,
         "withdrawCount": withdraw_count,
         "tFineCount": t_fine_count,
@@ -410,6 +413,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
         "partial_pct": round((partial_count / valid_total * 100), 1) if valid_total > 0 else 0,
         "reject_pct": round((reject_count / valid_total * 100), 1) if valid_total > 0 else 0,
         "processing_pct": round((processing_count / valid_total * 100), 1) if valid_total > 0 else 0,
+        "supplement_pct": round((supplement_count / valid_total * 100), 1) if valid_total > 0 else 0,
         "withdraw_pct": round((withdraw_count / valid_total * 100), 1) if valid_total > 0 else 0,
         "tfine_pct": round((t_fine_count / t_bar_total * 100), 1) if t_bar_total > 0 else 0,
         "tpenalty_pct": round((t_penalty_count / t_bar_total * 100), 1) if t_bar_total > 0 else 0,

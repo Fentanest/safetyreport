@@ -322,7 +322,7 @@ $(document).ready(function() {
     const isDuplicate = '{{ table_id }}' === 'duplicateTable';
     const offset = isDuplicate ? 1 : 0;
     const searchState = { statuses: [], ratings: [] };
-    const preferredStatusOrder = ['수용', '일부수용', '불수용', '처리중', '진행', '진행중', '취하', '기타', '답변완료'];
+    const preferredStatusOrder = ['수용', '일부수용', '불수용', '처리중', '진행', '진행중', '보완요청', '취하', '기타', '답변완료'];
     const ratingOptions = [
         { value: '__none__', label: '없음' },
         { value: '1', label: '1점' },
@@ -490,6 +490,9 @@ $(document).ready(function() {
 
     function renderBadge(d) {
         const v = normalizeCellText(d);
+        if (v === '보완요청') {
+            return `<span class="badge text-white" style="background-color: #fd7e14;">${esc(v)}</span>`;
+        }
         const map = { '수용': 'bg-success', '불수용': 'bg-danger', '기타': 'bg-danger',
                       '취하': 'bg-secondary', '일부수용': 'bg-warning text-dark', '처리중': 'bg-primary' };
         const cls = map[v] || 'bg-light text-dark border';
