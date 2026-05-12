@@ -8,6 +8,36 @@
 
 ---
 
+## 2026-05-12 (최종 정리)
+
+### 보완요청 마지막 round 구조화 + 공식 앱 딥링크 정리
+
+상태: 완료
+
+배경:
+- 같은 날 오후 정리본에서는 보완 요청자 정보를 `보완_요청_내용` prefix 문자열에 섞어 보존했지만, 모바일/웹 모두에서 답변 담당자와 보완 요청자를 명확히 구분하려면 별도 필드가 더 적합했다.
+- 동시에 웹 상세 모달의 "안전신문고 앱에서 보기" 버튼도 공식 앱 딥링크를 먼저 시도하고 웹으로 fallback 하는 형태로 마무리할 필요가 있었다.
+
+변경:
+- `core/database/models.py`
+  - detail / merge 테이블에 `보완_요청자`, `보완_요청일시`, `보완_완료일시` 3개 컬럼 추가.
+- `services/parser.py`
+  - `_build_supplement_summary()` 가 마지막 round 를 `{count, is_open, requester, requested_at, completed_at, request_text, reporter_opinion}` 구조로 압축.
+  - `보완_요청_내용` 은 이제 본문만 저장하고, 요청자/일시는 별도 필드로 분리.
+  - 레거시 쪽 보완 round 판정은 `parse_supplement_rounds_from_html(page_soup)` 호출 + `any(is_open)` 검사로 단순화.
+- `core/crawler/detail_pipeline.py`, `core/database/database.py`, `services/report_stats_service.py`, `services/crawl_state_store.py`, `services/db_backup.py`
+  - 새 3개 필드가 DB 저장, merge, API/알림 payload, 모바일 DB import 경로까지 모두 이어지도록 반영.
+- `services/supplement_parser.py`
+  - 사용하지 않는 `source_type`, `has_open_round()`, 문서상 full-history 전제 설명을 제거하고 레거시 round 파서 본체만 남김.
+- `web/templates/base.html`
+  - 보완 카드에 `보완 요청자 / 요청 일시 / 완료 일시` 메타 행 추가.
+  - `appsafetyreport://view?c_no=...&ext_path=M_MY_01_S0002.html&mem_yn=Y` 딥링크를 먼저 시도하고, 앱이 열리지 않으면 기존 웹 상세 URL로 fallback.
+  - 버튼 문구를 `안전신문고 앱에서 보기` 로 통일.
+
+비고:
+- `보완횟수` 컬럼은 그대로 유지되고, data table 은 횟수만 보여준다.
+- 보완요청 연락처는 최종 UI/모바일 요구사항 범위가 아니어서 구조화 필드로 올리지 않았다.
+
 ## 2026-05-12 (오후)
 
 ### 보완요청 저장 모델 단순화 — 마지막 round 1세트 + 누적 횟수만 보존

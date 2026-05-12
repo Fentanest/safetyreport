@@ -1,30 +1,10 @@
-"""보완요청 이력 파서.
-
-`/portal/mypage/mySafeReportView` 페이지의 `splmntDivBody` 영역에는
-1 round 당 1 `<table>` 형태로 보완 이력이 들어 있다. round 수는 다회차일 수 있고,
-마지막 round 가 완료일시 비어 있으면 현재 열린(open) 보완 요청이다.
-
-API JSON 응답에는 일반적으로 "직전 완료 round" + "현재 round" 일부 필드만 포함되어
-전체 이력 복원이 불가능하므로, 보완 흔적이 있는 신고는 같은 HTML 페이지를 추가로 가져와
-이 모듈로 round 리스트를 정확히 만들어 사용한다.
-"""
+"""레거시 상세 페이지의 보완요청 round 파서."""
 from __future__ import annotations
 
 import re
 from typing import Iterable
 
 from bs4 import BeautifulSoup
-
-
-_FIELD_KEYS = (
-    "보완 요청자",
-    "보완 요청자 연락처",
-    "보완 요청 일시",
-    "보완 완료 일시",
-    "보완 요청 내용",
-    "신고자 보완 의견",
-    "신고자 보완 첨부파일",
-)
 
 
 def _extract_th_td_pairs(table) -> dict[str, object]:
@@ -128,13 +108,8 @@ def _parse_opinion_overrides(opinion_text: str) -> dict[str, str]:
     return result
 
 
-def parse_supplement_rounds_from_html(page_html_or_soup, *, source_type: str) -> list[dict]:
-    """splmntDivBody 안의 모든 보완 round 를 추출해 list 로 돌려준다.
-
-    source_type 는 history row 에 함께 저장되는 출처 라벨 ('legacy_html', 'api_html_supp', ...).
-    각 round dict 키 — 한글 필드명 (`보완_요청자`, `보완_요청자_연락처`, `보완_요청_일시`,
-    `보완_요청_내용`, `보완_완료_일시`, `신고자_보완_의견` ...) + round_no/is_open/source_type.
-    """
+def parse_supplement_rounds_from_html(page_html_or_soup) -> list[dict]:
+    """splmntDivBody 안의 모든 보완 round 를 순서대로 추출한다."""
     if not page_html_or_soup:
         return []
 
@@ -179,7 +154,6 @@ def parse_supplement_rounds_from_html(page_html_or_soup, *, source_type: str) ->
             "신고자_보완_첨부파일": attached_files,
             "신고자_보완_지도": attached_map,
             "is_open": is_open,
-            "source_type": source_type,
         }
         round_data.update(_parse_opinion_overrides(opinion))
         rounds.append(round_data)
@@ -211,7 +185,3 @@ def latest_completed_overrides(rounds: Iterable[dict] | None) -> dict[str, str]:
     if last_completed.get("신고자_보완_위반장소"):
         override["violation_location"] = last_completed["신고자_보완_위반장소"]
     return override
-
-
-def has_open_round(rounds: Iterable[dict] | None) -> bool:
-    return any((r.get("is_open") == "Y") for r in (rounds or []))

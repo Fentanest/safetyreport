@@ -28,6 +28,9 @@ DETAIL_COLUMNS = [
     "첨부파일",
     "보완횟수",
     "보완_미응답",
+    "보완_요청자",
+    "보완_요청일시",
+    "보완_완료일시",
     "보완_요청_내용",
     "보완_신고자_의견",
 ]
@@ -56,6 +59,9 @@ def build_detail_dataframe(report_id: str, details: dict):
         details["attachment_files"],
         int(supplement.get("count") or 0),
         supplement.get("is_open") or "N",
+        supplement.get("requester") or "",
+        supplement.get("requested_at") or "",
+        supplement.get("completed_at") or "",
         supplement.get("request_text") or "",
         supplement.get("reporter_opinion") or "",
     ]

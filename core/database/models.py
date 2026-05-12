@@ -37,6 +37,9 @@ def get_detail_columns():
         Column('synced_at', Integer),
         Column('보완횟수', Integer),
         Column('보완_미응답', String),
+        Column('보완_요청자', String),
+        Column('보완_요청일시', String),
+        Column('보완_완료일시', String),
         Column('보완_요청_내용', String),
         Column('보완_신고자_의견', String),
     ]
@@ -76,6 +79,9 @@ def get_merge_columns():
         Column('synced_at', Integer),
         Column('보완횟수', Integer),
         Column('보완_미응답', String),
+        Column('보완_요청자', String),
+        Column('보완_요청일시', String),
+        Column('보완_완료일시', String),
         Column('보완_요청_내용', String),
         Column('보완_신고자_의견', String),
     ]
@@ -135,4 +141,3 @@ duplicate_member_table = Table('mysafety_duplicate_member', metadata,
                                Column('field_match', Integer, nullable=False, default=0),
                                Column('created_at', Integer),
                                Column('updated_at', Integer))
-

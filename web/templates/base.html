@@ -490,8 +490,70 @@ document.addEventListener('click', function(e) {
             '</div>';
     }
 
-    function safetyUrl(id) {
+    function safetyWebUrl(id) {
         return 'https://www.safetyreport.go.kr/#mypage/mysafereport/' + encodeURIComponent(id || '');
+    }
+
+    function safetyAppUrl(id) {
+        return 'appsafetyreport://view?c_no=' + encodeURIComponent(id || '') +
+            '&ext_path=' + encodeURIComponent('M_MY_01_S0002.html') +
+            '&mem_yn=Y';
+    }
+
+    function openSafetyReport(id) {
+        var targetId = normalizeDisplayValue(id);
+        if (!targetId) return;
+
+        var appUrl = safetyAppUrl(targetId);
+        var webUrl = safetyWebUrl(targetId);
+        var fallbackTimer = null;
+        var finished = false;
+
+        function cleanup() {
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+            window.removeEventListener('pagehide', cancelFallback);
+            window.removeEventListener('blur', cancelFallback);
+        }
+
+        function cancelFallback() {
+            if (finished) return;
+            finished = true;
+            if (fallbackTimer) window.clearTimeout(fallbackTimer);
+            cleanup();
+        }
+
+        function onVisibilityChange() {
+            if (document.hidden) {
+                cancelFallback();
+            }
+        }
+
+        document.addEventListener('visibilitychange', onVisibilityChange);
+        window.addEventListener('pagehide', cancelFallback);
+        window.addEventListener('blur', cancelFallback);
+
+        fallbackTimer = window.setTimeout(function() {
+            if (finished) return;
+            finished = true;
+            cleanup();
+            window.open(webUrl, '_blank');
+        }, 1200);
+
+        try {
+            var link = document.createElement('a');
+            link.href = appUrl;
+            link.style.display = 'none';
+            document.body.appendChild(link);
+            link.click();
+            window.setTimeout(function() {
+                if (link.parentNode) {
+                    link.parentNode.removeChild(link);
+                }
+            }, 0);
+        } catch (error) {
+            cancelFallback();
+            window.open(webUrl, '_blank');
+        }
     }
 
     function renderSupplementHistory(record) {
@@ -501,11 +563,14 @@ document.addEventListener('click', function(e) {
         if (!section || !bodyEl) return;
 
         var count = parseInt(record['보완횟수'], 10);
+        var requester = normalizeDisplayValue(record['보완_요청자']);
+        var requestedAt = normalizeDisplayValue(record['보완_요청일시']);
+        var completedAt = normalizeDisplayValue(record['보완_완료일시']);
         var requestText = normalizeDisplayValue(record['보완_요청_내용']);
         var opinion = normalizeDisplayValue(record['보완_신고자_의견']);
         var isOpen = String(record['보완_미응답'] || 'N') === 'Y';
 
-        if ((!Number.isFinite(count) || count <= 0) && !requestText && !opinion) {
+        if ((!Number.isFinite(count) || count <= 0) && !requester && !requestedAt && !completedAt && !requestText && !opinion) {
             section.style.display = 'none';
             return;
         }
@@ -521,6 +586,19 @@ document.addEventListener('click', function(e) {
 
         var html = '';
         html += '<div class="fw-bold small mb-2">마지막 보완 요청' + statusBadge + '</div>';
+        if (requester || requestedAt || completedAt) {
+            html += '<div class="bg-white rounded p-2 border mb-2" style="font-size:.8rem;line-height:1.6">';
+            if (requester) {
+                html += '<div><span class="text-muted">보완 요청자</span> <span class="fw-semibold ms-1">' + esc(requester) + '</span></div>';
+            }
+            if (requestedAt) {
+                html += '<div><span class="text-muted">요청 일시</span> <span class="ms-1">' + esc(requestedAt) + '</span></div>';
+            }
+            if (completedAt) {
+                html += '<div><span class="text-muted">완료 일시</span> <span class="ms-1">' + esc(completedAt) + '</span></div>';
+            }
+            html += '</div>';
+        }
         if (requestText) {
             html += '<div class="bg-light rounded p-2 border" style="font-size:.82rem;line-height:1.6;white-space:pre-wrap">' + esc(requestText) + '</div>';
         }
@@ -552,9 +630,7 @@ document.addEventListener('click', function(e) {
         document.getElementById('rdFiles').style.display = 'none';
         document.getElementById('rdSupplements').style.display = 'none';
         document.getElementById('rdViewBtn').onclick = function() {
-            var url = safetyUrl(normalizeDisplayValue(record['ID']));
-            fetch('https://www.safetyreport.go.kr/', { mode: 'no-cors', cache: 'no-store' })
-                .catch(function(){}).finally(function(){ window.open(url, '_blank'); });
+            openSafetyReport(record['ID']);
         };
         getModal().show();
     }
@@ -601,7 +677,7 @@ document.addEventListener('click', function(e) {
                 field('fas fa-star',             '별점',        ratingDisplay) +
                 field('fas fa-comment-dots',     '별점사유',    record['별점사유']);
 
-            // 보완 이력 (보완횟수 > 0 일 때만 비동기 로드)
+            // 보완 요약
             renderSupplementHistory(record);
 
             // 신고내용
@@ -683,9 +759,7 @@ document.addEventListener('click', function(e) {
 
             // 안전신문고 버튼
             document.getElementById('rdViewBtn').onclick = function() {
-                var url = safetyUrl(normalizeDisplayValue(record['ID']));
-                fetch('https://www.safetyreport.go.kr/', { mode: 'no-cors', cache: 'no-store' })
-                    .catch(function(){}).finally(function(){ window.open(url, '_blank'); });
+                openSafetyReport(record['ID']);
             };
 
             getModal().show();
@@ -742,7 +816,7 @@ document.addEventListener('click', function(e) {
       </div>
       <div class="modal-footer pt-2">
         <button type="button" class="btn btn-primary w-100" id="rdViewBtn">
-          <i class="fas fa-external-link-alt me-1"></i>안전신문고에서 보기
+          <i class="fas fa-external-link-alt me-1"></i>안전신문고 앱에서 보기
         </button>
       </div>
     </div>

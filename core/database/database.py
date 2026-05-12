@@ -557,6 +557,9 @@ def _merge_for_table(conn, merge_target, detail_source):
         detail_source.c.synced_at,
         detail_source.c.보완횟수,
         detail_source.c.보완_미응답,
+        detail_source.c.보완_요청자,
+        detail_source.c.보완_요청일시,
+        detail_source.c.보완_완료일시,
         detail_source.c.보완_요청_내용,
         detail_source.c.보완_신고자_의견,
     ).select_from(j_inner)

@@ -111,6 +111,9 @@ def save_crawl_changes(engine, changed_item_ids, duplicate_changes=None):
             "synced_at": record.get("synced_at"),
             "보완횟수": supplement_count,
             "보완_미응답": record.get("보완_미응답") or "N",
+            "보완_요청자": str(record.get("보완_요청자") or ""),
+            "보완_요청일시": str(record.get("보완_요청일시") or ""),
+            "보완_완료일시": str(record.get("보완_완료일시") or ""),
             "보완_요청_내용": str(record.get("보완_요청_내용") or ""),
             "보완_신고자_의견": str(record.get("보완_신고자_의견") or ""),
         })

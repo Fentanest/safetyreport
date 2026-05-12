@@ -5,9 +5,6 @@ from services import supplement_parser
 _C_NOW_STATUS = {0: "진행", 10: "답변완료", 11: "일부수용", 12: "검토중",
                  14: "불수용", 15: "기타", 20: "취하", 30: "이송"}
 
-# 완료 답변 진행상황 (보완요청/검토중 등 진행성 상태는 종결되지 않은 것으로 본다)
-_TERMINAL_PROGRESS_STATUSES = {"답변완료", "수용", "불수용", "일부수용", "기타", "취하", "이송"}
-
 _REJECT_KEYWORDS = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
 _WARNING_KEYWORDS = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
 
@@ -207,57 +204,26 @@ def _parse_processing_result_table(result_soup, entry_value):
         "processing_finish": processing_finish_text,
     }
 
-def _extract_supplement_history_from_legacy(page_soup):
-    """레거시 상세 페이지에서 보완 round 전체를 추출. (None 이면 빈 리스트)"""
-    if not page_soup:
-        return []
-    return supplement_parser.parse_supplement_rounds_from_html(page_soup, source_type="legacy_html")
-
-
 def _build_supplement_summary(rounds: list[dict] | None) -> dict:
-    """round 리스트를 detail row 에 저장할 단일 요약 dict 로 압축.
-
-    - count: 총 round 수
-    - is_open: 마지막 round 의 is_open (Y/N)
-    - request_text: 마지막 round 의 요청자/연락처/요청일시 prefix + 본문
-    - reporter_opinion: 마지막 round 의 신고자 보완 의견 (있을 때)
-
-    마지막 답변자와 최종 판정자가 다를 수 있으므로, 보완 요청자 정보를 본문 prefix 로 보존.
-    다회차 이력 전체는 별도 보관하지 않는다.
-    """
+    """round 리스트를 detail row 에 저장할 마지막 보완요청 요약으로 압축한다."""
     if not rounds:
-        return {"count": 0, "is_open": "N", "request_text": "", "reporter_opinion": ""}
+        return {
+            "count": 0,
+            "is_open": "N",
+            "requester": "",
+            "requested_at": "",
+            "completed_at": "",
+            "request_text": "",
+            "reporter_opinion": "",
+        }
     last = rounds[-1]
-    requester = (last.get("보완_요청자") or "").strip()
-    phone = (last.get("보완_요청자_연락처") or "").strip()
-    requested_at = (last.get("보완_요청_일시") or "").strip()
-    completed_at = (last.get("보완_완료_일시") or "").strip()
-    content = (last.get("보완_요청_내용") or "").strip()
-
-    header_parts = []
-    if requester or phone:
-        meta = requester if requester else "(요청자 미상)"
-        if phone:
-            meta += f" ({phone})"
-        header_parts.append(f"보완 요청자: {meta}")
-    if requested_at:
-        header_parts.append(f"요청 일시: {requested_at}")
-    if completed_at:
-        header_parts.append(f"완료 일시: {completed_at}")
-    else:
-        header_parts.append("완료 일시: (미응답)")
-
-    if header_parts and content:
-        request_text = " · ".join(header_parts) + "\n\n" + content
-    elif header_parts:
-        request_text = " · ".join(header_parts)
-    else:
-        request_text = content
-
     return {
         "count": len(rounds),
         "is_open": last.get("is_open") or "N",
-        "request_text": request_text,
+        "requester": (last.get("보완_요청자") or "").strip(),
+        "requested_at": (last.get("보완_요청_일시") or "").strip(),
+        "completed_at": (last.get("보완_완료_일시") or "").strip(),
+        "request_text": (last.get("보완_요청_내용") or "").strip(),
         "reporter_opinion": (last.get("신고자_보완_의견") or "").strip(),
     }
 
@@ -304,7 +270,7 @@ def parse_details(driver, report_soup, result_soup=None, page_soup=None):
 
     all_details = {**report_details, **processing_details}
 
-    supplement_rounds = _extract_supplement_history_from_legacy(page_soup)
+    supplement_rounds = supplement_parser.parse_supplement_rounds_from_html(page_soup)
 
     # 마지막 완료 보완 round 기준으로 차량번호/시간/장소 override.
     for field, value in supplement_parser.latest_completed_overrides(supplement_rounds).items():
@@ -312,7 +278,7 @@ def parse_details(driver, report_soup, result_soup=None, page_soup=None):
             all_details[field] = value
 
     # 보완요청이 열려 있고 페이지의 진행상황도 보완요청이면 detail 처리상태를 같은 의미로 통일.
-    if supplement_parser.has_open_round(supplement_rounds) and progress_status == "보완요청":
+    if any(entry.get("is_open") == "Y" for entry in supplement_rounds) and progress_status == "보완요청":
         all_details["processing_status"] = "보완요청"
         all_details["processing_finish"] = "N"
 

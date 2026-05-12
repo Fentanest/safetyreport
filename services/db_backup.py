@@ -286,6 +286,13 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
             "첨부사진": rd.get("첨부사진", ""),
             "첨부파일": rd.get("첨부파일", ""),
             "synced_at": rd.get("synced_at"),
+            "보완횟수": rd.get("보완횟수", 0) if "보완횟수" in src_cols else 0,
+            "보완_미응답": rd.get("보완_미응답", "N") if "보완_미응답" in src_cols else "N",
+            "보완_요청자": rd.get("보완_요청자", "") if "보완_요청자" in src_cols else "",
+            "보완_요청일시": rd.get("보완_요청일시", "") if "보완_요청일시" in src_cols else "",
+            "보완_완료일시": rd.get("보완_완료일시", "") if "보완_완료일시" in src_cols else "",
+            "보완_요청_내용": rd.get("보완_요청_내용", "") if "보완_요청_내용" in src_cols else "",
+            "보완_신고자_의견": rd.get("보완_신고자_의견", "") if "보완_신고자_의견" in src_cols else "",
         })
 
         record_id = rd.get("ID", "")
