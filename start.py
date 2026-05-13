@@ -61,6 +61,7 @@ def _prepare_database(engine, reset=False):
         logger.LoggerFactory.logbot.warning("--reset 옵션이 사용되어 크롤링 데이터 테이블을 초기화합니다.")
         # 관리자 계정(admin_users), API 키(api_keys), 감시 목록(watchlist)은 보존.
         # 신고 ID 에 매여 있는 사이드카(entry_value, raw_content, duplicate_*)도 같이 비운다.
+        # 중간 실험 빌드에서 잠시 존재했던 보완 history 테이블도 reset 시 함께 정리한다.
         data_tables = [
             # 중복 멤버는 group 보다 먼저 — 의미상 group 의 부속이므로
             database.duplicate_member_table,
@@ -84,6 +85,7 @@ def _prepare_database(engine, reset=False):
                     database.sync_meta_table.c.key != "watchlist"
                 )
             )
+            conn.exec_driver_sql("DROP TABLE IF EXISTS mysafety_supplement_history")
     database.upgrade_schema(engine)
 
 def extract_ids_from_queue(engine, queuelist):

@@ -10,6 +10,18 @@
 
 ## 2026-05-13
 
+### reset 크롤링 시 예전 보완 history 테이블 잔재 정리
+
+상태: 완료
+
+변경:
+- `start.py`
+  - `--reset` 크롤링 시 현재 운영 테이블(`title/detail/merge`, `entry_value`, `raw_content`, `duplicate_*`) 초기화와 별도로, 중간 실험 빌드에서 잠시 생성됐을 수 있는 `mysafety_supplement_history` 잔재 테이블도 함께 `DROP TABLE IF EXISTS` 하도록 보강.
+  - 최종 설계는 보완요청 전용 별도 테이블 없이 detail/merge 보완 컬럼을 쓰므로, reset 후에도 스키마가 현재 운영 모델과 일치하도록 정리.
+
+검증:
+- `python3 -m compileall start.py`
+
 ### 상태 계층 재설계 구현
 
 상태: 완료
