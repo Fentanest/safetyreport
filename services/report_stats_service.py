@@ -259,6 +259,12 @@ def _ensure_id_column(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _exclude_withdraw_rows(df: pd.DataFrame) -> pd.DataFrame:
+    if not app_settings.exclude_withdraw or df.empty or "처리상태" not in df.columns:
+        return df
+    return df[df["처리상태"].fillna("").astype(str) != "취하"].copy()
+
+
 def _load_available_years(conn):
     available_years = set()
     for table_obj in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
@@ -399,6 +405,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
     )
     watchlist_items.sort(key=lambda item: item["신고번호"] or "", reverse=True)
 
+    effective_withdraw_count = 0 if app_settings.exclude_withdraw else withdraw_count
     valid_total = (accept_count + partial_count + reject_count + processing_count + supplement_count) if app_settings.exclude_withdraw else total
     t_bar_total = t_fine_count + t_penalty_count + t_reject_count + t_unconfirmed_count
 
@@ -411,7 +418,8 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
         "processingCount": processing_count,
         "supplementCount": supplement_count,
         "completedCount": completed_count,
-        "withdrawCount": withdraw_count,
+        "withdrawCount": effective_withdraw_count,
+        "withdrawRawCount": withdraw_count,
         "tFineCount": t_fine_count,
         "tPenaltyCount": t_penalty_count,
         "tRejectCount": t_reject_count,
@@ -421,7 +429,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
         "reject_pct": round((reject_count / valid_total * 100), 1) if valid_total > 0 else 0,
         "processing_pct": round((processing_count / valid_total * 100), 1) if valid_total > 0 else 0,
         "supplement_pct": round((supplement_count / valid_total * 100), 1) if valid_total > 0 else 0,
-        "withdraw_pct": round((withdraw_count / valid_total * 100), 1) if valid_total > 0 else 0,
+        "withdraw_pct": round((effective_withdraw_count / valid_total * 100), 1) if valid_total > 0 else 0,
         "tfine_pct": round((t_fine_count / t_bar_total * 100), 1) if t_bar_total > 0 else 0,
         "tpenalty_pct": round((t_penalty_count / t_bar_total * 100), 1) if t_bar_total > 0 else 0,
         "treject_pct": round((t_reject_count / t_bar_total * 100), 1) if t_bar_total > 0 else 0,
@@ -526,6 +534,8 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
                 df = df[~df["처리기관"].str.contains("경찰", na=False)]
             if filters.get("onlyPolice") and "처리기관" in df.columns:
                 df = df[df["처리기관"].str.contains("경찰", na=False)]
+
+        df = _exclude_withdraw_rows(df)
 
         if "위반법규" in df.columns:
             laws = df["위반법규"].dropna().astype(str)

@@ -10,6 +10,26 @@
 
 ## 2026-05-13
 
+### raw_content 저장 누락 복구 + 취하 숨김 summary/stats 정렬
+
+상태: 완료
+
+변경:
+- `services/parser.py`, `core/crawler/detail_pipeline.py`, `core/database/database.py`
+  - API/레거시 상세 파서가 신고 본문 원문을 `raw_content` / `raw_type='report_body'` 로 함께 넘기고, detail upsert 시 `mysafety_raw_content` 에도 같이 저장하도록 보강.
+  - 같은 payload 재크롤이면 `saved_at` 를 유지하고, 실제 payload 가 바뀐 경우만 갱신되도록 정리.
+  - 그 결과 서버 `--reset` 후 재크롤링에서도 `mysafety_raw_content` 기반 payload exact 중복군이 다시 생성된다.
+- `services/report_stats_service.py`
+  - `exclude_withdraw=True` 일 때 `/summary` 의 `withdrawCount` / `withdraw_pct` 를 0 으로 내려 모바일/웹 대시보드 그래프와 카드 기준을 일치화.
+  - 대신 실제 원본 취하 개수는 `withdrawRawCount` 로 별도 노출.
+  - 기관 통계(`get_agency_stats`)도 전역 `취하 데이터 숨기기` 설정을 따라 `취하` row 를 제외하도록 정리.
+
+검증:
+- `python3 -m compileall services/parser.py core/crawler/detail_pipeline.py core/database/database.py services/report_stats_service.py`
+- `venv/bin/python` 임시 SQLite 시뮬레이션
+  - 동일 `raw_content` 2건 저장 후 `mysafety_raw_content` 2행, 중복군 1개/멤버 2건 생성 확인
+  - `exclude_withdraw=True` 에서 `/summary` 기준 `withdrawCount=0`, `withdrawRawCount=1`, 기관 통계 total=1 확인
+
 ### reset 크롤링 시 예전 보완 history 테이블 잔재 정리
 
 상태: 완료

@@ -112,6 +112,8 @@ def build_detail_result(
 ):
     entry_value = details.get("entry_value", "")
     category = category_from_entry_value(entry_value)
+    raw_content = details.get("raw_content", "")
+    raw_type = details.get("raw_type", "")
     title_fields = enrich_title_fields_with_satisfaction(
         details.get("title_fields"),
         satisfaction_client=satisfaction_client,
@@ -123,4 +125,6 @@ def build_detail_result(
         entry_value,
         progress_status,
         title_fields,
+        raw_content,
+        raw_type,
     )

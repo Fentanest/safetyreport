@@ -453,14 +453,21 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
     total_records = 0
 
     for item in dataframes_with_category:
-        # 2~5-tuple 모두 지원
+        # 2~7-tuple 모두 지원
         # (df, category)
         # (df, category, entry_value)
         # (df, category, entry_value, progress_status)
         # (df, category, entry_value, progress_status, title_fields)
+        # (df, category, entry_value, progress_status, title_fields, raw_content, raw_type)
         progress_status = None
         title_fields = None
-        if len(item) == 5:
+        raw_content = None
+        raw_type = ""
+        if len(item) == 7:
+            df, category, entry_value, progress_status, title_fields, raw_content, raw_type = item
+        elif len(item) == 6:
+            df, category, entry_value, progress_status, title_fields, raw_content = item
+        elif len(item) == 5:
             df, category, entry_value, progress_status, title_fields = item
         elif len(item) == 4:
             df, category, entry_value, progress_status = item
@@ -486,6 +493,7 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
 
         try:
             with engine.begin() as conn:
+                now_ms = _current_epoch_millis()
                 # entry_value 저장
                 if entry_value is not None:
                     ev_stmt = insert(entry_value_table).values(ID=record_id, entry_value=entry_value)
@@ -493,12 +501,40 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
                     conn.execute(ev_stmt)
                 total_records += 1
 
+                if raw_content is not None and str(raw_content).strip():
+                    existing_raw_proxy = conn.execute(
+                        select(raw_content_table).where(raw_content_table.c.ID == record_id)
+                    ).first()
+                    existing_raw = dict(existing_raw_proxy._mapping) if existing_raw_proxy else {}
+                    raw_payload = {
+                        "ID": record_id,
+                        "raw_content": str(raw_content),
+                        "raw_type": str(raw_type or ""),
+                        "saved_at": existing_raw.get("saved_at"),
+                    }
+                    if (
+                        existing_raw.get("raw_content") != raw_payload["raw_content"]
+                        or existing_raw.get("raw_type", "") != raw_payload["raw_type"]
+                        or raw_payload["saved_at"] is None
+                    ):
+                        raw_payload["saved_at"] = now_ms
+
+                    raw_stmt = insert(raw_content_table).values(**raw_payload)
+                    raw_stmt = raw_stmt.on_conflict_do_update(
+                        index_elements=['ID'],
+                        set_={
+                            "raw_content": raw_payload["raw_content"],
+                            "raw_type": raw_payload["raw_type"],
+                            "saved_at": raw_payload["saved_at"],
+                        },
+                    )
+                    conn.execute(raw_stmt)
+
                 select_stmt = select(target_table).where(target_table.c.ID == record_id)
                 existing_record_proxy = conn.execute(select_stmt).first()
 
                 is_new = existing_record_proxy is None
                 is_changed = False
-                now_ms = _current_epoch_millis()
 
                 if is_new:
                     changed_item_ids.append({"id": record_id, "change_type": "신규"})

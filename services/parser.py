@@ -5,9 +5,17 @@ from services import supplement_parser
 _C_NOW_STATUS = {0: "진행", 10: "답변완료", 11: "일부수용", 12: "검토중",
                  14: "불수용", 15: "기타", 20: "취하", 30: "이송"}
 _CANONICAL_DONE_STATUSES = {"수용", "일부수용", "불수용", "기타", "답변완료", "취하", "이송"}
+_FULLWIDTH_TRANSLATION = str.maketrans('０１２３４５６７８９，', '0123456789,')
 
 _REJECT_KEYWORDS = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
 _WARNING_KEYWORDS = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
+
+
+def _normalize_raw_payload_text(value) -> str:
+    text = str(value or "")
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("\xa0", " ").translate(_FULLWIDTH_TRANSLATION)
+    return text.strip()
 
 def _apply_penalty_corrections(processing_status, processing_finish, penalty_amount, penalty_points, entry_value, text):
     """불수용 강제 교정 및 경고/미확인 설정. text는 담당자 처리내용(processing_content)만 넘길 것."""
@@ -25,7 +33,7 @@ def _parse_report_content_table(driver, report_soup):
     if content_th:
         content_td = content_th.find_next_sibling('td')
         if content_td:
-            content_text = content_td.get_text(separator='\n').translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
+            content_text = _normalize_raw_payload_text(content_td.get_text(separator='\n'))
 
     entry_match = re.search(r'본 신고는 안전신문고 (?:앱의|포털의) (.*?) 메뉴로 접수된 신고입니다', content_text)
     entry_value = entry_match.group(1).strip() if entry_match else ""
@@ -115,6 +123,8 @@ def _parse_report_content_table(driver, report_soup):
         "attachment_files": attachment_files,
         "attached_photos": attached_photos,
         "map_image": map_image,
+        "raw_content": content_text,
+        "raw_type": "report_body",
         # title 갱신용 원시 데이터 (신고번호, 신고명, 신고일은 page_soup에서)
         "_report_number_raw": report_soup.find('th', string='신고번호').find_next_sibling('td').get_text(strip=True)
             if report_soup.find('th', string='신고번호') else "",
@@ -131,7 +141,7 @@ def _parse_processing_result_table(result_soup, entry_value):
         processing_content_td = processing_content_th.find_next_sibling('td')
         if processing_content_td:
             processing_content = processing_content_td.get_text(separator='\n').strip()
-    processing_content = processing_content.translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
+    processing_content = processing_content.translate(_FULLWIDTH_TRANSLATION)
 
     violation_law_match = re.search(r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?', processing_content)
     if violation_law_match:
@@ -318,7 +328,7 @@ def parse_json_details(result_data):
     content_text = result_data.get("C_A_CONTENTS", "")
     if not content_text:
         content_text = result_data.get("C_A_BODY", "")
-    content_text_clean = content_text.translate(str.maketrans('０１２３４５６７８９，', '0123456789,'))
+    content_text_clean = _normalize_raw_payload_text(content_text)
     
     entry_match = re.search(r'본 신고는 안전신문고 (?:앱의|포털의) (.*?) 메뉴로 접수된 신고입니다', content_text_clean)
     entry_value = entry_match.group(1).strip() if entry_match else result_data.get("C_APP_GUBUN_NM", "")
@@ -565,6 +575,8 @@ def parse_json_details(result_data):
         "attachment_files": attachment_files,
         "attached_photos": attached_photos,
         "map_image": map_image,
+        "raw_content": content_text_clean,
+        "raw_type": "report_body",
         "title_fields": title_fields,
         "supplement_summary": supplement_summary,
     }

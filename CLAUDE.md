@@ -252,7 +252,7 @@ STTEMNT_IMAGE_URL  ARR_C_FILES  answers
 **get_dashboard_stats():**
 ```
 last_crawl_time  total
-acceptCount  partialCount  rejectCount  processingCount  supplementCount  completedCount  withdrawCount
+acceptCount  partialCount  rejectCount  processingCount  supplementCount  completedCount  withdrawCount  withdrawRawCount
 tFineCount  tPenaltyCount  tRejectCount  tUnconfirmedCount
 accept_pct  partial_pct  reject_pct  processing_pct  supplement_pct  withdraw_pct
 tfine_pct  tpenalty_pct  treject_pct  tunconfirmed_pct
@@ -323,6 +323,7 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
   - 백필 규칙: `답변일`이 있으면 그 날짜를, 없으면 title의 `신고일`을 기준으로 epoch ms 생성
   - 날짜 문자열에 시각이 없으면 그날의 마지막 시각(23:59:59.999)으로 채워 같은 날짜끼리는 `신고번호 DESC`가 tie-break로 작동하게 한다.
 - `raw_content` 는 목록/통계 테이블에 싣지 않고 `mysafety_raw_content` 별도 테이블에 보관한다.
+  - 서버 상세 크롤링은 신고 본문 원문을 `raw_type='report_body'` 로 함께 저장한다. 이 row 가 있어야 reset 후 재크롤링에서도 payload exact 중복군이 다시 생긴다.
 - 서버 "마지막 크롤링 시각"은 `mysafety_sync_meta.last_sync` 에 ISO8601 문자열로 저장된다.
   - `start.py` 의 `_process_and_save_results` 가 merge 직후 `mysafety_sync_meta` 에 `key='last_sync'`, `value=datetime.now().isoformat(timespec='seconds')` 로 직접 upsert 한다.
   - 모바일 `sync_engine.dart._saveSyncTime()` 와 같은 키/형식이라 서버↔모바일 DB import 시 round-trip 으로 의미가 보존된다.
@@ -543,6 +544,10 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 | POST | `/crawl/start` | 모바일에서 크롤링 시작 |
 | POST | `/crawl/kill` | 크롤링 강제 중지 |
 | POST | `/crawl/resume` | 비회원 로그인 완료 신호 |
+
+- `/summary` 의 취하 필드 규칙
+  - `exclude_withdraw=True` 이면 그래프/모바일 카드 기준 `withdrawCount=0`, `withdraw_pct=0`
+  - 실제 원본 취하 건수는 `withdrawRawCount` 로 별도 전달
 | GET | `/app/config` | 앱 설정 (`exclude_withdraw`, `normalize_police`, `use_representative_records` 등) |
 | POST | `/settings` | 필터 설정 저장 (`normalize_police`, `exclude_withdraw`, `use_representative_records`) |
 | GET | `/files?path=` | 서버 파일 브라우저 (logs/results 한정) |
