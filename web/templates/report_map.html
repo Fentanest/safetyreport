@@ -362,7 +362,7 @@
 </div>
 {% endif %}
 
-<div class="card map-progress-card mb-3" id="mapProgressCard" {% if backfill_progress.state not in ['running', 'error', 'config_required'] %}style="display:none"{% endif %}>
+<div class="card map-progress-card mb-3" id="mapProgressCard" {% if backfill_progress.state not in ['running', 'error', 'config_required', 'config_warning'] %}style="display:none"{% endif %}>
     <div class="card-body">
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
             <div>
@@ -455,6 +455,8 @@
             <div>
                 {% if backfill_progress.state == 'running' %}
                 주소 좌표를 변환하는 중입니다. 진행률이 100%가 되면 지도가 자동으로 새로고침됩니다.
+                {% elif backfill_progress.state == 'config_warning' %}
+                저장된 좌표가 있는 신고는 계속 지도에 표시됩니다. 다만 DB에 없는 새 주소는 카카오 REST API 키를 다시 입력해야 변환할 수 있습니다.
                 {% else %}
                 카카오 REST API 키를 등록한 뒤 다시 열면 주소를 자동 변환해 지도를 채웁니다.
                 {% endif %}
@@ -533,6 +535,10 @@
                 progressCard.style.display = '';
                 progressTitle.textContent = '주소 좌표 변환 진행 중';
                 progressSubtitle.textContent = '지도 통계를 위한 위도/경도 백필을 백그라운드에서 수행합니다.';
+            } else if (state === 'config_warning') {
+                progressCard.style.display = '';
+                progressTitle.textContent = '저장된 좌표로 지도는 계속 표시됩니다';
+                progressSubtitle.textContent = errorMessage || 'DB에 없는 새 주소는 카카오 REST API 키를 다시 입력해야 변환할 수 있습니다.';
             } else if (state === 'error' || state === 'config_required') {
                 progressCard.style.display = '';
                 progressTitle.textContent = '지도 좌표 변환을 진행할 수 없습니다';
@@ -867,7 +873,7 @@
                     total
                 ),
                 disposition_breakdown: addPercent(
-                    sumBreakdownCounts(points, 'disposition_breakdown', ['과태료', '경고/범칙금', '불수용/기타', '기타/미확인']),
+                    sumBreakdownCounts(points, 'disposition_breakdown', ['과태료', '경고/범칙금', '불수용/기타', '미확인']),
                     total
                 ),
                 category_breakdown: addPercent(

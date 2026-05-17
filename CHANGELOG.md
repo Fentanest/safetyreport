@@ -68,6 +68,25 @@
 검증:
 - `venv/bin/python -m unittest discover -s tests -v`
 
+### 지도 좌표 캐시 재사용 경고 + 처분 현황 `미확인` 분리
+
+상태: 완료
+
+변경:
+- `services/geocode_service.py`, `web/templates/report_map.html`
+  - 카카오 REST API 키가 한 번 등록돼 일부 주소가 이미 좌표화된 뒤 키가 제거되면, 저장된 좌표와 `mysafety_geocode_cache` 로 채울 수 있는 신고는 계속 지도에 표시
+  - DB/캐시에 없는 새 주소만 더 이상 좌표 변환을 못 하는 경우 `config_warning` 상태와 전용 경고 문구를 표시
+  - API 키가 다시 입력되면 같은 지도 화면에서 경고를 해제하고 일반 백필 흐름으로 복귀
+- `services/report_stats_service.py`, `web/templates/stats.html`, `web/templates/report_map.html`
+  - 기관 통계와 지도 tooltip 의 처분 현황에서 `불수용/기타` 묶음은 유지하고, 기존 `기타/미확인` 묶음은 `미확인` 단독 bucket 으로 분리
+  - 지도 meta 에 `agency_count` 를 추가해 모바일 요약 카드도 같은 집계 기준을 재사용
+- `tests/test_geocode_service_regression.py`
+  - API 키가 없어도 저장 좌표/캐시 기반 표시가 유지되는 경우와, 새 주소만 남았을 때 `config_warning` 으로 전환되는 경우를 회귀 테스트로 추가
+
+검증:
+- `venv/bin/python -m unittest discover -s tests -v`
+- `python3 -m compileall services/geocode_service.py services/report_stats_service.py web/templates/report_map.html web/templates/stats.html`
+
 ## 2026-05-13
 
 ### raw_content 저장 누락 복구 + 취하 숨김 summary/stats 정렬

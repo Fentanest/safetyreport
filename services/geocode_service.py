@@ -54,6 +54,7 @@ def _initial_progress_state() -> dict:
         "finished_at": 0,
         "heartbeat_at": 0,
         "lease_owner": "",
+        "has_saved_coordinates": False,
     }
 
 
@@ -99,6 +100,7 @@ def _normalize_progress_state(state: dict) -> dict:
         merged["heartbeat_at"] = max(int(merged.get("heartbeat_at") or 0), 0)
     except (TypeError, ValueError):
         merged = base
+    merged["has_saved_coordinates"] = bool(merged.get("has_saved_coordinates"))
     merged["state"] = str(merged.get("state") or "idle").strip() or "idle"
     merged["error_message"] = str(merged.get("error_message") or "")
     merged["lease_owner"] = str(merged.get("lease_owner") or "")
@@ -279,6 +281,67 @@ def get_kakao_rest_api_key() -> str:
 
 def has_kakao_rest_api_key() -> bool:
     return bool(get_kakao_rest_api_key())
+
+
+def _pending_row_conditions(detail_table):
+    return [
+        detail_table.c["위반장소"].is_not(None),
+        detail_table.c["위반장소"] != "",
+        or_(detail_table.c["위도"].is_(None), detail_table.c["경도"].is_(None)),
+        or_(detail_table.c["지오코딩상태"].is_(None), detail_table.c["지오코딩상태"] != "not_found"),
+    ]
+
+
+def _pending_address_key_expr(detail_table):
+    return func.trim(
+        func.coalesce(
+            func.nullif(detail_table.c["주소정규화"], ""),
+            detail_table.c["위반장소"],
+        )
+    )
+
+
+def count_saved_coordinate_records(engine) -> int:
+    with engine.connect() as conn:
+        value = conn.execute(
+            select(func.count())
+            .select_from(models.geocode_cache_table)
+            .where(models.geocode_cache_table.c["상태"] == "ok")
+        ).scalar()
+    return int(value or 0)
+
+
+def count_cache_backfillable_reports(engine) -> int:
+    total = 0
+    with engine.connect() as conn:
+        for detail_table, _, _ in REPORT_TABLE_PAIRS:
+            total += conn.execute(
+                select(func.count())
+                .select_from(
+                    detail_table.join(
+                        models.geocode_cache_table,
+                        models.geocode_cache_table.c["주소정규화"] == _pending_address_key_expr(detail_table),
+                    )
+                )
+                .where(*_pending_row_conditions(detail_table))
+                .where(models.geocode_cache_table.c["상태"].in_(["ok", "not_found"]))
+            ).scalar() or 0
+    return int(total)
+
+
+def _missing_api_key_notice(engine) -> tuple[str, str, bool]:
+    has_saved_coordinates = count_saved_coordinate_records(engine) > 0
+    if has_saved_coordinates:
+        return (
+            "config_warning",
+            "저장된 좌표 데이터는 계속 지도에 반영됩니다. 다만 DB에 없는 새 주소는 카카오 REST API 키가 없으면 변환할 수 없습니다.",
+            True,
+        )
+    return (
+        "config_required",
+        "카카오 REST API 키를 확인해주세요. 앱 설정의 외부 연동 키 설정에서 등록할 수 있습니다.",
+        False,
+    )
 
 
 def _to_float_or_none(value):
@@ -474,10 +537,23 @@ def prepare_geo_payload(engine, address: str, *, existing_record=None) -> dict:
 def _pending_rows_query(detail_table, limit: int):
     return (
         select(detail_table.c.ID, detail_table.c["위반장소"])
-        .where(detail_table.c["위반장소"].is_not(None))
-        .where(detail_table.c["위반장소"] != "")
-        .where(or_(detail_table.c["위도"].is_(None), detail_table.c["경도"].is_(None)))
-        .where(or_(detail_table.c["지오코딩상태"].is_(None), detail_table.c["지오코딩상태"] != "not_found"))
+        .where(*_pending_row_conditions(detail_table))
+        .order_by(detail_table.c.ID.desc())
+        .limit(limit)
+    )
+
+
+def _cache_backfillable_rows_query(detail_table, limit: int):
+    return (
+        select(detail_table.c.ID, detail_table.c["위반장소"])
+        .select_from(
+            detail_table.join(
+                models.geocode_cache_table,
+                models.geocode_cache_table.c["주소정규화"] == _pending_address_key_expr(detail_table),
+            )
+        )
+        .where(*_pending_row_conditions(detail_table))
+        .where(models.geocode_cache_table.c["상태"].in_(["ok", "not_found"]))
         .order_by(detail_table.c.ID.desc())
         .limit(limit)
     )
@@ -490,10 +566,7 @@ def count_pending_reports(engine) -> int:
             total += conn.execute(
                 select(func.count())
                 .select_from(detail_table)
-                .where(detail_table.c["위반장소"].is_not(None))
-                .where(detail_table.c["위반장소"] != "")
-                .where(or_(detail_table.c["위도"].is_(None), detail_table.c["경도"].is_(None)))
-                .where(or_(detail_table.c["지오코딩상태"].is_(None), detail_table.c["지오코딩상태"] != "not_found"))
+                .where(*_pending_row_conditions(detail_table))
             ).scalar() or 0
     return int(total)
 
@@ -515,6 +588,9 @@ def backfill_missing_report_coordinates(engine, *, limit: int = 150) -> dict:
     updated = 0
     not_found = 0
     error_message = ""
+    error_state = "error"
+    has_saved_coordinates = count_saved_coordinate_records(engine) > 0
+    api_key_available = has_kakao_rest_api_key()
 
     with _BACKFILL_LOCK:
         pending_rows = []
@@ -523,7 +599,12 @@ def backfill_missing_report_coordinates(engine, *, limit: int = 150) -> dict:
                 remaining = limit - len(pending_rows)
                 if remaining <= 0:
                     break
-                rows = conn.execute(_pending_rows_query(detail_table, remaining)).mappings().all()
+                query = (
+                    _pending_rows_query(detail_table, remaining)
+                    if api_key_available
+                    else _cache_backfillable_rows_query(detail_table, remaining)
+                )
+                rows = conn.execute(query).mappings().all()
                 for row in rows:
                     pending_rows.append({
                         "ID": str(row["ID"]),
@@ -534,12 +615,17 @@ def backfill_missing_report_coordinates(engine, *, limit: int = 150) -> dict:
                     })
 
         if not pending_rows:
+            remaining_missing = count_pending_reports(engine)
+            if not api_key_available and remaining_missing > 0 and count_cache_backfillable_reports(engine) <= 0:
+                error_state, error_message, has_saved_coordinates = _missing_api_key_notice(engine)
             return {
                 "scanned": 0,
                 "updated": 0,
                 "not_found": 0,
-                "error_message": "",
-                "remaining_missing": 0,
+                "error_message": error_message,
+                "error_state": error_state,
+                "has_saved_coordinates": has_saved_coordinates,
+                "remaining_missing": remaining_missing,
             }
 
         for row in pending_rows:
@@ -547,11 +633,12 @@ def backfill_missing_report_coordinates(engine, *, limit: int = 150) -> dict:
             try:
                 payload = resolve_address(engine, row["위반장소"])
             except GeocodeConfigurationError:
-                error_message = "카카오 REST API 키를 확인해주세요. 앱 설정의 외부 연동 키 설정에서 등록할 수 있습니다."
+                error_state, error_message, has_saved_coordinates = _missing_api_key_notice(engine)
                 break
             except GeocodeProviderError as exc:
                 logger.LoggerFactory.logbot.warning(f"[geocode] 백필 중 API 오류: {exc}")
                 error_message = "카카오 REST API 응답을 확인해주세요. 앱 설정의 REST API 키가 유효한지 확인하세요."
+                error_state = "error"
                 break
 
             with engine.begin() as conn:
@@ -563,11 +650,15 @@ def backfill_missing_report_coordinates(engine, *, limit: int = 150) -> dict:
                 not_found += 1
 
         remaining_missing = count_pending_reports(engine)
+        if not api_key_available and remaining_missing > 0 and count_cache_backfillable_reports(engine) <= 0:
+            error_state, error_message, has_saved_coordinates = _missing_api_key_notice(engine)
         return {
             "scanned": scanned,
             "updated": updated,
             "not_found": not_found,
             "error_message": error_message,
+            "error_state": error_state,
+            "has_saved_coordinates": has_saved_coordinates,
             "remaining_missing": remaining_missing,
         }
 
@@ -576,22 +667,26 @@ def ensure_map_backfill_started(engine, *, batch_size: int = 120) -> dict:
     global _BACKGROUND_THREAD
 
     now_ms = _current_epoch_millis()
-    if not has_kakao_rest_api_key():
-        logger.LoggerFactory.logbot.info("[geocode] 카카오 REST API 키가 없어 지도 지오코딩 백필을 시작하지 않습니다.")
+    pending = count_pending_reports(engine)
+    has_saved_coordinates = count_saved_coordinate_records(engine) > 0
+    if pending > 0 and not has_kakao_rest_api_key() and count_cache_backfillable_reports(engine) <= 0:
+        state, message, has_saved_coordinates = _missing_api_key_notice(engine)
+        logger.LoggerFactory.logbot.info("[geocode] 카카오 REST API 키가 없어 신규 지도 지오코딩 백필을 시작하지 않습니다.")
         return _set_progress_state(
             engine=engine,
             heartbeat=False,
-            state="config_required",
+            state=state,
             running=False,
-            total=0,
+            total=pending,
             processed=0,
             updated=0,
             not_found=0,
-            remaining_missing=count_pending_reports(engine),
-            error_message="카카오 REST API 키를 확인해주세요. 앱 설정의 외부 연동 키 설정에서 등록할 수 있습니다.",
+            remaining_missing=pending,
+            error_message=message,
             started_at=0,
             finished_at=0,
             lease_owner="",
+            has_saved_coordinates=has_saved_coordinates,
         )
 
     if _BACKGROUND_THREAD and _BACKGROUND_THREAD.is_alive():
@@ -606,7 +701,6 @@ def ensure_map_backfill_started(engine, *, batch_size: int = 120) -> dict:
         if _active_lease_is_valid(current, now_ms=now_ms):
             return current
 
-        pending = count_pending_reports(engine)
         if pending <= 0:
             logger.LoggerFactory.logbot.debug("[geocode] 지도 지오코딩 백필 대상이 없습니다.")
             return _set_progress_state(
@@ -623,6 +717,7 @@ def ensure_map_backfill_started(engine, *, batch_size: int = 120) -> dict:
                 finished_at=_current_epoch_millis(),
                 heartbeat=False,
                 lease_owner="",
+                has_saved_coordinates=has_saved_coordinates,
             )
 
         lease_owner = uuid.uuid4().hex
@@ -641,6 +736,7 @@ def ensure_map_backfill_started(engine, *, batch_size: int = 120) -> dict:
             finished_at=0,
             heartbeat=True,
             lease_owner=lease_owner,
+            has_saved_coordinates=has_saved_coordinates,
         )
 
         def _runner():
@@ -680,12 +776,13 @@ def ensure_map_backfill_started(engine, *, batch_size: int = 120) -> dict:
                         finished_at=0,
                         heartbeat=True,
                         lease_owner=lease_owner,
+                        has_saved_coordinates=has_saved_coordinates or total_updated > 0,
                     )
 
                     if result["error_message"]:
                         _set_progress_state(
                             engine=engine,
-                            state="error",
+                            state=result.get("error_state") or "error",
                             running=False,
                             total=pending,
                             processed=processed,
@@ -697,6 +794,7 @@ def ensure_map_backfill_started(engine, *, batch_size: int = 120) -> dict:
                             finished_at=_current_epoch_millis(),
                             heartbeat=False,
                             lease_owner="",
+                            has_saved_coordinates=bool(result.get("has_saved_coordinates")) or has_saved_coordinates or total_updated > 0,
                         )
                         logger.LoggerFactory.logbot.warning(f"[geocode] 지도 백필 중단: {result['error_message']}")
                         break
@@ -715,6 +813,7 @@ def ensure_map_backfill_started(engine, *, batch_size: int = 120) -> dict:
                             finished_at=_current_epoch_millis(),
                             heartbeat=False,
                             lease_owner="",
+                            has_saved_coordinates=has_saved_coordinates or total_updated > 0,
                         )
                         break
                     if result["scanned"] == 0:
@@ -732,6 +831,7 @@ def ensure_map_backfill_started(engine, *, batch_size: int = 120) -> dict:
                             finished_at=_current_epoch_millis(),
                             heartbeat=False,
                             lease_owner="",
+                            has_saved_coordinates=has_saved_coordinates or total_updated > 0,
                         )
                         break
                 finally:

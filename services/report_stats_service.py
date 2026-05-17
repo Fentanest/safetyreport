@@ -588,9 +588,7 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
         stats_person = []
         for (agency, person), group in df.groupby(["처리기관", "담당자"]):
             total = len(group)
-            rejects = len(group[group["처리상태"].isin(["불수용", "기타"])])
-            fines = len(group[group["범칙금_과태료"].str.contains("과태료", na=False)])
-            warnings = len(group[group["범칙금_과태료"].str.contains("경고|범칙금", na=False)])
+            disposition_counts = _disposition_counts(group)
             avg = _calc_avg_days(group)
             total_fine = int(group["범칙금_과태료"].apply(_extract_fine_amount).sum())
             avg_rating, rating_count = _calc_avg_rating(group)
@@ -600,12 +598,14 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
                 "total": total,
                 "avg_days": avg,
                 "total_fine_amount": total_fine,
-                "fines": fines,
-                "fines_pct": round((fines / total) * 100, 1) if total > 0 else 0,
-                "warnings": warnings,
-                "warnings_pct": round((warnings / total) * 100, 1) if total > 0 else 0,
-                "rejects": rejects,
-                "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0,
+                "fines": disposition_counts["fines"],
+                "fines_pct": round((disposition_counts["fines"] / total) * 100, 1) if total > 0 else 0,
+                "warnings": disposition_counts["warnings"],
+                "warnings_pct": round((disposition_counts["warnings"] / total) * 100, 1) if total > 0 else 0,
+                "rejects": disposition_counts["rejects"],
+                "rejects_pct": round((disposition_counts["rejects"] / total) * 100, 1) if total > 0 else 0,
+                "unconfirmed": disposition_counts["unconfirmed"],
+                "unconfirmed_pct": round((disposition_counts["unconfirmed"] / total) * 100, 1) if total > 0 else 0,
                 "avg_rating": avg_rating,
                 "rating_count": rating_count,
             })
@@ -614,9 +614,7 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
         for agency, group in df.groupby("처리기관"):
             agency = agency[0] if isinstance(agency, tuple) else agency
             total = len(group)
-            rejects = len(group[group["처리상태"].isin(["불수용", "기타"])])
-            fines = len(group[group["범칙금_과태료"].str.contains("과태료", na=False)])
-            warnings = len(group[group["범칙금_과태료"].str.contains("경고|범칙금", na=False)])
+            disposition_counts = _disposition_counts(group)
             avg = _calc_avg_days(group)
             total_fine = int(group["범칙금_과태료"].apply(_extract_fine_amount).sum())
             avg_rating, rating_count = _calc_avg_rating(group)
@@ -625,12 +623,14 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
                 "total": total,
                 "avg_days": avg,
                 "total_fine_amount": total_fine,
-                "fines": fines,
-                "fines_pct": round((fines / total) * 100, 1) if total > 0 else 0,
-                "warnings": warnings,
-                "warnings_pct": round((warnings / total) * 100, 1) if total > 0 else 0,
-                "rejects": rejects,
-                "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0,
+                "fines": disposition_counts["fines"],
+                "fines_pct": round((disposition_counts["fines"] / total) * 100, 1) if total > 0 else 0,
+                "warnings": disposition_counts["warnings"],
+                "warnings_pct": round((disposition_counts["warnings"] / total) * 100, 1) if total > 0 else 0,
+                "rejects": disposition_counts["rejects"],
+                "rejects_pct": round((disposition_counts["rejects"] / total) * 100, 1) if total > 0 else 0,
+                "unconfirmed": disposition_counts["unconfirmed"],
+                "unconfirmed_pct": round((disposition_counts["unconfirmed"] / total) * 100, 1) if total > 0 else 0,
                 "avg_rating": avg_rating,
                 "rating_count": rating_count,
             })
@@ -642,9 +642,7 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
             df_law = df_law[df_law["위반법규"].str.strip() != ""]
             for law, group in df_law.groupby("위반법규"):
                 total = len(group)
-                rejects = len(group[group["처리상태"].isin(["불수용", "기타"])])
-                fines = len(group[group["범칙금_과태료"].str.contains("과태료", na=False)])
-                warnings = len(group[group["범칙금_과태료"].str.contains("경고|범칙금", na=False)])
+                disposition_counts = _disposition_counts(group)
                 avg = _calc_avg_days(group)
                 total_fine = int(group["범칙금_과태료"].apply(_extract_fine_amount).sum())
                 avg_rating, rating_count = _calc_avg_rating(group)
@@ -653,12 +651,14 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
                     "total": total,
                     "avg_days": avg,
                     "total_fine_amount": total_fine,
-                    "fines": fines,
-                    "fines_pct": round((fines / total) * 100, 1) if total > 0 else 0,
-                    "warnings": warnings,
-                    "warnings_pct": round((warnings / total) * 100, 1) if total > 0 else 0,
-                    "rejects": rejects,
-                    "rejects_pct": round((rejects / total) * 100, 1) if total > 0 else 0,
+                    "fines": disposition_counts["fines"],
+                    "fines_pct": round((disposition_counts["fines"] / total) * 100, 1) if total > 0 else 0,
+                    "warnings": disposition_counts["warnings"],
+                    "warnings_pct": round((disposition_counts["warnings"] / total) * 100, 1) if total > 0 else 0,
+                    "rejects": disposition_counts["rejects"],
+                    "rejects_pct": round((disposition_counts["rejects"] / total) * 100, 1) if total > 0 else 0,
+                    "unconfirmed": disposition_counts["unconfirmed"],
+                    "unconfirmed_pct": round((disposition_counts["unconfirmed"] / total) * 100, 1) if total > 0 else 0,
                     "avg_rating": avg_rating,
                     "rating_count": rating_count,
                 })
@@ -707,6 +707,23 @@ def _ratio_item(label: str, count: int, total: int) -> dict:
     }
 
 
+def _disposition_counts(group_df: pd.DataFrame) -> dict[str, int]:
+    fine_series = group_df.get("범칙금_과태료", pd.Series(dtype="object")).fillna("").astype(str)
+    status_series = group_df.get("처리상태", pd.Series(dtype="object")).fillna("").astype(str)
+
+    fine_mask = fine_series.str.contains("과태료", na=False)
+    warning_mask = fine_series.str.contains("경고|범칙금", na=False)
+    reject_mask = status_series.isin(["불수용", "기타"])
+    unconfirmed_mask = ~(fine_mask | warning_mask | reject_mask)
+
+    return {
+        "fines": int(fine_mask.sum()),
+        "warnings": int(warning_mask.sum()),
+        "rejects": int(reject_mask.sum()),
+        "unconfirmed": int(unconfirmed_mask.sum()),
+    }
+
+
 def _build_status_breakdown(group_df: pd.DataFrame) -> list[dict]:
     status_series = group_df.get("처리상태", pd.Series(dtype="object")).fillna("").astype(str)
     processing_mask = status_series.isin(["", "진행", "진행중", "검토중", "처리중"])
@@ -725,19 +742,13 @@ def _build_status_breakdown(group_df: pd.DataFrame) -> list[dict]:
 
 
 def _build_disposition_breakdown(group_df: pd.DataFrame) -> list[dict]:
-    fine_series = group_df.get("범칙금_과태료", pd.Series(dtype="object")).fillna("").astype(str)
-    status_series = group_df.get("처리상태", pd.Series(dtype="object")).fillna("").astype(str)
-
-    fine_mask = fine_series.str.contains("과태료", na=False)
-    warning_mask = fine_series.str.contains("경고|범칙금", na=False)
-    reject_mask = status_series.isin(["불수용", "기타"])
-    pending_mask = ~(fine_mask | warning_mask | reject_mask)
+    counts = _disposition_counts(group_df)
 
     ordered = [
-        _ratio_item("과태료", int(fine_mask.sum()), len(group_df)),
-        _ratio_item("경고/범칙금", int(warning_mask.sum()), len(group_df)),
-        _ratio_item("불수용/기타", int(reject_mask.sum()), len(group_df)),
-        _ratio_item("기타/미확인", int(pending_mask.sum()), len(group_df)),
+        _ratio_item("과태료", counts["fines"], len(group_df)),
+        _ratio_item("경고/범칙금", counts["warnings"], len(group_df)),
+        _ratio_item("불수용/기타", counts["rejects"], len(group_df)),
+        _ratio_item("미확인", counts["unconfirmed"], len(group_df)),
     ]
     return [item for item in ordered if item["count"] > 0]
 
@@ -818,6 +829,7 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
                 "geocoded_reports": 0,
                 "missing_reports": 0,
                 "address_groups": 0,
+                "agency_count": 0,
             },
         })
 
@@ -872,6 +884,8 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
             })
 
     points.sort(key=lambda item: item["total"], reverse=True)
+    agencies = combined_df.get("처리기관", pd.Series(dtype="object")).fillna("").astype(str).map(lambda value: value.strip())
+    agency_count = int((agencies != "").sum()) if agencies.empty else int(agencies[agencies != ""].nunique())
     return _sanitize_jsonable({
         "points": points,
         "meta": {
@@ -883,5 +897,6 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
             "geocoded_reports": int(len(geocoded_df)),
             "missing_reports": int(len(missing_df)),
             "address_groups": int(len(points)),
+            "agency_count": agency_count,
         },
     })
