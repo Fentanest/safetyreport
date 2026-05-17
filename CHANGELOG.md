@@ -87,6 +87,24 @@
 - `venv/bin/python -m unittest discover -s tests -v`
 - `python3 -m compileall services/geocode_service.py services/report_stats_service.py web/templates/report_map.html web/templates/stats.html`
 
+### 신고 지도 미변환 주소 목록 + 클러스터 숫자 기준 보정
+
+상태: 완료
+
+변경:
+- `services/report_stats_service.py`, `services/data_service.py`, `web/routers/stats.py`, `web/routers/api_route.py`
+  - 신고 지도와 같은 필터/중복 대표건 기준을 따르는 `미변환 주소 그룹` payload 추가
+  - 웹 `/stats/map/missing`, 모바일 client 연동용 `/api/v1/stats/map/missing` API 추가
+  - 주소별로 미변환 신고건을 그룹화하고, 각 그룹 안에 실제 신고 row payload 를 함께 내려주도록 정리
+- `web/templates/report_map.html`
+  - 신고 지도 우측 상단에 `미변환 주소` 버튼 추가
+  - 주소 그룹 수/신고건 수를 보여주는 모달과 신고건 리스트 UI 추가
+  - 파란 클러스터 원 숫자가 더 이상 주소 그룹 수가 아니라, 내부 주황색 원들의 `신고건수 합` 을 표시하도록 수정
+
+검증:
+- `python3 -m compileall services web/routers`
+- `venv/bin/python -m unittest discover -s tests -v`
+
 ## 2026-05-13
 
 ### raw_content 저장 누락 복구 + 취하 숨김 summary/stats 정렬

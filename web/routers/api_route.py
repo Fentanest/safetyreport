@@ -120,6 +120,24 @@ async def get_stats_map(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.get("/stats/map/missing")
+async def get_stats_map_missing(
+    _: str = Depends(_require_api_key),
+    year: str | None = None,
+    category: str = "all",
+):
+    try:
+        payload = data_service.get_report_map_missing_groups(
+            engine,
+            year=year,
+            category=category,
+            mode=default_dedupe_mode(),
+        )
+        return {"status": "success", "data": payload}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.get("/stats/map/progress")
 async def get_stats_map_progress(_: str = Depends(_require_api_key)):
     try:

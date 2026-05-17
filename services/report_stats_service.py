@@ -1,3 +1,4 @@
+import math
 import re
 from datetime import datetime, timedelta
 
@@ -92,6 +93,13 @@ _REPORT_FIELDS = [
     "보완_요청_내용",
     "보완_신고자_의견",
 ]
+
+_MAP_MISSING_COLUMNS = list(dict.fromkeys(_REPORT_FIELDS + [
+    "주소정규화",
+    "행정구역",
+    "위도",
+    "경도",
+]))
 
 
 def _sanitize_jsonable(value):
@@ -788,14 +796,34 @@ def _first_nonempty_value(group_df: pd.DataFrame, column: str) -> str:
     return ""
 
 
-def get_report_map_stats(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical"):
+def _normalize_map_category_value(category: str | None) -> str:
+    normalized = (category or "all").strip().lower()
+    return normalized if normalized in {"all", "traffic", "parking", "other"} else "all"
+
+
+def _is_finite_number(value) -> bool:
+    if value is None or pd.isna(value):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _load_map_records_frame(
+    engine,
+    *,
+    year: str | None = None,
+    category: str = "all",
+    mode: str = "canonical",
+    column_names: list[str] | None = None,
+):
     filters = {}
     if year and year not in ("all", "", None):
         filters["year"] = str(year)
 
-    category = (category or "all").strip().lower()
-    if category not in {"all", "traffic", "parking", "other"}:
-        category = "all"
+    normalized_category = _normalize_map_category_value(category)
+    selected_columns = list(column_names or _MAP_COLUMNS)
 
     with engine.connect() as conn:
         available_years = _load_available_years(conn)
@@ -805,17 +833,58 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
             (database.merge_parking_table, "parking"),
             (database.merge_other_table, "other"),
         ]:
-            if category != "all" and category != table_category:
+            if normalized_category != "all" and normalized_category != table_category:
                 continue
-            df = _read_stats_frame(conn, table_obj, filters, column_names=_MAP_COLUMNS)
+            df = _read_stats_frame(conn, table_obj, filters, column_names=selected_columns)
             if not df.empty:
                 df["category"] = table_category
                 frames.append(df)
 
-    combined_df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=_MAP_COLUMNS + ["category"])
+    combined_df = (
+        pd.concat(frames, ignore_index=True)
+        if frames
+        else pd.DataFrame(columns=selected_columns + ["category"])
+    )
+    for column in selected_columns:
+        if column not in combined_df.columns:
+            combined_df[column] = ""
+    if "category" not in combined_df.columns:
+        combined_df["category"] = normalized_category if normalized_category != "all" else "other"
+
     combined_df = _ensure_id_column(combined_df)
     combined_df = _project_stats_frame(engine, combined_df, mode=mode)
     combined_df = _exclude_withdraw_rows(combined_df)
+
+    if combined_df.empty:
+        return normalized_category, available_years, combined_df
+
+    if "category" not in combined_df.columns:
+        combined_df["category"] = normalized_category if normalized_category != "all" else "other"
+
+    if app_settings.normalize_police and "처리기관" in combined_df.columns:
+        combined_df["처리기관"] = (
+            combined_df["처리기관"].fillna("").astype(str).apply(database.normalize_police_agency)
+        )
+
+    combined_df["위반장소"] = combined_df.get("위반장소", pd.Series(dtype="object")).fillna("").astype(str)
+    combined_df["주소정규화"] = combined_df.get("주소정규화", pd.Series(dtype="object")).fillna("").astype(str)
+    combined_df["행정구역"] = combined_df.get("행정구역", pd.Series(dtype="object")).fillna("").astype(str)
+    combined_df["위도"] = pd.to_numeric(combined_df.get("위도"), errors="coerce")
+    combined_df["경도"] = pd.to_numeric(combined_df.get("경도"), errors="coerce")
+    combined_df["유효좌표"] = combined_df["위도"].apply(_is_finite_number) & combined_df["경도"].apply(_is_finite_number)
+    combined_df["주소키"] = combined_df["주소정규화"].str.strip()
+    combined_df.loc[combined_df["주소키"] == "", "주소키"] = combined_df["위반장소"].str.strip()
+    return normalized_category, available_years, combined_df
+
+
+def get_report_map_stats(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical"):
+    category, available_years, combined_df = _load_map_records_frame(
+        engine,
+        year=year,
+        category=category,
+        mode=mode,
+        column_names=_MAP_COLUMNS,
+    )
 
     if combined_df.empty:
         return _sanitize_jsonable({
@@ -833,28 +902,13 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
             },
         })
 
-    if "category" not in combined_df.columns:
-        combined_df["category"] = category if category != "all" else "other"
-
-    if app_settings.normalize_police and "처리기관" in combined_df.columns:
-        combined_df["처리기관"] = combined_df["처리기관"].fillna("").astype(str).apply(database.normalize_police_agency)
-
-    combined_df["위반장소"] = combined_df.get("위반장소", pd.Series(dtype="object")).fillna("").astype(str)
-    combined_df["주소정규화"] = combined_df.get("주소정규화", pd.Series(dtype="object")).fillna("").astype(str)
-    combined_df["행정구역"] = combined_df.get("행정구역", pd.Series(dtype="object")).fillna("").astype(str)
-    combined_df["위도"] = pd.to_numeric(combined_df.get("위도"), errors="coerce")
-    combined_df["경도"] = pd.to_numeric(combined_df.get("경도"), errors="coerce")
-    combined_df["주소키"] = combined_df["주소정규화"].str.strip()
-    combined_df.loc[combined_df["주소키"] == "", "주소키"] = combined_df["위반장소"].str.strip()
-
     geocoded_df = combined_df[
-        combined_df["위도"].notna()
-        & combined_df["경도"].notna()
+        combined_df["유효좌표"]
         & (combined_df["주소키"].str.strip() != "")
     ].copy()
     missing_df = combined_df[
         (combined_df["위반장소"].str.strip() != "")
-        & ~(combined_df["위도"].notna() & combined_df["경도"].notna())
+        & ~combined_df["유효좌표"]
     ].copy()
 
     points = []
@@ -898,5 +952,81 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
             "missing_reports": int(len(missing_df)),
             "address_groups": int(len(points)),
             "agency_count": agency_count,
+        },
+    })
+
+
+def get_report_map_missing_groups(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical"):
+    category, available_years, combined_df = _load_map_records_frame(
+        engine,
+        year=year,
+        category=category,
+        mode=mode,
+        column_names=_MAP_MISSING_COLUMNS,
+    )
+
+    if combined_df.empty:
+        return _sanitize_jsonable({
+            "groups": [],
+            "meta": {
+                "available_years": available_years,
+                "current_year": year or "all",
+                "selected_category": category,
+                "dedupe_mode": _normalize_mode(mode),
+                "group_count": 0,
+                "report_count": 0,
+            },
+        })
+
+    missing_df = combined_df[
+        (combined_df["주소키"].str.strip() != "")
+        & ~combined_df["유효좌표"]
+    ].copy()
+
+    if missing_df.empty:
+        return _sanitize_jsonable({
+            "groups": [],
+            "meta": {
+                "available_years": available_years,
+                "current_year": year or "all",
+                "selected_category": category,
+                "dedupe_mode": _normalize_mode(mode),
+                "group_count": 0,
+                "report_count": 0,
+            },
+        })
+
+    sort_columns = [column for column in ["신고일", "신고번호"] if column in missing_df.columns]
+    if sort_columns:
+        ascending = [False] + [True] * (len(sort_columns) - 1)
+        missing_df = missing_df.sort_values(sort_columns, ascending=ascending, kind="stable")
+
+    groups = []
+    for address_key, group in missing_df.groupby("주소키", sort=False, dropna=False):
+        region_name = _first_nonempty_value(group, "행정구역")
+        address_name = _first_nonempty_value(group, "위반장소") or _first_nonempty_value(group, "주소정규화")
+        reports = []
+        for _, row in group.iterrows():
+            report = _row_to_dict(row.to_dict())
+            report["category"] = _text_or_empty(row.get("category"))
+            reports.append(report)
+        groups.append({
+            "address": address_name or str(address_key or "").strip(),
+            "normalized_address": _first_nonempty_value(group, "주소정규화") or str(address_key or "").strip(),
+            "region": region_name,
+            "report_count": int(len(group)),
+            "reports": reports,
+        })
+
+    groups.sort(key=lambda item: (-int(item["report_count"]), str(item["address"])))
+    return _sanitize_jsonable({
+        "groups": groups,
+        "meta": {
+            "available_years": available_years,
+            "current_year": year or "all",
+            "selected_category": category,
+            "dedupe_mode": _normalize_mode(mode),
+            "group_count": int(len(groups)),
+            "report_count": int(len(missing_df)),
         },
     })

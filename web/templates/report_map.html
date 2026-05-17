@@ -316,6 +316,27 @@
         transition: width 0.35s ease;
     }
 
+    .missing-report-card {
+        border: 1px solid #e2e8f0;
+        border-radius: 0.9rem;
+        padding: 0.9rem 1rem;
+        background: #fff;
+    }
+
+    .missing-report-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem 0.75rem;
+        font-size: 0.83rem;
+        color: #64748b;
+    }
+
+    .missing-report-meta span {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.28rem;
+    }
+
     @media (max-width: 767.98px) {
         #reportMap {
             height: 62vh;
@@ -344,6 +365,10 @@
                 <div class="text-muted">건수는 원 크기로, 확대하면 세부 주소별 원형 숫자로 분리됩니다.</div>
             </div>
             <div class="d-flex flex-wrap gap-2 map-toolbar">
+                <button type="button" class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#missingAddressModal" title="미변환 주소 보기">
+                    <i class="fas fa-triangle-exclamation me-1"></i> 미변환 주소
+                    <span class="badge text-bg-secondary ms-1">{{ missing_map_meta.report_count or 0 }}</span>
+                </button>
                 <span class="badge text-bg-light border">중복 반영: {{ '대표건만' if dedupe_mode == 'canonical' else '원본 전체' }}</span>
                 <span class="badge text-bg-light border">주소 그룹: {{ map_meta.address_groups or 0 }}곳</span>
                 <span class="badge text-bg-light border">미좌표: {{ map_meta.missing_reports or 0 }}건</span>
@@ -463,6 +488,79 @@
             </div>
         </div>
         {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="missingAddressModal" tabindex="-1" aria-labelledby="missingAddressModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="missingAddressModalLabel">미변환 주소 목록</h5>
+                    <div class="small text-muted">좌표가 아직 없는 주소와 해당 신고건을 확인할 수 있습니다.</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+            </div>
+            <div class="modal-body">
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <span class="badge text-bg-light border">주소 그룹 {{ missing_map_meta.group_count or 0 }}곳</span>
+                    <span class="badge text-bg-light border">신고건 {{ missing_map_meta.report_count or 0 }}건</span>
+                </div>
+                {% if missing_map_groups %}
+                <div class="accordion" id="missingAddressAccordion">
+                    {% for group in missing_map_groups %}
+                    <div class="accordion-item">
+                        <h2 class="accordion-header" id="missingHeading{{ loop.index }}">
+                            <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#missingCollapse{{ loop.index }}" aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="missingCollapse{{ loop.index }}">
+                                <div class="me-3">
+                                    <div class="fw-semibold">{{ group.address or group.normalized_address or '주소 정보 없음' }}</div>
+                                    <div class="small text-muted">{{ group.region or '행정구역 미상' }}</div>
+                                </div>
+                                <span class="badge text-bg-secondary ms-auto">{{ group.report_count or 0 }}건</span>
+                            </button>
+                        </h2>
+                        <div id="missingCollapse{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" aria-labelledby="missingHeading{{ loop.index }}" data-bs-parent="#missingAddressAccordion">
+                            <div class="accordion-body">
+                                <div class="d-flex flex-column gap-2">
+                                    {% for report in group.reports %}
+                                    <div class="missing-report-card">
+                                        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                                            <div>
+                                                <div class="fw-semibold">{{ report.신고명 or '신고명 없음' }}</div>
+                                                <div class="small text-muted">{{ report.신고번호 or '' }}</div>
+                                            </div>
+                                            <div class="d-flex flex-wrap gap-2 justify-content-end">
+                                                {% if report.처리상태 %}
+                                                <span class="badge text-bg-light border">{{ report.처리상태 }}</span>
+                                                {% endif %}
+                                                {% if report.category %}
+                                                <span class="badge text-bg-primary-subtle border text-primary-emphasis">{{ report.category }}</span>
+                                                {% endif %}
+                                            </div>
+                                        </div>
+                                        <div class="missing-report-meta">
+                                            {% if report.신고일 %}<span><i class="fas fa-calendar-plus"></i>{{ report.신고일 }}</span>{% endif %}
+                                            {% if report.답변일 %}<span><i class="fas fa-calendar-check"></i>{{ report.답변일 }}</span>{% endif %}
+                                            {% if report.처리기관 %}<span><i class="fas fa-building"></i>{{ report.처리기관 }}</span>{% endif %}
+                                            {% if report.담당자 %}<span><i class="fas fa-user"></i>{{ report.담당자 }}</span>{% endif %}
+                                            {% if report.범칙금_과태료 %}<span><i class="fas fa-scale-balanced"></i>{{ report.범칙금_과태료 }}</span>{% endif %}
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="map-empty py-4">
+                    <div class="fw-bold mb-2">현재 조건에서 미변환 주소가 없습니다.</div>
+                    <div>좌표가 비어 있는 신고가 생기면 이 목록에서 바로 확인할 수 있습니다.</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -591,6 +689,13 @@
 
         function clusterSize(total) {
             return Math.max(46, Math.min(92, 40 + Math.log(total + 1) * 10));
+        }
+
+        function getMarkerReportTotal(marker) {
+            if (!marker) {
+                return 0;
+            }
+            return Number(marker.reportTotal || (marker.options && marker.options.reportTotal) || 0);
         }
 
         function createTextElement(tagName, className, text) {
@@ -1030,7 +1135,9 @@
             spiderfyOnMaxZoom: true,
             maxClusterRadius: 58,
             iconCreateFunction: function (cluster) {
-                var count = cluster.getChildCount();
+                var count = cluster.getAllChildMarkers().reduce(function (sum, marker) {
+                    return sum + getMarkerReportTotal(marker);
+                }, 0);
                 var size = clusterSize(count);
                 return L.divIcon({
                     className: '',
@@ -1045,6 +1152,8 @@
             var marker = L.marker([point.lat, point.lng], {
                 icon: createPointIcon(point.total)
             });
+            marker.reportTotal = Number(point.total || 0);
+            marker.options.reportTotal = Number(point.total || 0);
             marker.pointData = point;
             marker.on('mouseover', function () {
                 showAdaptiveTooltip(marker, buildTooltip(point));

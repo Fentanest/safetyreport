@@ -103,12 +103,20 @@ async def view_report_map(
         category=selected_category,
         mode=dedupe_mode,
     )
+    missing_payload = data_service.get_report_map_missing_groups(
+        engine,
+        year=year,
+        category=selected_category,
+        mode=dedupe_mode,
+    )
     meta = map_payload.get("meta", {})
 
     return templates.TemplateResponse(request, "report_map.html", {
         "title": "신고 지도",
         "map_points": map_payload.get("points", []),
         "map_meta": meta,
+        "missing_map_groups": missing_payload.get("groups", []),
+        "missing_map_meta": missing_payload.get("meta", {}),
         "map_error": map_error,
         "backfill_progress": backfill_progress,
         "current_year": meta.get("current_year", year or "all"),
@@ -122,3 +130,18 @@ async def view_report_map(
 async def get_report_map_progress():
     progress = geocode_service.get_backfill_progress(engine)
     return progress
+
+
+@router.get("/stats/map/missing")
+async def get_report_map_missing(
+    year: str = None,
+    category: str = "all",
+):
+    dedupe_mode = default_dedupe_mode()
+    selected_category = normalize_map_category(category)
+    return data_service.get_report_map_missing_groups(
+        engine,
+        year=year,
+        category=selected_category,
+        mode=dedupe_mode,
+    )
