@@ -9,9 +9,10 @@ from starlette.background import BackgroundTask
 import settings.settings as settings
 from core.database import database
 from core.database.engine import get_engine
-from services import crawl_control, crawl_state_store, data_service, db_editor_service, duplicate_group_service, file_service, rating_service, sunwi_service
+from services import crawl_control, crawl_state_store, data_service, db_editor_service, duplicate_group_service, file_service, geocode_service, rating_service, sunwi_service
 from services.crawl_manager import crawl_manager
 from services.ws_manager import ws_manager
+from web.routers.filters import default_dedupe_mode, normalize_dedupe_mode
 
 router = APIRouter(prefix="/api/v1")
 engine = get_engine()
@@ -36,20 +37,10 @@ def _require_api_key_flex(request: Request, header_key: str = Depends(_api_key_q
     return api_key
 
 
-def _default_dedupe_mode() -> str:
-    return "canonical" if settings.use_representative_records else "raw"
-
-
-def _normalize_dedupe_mode(value: str | None, *, default: str | None = None) -> str:
-    resolved_default = default or _default_dedupe_mode()
-    normalized = (value or resolved_default).strip().lower()
-    return normalized if normalized in {"raw", "canonical"} else resolved_default
-
-
 @router.get("/summary")
 async def get_summary(request: Request, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
-        dedupe_mode = _normalize_dedupe_mode(dedupe)
+        dedupe_mode = normalize_dedupe_mode(dedupe)
         return {"status": "success", "data": data_service.get_dashboard_stats(engine, mode=dedupe_mode)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -58,7 +49,7 @@ async def get_summary(request: Request, dedupe: str | None = None, _: str = Depe
 @router.get("/reports/{category}")
 async def get_reports(category: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
-        dedupe_mode = _normalize_dedupe_mode(dedupe)
+        dedupe_mode = normalize_dedupe_mode(dedupe)
         if category == "traffic":
             records = data_service.get_traffic_records(engine, mode=dedupe_mode)
         elif category == "parking":
@@ -79,7 +70,7 @@ async def get_reports(category: str, dedupe: str | None = None, _: str = Depends
 @router.get("/vehicle/{vehicle_number}")
 async def get_vehicle_reports(vehicle_number: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
-        dedupe_mode = _normalize_dedupe_mode(dedupe)
+        dedupe_mode = normalize_dedupe_mode(dedupe)
         results = data_service.search_by_vehicle(engine, vehicle_number, mode=dedupe_mode)
         return {"status": "success", "vehicle_number": vehicle_number, "count": len(results), "data": results}
     except Exception as exc:
@@ -89,7 +80,7 @@ async def get_vehicle_reports(vehicle_number: str, dedupe: str | None = None, _:
 @router.get("/address")
 async def get_address_reports(q: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
-        dedupe_mode = _normalize_dedupe_mode(dedupe)
+        dedupe_mode = normalize_dedupe_mode(dedupe)
         results = data_service.search_by_address(engine, q, mode=dedupe_mode)
         return {"status": "success", "address": q, "count": len(results), "data": results}
     except Exception as exc:
@@ -104,8 +95,36 @@ async def get_stats(_: str = Depends(_require_api_key), year: str = None, law: s
             filters["year"] = year
         if law:
             filters["law"] = law
-        dedupe_mode = _normalize_dedupe_mode(dedupe)
+        dedupe_mode = normalize_dedupe_mode(dedupe)
         return {"status": "success", "data": data_service.get_agency_stats(engine, filters or None, mode=dedupe_mode)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/stats/map")
+async def get_stats_map(
+    _: str = Depends(_require_api_key),
+    year: str | None = None,
+    category: str = "all",
+):
+    try:
+        geocode_service.ensure_map_backfill_started(engine, batch_size=120)
+        payload = data_service.get_report_map_stats(
+            engine,
+            year=year,
+            category=category,
+            mode=default_dedupe_mode(),
+        )
+        return {"status": "success", "data": payload}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/stats/map/progress")
+async def get_stats_map_progress(_: str = Depends(_require_api_key)):
+    try:
+        progress = geocode_service.get_backfill_progress(engine)
+        return {"status": "success", "data": progress}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

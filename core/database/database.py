@@ -196,9 +196,6 @@ def normalize_police_agency(x: str) -> str:
     idx = x.find('경찰서')
     return x[:idx + 3] if idx != -1 else x
 
-
-_normalize_police_agency = normalize_police_agency
-
 def category_from_entry_value(entry_value: str) -> str:
     """entry_value 문자열로부터 카테고리를 결정합니다."""
     if "자동차·교통위반" in entry_value:
@@ -451,6 +448,7 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
 
     changed_item_ids = []
     total_records = 0
+    geo_columns = ["주소정규화", "행정구역", "위도", "경도", "지오코딩상태"]
 
     for item in dataframes_with_category:
         # 2~7-tuple 모두 지원
@@ -535,12 +533,31 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
 
                 is_new = existing_record_proxy is None
                 is_changed = False
+                existing_record = dict(existing_record_proxy._mapping) if existing_record_proxy else {}
+
+                try:
+                    from services import geocode_service
+                    geo_payload = geocode_service.prepare_geo_payload(
+                        engine,
+                        new_record.get("위반장소", ""),
+                        existing_record=existing_record,
+                    )
+                except Exception as exc:
+                    logger.LoggerFactory.logbot.warning(f"[geocode] ID {record_id} 지오코딩 준비 실패: {exc}")
+                    new_address = new_record.get("위반장소", "")
+                    existing_address = existing_record.get("주소정규화") or existing_record.get("위반장소") or ""
+                    if geocode_service.normalize_address(existing_address) == geocode_service.normalize_address(new_address):
+                        geo_payload = geocode_service.extract_geo_payload(existing_record, fallback_address=new_address)
+                    else:
+                        geo_payload = geocode_service.build_pending_geo_payload(new_address, status="error")
+
+                for column_name in geo_columns:
+                    new_record[column_name] = geo_payload.get(column_name)
 
                 if is_new:
                     changed_item_ids.append({"id": record_id, "change_type": "신규"})
                     new_record["synced_at"] = now_ms
                 else:
-                    existing_record = dict(existing_record_proxy._mapping)
                     for key, new_value in new_record.items():
                         if key == "synced_at":
                             continue
@@ -640,6 +657,11 @@ def _merge_for_table(conn, merge_target, detail_source):
         detail_source.c.발생일자,
         detail_source.c.발생시각,
         detail_source.c.위반장소,
+        detail_source.c.주소정규화,
+        detail_source.c.행정구역,
+        detail_source.c.위도,
+        detail_source.c.경도,
+        detail_source.c.지오코딩상태,
         detail_source.c.종결여부,
         detail_source.c.신고내용,
         detail_source.c.처리내용,
@@ -710,7 +732,7 @@ def load_results_by_category(engine):
                 if settings.exclude_withdraw:
                     df = df[df['처리상태'] != '취하']
                 if settings.normalize_police and '처리기관' in df.columns:
-                    df['처리기관'] = df['처리기관'].apply(_normalize_police_agency)
+                    df['처리기관'] = df['처리기관'].apply(normalize_police_agency)
             result[label] = df
         return result
 

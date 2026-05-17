@@ -33,6 +33,7 @@ async def view_settings(request: Request):
         "telegram_token": app_settings.config.get('TELEGRAM', 'telegram_token', fallback=""),
         "chat_id": app_settings.config.get('TELEGRAM', 'chat_id', fallback=""),
         "sheet_key": app_settings.config.get('GOOGLESHEET', 'sheet_key', fallback=""),
+        "kakao_rest_api_key": app_settings.config.get('MAP', 'kakao_rest_api_key', fallback=""),
         "normalize_police": app_settings.config.getboolean('SETTINGS', 'normalize_police', fallback=True),
         "exclude_withdraw": app_settings.config.getboolean('SETTINGS', 'exclude_withdraw', fallback=True),
         "use_representative_records": app_settings.config.getboolean('SETTINGS', 'use_representative_records', fallback=True),
@@ -65,6 +66,7 @@ async def save_settings(
     telegram_token: str = Form(""),
     chat_id: str = Form(""),
     sheet_key: str = Form(""),
+    kakao_rest_api_key: str = Form(""),
     normalize_police: bool = Form(False),
     exclude_withdraw: bool = Form(False),
     use_representative_records: bool = Form(False),
@@ -101,6 +103,7 @@ async def save_settings(
     app_settings._instance.update_config('TELEGRAM', 'chat_id', chat_id)
 
     app_settings._instance.update_config('GOOGLESHEET', 'sheet_key', sheet_key)
+    app_settings._instance.update_config('MAP', 'kakao_rest_api_key', kakao_rest_api_key.strip())
     
     app_settings._instance.update_config('Crawler', 'crawl_type', crawl_type)
     app_settings._instance.update_config('SELENIUM', 'remotepath', remotepath)

@@ -31,7 +31,7 @@ from services.report_query_service import (
     search_by_vehicle,
     update_watchlist_status,
 )
-from services.report_stats_service import get_agency_stats, get_dashboard_stats
+from services.report_stats_service import get_agency_stats, get_dashboard_stats, get_report_map_stats
 
 
 def resolve_ids_for_rating(engine, id_list):

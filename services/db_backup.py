@@ -236,6 +236,27 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
     rows = src_conn.execute("SELECT * FROM reports").fetchall()
     raw_payloads = _load_mobile_raw_payloads(src_conn)
     sync_meta_records = _load_mobile_sync_meta(src_conn)
+    geocode_cache_records = []
+
+    try:
+        cache_rows = src_conn.execute("SELECT * FROM geocode_cache").fetchall()
+        for row in cache_rows:
+            normalized = str(row["주소정규화"] or "").strip()
+            if not normalized:
+                continue
+            geocode_cache_records.append({
+                "주소정규화": normalized,
+                "원본주소": str(row["원본주소"] or ""),
+                "행정구역": str(row["행정구역"] or ""),
+                "위도": row["위도"],
+                "경도": row["경도"],
+                "상태": str(row["상태"] or ""),
+                "source": str(row["source"] or "kakao"),
+                "error_message": str(row["error_message"] or ""),
+                "updated_at": row["updated_at"],
+            })
+    except Exception:
+        pass
 
     # 모바일 reports 컬럼 확인
     src_cols = {desc[0] for desc in src_conn.execute("SELECT * FROM reports LIMIT 0").description}
@@ -279,6 +300,11 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
             "발생일자": rd.get("발생일자", ""),
             "발생시각": rd.get("발생시각", ""),
             "위반장소": rd.get("위반장소", ""),
+            "주소정규화": rd.get("주소정규화", "") if "주소정규화" in src_cols else "",
+            "행정구역": rd.get("행정구역", "") if "행정구역" in src_cols else "",
+            "위도": rd.get("위도") if "위도" in src_cols else None,
+            "경도": rd.get("경도") if "경도" in src_cols else None,
+            "지오코딩상태": rd.get("지오코딩상태", "") if "지오코딩상태" in src_cols else "",
             "종결여부": rd.get("종결여부", "N"),
             "신고내용": rd.get("신고내용", ""),
             "처리내용": rd.get("처리내용", ""),
@@ -436,6 +462,7 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
         conn.execute(models.entry_value_table.delete())
         conn.execute(models.raw_content_table.delete())
         conn.execute(models.sync_meta_table.delete())
+        conn.execute(models.geocode_cache_table.delete())
         conn.execute(models.duplicate_member_table.delete())
         conn.execute(models.duplicate_group_table.delete())
 
@@ -490,6 +517,13 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
                 models.sync_meta_table.insert(),
                 [{"key": "last_sync", "value": sync_meta_lookup["last_sync"]}],
             )
+
+        if geocode_cache_records:
+            for i in range(0, len(geocode_cache_records), BATCH):
+                conn.execute(
+                    models.geocode_cache_table.insert(),
+                    geocode_cache_records[i:i + BATCH],
+                )
 
     # title + detail → merge 재생성
     database.merge_final(engine)

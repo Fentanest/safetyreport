@@ -58,6 +58,7 @@ class AppSettings:
         self.scheduler_interval_start = self.config.get('SCHEDULER', 'interval_start', fallback='00:00')
 
         self.phone_number = self.config.get('RATING', 'phone_number', fallback='')
+        self.kakao_rest_api_key = self.config.get('MAP', 'kakao_rest_api_key', fallback='')
 
         self.normalize_police = self.config.getboolean('SETTINGS', 'normalize_police', fallback=True)
         self.auto_export_excel = self.config.getboolean('SETTINGS', 'auto_export_excel', fallback=True)

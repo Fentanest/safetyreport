@@ -8,6 +8,66 @@
 
 ---
 
+## 2026-05-17
+
+### 신고 지도, 주소 지오코딩, 지도 통계 화면 추가
+
+상태: 완료
+
+변경:
+- `services/geocode_service.py`
+  - 카카오 REST API 기반 주소 정규화/좌표 변환 서비스 추가
+  - `mysafety_sync_meta` 에 백필 진행 상태를 영속화하고, 지도 첫 진입 시 누락 좌표 백필이 시작되도록 조정
+  - `config_required/running/error/completed` 상태와 진행률 퍼센트 제공
+- `core/database/models.py`, `core/database/database.py`
+  - detail/merge 테이블에 `주소정규화`, `행정구역`, `위도`, `경도`, `지오코딩상태` 컬럼 추가
+  - 주소 단위 좌표 재사용용 `mysafety_geocode_cache` 테이블 추가
+  - 신규/수정 신고 저장 시 기존 주소면 geo payload 재사용, 주소 변경 시 pending 상태로 재지정
+- `web/routers/stats.py`, `web/routers/api_route.py`, `services/data_service.py`, `services/report_stats_service.py`
+  - `/stats/map`, `/stats/map/progress`, `/api/v1/stats/map`, `/api/v1/stats/map/progress` 추가
+  - dedupe 기본 정책을 공용 helper 로 통합하고 지도 집계는 대표건 설정을 자동 반영
+- `web/templates/report_map.html`, `web/templates/base.html`, `web/templates/settings.html`, `web/routers/settings_route.py`
+  - 사이드바 `신고 지도` 메뉴, 지도 화면, 진행률 카드, 카카오 REST API 키 설정 UI 추가
+  - Leaflet 기반 클러스터 지도, 확대 단계별 집계 원, 행정구역/기관/처분 현황 tooltip, adaptive placement 반영
+
+검증:
+- `venv/bin/python -m compileall core services web start.py main.py`
+- 백업 DB 복제본에 `upgrade_schema()` 적용 후 지도 집계 함수 스모크 테스트
+- API 키 미설정 시 `config_required` 응답과 진행률 카드 경고 문구 확인
+
+### 대시보드/지도 집계 기준 정리
+
+상태: 완료
+
+변경:
+- `services/report_stats_service.py`, `web/routers/api_route.py`, `web/templates/index.html`
+  - `취하 데이터 숨기기` 가 켜져 있어도 카드/요약에는 실제 취하 건수를 유지하고, 그래프 반영용 값만 `withdrawGraphCount` 로 분리
+- `services/report_stats_service.py`, `web/templates/report_map.html`
+  - 지도 집계와 tooltip 의 처리기관명 표시가 `경찰기관명 정규화` 옵션을 따르도록 정리
+  - 클러스터/개별 원 tooltip 에 기관별 건수, 처리상태 비중, 처분 비중, 주요 행정구역 줄바꿈 표시 반영
+- `start.py`
+  - `--reset` 시 `mysafety_geocode_cache` 는 보존하고 크롤링 데이터/중복군만 초기화하도록 정리
+
+검증:
+- 임시 SQLite DB에서 `--reset` 후 geocode cache 보존 스모크 테스트
+- 지도 tooltip 렌더링용 payload 생성과 줄바꿈/기관 목록 포맷 점검
+
+### 리팩토링·안정화 후속 조치
+
+상태: 완료
+
+변경:
+- `web/routers/filters.py`, `web/routers/stats.py`, `web/routers/api_route.py`, `web/routers/data.py`, `web/routers/dashboard.py`
+  - dedupe/category normalize helper 공용화
+- `services/geocode_service.py`
+  - `fcntl` 이 없는 환경에서도 `O_EXCL` lock file fallback 으로 중복 백필 시작을 막도록 보강
+  - stale lock 정리와 lease 기반 진행 상태 복구 보완
+- `tests/test_geocode_service_regression.py`, `tests/test_start_reset_regression.py`
+  - stale lease, cross-platform lock fallback, reset cache 보존 회귀 테스트 추가
+
+검증:
+- `venv/bin/python -m unittest discover -s tests -v`
+
 ## 2026-05-13
 
 ### raw_content 저장 누락 복구 + 취하 숨김 summary/stats 정렬

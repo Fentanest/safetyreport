@@ -198,6 +198,13 @@
                     <input type="text" class="form-control" name="chat_id" value="{{ chat_id }}">
                 </div>
 
+                <h6 class="mb-3 mt-4 text-success border-bottom pb-2"><i class="fas fa-map-marker-alt me-1"></i>카카오 지도 / 주소 변환</h6>
+                <div class="mb-4">
+                    <label class="form-label">Kakao REST API Key</label>
+                    <input type="text" class="form-control" name="kakao_rest_api_key" value="{{ kakao_rest_api_key }}">
+                    <small class="text-muted">신고 지도 통계의 주소 → 위도/경도 변환과 자동 백필에 사용됩니다.</small>
+                </div>
+
                 <h6 class="mb-3 mt-4 text-success border-bottom pb-2"><i class="fas fa-file-excel me-1"></i>구글 스프레드시트 외부 적재</h6>
                 <div class="mb-3">
                     <label class="form-label">Sheet URL 또는 ID 고유키</label>

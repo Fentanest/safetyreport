@@ -124,6 +124,7 @@
                 <a href="/data/other" class="{% if request.url.path == '/data/other' %}active{% endif %}"><i class="fas fa-exclamation-triangle fa-fw me-2"></i>기타 위반 조회</a>
                 <a href="/data/duplicates" class="{% if request.url.path == '/data/duplicates' %}active{% endif %}"><i class="fas fa-clone fa-fw me-2"></i>중복차량 내역</a>
                 <a href="/stats" class="{% if request.url.path == '/stats' %}active{% endif %}"><i class="fas fa-chart-pie fa-fw me-2"></i>처리 부서 통계</a>
+                <a href="/stats/map" class="{% if request.url.path.startswith('/stats/map') %}active{% endif %}"><i class="fas fa-map-location-dot fa-fw me-2"></i>신고 지도</a>
                 
                 <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-white fw-bold">
                   <span>설정</span>

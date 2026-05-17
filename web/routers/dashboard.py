@@ -2,23 +2,19 @@ import os
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import FileResponse
-import settings.settings as settings
 from core.database.engine import get_engine
 from services import data_service
 from services import sunwi_service
 from core.utils.templating import templates
+from web.routers.filters import default_dedupe_mode
 
 engine = get_engine()
 router = APIRouter()
 
-
-def _default_dedupe_mode() -> str:
-    return "canonical" if settings.use_representative_records else "raw"
-
 @router.get("/")
 async def dashboard(request: Request):
     try:
-        stats = data_service.get_dashboard_stats(engine, mode=_default_dedupe_mode())
+        stats = data_service.get_dashboard_stats(engine, mode=default_dedupe_mode())
     except Exception as e:
         print(f"Error loading dashboard data: {e}")
         stats = {

@@ -1,4 +1,4 @@
-from sqlalchemy import Table, MetaData, Column, String, Integer
+from sqlalchemy import Table, MetaData, Column, String, Integer, Float
 import settings.settings as settings
 
 metadata = MetaData()
@@ -28,6 +28,11 @@ def get_detail_columns():
         Column('발생일자', String),
         Column('발생시각', String),
         Column('위반장소', String),
+        Column('주소정규화', String),
+        Column('행정구역', String),
+        Column('위도', Float),
+        Column('경도', Float),
+        Column('지오코딩상태', String),
         Column('종결여부', String),
         Column('신고내용', String),
         Column('처리내용', String),
@@ -70,6 +75,11 @@ def get_merge_columns():
         Column('발생일자', String),
         Column('발생시각', String),
         Column('위반장소', String),
+        Column('주소정규화', String),
+        Column('행정구역', String),
+        Column('위도', Float),
+        Column('경도', Float),
+        Column('지오코딩상태', String),
         Column('종결여부', String),
         Column('신고내용', String),
         Column('처리내용', String),
@@ -141,3 +151,14 @@ duplicate_member_table = Table('mysafety_duplicate_member', metadata,
                                Column('field_match', Integer, nullable=False, default=0),
                                Column('created_at', Integer),
                                Column('updated_at', Integer))
+
+geocode_cache_table = Table('mysafety_geocode_cache', metadata,
+                            Column('주소정규화', String, primary_key=True),
+                            Column('원본주소', String),
+                            Column('행정구역', String),
+                            Column('위도', Float),
+                            Column('경도', Float),
+                            Column('상태', String, nullable=False, default='ok'),
+                            Column('source', String, nullable=False, default='kakao'),
+                            Column('error_message', String),
+                            Column('updated_at', Integer))

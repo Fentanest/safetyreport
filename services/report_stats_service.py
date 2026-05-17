@@ -29,6 +29,22 @@ _STATS_COLUMNS = [
     "synced_at",
 ]
 
+_MAP_COLUMNS = [
+    "ID",
+    "신고번호",
+    "신고명",
+    "신고일",
+    "답변일",
+    "처리상태",
+    "범칙금_과태료",
+    "위반장소",
+    "주소정규화",
+    "행정구역",
+    "위도",
+    "경도",
+    "처리기관",
+]
+
 
 def _extract_fine_amount(text) -> int:
     if not text:
@@ -169,13 +185,17 @@ def _can_push_simple_text_query(query: str) -> bool:
     return bool(text) and "&" not in text and "," not in text
 
 
-def _build_stats_select(table_obj):
-    columns = [table_obj.c[column] for column in _STATS_COLUMNS if column in table_obj.c]
+def _build_select_for_columns(table_obj, column_names):
+    columns = [table_obj.c[column] for column in column_names if column in table_obj.c]
     return select(*columns)
 
 
-def _build_stats_query(table_obj, filters=None):
-    query = _build_stats_select(table_obj)
+def _build_stats_select(table_obj):
+    return _build_select_for_columns(table_obj, _STATS_COLUMNS)
+
+
+def _build_stats_query(table_obj, filters=None, column_names=None):
+    query = _build_select_for_columns(table_obj, column_names or _STATS_COLUMNS)
     if not filters:
         return query
 
@@ -225,9 +245,9 @@ def _build_stats_query(table_obj, filters=None):
     return query
 
 
-def _read_stats_frame(conn, table_obj, filters=None):
+def _read_stats_frame(conn, table_obj, filters=None, column_names=None):
     try:
-        return pd.read_sql_query(_build_stats_query(table_obj, filters), conn)
+        return pd.read_sql_query(_build_stats_query(table_obj, filters, column_names=column_names), conn)
     except OperationalError:
         return pd.DataFrame()
 
@@ -418,8 +438,9 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
         "processingCount": processing_count,
         "supplementCount": supplement_count,
         "completedCount": completed_count,
-        "withdrawCount": effective_withdraw_count,
+        "withdrawCount": withdraw_count,
         "withdrawRawCount": withdraw_count,
+        "withdrawGraphCount": effective_withdraw_count,
         "tFineCount": t_fine_count,
         "tPenaltyCount": t_penalty_count,
         "tRejectCount": t_reject_count,
@@ -673,4 +694,194 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
         "available_years": available_years,
         "traffic_total_fine": int(df_t["범칙금_과태료"].apply(_extract_fine_amount).sum()) if not df_t.empty else 0,
         "dedupe_mode": _normalize_mode(mode),
+    })
+
+
+def _ratio_item(label: str, count: int, total: int) -> dict:
+    safe_total = max(int(total), 0)
+    safe_count = max(int(count), 0)
+    return {
+        "label": label,
+        "count": safe_count,
+        "pct": round((safe_count / safe_total) * 100, 1) if safe_total > 0 else 0,
+    }
+
+
+def _build_status_breakdown(group_df: pd.DataFrame) -> list[dict]:
+    status_series = group_df.get("처리상태", pd.Series(dtype="object")).fillna("").astype(str)
+    processing_mask = status_series.isin(["", "진행", "진행중", "검토중", "처리중"])
+    ordered = [
+        _ratio_item("수용", int((status_series == "수용").sum()), len(group_df)),
+        _ratio_item("일부수용", int((status_series == "일부수용").sum()), len(group_df)),
+        _ratio_item("불수용", int((status_series == "불수용").sum()), len(group_df)),
+        _ratio_item("기타", int((status_series == "기타").sum()), len(group_df)),
+        _ratio_item("답변완료", int((status_series == "답변완료").sum()), len(group_df)),
+        _ratio_item("보완요청", int((status_series == "보완요청").sum()), len(group_df)),
+        _ratio_item("처리중", int(processing_mask.sum()), len(group_df)),
+        _ratio_item("취하", int((status_series == "취하").sum()), len(group_df)),
+        _ratio_item("이송", int((status_series == "이송").sum()), len(group_df)),
+    ]
+    return [item for item in ordered if item["count"] > 0]
+
+
+def _build_disposition_breakdown(group_df: pd.DataFrame) -> list[dict]:
+    fine_series = group_df.get("범칙금_과태료", pd.Series(dtype="object")).fillna("").astype(str)
+    status_series = group_df.get("처리상태", pd.Series(dtype="object")).fillna("").astype(str)
+
+    fine_mask = fine_series.str.contains("과태료", na=False)
+    warning_mask = fine_series.str.contains("경고|범칙금", na=False)
+    reject_mask = status_series.isin(["불수용", "기타"])
+    pending_mask = ~(fine_mask | warning_mask | reject_mask)
+
+    ordered = [
+        _ratio_item("과태료", int(fine_mask.sum()), len(group_df)),
+        _ratio_item("경고/범칙금", int(warning_mask.sum()), len(group_df)),
+        _ratio_item("불수용/기타", int(reject_mask.sum()), len(group_df)),
+        _ratio_item("기타/미확인", int(pending_mask.sum()), len(group_df)),
+    ]
+    return [item for item in ordered if item["count"] > 0]
+
+
+def _build_agency_breakdown(group_df: pd.DataFrame) -> list[dict]:
+    if "처리기관" not in group_df.columns:
+        return []
+    agencies = (
+        group_df["처리기관"]
+        .fillna("")
+        .astype(str)
+        .map(lambda value: value.strip())
+    )
+    agencies = agencies[agencies != ""]
+    if agencies.empty:
+        return []
+    counts = agencies.value_counts()
+    total = int(len(group_df))
+    results = []
+    for name, count in counts.items():
+        results.append({
+            "name": str(name),
+            "count": int(count),
+            "pct": round((int(count) / total) * 100, 1) if total > 0 else 0,
+        })
+    return results
+
+
+def _first_nonempty_value(group_df: pd.DataFrame, column: str) -> str:
+    if column not in group_df.columns:
+        return ""
+    series = group_df[column].fillna("").astype(str)
+    for value in series:
+        text = value.strip()
+        if text:
+            return text
+    return ""
+
+
+def get_report_map_stats(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical"):
+    filters = {}
+    if year and year not in ("all", "", None):
+        filters["year"] = str(year)
+
+    category = (category or "all").strip().lower()
+    if category not in {"all", "traffic", "parking", "other"}:
+        category = "all"
+
+    with engine.connect() as conn:
+        available_years = _load_available_years(conn)
+        frames = []
+        for table_obj, table_category in [
+            (database.merge_traffic_table, "traffic"),
+            (database.merge_parking_table, "parking"),
+            (database.merge_other_table, "other"),
+        ]:
+            if category != "all" and category != table_category:
+                continue
+            df = _read_stats_frame(conn, table_obj, filters, column_names=_MAP_COLUMNS)
+            if not df.empty:
+                df["category"] = table_category
+                frames.append(df)
+
+    combined_df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=_MAP_COLUMNS + ["category"])
+    combined_df = _ensure_id_column(combined_df)
+    combined_df = _project_stats_frame(engine, combined_df, mode=mode)
+    combined_df = _exclude_withdraw_rows(combined_df)
+
+    if combined_df.empty:
+        return _sanitize_jsonable({
+            "points": [],
+            "meta": {
+                "available_years": available_years,
+                "current_year": year or "all",
+                "selected_category": category,
+                "dedupe_mode": _normalize_mode(mode),
+                "total_reports": 0,
+                "geocoded_reports": 0,
+                "missing_reports": 0,
+                "address_groups": 0,
+            },
+        })
+
+    if "category" not in combined_df.columns:
+        combined_df["category"] = category if category != "all" else "other"
+
+    if app_settings.normalize_police and "처리기관" in combined_df.columns:
+        combined_df["처리기관"] = combined_df["처리기관"].fillna("").astype(str).apply(database.normalize_police_agency)
+
+    combined_df["위반장소"] = combined_df.get("위반장소", pd.Series(dtype="object")).fillna("").astype(str)
+    combined_df["주소정규화"] = combined_df.get("주소정규화", pd.Series(dtype="object")).fillna("").astype(str)
+    combined_df["행정구역"] = combined_df.get("행정구역", pd.Series(dtype="object")).fillna("").astype(str)
+    combined_df["위도"] = pd.to_numeric(combined_df.get("위도"), errors="coerce")
+    combined_df["경도"] = pd.to_numeric(combined_df.get("경도"), errors="coerce")
+    combined_df["주소키"] = combined_df["주소정규화"].str.strip()
+    combined_df.loc[combined_df["주소키"] == "", "주소키"] = combined_df["위반장소"].str.strip()
+
+    geocoded_df = combined_df[
+        combined_df["위도"].notna()
+        & combined_df["경도"].notna()
+        & (combined_df["주소키"].str.strip() != "")
+    ].copy()
+    missing_df = combined_df[
+        (combined_df["위반장소"].str.strip() != "")
+        & ~(combined_df["위도"].notna() & combined_df["경도"].notna())
+    ].copy()
+
+    points = []
+    if not geocoded_df.empty:
+        for (_, _, _), group in geocoded_df.groupby(["위도", "경도", "주소키"], dropna=False):
+            lat = float(group["위도"].iloc[0])
+            lng = float(group["경도"].iloc[0])
+            total = int(len(group))
+            region_name = _first_nonempty_value(group, "행정구역") or _first_nonempty_value(group, "위반장소")
+            address_name = _first_nonempty_value(group, "위반장소") or _first_nonempty_value(group, "주소정규화")
+
+            category_counts = group["category"].fillna("").astype(str).value_counts().to_dict()
+            points.append({
+                "lat": lat,
+                "lng": lng,
+                "address": address_name,
+                "region": region_name,
+                "total": total,
+                "status_breakdown": _build_status_breakdown(group),
+                "disposition_breakdown": _build_disposition_breakdown(group),
+                "agency_breakdown": _build_agency_breakdown(group),
+                "category_breakdown": [
+                    _ratio_item("교통위반", int(category_counts.get("traffic", 0)), total),
+                    _ratio_item("주정차위반", int(category_counts.get("parking", 0)), total),
+                    _ratio_item("기타위반", int(category_counts.get("other", 0)), total),
+                ],
+            })
+
+    points.sort(key=lambda item: item["total"], reverse=True)
+    return _sanitize_jsonable({
+        "points": points,
+        "meta": {
+            "available_years": available_years,
+            "current_year": year or "all",
+            "selected_category": category,
+            "dedupe_mode": _normalize_mode(mode),
+            "total_reports": int(len(combined_df)),
+            "geocoded_reports": int(len(geocoded_df)),
+            "missing_reports": int(len(missing_df)),
+            "address_groups": int(len(points)),
+        },
     })

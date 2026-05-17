@@ -1,0 +1,1069 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<style>
+    .map-toolbar-card,
+    .map-summary-card,
+    .map-panel-card {
+        border: none;
+        border-radius: 1rem;
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    .map-toolbar .btn,
+    .map-toolbar .badge {
+        border-radius: 999px;
+    }
+
+    .map-hero {
+        padding: 1.25rem 1.35rem;
+        border-radius: 1rem;
+        background:
+            radial-gradient(circle at top left, rgba(13, 110, 253, 0.16), transparent 34%),
+            radial-gradient(circle at bottom right, rgba(255, 193, 7, 0.18), transparent 28%),
+            linear-gradient(135deg, #f8fbff 0%, #fef6e7 100%);
+    }
+
+    .map-summary-value {
+        font-size: 1.55rem;
+        font-weight: 800;
+        color: #0f172a;
+    }
+
+    .map-summary-label {
+        color: #64748b;
+        font-size: 0.92rem;
+    }
+
+    #reportMap {
+        width: 100%;
+        height: 72vh;
+        min-height: 520px;
+        border-radius: 1rem;
+        overflow: hidden;
+        border: 1px solid rgba(148, 163, 184, 0.24);
+    }
+
+    .report-map-point {
+        width: var(--marker-size);
+        height: var(--marker-size);
+        border-radius: 999px;
+        background: radial-gradient(circle at 30% 30%, #fff4cf 0%, #f59e0b 32%, #dc2626 100%);
+        border: 3px solid rgba(255, 255, 255, 0.92);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        box-shadow: 0 12px 24px rgba(220, 38, 38, 0.26);
+        letter-spacing: -0.03em;
+    }
+
+    .report-map-point span {
+        font-size: clamp(0.8rem, 1.4vw, 1rem);
+    }
+
+    .report-map-cluster {
+        width: var(--cluster-size);
+        height: var(--cluster-size);
+        border-radius: 999px;
+        background: linear-gradient(145deg, #1d4ed8 0%, #0f766e 100%);
+        border: 4px solid rgba(255, 255, 255, 0.92);
+        color: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+        box-shadow: 0 16px 36px rgba(15, 118, 110, 0.24);
+    }
+
+    .report-map-tooltip {
+        background: #111827;
+        color: #f8fafc;
+        border: none;
+        border-radius: 1rem;
+        padding: 0;
+        box-shadow: 0 22px 42px rgba(15, 23, 42, 0.28);
+        overflow: visible;
+    }
+
+    .report-map-tooltip.leaflet-tooltip-top::before {
+        content: "";
+        position: absolute;
+        left: 28px;
+        bottom: -16px;
+        width: 2px;
+        height: 16px;
+        background: #111827;
+    }
+
+    .report-map-tooltip.leaflet-tooltip-top::after {
+        content: "";
+        position: absolute;
+        left: 12px;
+        bottom: -16px;
+        width: 18px;
+        height: 2px;
+        background: #111827;
+    }
+
+    .report-map-tooltip.leaflet-tooltip-bottom::before {
+        content: "";
+        position: absolute;
+        left: 28px;
+        top: -16px;
+        width: 2px;
+        height: 16px;
+        background: #111827;
+    }
+
+    .report-map-tooltip.leaflet-tooltip-bottom::after {
+        content: "";
+        position: absolute;
+        left: 12px;
+        top: -16px;
+        width: 18px;
+        height: 2px;
+        background: #111827;
+    }
+
+    .report-map-tooltip.leaflet-tooltip-right::before {
+        content: "";
+        position: absolute;
+        left: -16px;
+        top: 22px;
+        width: 16px;
+        height: 2px;
+        background: #111827;
+    }
+
+    .report-map-tooltip.leaflet-tooltip-right::after {
+        content: "";
+        position: absolute;
+        left: -16px;
+        top: 22px;
+        width: 2px;
+        height: 16px;
+        background: #111827;
+    }
+
+    .report-map-tooltip.leaflet-tooltip-left::before {
+        content: "";
+        position: absolute;
+        right: -16px;
+        top: 22px;
+        width: 16px;
+        height: 2px;
+        background: #111827;
+    }
+
+    .report-map-tooltip.leaflet-tooltip-left::after {
+        content: "";
+        position: absolute;
+        right: -16px;
+        top: 22px;
+        width: 2px;
+        height: 16px;
+        background: #111827;
+    }
+
+    .report-map-tooltip .leaflet-tooltip-content {
+        margin: 0;
+        max-height: min(68vh, 440px);
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior: contain;
+        scrollbar-width: thin;
+    }
+
+    .report-map-tooltip .leaflet-tooltip-content::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .report-map-tooltip .leaflet-tooltip-content::-webkit-scrollbar-track {
+        background: rgba(148, 163, 184, 0.14);
+        border-radius: 999px;
+    }
+
+    .report-map-tooltip .leaflet-tooltip-content::-webkit-scrollbar-thumb {
+        background: rgba(148, 163, 184, 0.56);
+        border-radius: 999px;
+    }
+
+    .map-tooltip-card {
+        min-width: 252px;
+        max-width: 324px;
+        padding: 0.82rem 0.84rem 0.74rem;
+    }
+
+    .map-tooltip-title {
+        font-size: 0.9rem;
+        font-weight: 800;
+        color: #fff;
+        margin-bottom: 0.08rem;
+        line-height: 1.25;
+    }
+
+    .map-tooltip-address {
+        color: #cbd5e1;
+        font-size: 0.72rem;
+        line-height: 1.35;
+        margin-bottom: 0.58rem;
+        white-space: normal;
+        word-break: keep-all;
+        overflow-wrap: anywhere;
+    }
+
+    .map-tooltip-total {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.28rem;
+        padding: 0.18rem 0.48rem;
+        border-radius: 999px;
+        background: rgba(96, 165, 250, 0.18);
+        color: #bfdbfe;
+        font-weight: 700;
+        font-size: 0.72rem;
+        margin-bottom: 0.58rem;
+    }
+
+    .map-tooltip-section {
+        margin-top: 0.56rem;
+    }
+
+    .map-tooltip-section-title {
+        color: #f8fafc;
+        font-size: 0.72rem;
+        font-weight: 700;
+        margin-bottom: 0.34rem;
+    }
+
+    .map-tooltip-row {
+        display: grid;
+        grid-template-columns: 70px minmax(82px, 1fr) 78px;
+        gap: 0.42rem;
+        align-items: center;
+        margin-bottom: 0.3rem;
+    }
+
+    .map-tooltip-label {
+        color: #cbd5e1;
+        font-size: 0.7rem;
+        line-height: 1.2;
+        white-space: normal;
+        word-break: keep-all;
+    }
+
+    .map-tooltip-bar {
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(148, 163, 184, 0.18);
+        overflow: hidden;
+    }
+
+    .map-tooltip-fill {
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #60a5fa 0%, #22c55e 100%);
+    }
+
+    .map-tooltip-value {
+        color: #f8fafc;
+        font-size: 0.67rem;
+        line-height: 1.15;
+        text-align: right;
+        white-space: nowrap;
+    }
+
+    .map-tooltip-agencies {
+        color: #bfdbfe;
+        font-size: 0.71rem;
+        line-height: 1.35;
+        margin-bottom: 0.54rem;
+        word-break: break-word;
+    }
+
+    .map-empty {
+        border: 1px dashed #cbd5e1;
+        border-radius: 1rem;
+        padding: 2rem;
+        text-align: center;
+        background: #fff;
+        color: #64748b;
+    }
+
+    .map-progress-card {
+        border: none;
+        border-radius: 1rem;
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    .map-progress-bar {
+        height: 14px;
+        border-radius: 999px;
+        background: #e2e8f0;
+        overflow: hidden;
+    }
+
+    .map-progress-fill {
+        height: 100%;
+        width: 0%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #2563eb 0%, #0f766e 100%);
+        transition: width 0.35s ease;
+    }
+
+    @media (max-width: 767.98px) {
+        #reportMap {
+            height: 62vh;
+            min-height: 420px;
+        }
+
+        .map-tooltip-card {
+            min-width: 214px;
+            max-width: 280px;
+        }
+
+        .map-tooltip-row {
+            grid-template-columns: 60px minmax(72px, 1fr) 72px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card map-toolbar-card mb-3">
+    <div class="card-body map-hero">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+                <div class="small text-uppercase text-primary fw-bold mb-2">Map Analytics</div>
+                <h2 class="h4 fw-bold mb-2">신고 지도 통계</h2>
+                <div class="text-muted">건수는 원 크기로, 확대하면 세부 주소별 원형 숫자로 분리됩니다.</div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 map-toolbar">
+                <span class="badge text-bg-light border">중복 반영: {{ '대표건만' if dedupe_mode == 'canonical' else '원본 전체' }}</span>
+                <span class="badge text-bg-light border">주소 그룹: {{ map_meta.address_groups or 0 }}곳</span>
+                <span class="badge text-bg-light border">미좌표: {{ map_meta.missing_reports or 0 }}건</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if map_error %}
+<div class="alert alert-warning d-flex align-items-start gap-2">
+    <i class="fas fa-triangle-exclamation mt-1"></i>
+    <div>
+        <div class="fw-bold">지도 좌표 갱신 경고</div>
+        <div>{{ map_error }}</div>
+    </div>
+</div>
+{% endif %}
+
+<div class="card map-progress-card mb-3" id="mapProgressCard" {% if backfill_progress.state not in ['running', 'error', 'config_required'] %}style="display:none"{% endif %}>
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <div>
+                <div class="fw-bold" id="mapProgressTitle">주소 좌표 변환 진행 중</div>
+                <div class="small text-muted" id="mapProgressSubtitle">지도 통계를 위한 위도/경도 백필을 백그라운드에서 수행합니다.</div>
+            </div>
+            <div class="fw-bold text-primary" id="mapProgressPercent">{{ '%.1f'|format(backfill_progress.progress_pct or 0) }}%</div>
+        </div>
+        <div class="map-progress-bar mb-2">
+            <div class="map-progress-fill" id="mapProgressFill" style="width: {{ backfill_progress.progress_pct or 0 }}%"></div>
+        </div>
+        <div class="d-flex flex-wrap gap-3 small text-muted">
+            <span>처리: <b id="mapProgressProcessed">{{ backfill_progress.processed or 0 }}</b> / <b id="mapProgressTotal">{{ backfill_progress.total or 0 }}</b></span>
+            <span>성공: <b id="mapProgressUpdated">{{ backfill_progress.updated or 0 }}</b></span>
+            <span>주소 미발견: <b id="mapProgressNotFound">{{ backfill_progress.not_found or 0 }}</b></span>
+            <span>남은 대상: <b id="mapProgressRemaining">{{ backfill_progress.remaining_missing or 0 }}</b></span>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-xl-3 col-md-6">
+        <div class="card map-summary-card h-100">
+            <div class="card-body">
+                <div class="map-summary-value">{{ map_meta.total_reports or 0 }}</div>
+                <div class="map-summary-label">집계된 신고건</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card map-summary-card h-100">
+            <div class="card-body">
+                <div class="map-summary-value">{{ map_meta.geocoded_reports or 0 }}</div>
+                <div class="map-summary-label">좌표 반영 신고건</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card map-summary-card h-100">
+            <div class="card-body">
+                <div class="map-summary-value">{{ map_meta.address_groups or 0 }}</div>
+                <div class="map-summary-label">지도 주소 그룹</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-3 col-md-6">
+        <div class="card map-summary-card h-100">
+            <div class="card-body">
+                <div class="map-summary-value">{{ backfill_progress.remaining_missing or 0 }}</div>
+                <div class="map-summary-label">남은 자동 백필 대상</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card map-panel-card mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between gap-3 mb-3">
+            <div>
+                <div class="small text-muted fw-bold mb-2">연도</div>
+                <div class="d-flex flex-wrap gap-2 map-toolbar" id="mapYearGroup">
+                    <button type="button" class="btn btn-sm {{ 'btn-dark' if current_year == 'all' else 'btn-outline-dark' }}" data-year="all">전체</button>
+                    {% for yr in available_years %}
+                    <button type="button" class="btn btn-sm {{ 'btn-dark' if current_year == yr else 'btn-outline-dark' }}" data-year="{{ yr }}">{{ yr }}</button>
+                    {% endfor %}
+                </div>
+            </div>
+            <div>
+                <div class="small text-muted fw-bold mb-2">카테고리</div>
+                <div class="d-flex flex-wrap gap-2 map-toolbar" id="mapCategoryGroup">
+                    <button type="button" class="btn btn-sm {{ 'btn-secondary' if selected_category == 'all' else 'btn-outline-secondary' }}" data-category="all">전체</button>
+                    <button type="button" class="btn btn-sm {{ 'btn-primary' if selected_category == 'traffic' else 'btn-outline-primary' }}" data-category="traffic">교통위반</button>
+                    <button type="button" class="btn btn-sm {{ 'btn-warning' if selected_category == 'parking' else 'btn-outline-warning' }}" data-category="parking">주정차위반</button>
+                    <button type="button" class="btn btn-sm {{ 'btn-success' if selected_category == 'other' else 'btn-outline-success' }}" data-category="other">기타위반</button>
+                </div>
+            </div>
+            <div>
+                <div class="small text-muted fw-bold mb-2">중복 신고 반영</div>
+                <div class="d-flex flex-wrap gap-2 map-toolbar">
+                    <span class="badge text-bg-light border px-3 py-2">{{ '설정: 중복 신고 대표건만 반영' if dedupe_mode == 'canonical' else '설정: 원본 신고 row 모두 반영' }}</span>
+                </div>
+            </div>
+        </div>
+
+        {% if map_points %}
+        <div id="reportMap"></div>
+        {% else %}
+        <div class="map-empty">
+            <div class="fw-bold mb-2">표시할 좌표 데이터가 없습니다.</div>
+            <div>
+                {% if backfill_progress.state == 'running' %}
+                주소 좌표를 변환하는 중입니다. 진행률이 100%가 되면 지도가 자동으로 새로고침됩니다.
+                {% else %}
+                카카오 REST API 키를 등록한 뒤 다시 열면 주소를 자동 변환해 지도를 채웁니다.
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script>
+    (function () {
+        var mapPoints = {{ map_points | tojson }};
+        var mapElement = document.getElementById('reportMap');
+        var backfillProgress = {{ backfill_progress | tojson }};
+        var progressCard = document.getElementById('mapProgressCard');
+        var progressTitle = document.getElementById('mapProgressTitle');
+        var progressSubtitle = document.getElementById('mapProgressSubtitle');
+        var progressPercent = document.getElementById('mapProgressPercent');
+        var progressFill = document.getElementById('mapProgressFill');
+        var progressProcessed = document.getElementById('mapProgressProcessed');
+        var progressTotal = document.getElementById('mapProgressTotal');
+        var progressUpdated = document.getElementById('mapProgressUpdated');
+        var progressNotFound = document.getElementById('mapProgressNotFound');
+        var progressRemaining = document.getElementById('mapProgressRemaining');
+        var hasReloadedAfterBackfill = false;
+
+        function updateQuery(key, value) {
+            var params = new URLSearchParams(window.location.search);
+            if (!value || value === 'all') {
+                params.delete(key);
+            } else {
+                params.set(key, String(value));
+            }
+            window.location.href = '/stats/map' + (params.toString() ? '?' + params.toString() : '');
+        }
+
+        document.querySelectorAll('#mapYearGroup [data-year]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                updateQuery('year', this.getAttribute('data-year'));
+            });
+        });
+
+        document.querySelectorAll('#mapCategoryGroup [data-category]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                updateQuery('category', this.getAttribute('data-category'));
+            });
+        });
+
+        function renderProgress(progress) {
+            if (!progressCard) {
+                return;
+            }
+
+            var state = String(progress.state || 'idle');
+            var total = Number(progress.total || 0);
+            var processed = Number(progress.processed || 0);
+            var updated = Number(progress.updated || 0);
+            var notFound = Number(progress.not_found || 0);
+            var remaining = Number(progress.remaining_missing || 0);
+            var pct = Number(progress.progress_pct || 0);
+            var errorMessage = String(progress.error_message || '');
+
+            progressPercent.textContent = pct.toFixed(1) + '%';
+            progressFill.style.width = pct + '%';
+            progressProcessed.textContent = processed;
+            progressTotal.textContent = total;
+            progressUpdated.textContent = updated;
+            progressNotFound.textContent = notFound;
+            progressRemaining.textContent = remaining;
+
+            if (state === 'running') {
+                progressCard.style.display = '';
+                progressTitle.textContent = '주소 좌표 변환 진행 중';
+                progressSubtitle.textContent = '지도 통계를 위한 위도/경도 백필을 백그라운드에서 수행합니다.';
+            } else if (state === 'error' || state === 'config_required') {
+                progressCard.style.display = '';
+                progressTitle.textContent = '지도 좌표 변환을 진행할 수 없습니다';
+                progressSubtitle.textContent = errorMessage || '카카오 REST API 키를 확인해주세요.';
+            } else if (state === 'completed' && total > 0) {
+                progressCard.style.display = '';
+                progressTitle.textContent = '주소 좌표 변환이 완료되었습니다';
+                progressSubtitle.textContent = '새 좌표 반영 결과를 불러오기 위해 화면을 새로고침합니다.';
+            } else {
+                progressCard.style.display = 'none';
+            }
+        }
+
+        function pollProgress() {
+            fetch('/stats/map/progress')
+                .then(function (response) { return response.json(); })
+                .then(function (progress) {
+                    backfillProgress = progress || {};
+                    renderProgress(backfillProgress);
+
+                    var state = String(backfillProgress.state || 'idle');
+                    if (state === 'running') {
+                        window.setTimeout(pollProgress, 2000);
+                        return;
+                    }
+                    if (!hasReloadedAfterBackfill && state === 'completed' && Number(backfillProgress.total || 0) > 0) {
+                        hasReloadedAfterBackfill = true;
+                        window.setTimeout(function () {
+                            window.location.reload();
+                        }, 900);
+                    }
+                })
+                .catch(function () {
+                    window.setTimeout(pollProgress, 4000);
+                });
+        }
+
+        renderProgress(backfillProgress);
+        if (String(backfillProgress.state || 'idle') === 'running') {
+            window.setTimeout(pollProgress, 2000);
+        }
+
+        if (!mapElement || !Array.isArray(mapPoints) || mapPoints.length === 0) {
+            return;
+        }
+
+        function markerSize(total) {
+            return Math.max(38, Math.min(84, 34 + Math.log(total + 1) * 11));
+        }
+
+        function clusterSize(total) {
+            return Math.max(46, Math.min(92, 40 + Math.log(total + 1) * 10));
+        }
+
+        function createTextElement(tagName, className, text) {
+            var element = document.createElement(tagName);
+            if (className) {
+                element.className = className;
+            }
+            element.textContent = text === null || text === undefined ? '' : String(text);
+            return element;
+        }
+
+        function appendMultilineText(parent, text, className) {
+            var content = String(text || '');
+            var lines = content.split('\n');
+            var container = document.createElement('div');
+            if (className) {
+                container.className = className;
+            }
+            lines.forEach(function (line, index) {
+                if (index > 0) {
+                    container.appendChild(document.createElement('br'));
+                }
+                container.appendChild(document.createTextNode(line));
+            });
+            parent.appendChild(container);
+        }
+
+        function buildRows(items) {
+            if (!Array.isArray(items) || items.length === 0) {
+                return null;
+            }
+            var fragment = document.createDocumentFragment();
+            items.forEach(function (item) {
+                var label = String(item.label || '').trim();
+                if (!label) {
+                    return;
+                }
+                var count = Number(item.count || 0);
+                var pct = Number(item.pct || 0);
+                var pctRounded = Number(pct.toFixed(1));
+                var row = document.createElement('div');
+                row.className = 'map-tooltip-row';
+
+                var labelCell = createTextElement('div', 'map-tooltip-label', label);
+                var barCell = document.createElement('div');
+                barCell.className = 'map-tooltip-bar';
+                var fill = document.createElement('div');
+                fill.className = 'map-tooltip-fill';
+                fill.style.width = Math.min(100, Math.max(0, pctRounded)) + '%';
+                barCell.appendChild(fill);
+                var valueCell = createTextElement('div', 'map-tooltip-value', count + '건 · ' + pctRounded.toFixed(1) + '%');
+
+                row.appendChild(labelCell);
+                row.appendChild(barCell);
+                row.appendChild(valueCell);
+                fragment.appendChild(row);
+            });
+            return fragment.firstChild ? fragment : null;
+        }
+
+        function buildAgencySummary(items) {
+            if (!Array.isArray(items) || items.length === 0) {
+                return null;
+            }
+            var validItems = items.filter(function (item) {
+                return String(item.name || '').trim();
+            });
+            if (validItems.length === 0) {
+                return null;
+            }
+            var container = document.createElement('div');
+            container.className = 'map-tooltip-agencies';
+            var title = document.createElement('b');
+            title.textContent = '처리기관:';
+            container.appendChild(title);
+            container.appendChild(document.createElement('br'));
+
+            validItems.forEach(function (item, index) {
+                if (index > 0) {
+                    container.appendChild(document.createElement('br'));
+                }
+                container.appendChild(document.createTextNode(item.name + ' (' + Number(item.count || 0) + '건)'));
+            });
+            return container;
+        }
+
+        function addTooltipSection(container, title, rows) {
+            if (!rows || !rows.firstChild) {
+                return;
+            }
+            var section = document.createElement('div');
+            section.className = 'map-tooltip-section';
+            section.appendChild(createTextElement('div', 'map-tooltip-section-title', title));
+            section.appendChild(rows);
+            container.appendChild(section);
+        }
+
+        function buildTooltipKey(payload) {
+            return JSON.stringify({
+                region: String(payload.region || ''),
+                addressLines: payload.addressLines || [],
+                total: Number(payload.total || 0),
+                status: (payload.status_breakdown || []).map(function (item) {
+                    return [item.label, Number(item.count || 0), Number(item.pct || 0).toFixed(1)].join(':');
+                }).join('|'),
+                disposition: (payload.disposition_breakdown || []).map(function (item) {
+                    return [item.label, Number(item.count || 0), Number(item.pct || 0).toFixed(1)].join(':');
+                }).join('|'),
+                agency: (payload.agency_breakdown || []).map(function (item) {
+                    return [item.name, Number(item.count || 0), Number(item.pct || 0).toFixed(1)].join(':');
+                }).join('|'),
+                category: (payload.category_breakdown || []).map(function (item) {
+                    return [item.label, Number(item.count || 0), Number(item.pct || 0).toFixed(1)].join(':');
+                }).join('|'),
+            });
+        }
+
+        function buildTooltip(point) {
+            var statusRows = buildRows(point.status_breakdown || []);
+            var dispositionRows = buildRows(point.disposition_breakdown || []);
+            var categoryRows = buildRows((point.category_breakdown || []).filter(function (item) { return item.count > 0; }));
+            var agencySummary = buildAgencySummary(point.agency_breakdown || []);
+            var addressLines = String(point.address || '주소 정보 없음').split('\n');
+            var payload = {
+                region: String(point.region || '행정구역 미상'),
+                addressLines: addressLines,
+                total: Number(point.total || 0),
+                agency_breakdown: point.agency_breakdown || [],
+                status_breakdown: point.status_breakdown || [],
+                disposition_breakdown: point.disposition_breakdown || [],
+                category_breakdown: (point.category_breakdown || []).filter(function (item) { return item.count > 0; }),
+            };
+
+            var root = document.createElement('div');
+            root.className = 'map-tooltip-card';
+            root.appendChild(createTextElement('div', 'map-tooltip-title', payload.region));
+            appendMultilineText(root, payload.addressLines.join('\n'), 'map-tooltip-address');
+
+            var totalContainer = document.createElement('div');
+            totalContainer.className = 'map-tooltip-total';
+            var icon = document.createElement('i');
+            icon.className = 'fas fa-layer-group';
+            var totalCount = document.createElement('span');
+            totalCount.textContent = payload.total + '건';
+            totalContainer.appendChild(icon);
+            totalContainer.appendChild(totalCount);
+            root.appendChild(totalContainer);
+
+            if (agencySummary) {
+                root.appendChild(agencySummary);
+            }
+            addTooltipSection(root, '처리상태 비중', statusRows);
+            addTooltipSection(root, '처분 현황 비중', dispositionRows);
+            addTooltipSection(root, '카테고리 비중', categoryRows);
+
+            return {
+                node: root,
+                cacheKey: buildTooltipKey(payload)
+            };
+        }
+
+        function sumBreakdownCounts(points, fieldName, labelOrder) {
+            var counts = {};
+            points.forEach(function (point) {
+                (point[fieldName] || []).forEach(function (item) {
+                    var key = String(item.label || '');
+                    counts[key] = (counts[key] || 0) + Number(item.count || 0);
+                });
+            });
+            return labelOrder.map(function (label) {
+                var count = counts[label] || 0;
+                return {
+                    label: label,
+                    count: count
+                };
+            }).filter(function (item) { return item.count > 0; });
+        }
+
+        function addPercent(items, total) {
+            return items.map(function (item) {
+                return {
+                    label: item.label,
+                    count: item.count,
+                    pct: total > 0 ? Number((item.count / total * 100).toFixed(1)) : 0
+                };
+            });
+        }
+
+        function aggregateAgencies(points, total) {
+            var counts = {};
+            points.forEach(function (point) {
+                (point.agency_breakdown || []).forEach(function (item) {
+                    var key = String(item.name || '').trim();
+                    if (!key) {
+                        return;
+                    }
+                    counts[key] = (counts[key] || 0) + Number(item.count || 0);
+                });
+            });
+            return Object.keys(counts).sort(function (a, b) {
+                if (counts[b] !== counts[a]) {
+                    return counts[b] - counts[a];
+                }
+                return a.localeCompare(b, 'ko');
+            }).map(function (name) {
+                return {
+                    name: name,
+                    count: counts[name],
+                    pct: total > 0 ? Number((counts[name] / total * 100).toFixed(1)) : 0
+                };
+            });
+        }
+
+        function summarizeClusterRegions(points) {
+            var regions = points.map(function (point) {
+                return String(point.region || '').trim();
+            }).filter(Boolean);
+            if (regions.length === 0) {
+                return {
+                    title: '복수 행정구역',
+                    addressLines: ['행정구역 정보 없음']
+                };
+            }
+
+            var tokenGroups = regions.map(function (region) {
+                return region.split(/\s+/).filter(Boolean);
+            });
+            var prefix = tokenGroups[0].slice();
+            tokenGroups.slice(1).forEach(function (tokens) {
+                var next = [];
+                for (var i = 0; i < Math.min(prefix.length, tokens.length); i += 1) {
+                    if (prefix[i] !== tokens[i]) {
+                        break;
+                    }
+                    next.push(prefix[i]);
+                }
+                prefix = next;
+            });
+
+            var regionCounts = {};
+            points.forEach(function (point) {
+                var region = String(point.region || '').trim();
+                if (!region) {
+                    return;
+                }
+                regionCounts[region] = (regionCounts[region] || 0) + Number(point.total || 0);
+            });
+            var majorRegions = Object.keys(regionCounts).sort(function (a, b) {
+                if (regionCounts[b] !== regionCounts[a]) {
+                    return regionCounts[b] - regionCounts[a];
+                }
+                return a.localeCompare(b, 'ko');
+            });
+
+            var title = prefix.length >= 2 ? prefix.join(' ') : majorRegions[0];
+            var addressLines = ['주요 구역'].concat(majorRegions.slice(0, 4).map(function (region) {
+                return region + ' (' + regionCounts[region] + '건)';
+            }));
+
+            return {
+                title: title || '복수 행정구역',
+                addressLines: addressLines,
+            };
+        }
+
+        function buildClusterTooltip(points) {
+            var total = points.reduce(function (sum, point) {
+                return sum + Number(point.total || 0);
+            }, 0);
+            var regionSummary = summarizeClusterRegions(points);
+            var agencies = aggregateAgencies(points, total);
+
+            return buildTooltip({
+                region: regionSummary.title,
+                address: regionSummary.addressLines.join('\n'),
+                total: total,
+                agency_breakdown: agencies,
+                status_breakdown: addPercent(
+                    sumBreakdownCounts(points, 'status_breakdown', ['수용', '일부수용', '불수용', '기타', '답변완료', '보완요청', '처리중', '취하', '이송']),
+                    total
+                ),
+                disposition_breakdown: addPercent(
+                    sumBreakdownCounts(points, 'disposition_breakdown', ['과태료', '경고/범칙금', '불수용/기타', '기타/미확인']),
+                    total
+                ),
+                category_breakdown: addPercent(
+                    sumBreakdownCounts(points, 'category_breakdown', ['교통위반', '주정차위반', '기타위반']),
+                    total
+                )
+            });
+        }
+
+        var tooltipMeasureElement = null;
+        var tooltipMeasureCache = new Map();
+        var tooltipMeasureCacheLimit = 120;
+
+        function getTooltipMeasureElement() {
+            if (tooltipMeasureElement) {
+                return tooltipMeasureElement;
+            }
+            tooltipMeasureElement = document.createElement('div');
+            tooltipMeasureElement.className = 'leaflet-tooltip report-map-tooltip leaflet-tooltip-top';
+            tooltipMeasureElement.style.position = 'absolute';
+            tooltipMeasureElement.style.visibility = 'hidden';
+            tooltipMeasureElement.style.pointerEvents = 'none';
+            tooltipMeasureElement.style.left = '-9999px';
+            tooltipMeasureElement.style.top = '-9999px';
+            tooltipMeasureElement.style.zIndex = '-1';
+            document.body.appendChild(tooltipMeasureElement);
+            return tooltipMeasureElement;
+        }
+
+        function measureTooltipSize(content, cacheKey) {
+            if (cacheKey && tooltipMeasureCache.has(cacheKey)) {
+                return tooltipMeasureCache.get(cacheKey);
+            }
+            var element = getTooltipMeasureElement();
+            while (element.firstChild) {
+                element.removeChild(element.firstChild);
+            }
+            if (content && content.nodeType === 1) {
+                element.appendChild(content.cloneNode(true));
+            } else {
+                element.textContent = '';
+                element.innerHTML = String(content || '');
+            }
+            var rect = element.getBoundingClientRect();
+            var size = {
+                width: Math.ceil(rect.width || 0),
+                height: Math.ceil(rect.height || 0)
+            };
+            if (cacheKey) {
+                tooltipMeasureCache.set(cacheKey, size);
+                while (tooltipMeasureCache.size > tooltipMeasureCacheLimit) {
+                    tooltipMeasureCache.delete(tooltipMeasureCache.keys().next().value);
+                }
+            }
+            return size;
+        }
+
+        function getTooltipPlacement(latlng, content, cacheKey) {
+            var point = map.latLngToContainerPoint(latlng);
+            var size = map.getSize();
+            var tooltipSize = measureTooltipSize(content, cacheKey);
+            var viewportMargin = 16;
+            var connectorGap = 18;
+            var halfWidth = tooltipSize.width / 2;
+            var halfHeight = tooltipSize.height / 2;
+            var topRoom = point.y - viewportMargin;
+            var bottomRoom = size.y - point.y - viewportMargin;
+            var leftRoom = point.x - viewportMargin;
+            var rightRoom = size.x - point.x - viewportMargin;
+            var canCenterHorizontally = point.x >= (halfWidth + viewportMargin)
+                && (size.x - point.x) >= (halfWidth + viewportMargin);
+            var canCenterVertically = point.y >= (halfHeight + viewportMargin)
+                && (size.y - point.y) >= (halfHeight + viewportMargin);
+            var canTop = canCenterHorizontally && topRoom >= (tooltipSize.height + connectorGap);
+            var canBottom = canCenterHorizontally && bottomRoom >= (tooltipSize.height + connectorGap);
+            var canLeft = canCenterVertically && leftRoom >= (tooltipSize.width + connectorGap);
+            var canRight = canCenterVertically && rightRoom >= (tooltipSize.width + connectorGap);
+
+            if (canTop || canBottom) {
+                if (canTop && (!canBottom || topRoom >= bottomRoom)) {
+                    return { direction: 'top', offset: [0, -10] };
+                }
+                return { direction: 'bottom', offset: [0, 10] };
+            }
+            if (canRight || canLeft) {
+                if (canRight && (!canLeft || rightRoom >= leftRoom)) {
+                    return { direction: 'right', offset: [10, 0] };
+                }
+                return { direction: 'left', offset: [-10, 0] };
+            }
+
+            if (topRoom < (tooltipSize.height + connectorGap) && bottomRoom < (tooltipSize.height + connectorGap)) {
+                return rightRoom >= leftRoom
+                    ? { direction: 'right', offset: [10, 0] }
+                    : { direction: 'left', offset: [-10, 0] };
+            }
+            if (leftRoom < (tooltipSize.width + connectorGap) && rightRoom < (tooltipSize.width + connectorGap)) {
+                return bottomRoom >= topRoom
+                    ? { direction: 'bottom', offset: [0, 10] }
+                    : { direction: 'top', offset: [0, -10] };
+            }
+
+            var candidates = [
+                { direction: 'top', offset: [0, -10], score: Math.min(topRoom, tooltipSize.height) + (canCenterHorizontally ? 36 : 0) },
+                { direction: 'bottom', offset: [0, 10], score: Math.min(bottomRoom, tooltipSize.height) + (canCenterHorizontally ? 36 : 0) },
+                { direction: 'left', offset: [-10, 0], score: Math.min(leftRoom, tooltipSize.width) + (canCenterVertically ? 36 : 0) },
+                { direction: 'right', offset: [10, 0], score: Math.min(rightRoom, tooltipSize.width) + (canCenterVertically ? 36 : 0) }
+            ];
+            candidates.sort(function (a, b) {
+                return b.score - a.score;
+            });
+            return { direction: candidates[0].direction, offset: candidates[0].offset };
+        }
+
+        function showAdaptiveTooltip(layer, content) {
+            var tooltipNode = content && content.node ? content.node : content;
+            var cacheKey = content && content.cacheKey ? content.cacheKey : '';
+            var placement = getTooltipPlacement(layer.getLatLng(), tooltipNode, cacheKey);
+            layer.unbindTooltip();
+            layer.bindTooltip(tooltipNode, {
+                direction: placement.direction,
+                offset: placement.offset,
+                sticky: false,
+                opacity: 1,
+                className: 'report-map-tooltip'
+            });
+            layer.openTooltip();
+        }
+
+        function createPointIcon(total) {
+            var size = markerSize(total);
+            return L.divIcon({
+                className: '',
+                html: '<div class="report-map-point" style="--marker-size:' + size + 'px"><span>' + total + '</span></div>',
+                iconSize: [size, size],
+                iconAnchor: [size / 2, size / 2],
+                popupAnchor: [0, -size / 2],
+                tooltipAnchor: [0, -size / 2]
+            });
+        }
+
+        var map = L.map('reportMap', {
+            zoomControl: true,
+            scrollWheelZoom: true
+        }).setView([36.5, 127.8], 7);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        var clusterGroup = L.markerClusterGroup({
+            showCoverageOnHover: false,
+            spiderfyOnMaxZoom: true,
+            maxClusterRadius: 58,
+            iconCreateFunction: function (cluster) {
+                var count = cluster.getChildCount();
+                var size = clusterSize(count);
+                return L.divIcon({
+                    className: '',
+                    html: '<div class="report-map-cluster" style="--cluster-size:' + size + 'px"><span>' + count + '</span></div>',
+                    iconSize: [size, size]
+                });
+            }
+        });
+
+        var bounds = [];
+        mapPoints.forEach(function (point) {
+            var marker = L.marker([point.lat, point.lng], {
+                icon: createPointIcon(point.total)
+            });
+            marker.pointData = point;
+            marker.on('mouseover', function () {
+                showAdaptiveTooltip(marker, buildTooltip(point));
+            });
+            marker.on('mouseout', function () {
+                marker.closeTooltip();
+            });
+            clusterGroup.addLayer(marker);
+            bounds.push([point.lat, point.lng]);
+        });
+
+        clusterGroup.on('clustermouseover', function (event) {
+            var childPoints = event.layer.getAllChildMarkers().map(function (marker) {
+                return marker.pointData;
+            }).filter(Boolean);
+            showAdaptiveTooltip(event.layer, buildClusterTooltip(childPoints));
+        });
+        clusterGroup.on('clustermouseout', function (event) {
+            event.layer.closeTooltip();
+        });
+
+        map.addLayer(clusterGroup);
+        if (bounds.length > 0) {
+            map.fitBounds(bounds, { padding: [36, 36], maxZoom: 14 });
+        }
+    })();
+</script>
+{% endblock %}

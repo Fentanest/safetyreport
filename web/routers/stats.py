@@ -1,17 +1,11 @@
 from fastapi import APIRouter, Request
 from core.database.engine import get_engine
-import settings.settings as app_settings
-from services import data_service
+from services import data_service, geocode_service
 from core.utils.templating import templates
+from web.routers.filters import default_dedupe_mode, normalize_dedupe_mode, normalize_map_category
 
 router = APIRouter()
 engine = get_engine()
-
-
-def _normalize_dedupe_mode(value: str | None) -> str:
-    default_mode = "canonical" if app_settings.use_representative_records else "raw"
-    normalized = (value or default_mode).strip().lower()
-    return normalized if normalized in {"raw", "canonical"} else default_mode
 
 @router.get("/stats")
 async def view_stats(
@@ -52,7 +46,7 @@ async def view_stats(
         'onlyPolice': onlyPolice,
         'year': year,
     }
-    dedupe_mode = _normalize_dedupe_mode(dedupe)
+    dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_agency_stats(engine, filters, mode=dedupe_mode)
 
     return templates.TemplateResponse(request, "stats.html", {
@@ -89,3 +83,42 @@ async def view_stats(
         "records_other_law":              records["other"]["by_law"],
         "f": filters,
     })
+
+
+@router.get("/stats/map")
+async def view_report_map(
+    request: Request,
+    year: str = None,
+    category: str = "all",
+):
+    dedupe_mode = default_dedupe_mode()
+    selected_category = normalize_map_category(category)
+    backfill_progress = geocode_service.ensure_map_backfill_started(engine, batch_size=120)
+
+    map_error = backfill_progress.get("error_message", "")
+
+    map_payload = data_service.get_report_map_stats(
+        engine,
+        year=year,
+        category=selected_category,
+        mode=dedupe_mode,
+    )
+    meta = map_payload.get("meta", {})
+
+    return templates.TemplateResponse(request, "report_map.html", {
+        "title": "신고 지도",
+        "map_points": map_payload.get("points", []),
+        "map_meta": meta,
+        "map_error": map_error,
+        "backfill_progress": backfill_progress,
+        "current_year": meta.get("current_year", year or "all"),
+        "available_years": meta.get("available_years", []),
+        "selected_category": meta.get("selected_category", selected_category),
+        "dedupe_mode": meta.get("dedupe_mode", dedupe_mode),
+    })
+
+
+@router.get("/stats/map/progress")
+async def get_report_map_progress():
+    progress = geocode_service.get_backfill_progress(engine)
+    return progress
