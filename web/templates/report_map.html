@@ -51,14 +51,19 @@
         width: var(--marker-size);
         height: var(--marker-size);
         border-radius: 999px;
-        background: radial-gradient(circle at 30% 30%, #fff4cf 0%, #f59e0b 32%, #dc2626 100%);
+        background: radial-gradient(
+            circle at 30% 30%,
+            var(--marker-top, #fff4cf) 0%,
+            var(--marker-mid, #f59e0b) 32%,
+            var(--marker-bottom, #dc2626) 100%
+        );
         border: 3px solid rgba(255, 255, 255, 0.92);
         color: #fff;
         display: flex;
         align-items: center;
         justify-content: center;
         font-weight: 800;
-        box-shadow: 0 12px 24px rgba(220, 38, 38, 0.26);
+        box-shadow: 0 12px 24px var(--marker-shadow, rgba(220, 38, 38, 0.26));
         letter-spacing: -0.03em;
     }
 
@@ -286,6 +291,89 @@
         word-break: break-word;
     }
 
+    .report-map-popup .leaflet-popup-content-wrapper {
+        padding: 0;
+        border: none;
+        border-radius: 1rem;
+        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.22);
+    }
+
+    .report-map-popup .leaflet-popup-content {
+        margin: 0;
+    }
+
+    .report-map-popup .leaflet-popup-tip {
+        background: #fff;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14);
+    }
+
+    .map-popup-card {
+        min-width: 236px;
+        max-width: 304px;
+        padding: 0.88rem 0.94rem 0.86rem;
+        background: #fff;
+        color: #0f172a;
+        --popup-accent: #f59e0b;
+        --popup-accent-soft: rgba(245, 158, 11, 0.12);
+    }
+
+    .map-popup-title {
+        font-size: 0.9rem;
+        font-weight: 800;
+        line-height: 1.28;
+        margin-bottom: 0.12rem;
+    }
+
+    .map-popup-address {
+        color: #64748b;
+        font-size: 0.73rem;
+        line-height: 1.4;
+        white-space: normal;
+        word-break: keep-all;
+        overflow-wrap: anywhere;
+    }
+
+    .map-popup-total {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        margin-top: 0.58rem;
+        padding: 0.22rem 0.54rem;
+        border-radius: 999px;
+        background: var(--popup-accent-soft);
+        color: var(--popup-accent);
+        font-size: 0.72rem;
+        font-weight: 800;
+    }
+
+    .map-popup-summary {
+        margin-top: 0.56rem;
+        color: #334155;
+        font-size: 0.73rem;
+        line-height: 1.45;
+        word-break: break-word;
+    }
+
+    .map-popup-summary b {
+        color: #0f172a;
+    }
+
+    .map-popup-link {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.32rem;
+        margin-top: 0.74rem;
+        color: var(--popup-accent);
+        font-size: 0.76rem;
+        font-weight: 800;
+        text-decoration: none;
+    }
+
+    .map-popup-link:hover {
+        color: var(--popup-accent);
+        text-decoration: underline;
+    }
+
     .map-empty {
         border: 1px dashed #cbd5e1;
         border-radius: 1rem;
@@ -350,6 +438,11 @@
 
         .map-tooltip-row {
             grid-template-columns: 60px minmax(72px, 1fr) 72px;
+        }
+
+        .map-popup-card {
+            min-width: 210px;
+            max-width: 276px;
         }
     }
 </style>
@@ -573,6 +666,8 @@
         var mapPoints = {{ map_points | tojson }};
         var mapElement = document.getElementById('reportMap');
         var backfillProgress = {{ backfill_progress | tojson }};
+        var selectedCategory = {{ selected_category | tojson }};
+        var dedupeMode = {{ dedupe_mode | tojson }};
         var progressCard = document.getElementById('mapProgressCard');
         var progressTitle = document.getElementById('mapProgressTitle');
         var progressSubtitle = document.getElementById('mapProgressSubtitle');
@@ -691,11 +786,80 @@
             return Math.max(46, Math.min(92, 40 + Math.log(total + 1) * 10));
         }
 
+        function formatPct(value) {
+            var pct = Number(value || 0);
+            return Number.isFinite(pct) ? pct.toFixed(1) : '0.0';
+        }
+
         function getMarkerReportTotal(marker) {
             if (!marker) {
                 return 0;
             }
             return Number(marker.reportTotal || (marker.options && marker.options.reportTotal) || 0);
+        }
+
+        function getPointFineRate(point) {
+            if (!point || !Array.isArray(point.disposition_breakdown)) {
+                return 0;
+            }
+            var fineItem = point.disposition_breakdown.find(function (item) {
+                return String(item && item.label || '').trim() === '과태료';
+            });
+            var pct = Number(fineItem && fineItem.pct || 0);
+            return Number.isFinite(pct) ? pct : 0;
+        }
+
+        function getPointMarkerTheme(fineRate) {
+            if (fineRate >= 60) {
+                return {
+                    top: '#dcfce7',
+                    mid: '#4ade80',
+                    bottom: '#16a34a',
+                    shadow: 'rgba(22, 163, 74, 0.28)',
+                    accent: '#15803d',
+                    accentSoft: 'rgba(22, 163, 74, 0.12)'
+                };
+            }
+            if (fineRate >= 50) {
+                return {
+                    top: '#ffedd5',
+                    mid: '#fb923c',
+                    bottom: '#ea580c',
+                    shadow: 'rgba(234, 88, 12, 0.28)',
+                    accent: '#ea580c',
+                    accentSoft: 'rgba(249, 115, 22, 0.12)'
+                };
+            }
+            return {
+                top: '#fee2e2',
+                mid: '#f87171',
+                bottom: '#dc2626',
+                shadow: 'rgba(220, 38, 38, 0.28)',
+                accent: '#dc2626',
+                accentSoft: 'rgba(220, 38, 38, 0.11)'
+            };
+        }
+
+        function buildAddressListUrl(address) {
+            var route = '/data/all';
+            if (selectedCategory === 'traffic') {
+                route = '/data/traffic';
+            } else if (selectedCategory === 'parking') {
+                route = '/data/parking';
+            } else if (selectedCategory === 'other') {
+                route = '/data/other';
+            }
+
+            var params = new URLSearchParams();
+            var normalizedAddress = String(address || '').trim();
+            if (normalizedAddress) {
+                params.set('location', normalizedAddress);
+            }
+            if (dedupeMode) {
+                params.set('dedupe', dedupeMode);
+            }
+            var queryString = params.toString();
+            return route + (queryString ? '?' + queryString : '');
         }
 
         function createTextElement(tagName, className, text) {
@@ -855,6 +1019,97 @@
                 node: root,
                 cacheKey: buildTooltipKey(payload)
             };
+        }
+
+        function summarizePopupAgencies(items) {
+            if (!Array.isArray(items) || items.length === 0) {
+                return '';
+            }
+            var validItems = items.filter(function (item) {
+                return String(item && item.name || '').trim();
+            });
+            if (validItems.length === 0) {
+                return '';
+            }
+            var labels = validItems.slice(0, 3).map(function (item) {
+                return String(item.name || '').trim() + ' (' + Number(item.count || 0) + '건)';
+            });
+            if (validItems.length > 3) {
+                labels.push('외 ' + (validItems.length - 3) + '곳');
+            }
+            return labels.join(', ');
+        }
+
+        function summarizePopupBreakdown(items) {
+            if (!Array.isArray(items) || items.length === 0) {
+                return '';
+            }
+            var labels = items.filter(function (item) {
+                return String(item && item.label || '').trim() && Number(item.count || 0) > 0;
+            }).map(function (item) {
+                return String(item.label || '').trim() + ' ' + Number(item.count || 0) + '건 (' + formatPct(item.pct) + '%)';
+            });
+            return labels.join(' · ');
+        }
+
+        function buildPointPopup(point) {
+            var address = String(point.address || '').trim() || String(point.region || '').trim() || '주소 정보 없음';
+            var title = String(point.region || '').trim() || address;
+            var fineRate = getPointFineRate(point);
+            var theme = getPointMarkerTheme(fineRate);
+
+            var root = document.createElement('div');
+            root.className = 'map-popup-card';
+            root.style.setProperty('--popup-accent', theme.accent);
+            root.style.setProperty('--popup-accent-soft', theme.accentSoft);
+
+            root.appendChild(createTextElement('div', 'map-popup-title', title));
+            if (address !== title) {
+                appendMultilineText(root, address, 'map-popup-address');
+            }
+
+            var totalContainer = document.createElement('div');
+            totalContainer.className = 'map-popup-total';
+            var icon = document.createElement('i');
+            icon.className = 'fas fa-location-dot';
+            var totalText = document.createElement('span');
+            totalText.textContent = '신고 ' + Number(point.total || 0) + '건';
+            totalContainer.appendChild(icon);
+            totalContainer.appendChild(totalText);
+            root.appendChild(totalContainer);
+
+            var agencySummary = summarizePopupAgencies(point.agency_breakdown || []);
+            if (agencySummary) {
+                var agencyLine = document.createElement('div');
+                agencyLine.className = 'map-popup-summary';
+                var agencyTitle = document.createElement('b');
+                agencyTitle.textContent = '처리기관';
+                agencyLine.appendChild(agencyTitle);
+                agencyLine.appendChild(document.createTextNode(' ' + agencySummary));
+                root.appendChild(agencyLine);
+            }
+
+            var dispositionSummary = summarizePopupBreakdown(point.disposition_breakdown || []);
+            if (dispositionSummary) {
+                var dispositionLine = document.createElement('div');
+                dispositionLine.className = 'map-popup-summary';
+                var dispositionTitle = document.createElement('b');
+                dispositionTitle.textContent = '처분 현황';
+                dispositionLine.appendChild(dispositionTitle);
+                dispositionLine.appendChild(document.createTextNode(' ' + dispositionSummary));
+                root.appendChild(dispositionLine);
+            }
+
+            var link = document.createElement('a');
+            link.className = 'map-popup-link';
+            link.href = buildAddressListUrl(address);
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.appendChild(createTextElement('i', 'fas fa-list-ul', ''));
+            link.appendChild(document.createTextNode('리스트 보기'));
+            root.appendChild(link);
+
+            return root;
         }
 
         function sumBreakdownCounts(points, fieldName, labelOrder) {
@@ -1108,16 +1363,33 @@
             layer.openTooltip();
         }
 
-        function createPointIcon(total) {
+        function createPointIcon(total, fineRate) {
             var size = markerSize(total);
+            var theme = getPointMarkerTheme(fineRate);
             return L.divIcon({
                 className: '',
-                html: '<div class="report-map-point" style="--marker-size:' + size + 'px"><span>' + total + '</span></div>',
+                html:
+                    '<div class="report-map-point" style="' +
+                    '--marker-size:' + size + 'px;' +
+                    '--marker-top:' + theme.top + ';' +
+                    '--marker-mid:' + theme.mid + ';' +
+                    '--marker-bottom:' + theme.bottom + ';' +
+                    '--marker-shadow:' + theme.shadow + ';' +
+                    '"><span>' + total + '</span></div>',
                 iconSize: [size, size],
                 iconAnchor: [size / 2, size / 2],
                 popupAnchor: [0, -size / 2],
                 tooltipAnchor: [0, -size / 2]
             });
+        }
+
+        function showPointPopup(marker, point) {
+            marker.bindPopup(buildPointPopup(point), {
+                className: 'report-map-popup',
+                maxWidth: 320,
+                minWidth: 220,
+                autoPanPadding: [28, 28]
+            }).openPopup();
         }
 
         var map = L.map('reportMap', {
@@ -1150,7 +1422,7 @@
         var bounds = [];
         mapPoints.forEach(function (point) {
             var marker = L.marker([point.lat, point.lng], {
-                icon: createPointIcon(point.total)
+                icon: createPointIcon(point.total, getPointFineRate(point))
             });
             marker.reportTotal = Number(point.total || 0);
             marker.options.reportTotal = Number(point.total || 0);
@@ -1160,6 +1432,10 @@
             });
             marker.on('mouseout', function () {
                 marker.closeTooltip();
+            });
+            marker.on('click', function () {
+                marker.closeTooltip();
+                showPointPopup(marker, point);
             });
             clusterGroup.addLayer(marker);
             bounds.push([point.lat, point.lng]);
