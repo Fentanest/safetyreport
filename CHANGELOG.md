@@ -10,6 +10,18 @@
 
 ## 2026-05-20
 
+### 신고 지도 주소 팝업 재오픈 회귀 수정
+
+상태: 완료
+
+변경:
+- `web/templates/report_map.html`
+  - 주소지 원형 마커 클릭 시 팝업을 매번 다시 `bindPopup()` 하지 않고, 주소별 `L.popup()` 객체를 재사용하도록 조정
+  - 같은 마커를 한 번 닫은 뒤 다시 눌렀을 때 팝업이 즉시 닫히며 재오픈되지 않던 Leaflet 토글 충돌을 해소
+
+검증:
+- `git diff --check -- web/templates/report_map.html`
+
 ### 지오코딩 self-lock 제거 + queued 백필 자동 재개
 
 상태: 완료

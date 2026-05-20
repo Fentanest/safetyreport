@@ -1389,13 +1389,18 @@
             });
         }
 
-        function showPointPopup(marker, point) {
-            marker.bindPopup(buildPointPopup(point), {
+        function createPointPopup(point) {
+            return L.popup({
                 className: 'report-map-popup',
                 maxWidth: 320,
                 minWidth: 220,
                 autoPanPadding: [28, 28]
-            }).openPopup();
+            }).setContent(buildPointPopup(point));
+        }
+
+        function showPointPopup(marker, popup) {
+            popup.setLatLng(marker.getLatLng());
+            popup.openOn(map);
         }
 
         var map = L.map('reportMap', {
@@ -1430,6 +1435,7 @@
             var marker = L.marker([point.lat, point.lng], {
                 icon: createPointIcon(point.total, getPointFineRate(point))
             });
+            var popup = createPointPopup(point);
             marker.reportTotal = Number(point.total || 0);
             marker.options.reportTotal = Number(point.total || 0);
             marker.pointData = point;
@@ -1441,7 +1447,7 @@
             });
             marker.on('click', function () {
                 marker.closeTooltip();
-                showPointPopup(marker, point);
+                showPointPopup(marker, popup);
             });
             clusterGroup.addLayer(marker);
             bounds.push([point.lat, point.lng]);
