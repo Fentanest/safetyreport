@@ -2,11 +2,14 @@ import os
 import tempfile
 import time
 import unittest
+from unittest import mock
 
-from sqlalchemy import create_engine
+import pandas as pd
+from sqlalchemy import create_engine, select
 
 from core.database import database, models
 from core.utils import logger
+from services.crawl_manager import crawl_manager
 from services import geocode_service
 
 
@@ -19,6 +22,7 @@ class GeocodeServiceRegressionTest(unittest.TestCase):
         database.upgrade_schema(self.engine)
 
     def tearDown(self):
+        self.engine.dispose()
         try:
             os.remove(self.db_path)
         except FileNotFoundError:
@@ -44,11 +48,13 @@ class GeocodeServiceRegressionTest(unittest.TestCase):
                         "ID": "cached-row",
                         "위반장소": "서울특별시 강서구 마곡동 1",
                         "주소정규화": "서울특별시 강서구 마곡동 1",
+                        "지오코딩상태": "error",
                     },
                     {
                         "ID": "missing-row",
                         "위반장소": "서울특별시 강서구 방화동 9",
                         "주소정규화": "서울특별시 강서구 방화동 9",
+                        "지오코딩상태": "error",
                     },
                 ],
             )
@@ -107,6 +113,93 @@ class GeocodeServiceRegressionTest(unittest.TestCase):
         self.assertIsNone(missing_row["위도"])
         self.assertIsNone(missing_row["경도"])
 
+    def test_detail_to_sql_geocodes_without_sqlite_self_lock(self):
+        with self.engine.begin() as conn:
+            conn.execute(
+                models.title_table.insert().values(
+                    ID="geo-lock-row",
+                    상태="진행",
+                    신고번호="SPP-TEST-1",
+                    신고명="락 회귀 테스트",
+                    신고일="2026-05-20",
+                    만족도조사여부="",
+                    감시목록="N",
+                )
+            )
+
+        frame = pd.DataFrame([
+            {
+                "ID": "geo-lock-row",
+                "처리상태": "처리중",
+                "위반장소": "서울특별시 강서구 마곡동 1",
+                "종결여부": "N",
+            }
+        ])
+        title_fields = {
+            "상태": "진행",
+            "신고번호": "SPP-TEST-1",
+            "신고명": "락 회귀 테스트",
+            "신고일": "2026-05-20",
+            "만족도조사여부": "",
+        }
+
+        class _FakeResponse:
+            status_code = 200
+
+            def json(self):
+                return {
+                    "documents": [
+                        {
+                            "address_name": "서울특별시 강서구 마곡동 1",
+                            "x": "126.8301",
+                            "y": "37.5601",
+                            "address": {
+                                "region_1depth_name": "서울특별시",
+                                "region_2depth_name": "강서구",
+                                "region_3depth_name": "마곡동",
+                                "x": "126.8301",
+                                "y": "37.5601",
+                            },
+                        }
+                    ]
+                }
+
+        with mock.patch.object(geocode_service, "get_kakao_rest_api_key", return_value="test-key"), \
+             mock.patch.object(geocode_service.requests, "get", return_value=_FakeResponse()):
+            changed = database.detail_to_sql(
+                [
+                    (
+                        frame,
+                        "traffic",
+                        "entry-value",
+                        None,
+                        title_fields,
+                        "<html>raw</html>",
+                        "api",
+                    )
+                ],
+                self.engine,
+            )
+
+        self.assertEqual(len(changed), 1)
+        self.assertEqual(changed[0]["id"], "geo-lock-row")
+
+        with self.engine.connect() as conn:
+            detail_row = conn.execute(
+                select(models.detail_traffic_table).where(models.detail_traffic_table.c.ID == "geo-lock-row")
+            ).mappings().first()
+            cache_row = conn.execute(
+                select(models.geocode_cache_table).where(
+                    models.geocode_cache_table.c["주소정규화"] == "서울특별시 강서구 마곡동 1"
+                )
+            ).mappings().first()
+
+        self.assertEqual(str(detail_row["지오코딩상태"]), "ok")
+        self.assertAlmostEqual(float(detail_row["위도"]), 37.5601)
+        self.assertAlmostEqual(float(detail_row["경도"]), 126.8301)
+        self.assertIsNotNone(cache_row)
+        self.assertEqual(str(cache_row["상태"]), "ok")
+
     def test_missing_api_key_with_saved_coordinates_returns_config_warning_state(self):
         with self.engine.begin() as conn:
             conn.execute(
@@ -147,6 +240,36 @@ class GeocodeServiceRegressionTest(unittest.TestCase):
         self.assertEqual(state["remaining_missing"], 1)
         self.assertTrue(state["has_saved_coordinates"])
         self.assertIn("DB에 없는 새 주소", state["error_message"])
+
+    def test_backfill_waits_while_crawl_is_running(self):
+        with self.engine.begin() as conn:
+            conn.execute(
+                models.detail_traffic_table.insert().values(
+                    ID="queued-row",
+                    위반장소="서울특별시 강서구 방화동 99",
+                    주소정규화="서울특별시 강서구 방화동 99",
+                    지오코딩상태="error",
+                )
+            )
+
+        original_has_key = geocode_service.has_kakao_rest_api_key
+        original_is_crawling = crawl_manager.is_crawling
+        try:
+            geocode_service.has_kakao_rest_api_key = lambda: True
+            crawl_manager.is_crawling = lambda: True
+
+            state = geocode_service.ensure_map_backfill_started(
+                self.engine,
+                batch_size=20,
+            )
+        finally:
+            geocode_service.has_kakao_rest_api_key = original_has_key
+            crawl_manager.is_crawling = original_is_crawling
+
+        self.assertEqual(state["state"], "queued")
+        self.assertFalse(state["running"])
+        self.assertEqual(state["remaining_missing"], 1)
+        self.assertIn("자동", state["error_message"])
 
     def test_stale_running_lease_transitions_to_error_state(self):
         old_ms = int((time.time() - 600) * 1000)

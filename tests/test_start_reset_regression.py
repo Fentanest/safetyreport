@@ -18,6 +18,7 @@ class StartResetRegressionTest(unittest.TestCase):
         database.upgrade_schema(self.engine)
 
     def tearDown(self):
+        self.engine.dispose()
         try:
             os.remove(self.db_path)
         except FileNotFoundError:

@@ -283,6 +283,17 @@ def has_kakao_rest_api_key() -> bool:
     return bool(get_kakao_rest_api_key())
 
 
+def _is_crawl_running() -> bool:
+    try:
+        from services.crawl_manager import crawl_manager
+    except Exception:
+        return False
+    try:
+        return bool(crawl_manager.is_crawling())
+    except Exception:
+        return False
+
+
 def _pending_row_conditions(detail_table):
     return [
         detail_table.c["위반장소"].is_not(None),
@@ -435,17 +446,27 @@ def _persist_cache_record(conn, normalized_address: str, original_address: str, 
     conn.execute(stmt)
 
 
-def resolve_address(engine, address: str) -> dict:
+def _load_cached_payload(conn, normalized: str) -> dict | None:
+    cached_row = conn.execute(
+        select(models.geocode_cache_table).where(models.geocode_cache_table.c["주소정규화"] == normalized)
+    ).mappings().first()
+    if cached_row and str(cached_row.get("상태") or "").strip() in {"ok", "not_found"}:
+        return _cache_row_to_payload(cached_row)
+    return None
+
+
+def resolve_address(engine, address: str, *, conn=None) -> dict:
     normalized = normalize_address(address)
     if not normalized:
         return build_pending_geo_payload("", status="")
 
-    with engine.connect() as conn:
-        cached_row = conn.execute(
-            select(models.geocode_cache_table).where(models.geocode_cache_table.c["주소정규화"] == normalized)
-        ).mappings().first()
-    if cached_row and str(cached_row.get("상태") or "").strip() in {"ok", "not_found"}:
-        return _cache_row_to_payload(cached_row)
+    if conn is None:
+        with engine.connect() as lookup_conn:
+            cached_payload = _load_cached_payload(lookup_conn, normalized)
+    else:
+        cached_payload = _load_cached_payload(conn, normalized)
+    if cached_payload is not None:
+        return cached_payload
 
     api_key = get_kakao_rest_api_key()
     if not api_key:
@@ -483,7 +504,10 @@ def resolve_address(engine, address: str) -> dict:
             "경도": None,
             "지오코딩상태": "not_found",
         }
-        with engine.begin() as conn:
+        if conn is None:
+            with engine.begin() as tx_conn:
+                _persist_cache_record(tx_conn, normalized, normalized, not_found_payload, source="kakao", error_message="NOT_FOUND")
+        else:
             _persist_cache_record(conn, normalized, normalized, not_found_payload, source="kakao", error_message="NOT_FOUND")
         return not_found_payload
 
@@ -504,12 +528,15 @@ def resolve_address(engine, address: str) -> dict:
         "경도": lng,
         "지오코딩상태": "ok",
     }
-    with engine.begin() as conn:
+    if conn is None:
+        with engine.begin() as tx_conn:
+            _persist_cache_record(tx_conn, normalized, normalized, success_payload, source="kakao")
+    else:
         _persist_cache_record(conn, normalized, normalized, success_payload, source="kakao")
     return success_payload
 
 
-def prepare_geo_payload(engine, address: str, *, existing_record=None) -> dict:
+def prepare_geo_payload(engine, address: str, *, existing_record=None, conn=None) -> dict:
     normalized = normalize_address(address)
     existing_payload = extract_geo_payload(existing_record, fallback_address=normalized)
     existing_address = normalize_address((existing_record or {}).get("주소정규화") or (existing_record or {}).get("위반장소"))
@@ -521,7 +548,7 @@ def prepare_geo_payload(engine, address: str, *, existing_record=None) -> dict:
         return existing_payload
 
     try:
-        return resolve_address(engine, normalized)
+        return resolve_address(engine, normalized, conn=conn)
     except GeocodeConfigurationError as exc:
         logger.LoggerFactory.logbot.info(f"[geocode] 설정 누락으로 지오코딩 보류: {exc}")
         if same_address and existing_payload.get("위도") is not None and existing_payload.get("경도") is not None:
@@ -689,6 +716,25 @@ def ensure_map_backfill_started(engine, *, batch_size: int = 120) -> dict:
             has_saved_coordinates=has_saved_coordinates,
         )
 
+    if pending > 0 and _is_crawl_running():
+        logger.LoggerFactory.logbot.info("[geocode] 크롤링이 진행 중이라 지도 지오코딩 백필을 대기 상태로 둡니다.")
+        return _set_progress_state(
+            engine=engine,
+            heartbeat=False,
+            state="queued",
+            running=False,
+            total=pending,
+            processed=0,
+            updated=0,
+            not_found=0,
+            remaining_missing=pending,
+            error_message="크롤링이 진행 중이라 지도 지오코딩은 완료 직후 자동으로 다시 시도합니다.",
+            started_at=0,
+            finished_at=0,
+            lease_owner="",
+            has_saved_coordinates=has_saved_coordinates,
+        )
+
     if _BACKGROUND_THREAD and _BACKGROUND_THREAD.is_alive():
         return get_backfill_progress(engine)
 
@@ -754,6 +800,27 @@ def ensure_map_backfill_started(engine, *, batch_size: int = 120) -> dict:
                 try:
                     state = get_backfill_progress(engine)
                     if str(state.get("lease_owner") or "") != lease_owner:
+                        break
+
+                    if _is_crawl_running():
+                        remaining_missing = count_pending_reports(engine)
+                        _set_progress_state(
+                            engine=engine,
+                            state="queued",
+                            running=False,
+                            total=max(pending, remaining_missing),
+                            processed=processed,
+                            updated=total_updated,
+                            not_found=total_not_found,
+                            remaining_missing=remaining_missing,
+                            error_message="크롤링이 진행 중이라 지도 지오코딩을 잠시 보류합니다. 크롤링 완료 후 자동 재개됩니다.",
+                            started_at=started_at,
+                            finished_at=_current_epoch_millis(),
+                            heartbeat=False,
+                            lease_owner="",
+                            has_saved_coordinates=has_saved_coordinates or total_updated > 0,
+                        )
+                        logger.LoggerFactory.logbot.info("[geocode] 크롤링 감지로 지도 지오코딩 백필을 대기 상태로 전환합니다.")
                         break
 
                     result = backfill_missing_report_coordinates(engine, limit=batch_size)

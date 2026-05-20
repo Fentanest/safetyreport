@@ -88,6 +88,15 @@ class CrawlManager:
 
     # ── 크롤링 완료 후 공통 처리 ──────────────────────────────────────────────
 
+    def _resume_geocode_backfill(self):
+        try:
+            from core.database.engine import get_engine
+            from services import geocode_service
+            geocode_service.ensure_map_backfill_started(get_engine(), batch_size=120)
+        except Exception as exc:
+            from core.utils import logger
+            logger.LoggerFactory.logbot.warning(f"[geocode] 크롤링 종료 후 자동 백필 재개 실패: {exc}")
+
     def run_after_crawl(self, proc, log_file: str):
         """크롤링 프로세스 완료 후 공통 처리 (배경 스레드에서 호출).
         로그 회전 → WS 브로드캐스트 → 대기 큐 자동 실행."""
@@ -124,6 +133,8 @@ class CrawlManager:
         pending = self.pop_pending()
         if pending:
             self.launch_pending_crawl(pending)
+        if not self.is_crawling():
+            self._resume_geocode_backfill()
 
     def launch_pending_crawl(self, pending: list):
         """대기 큐의 신고번호로 새 크롤링을 즉시 시작 (배경 스레드에서 호출 가능)."""

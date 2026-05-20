@@ -20,6 +20,7 @@ from core.utils import logger
 
 
 DbKind = Literal["server", "mobile", "unknown"]
+_BACKFILL_STATE_KEY = "map_backfill_state"
 
 
 def _load_mobile_raw_payloads(src_conn: sqlite3.Connection) -> dict[str, dict[str, object]]:
@@ -235,7 +236,11 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
     src_conn.row_factory = sqlite3.Row
     rows = src_conn.execute("SELECT * FROM reports").fetchall()
     raw_payloads = _load_mobile_raw_payloads(src_conn)
-    sync_meta_records = _load_mobile_sync_meta(src_conn)
+    sync_meta_records = [
+        row
+        for row in _load_mobile_sync_meta(src_conn)
+        if row["key"] != _BACKFILL_STATE_KEY
+    ]
     geocode_cache_records = []
 
     try:
@@ -547,4 +552,9 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
     logger.LoggerFactory.logbot.info(
         f"모바일 DB 복원 완료. 백업: {backup}, 신고건수: {len(title_records)}"
     )
+    try:
+        from services import geocode_service
+        geocode_service.ensure_map_backfill_started(engine, batch_size=120)
+    except Exception as exc:
+        logger.LoggerFactory.logbot.warning(f"[geocode] 모바일 DB 복원 후 자동 백필 시작 실패: {exc}")
     return backup, len(title_records)

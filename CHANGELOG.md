@@ -8,6 +8,28 @@
 
 ---
 
+## 2026-05-20
+
+### 지오코딩 self-lock 제거 + queued 백필 자동 재개
+
+상태: 완료
+
+변경:
+- `core/database/database.py`, `services/geocode_service.py`
+  - 크롤링 상세 저장 중 지오코딩 캐시를 별도 SQLite write 연결로 다시 건드리며 `database is locked` 가 나던 흐름을 정리
+  - detail 저장 트랜잭션 안에서 같은 연결로 주소 지오코딩 준비/캐시 upsert 를 수행하도록 순서를 조정
+  - 지도 진행률 상태에 `queued` 를 추가하고, 크롤링 중에는 새 백필을 즉시 돌리지 않고 대기 상태로 유지
+- `services/crawl_manager.py`, `main.py`
+  - 크롤링 종료 직후와 서버 시작 시 queued/pending/error 지오코딩 백필을 자동 재개하도록 연결
+- `services/db_backup.py`, `web/templates/report_map.html`
+  - 모바일 DB 업로드/복원 시 stale `map_backfill_state` 를 버리고 서버 기준으로 다시 백필 상태를 계산
+  - 웹 지도 진행률 카드가 `queued` 상태를 일반 완료가 아니라 대기 상태로 표시하도록 조정
+- `tests/test_geocode_service_regression.py`, `tests/test_start_reset_regression.py`
+  - self-lock 회귀, queued 상태 전이, 서버 시작 후 자동 재개 흐름을 회귀 테스트로 보강
+
+검증:
+- `./venv/bin/python -m unittest tests.test_geocode_service_regression tests.test_db_backup_regression tests.test_start_reset_regression -v`
+
 ## 2026-05-18
 
 ### 신고 지도 지점 색상 구분 + 주소별 신고 리스트 바로가기

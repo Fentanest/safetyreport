@@ -480,7 +480,7 @@
 </div>
 {% endif %}
 
-<div class="card map-progress-card mb-3" id="mapProgressCard" {% if backfill_progress.state not in ['running', 'error', 'config_required', 'config_warning'] %}style="display:none"{% endif %}>
+<div class="card map-progress-card mb-3" id="mapProgressCard" {% if backfill_progress.state not in ['queued', 'running', 'error', 'config_required', 'config_warning'] %}style="display:none"{% endif %}>
     <div class="card-body">
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
             <div>
@@ -573,6 +573,8 @@
             <div>
                 {% if backfill_progress.state == 'running' %}
                 주소 좌표를 변환하는 중입니다. 진행률이 100%가 되면 지도가 자동으로 새로고침됩니다.
+                {% elif backfill_progress.state == 'queued' %}
+                크롤링이 진행 중이라 주소 좌표 변환을 잠시 보류했습니다. 크롤링이 끝나면 자동으로 다시 시작됩니다.
                 {% elif backfill_progress.state == 'config_warning' %}
                 저장된 좌표가 있는 신고는 계속 지도에 표시됩니다. 다만 DB에 없는 새 주소는 카카오 REST API 키를 다시 입력해야 변환할 수 있습니다.
                 {% else %}
@@ -724,7 +726,11 @@
             progressNotFound.textContent = notFound;
             progressRemaining.textContent = remaining;
 
-            if (state === 'running') {
+            if (state === 'queued') {
+                progressCard.style.display = '';
+                progressTitle.textContent = '크롤링 완료 후 주소 좌표 변환 대기 중';
+                progressSubtitle.textContent = errorMessage || '크롤링이 끝나면 누락 좌표를 자동으로 다시 처리합니다.';
+            } else if (state === 'running') {
                 progressCard.style.display = '';
                 progressTitle.textContent = '주소 좌표 변환 진행 중';
                 progressSubtitle.textContent = '지도 통계를 위한 위도/경도 백필을 백그라운드에서 수행합니다.';
@@ -753,7 +759,7 @@
                     renderProgress(backfillProgress);
 
                     var state = String(backfillProgress.state || 'idle');
-                    if (state === 'running') {
+                    if (state === 'queued' || state === 'running') {
                         window.setTimeout(pollProgress, 2000);
                         return;
                     }
@@ -770,7 +776,7 @@
         }
 
         renderProgress(backfillProgress);
-        if (String(backfillProgress.state || 'idle') === 'running') {
+        if (['queued', 'running'].includes(String(backfillProgress.state || 'idle'))) {
             window.setTimeout(pollProgress, 2000);
         }
 

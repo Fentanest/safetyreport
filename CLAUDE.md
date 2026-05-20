@@ -58,6 +58,7 @@
 │   ├── export_service.py        # 엑셀/구글시트 export 흐름 조립
 │   ├── file_service.py          # 웹/API 파일 브라우저 공용 로직
 │   ├── crawl_manager.py         # 크롤링 프로세스 싱글톤 (충돌 방지)
+│   ├── geocode_service.py       # 주소 정규화/좌표 캐시/지도 백필 진행률 + queued 재개 제어
 │   ├── duplicate_group_service.py # raw_content 기반 중복군/대표건 관리 + canonical projection
 │   ├── media_proxy_service.py   # 원격 첨부 동영상/미디어 스트리밍 프록시
 │   ├── parser.py                # HTML/JSON 파싱 (과태료, 처리상태 등)
@@ -162,6 +163,9 @@
   - 2026-05-06 이후에는 `mysafetydetail_*`.`synced_at` 공백을 `답변일` 우선, 없으면 `신고일` 기준으로 자동 백필하고 `mysafetymerge_*`를 다시 만든다.
   - `/backup/upload`로 서버 형식 DB를 덮어쓴 경우에도 같은 업그레이드/백필을 즉시 수행하므로, 앱 재시작 전까지 구스키마가 남아 있지 않게 한다.
   - 같은 흐름에서 payload exact 중복군도 재생성되어 merge 결과와 대표건 집계층을 함께 갱신한다.
+- 지도 지오코딩 백필은 `services/geocode_service.py`가 `config_required/config_warning/queued/running/error/completed` 상태를 관리한다.
+  - 크롤링 상세 저장 중 주소 준비/캐시 upsert 는 **반드시 같은 DB 연결/트랜잭션 안에서** 수행해야 하며, 별도 write 연결을 열면 SQLite self-lock으로 `database is locked` 가 날 수 있다.
+  - 크롤링 중 새 백필은 `queued` 로만 남기고, 실제 백필 재개는 서버 시작 시, 크롤링 종료 직후, 모바일 DB 복원 직후에 공통 helper 로 다시 건다.
 - `legacy` 상세 파서는 처리결과가 여러 개일 때 마지막 `처리결과` 테이블을 최신 답변으로 사용한다.
 - `legacy` 목록 파서는 페이지 전환 중 `stale element reference`가 나면 같은 페이지를 다시 읽도록 재시도한다.
 - 비회원 모드는 direct login을 타지 않고, Chrome 창에서 사용자가 로그인한 뒤 `재개` 신호를 기다리는 수동 흐름이다.

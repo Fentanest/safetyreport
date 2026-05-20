@@ -107,6 +107,11 @@ async def lifespan(app: FastAPI):
     from services.ws_manager import ws_manager as _ws_manager
     _ws_manager.set_main_loop(asyncio.get_event_loop())
     database.upgrade_schema(engine)
+    try:
+        from services import geocode_service
+        geocode_service.ensure_map_backfill_started(engine, batch_size=120)
+    except Exception as exc:
+        logger.LoggerFactory.logbot.warning(f"[geocode] 서버 시작 시 자동 백필 시작 실패: {exc}")
     scheduler.init_scheduler()
     sunwi_service.start_background_refresh()
 

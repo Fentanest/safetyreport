@@ -492,6 +492,34 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
         try:
             with engine.begin() as conn:
                 now_ms = _current_epoch_millis()
+                select_stmt = select(target_table).where(target_table.c.ID == record_id)
+                existing_record_proxy = conn.execute(select_stmt).first()
+
+                is_new = existing_record_proxy is None
+                is_changed = False
+                existing_record = dict(existing_record_proxy._mapping) if existing_record_proxy else {}
+
+                try:
+                    from services import geocode_service
+                    # 동일 트랜잭션 연결을 재사용해 SQLite self-lock을 피한다.
+                    geo_payload = geocode_service.prepare_geo_payload(
+                        engine,
+                        new_record.get("위반장소", ""),
+                        existing_record=existing_record,
+                        conn=conn,
+                    )
+                except Exception as exc:
+                    logger.LoggerFactory.logbot.warning(f"[geocode] ID {record_id} 지오코딩 준비 실패: {exc}")
+                    new_address = new_record.get("위반장소", "")
+                    existing_address = existing_record.get("주소정규화") or existing_record.get("위반장소") or ""
+                    if geocode_service.normalize_address(existing_address) == geocode_service.normalize_address(new_address):
+                        geo_payload = geocode_service.extract_geo_payload(existing_record, fallback_address=new_address)
+                    else:
+                        geo_payload = geocode_service.build_pending_geo_payload(new_address, status="error")
+
+                for column_name in geo_columns:
+                    new_record[column_name] = geo_payload.get(column_name)
+
                 # entry_value 저장
                 if entry_value is not None:
                     ev_stmt = insert(entry_value_table).values(ID=record_id, entry_value=entry_value)
@@ -527,32 +555,6 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
                         },
                     )
                     conn.execute(raw_stmt)
-
-                select_stmt = select(target_table).where(target_table.c.ID == record_id)
-                existing_record_proxy = conn.execute(select_stmt).first()
-
-                is_new = existing_record_proxy is None
-                is_changed = False
-                existing_record = dict(existing_record_proxy._mapping) if existing_record_proxy else {}
-
-                try:
-                    from services import geocode_service
-                    geo_payload = geocode_service.prepare_geo_payload(
-                        engine,
-                        new_record.get("위반장소", ""),
-                        existing_record=existing_record,
-                    )
-                except Exception as exc:
-                    logger.LoggerFactory.logbot.warning(f"[geocode] ID {record_id} 지오코딩 준비 실패: {exc}")
-                    new_address = new_record.get("위반장소", "")
-                    existing_address = existing_record.get("주소정규화") or existing_record.get("위반장소") or ""
-                    if geocode_service.normalize_address(existing_address) == geocode_service.normalize_address(new_address):
-                        geo_payload = geocode_service.extract_geo_payload(existing_record, fallback_address=new_address)
-                    else:
-                        geo_payload = geocode_service.build_pending_geo_payload(new_address, status="error")
-
-                for column_name in geo_columns:
-                    new_record[column_name] = geo_payload.get(column_name)
 
                 if is_new:
                     changed_item_ids.append({"id": record_id, "change_type": "신규"})
