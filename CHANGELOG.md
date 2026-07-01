@@ -10,6 +10,18 @@
 
 ## 2026-05-20
 
+### 신고 지도 주소지 원형 분리 확대 기준 완화
+
+상태: 완료
+
+변경:
+- `web/templates/report_map.html`
+  - 주소지 단위 원형 마커가 더 낮은 확대 단계에서도 보이도록 클러스터 해제 기준을 `zoom 12`로 앞당김
+  - 중간 확대 단계에서도 주소지 묶음이 더 빨리 풀리도록 줌별 `maxClusterRadius` 를 축소
+
+검증:
+- `git diff --check -- CHANGELOG.md web/templates/report_map.html`
+
 ### 신고 지도 주소 팝업 재오픈 회귀 수정
 
 상태: 완료

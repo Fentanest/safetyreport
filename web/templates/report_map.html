@@ -1416,7 +1416,16 @@
         var clusterGroup = L.markerClusterGroup({
             showCoverageOnHover: false,
             spiderfyOnMaxZoom: true,
-            maxClusterRadius: 58,
+            disableClusteringAtZoom: 12,
+            maxClusterRadius: function (zoom) {
+                if (zoom >= 11) {
+                    return 34;
+                }
+                if (zoom >= 9) {
+                    return 44;
+                }
+                return 58;
+            },
             iconCreateFunction: function (cluster) {
                 var count = cluster.getAllChildMarkers().reduce(function (sum, marker) {
                     return sum + getMarkerReportTotal(marker);
