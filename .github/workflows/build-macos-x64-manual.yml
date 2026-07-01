@@ -113,6 +113,42 @@ jobs:
 
         echo "python_bin=$PYTHON_BIN" >> "$GITHUB_OUTPUT"
 
+    - name: Ensure OpenSSL and pkg-config for native wheel builds (x86_64 Homebrew)
+      run: |
+        set -euo pipefail
+
+        # x86_64 빌드이므로 x86_64 Homebrew(/usr/local)의 openssl 을 써야 한다.
+        # (Apple Silicon 의 /opt/homebrew arm64 openssl 로 링크하면 x86_64 크레이트 빌드가 깨진다.)
+        BREW_BIN="/usr/local/bin/brew"
+        if [ ! -x "$BREW_BIN" ]; then
+          if command -v brew >/dev/null 2>&1; then
+            BREW_BIN="$(command -v brew)"
+          else
+            echo "::error::x86_64 Homebrew(/usr/local/bin/brew)를 찾지 못했습니다. self-hosted runner 에 Homebrew 설치 후 다시 실행하세요."
+            exit 1
+          fi
+        fi
+
+        # cryptography(openssl-sys/pyo3) 소스 빌드에 필요한 pkg-config/openssl 준비 (이미 있으면 no-op)
+        "$BREW_BIN" list pkgconf   >/dev/null 2>&1 || "$BREW_BIN" install pkgconf
+        "$BREW_BIN" list openssl@3 >/dev/null 2>&1 || "$BREW_BIN" install openssl@3
+
+        BREW_PREFIX="$("$BREW_BIN" --prefix)"
+        OPENSSL_PREFIX="$("$BREW_BIN" --prefix openssl@3)"
+
+        # 후속 스텝(pip install)이 openssl 을 찾도록 환경 전달.
+        # OPENSSL_DIR 만 있어도 openssl-sys 는 pkg-config 없이 빌드 가능하고,
+        # PATH/PKG_CONFIG_PATH 는 pkg-config 경로까지 함께 열어주는 보강이다.
+        {
+          echo "PATH=$BREW_PREFIX/bin:$PATH"
+          echo "OPENSSL_DIR=$OPENSSL_PREFIX"
+          echo "PKG_CONFIG_PATH=$OPENSSL_PREFIX/lib/pkgconfig"
+        } >> "$GITHUB_ENV"
+
+        echo "Homebrew prefix : $BREW_PREFIX"
+        echo "OpenSSL prefix  : $OPENSSL_PREFIX"
+        "$BREW_PREFIX/bin/pkg-config" --version
+
     - name: Create virtual environment and install dependencies
       run: |
         "${{ steps.python.outputs.python_bin }}" -m venv venv

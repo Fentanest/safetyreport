@@ -8,6 +8,28 @@
 
 ---
 
+## 2026-07-01
+
+### macOS x64 self-hosted 빌드 cryptography 소스 빌드 실패 수정
+
+상태: 완료
+
+배경:
+- Python 3.14 + x86_64 조합에 맞는 `cryptography` 바이너리 wheel 이 없어 소스(Rust `openssl-sys`)
+  빌드로 떨어지는데, self-hosted Intel Mac 러너(236)에 pkg-config/openssl 이 없어
+  `Could not find openssl via pkg-config` / `The pkg-config command could not be found` 로 실패
+- arm64 잡은 GitHub-hosted `macos-15` 라 툴체인/휠이 갖춰져 있어 문제 없었음
+
+변경:
+- `.github/workflows/build-macos-x64-manual.yml`, `.github/workflows/build.yml` (`build-macos-x64` 잡)
+  - venv/pip install 직전에 x86_64 Homebrew(`/usr/local`)의 `pkgconf`/`openssl@3` 를 확보하고
+    `OPENSSL_DIR`, `PKG_CONFIG_PATH`, `PATH` 를 후속 스텝에 전달하는 스텝 추가
+  - x86_64 빌드이므로 arm64(`/opt/homebrew`)가 아니라 반드시 `/usr/local` openssl 을 사용
+
+검증:
+- `yaml.safe_load` 로 두 워크플로 파싱 성공 + 스텝 삽입 확인
+- 임베드 셸 스크립트 `bash -n` 통과
+
 ## 2026-05-20
 
 ### 신고 지도 주소지 원형 분리 확대 기준 완화
