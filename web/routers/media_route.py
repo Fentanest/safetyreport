@@ -12,19 +12,20 @@ from services import media_proxy_service
 router = APIRouter(prefix="/media")
 
 _RANGE_RE = re.compile(r"^bytes=(\d+)-(\d*)$")
-_CHUNK_SIZE = 1024 * 256
 
 
 @router.get("/proxy")
 async def proxy_media(request: Request, url: str = Query(...)):
+    # 캐시가 완성될 때까지 기다리지 않는다. upstream Content-Length 만 확보되면
+    # 진행 중인 .tmp 를 tail-follow 로 흘려보내 첫 바이트 지연을 없앤다.
     try:
-        cache_path = await asyncio.to_thread(media_proxy_service.ensure_cached, url)
+        source = await asyncio.to_thread(media_proxy_service.open_stream, url)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"media proxy failed: {exc}") from exc
 
-    file_size = cache_path.stat().st_size
+    file_size = source["total"]
     media_type = media_proxy_service.guess_media_type(url)
     range_header = request.headers.get("range", "").strip()
 
@@ -51,19 +52,8 @@ async def proxy_media(request: Request, url: str = Query(...)):
     length = end - start + 1
     response_headers["Content-Length"] = str(length)
 
-    def iter_file():
-        with open(cache_path, "rb") as fh:
-            fh.seek(start)
-            remaining = length
-            while remaining > 0:
-                chunk = fh.read(min(_CHUNK_SIZE, remaining))
-                if not chunk:
-                    break
-                yield chunk
-                remaining -= len(chunk)
-
     return StreamingResponse(
-        iter_file(),
+        media_proxy_service.iter_stream(source, start, end),
         status_code=status_code,
         media_type=media_type,
         headers=response_headers,

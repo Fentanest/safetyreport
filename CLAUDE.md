@@ -147,14 +147,20 @@
   - 중복 항목에는 `duplicate_change_type`, `status_label`, `representative_mode_label`, `member_count`, `representative_report_number`, `body`가 함께 들어간다.
 - 웹 첨부 동영상은 `media_proxy_service.py` + `/media/proxy`를 통해 캐시된 로컬 파일에서 Range 부분 응답으로 재생한다.
   - 원본(`safetyreport.go.kr` 첨부 다운로드)은 Range를 지원하지 않고(`200 OK` 응답 + `Content-Disposition: attachment` + `Content-Type: application/download`) 직결 시 seek 바가 동작하지 않는다.
-  - 프록시는 캐시 준비 단계(`POST /media/prepare` + `GET /media/status`)에서 upstream 파일을 `data/media_cache/<sha256(url)>` 로 먼저 받아두고, 실제 `<video src>`는 캐시 완료 후에만 `/media/proxy`를 붙인다.
-  - 캐시 준비는 백그라운드 워커 4개로 병렬 수행해 여러 동영상이 동시에 warm-up 될 수 있게 한다.
-  - 이후 모든 요청은 캐시 파일에서 Range 헤더에 맞춰 `206 Partial Content`/`200`을 직접 만들어 응답한다.
+  - 프록시는 upstream 파일을 `data/media_cache/<sha256(url)>` 로 받아두되, **캐시 완성을 기다리지 않고 받는 즉시 흘려보낸다(tail-follow)**.
+    - `open_stream(url)`이 upstream `Content-Length`만 확보되면 진행 중인 `.tmp`를 소스로 반환하고, `iter_stream()`이 다운로더가 써 내려가는 만큼 따라 읽는다.
+    - 리더가 "지금 어디까지 읽어도 되는지"는 파일 크기가 아니라 `_progress[url]["downloaded"]` 카운터로 판단한다. 다운로더가 `flush()` 뒤에만 이 값을 올리므로 미완성 버퍼를 읽지 않는다.
+    - 리더는 `.tmp`를 먼저 열고, 그 사이 완료돼 rename 됐으면 최종 파일로 폴백한다. POSIX에서 이미 열린 fd는 rename 후에도 같은 inode를 가리키므로 rename을 가로질러 읽어도 안전하다.
+    - `Content-Encoding`이 identity가 아니거나 `Content-Length`가 없으면(chunked 등) Range 계산이 깨지므로 그때만 레거시 경로(완료까지 대기)로 폴백한다.
+    - 아직 안 받은 오프셋으로의 Range 요청은 그 지점까지 대기한다. 정체가 `_STALL_TIMEOUT_SECONDS`(120초)를 넘으면 에러로 끊는다.
+  - 캐시 준비는 백그라운드 워커 4개로 병렬 수행해 여러 동영상이 동시에 warm-up 될 수 있게 한다. `POST /media/prepare`는 이 워커를 미리 깨우는 용도이고, `GET /media/status`는 진행률(`bytes`/`total`) 조회용이다. 둘 다 재생 시작의 전제 조건은 아니다.
+  - 캐시가 이미 완성된 URL은 종전대로 파일에서 Range 헤더에 맞춰 `206 Partial Content`/`200`을 만들어 응답한다.
   - 동시 요청 race는 URL별 `threading.Lock`으로 직렬화하고, atomic write(`.tmp` → rename)로 부분 쓰기 노출을 막는다.
+  - `iter_stream()`은 동기 제너레이터라 Starlette가 threadpool에서 돌린다. 대기 중인 스트림 하나가 threadpool 토큰 하나를 잡으므로, 동시 재생 수가 크게 늘면 anyio 기본 한도(40)를 염두에 둘 것.
   - `Content-Type`은 URL 경로 기반 `mimetypes.guess_type`으로 결정해 upstream의 `application/download`를 덮어쓴다.
   - `/media/`는 로그인 리다이렉트 예외 경로이며, 프록시 대상 호스트는 `*.safetyreport.go.kr`로 제한한다.
   - 캐시 만료: 서버 시작 시 7일 이상 된 캐시 파일을 자동 정리(`cleanup_cache()`).
-  - 모달 오픈 시에는 먼저 "동영상 준비 중" 상태로 캐시를 비동기 준비하고, 준비가 끝나면 `<video preload="metadata">`를 연결해 메타데이터/첫 프레임 로딩을 시작한다.
+  - 모달 오픈 시 `prepare`만 fire-and-forget 으로 던지고 `<video preload="metadata">` src를 **즉시** 붙인다. 캐시 완료 폴링은 하지 않는다 (tail-follow 라 기다릴 이유가 없다). 실패는 `<video>`의 `error` 이벤트로 "동영상 준비 실패" 표시.
   - 모달 `hidden.bs.modal` 이벤트에서 내부 `<video>`를 `pause()` → `removeAttribute('src')` → `load()` 순으로 정리해 진행 중 다운로드와 백그라운드 오디오를 abort 한다. (백드롭/X/ESC 닫기 모두 동일 경로)
   - 적용 대상: `base.html`의 `#reportDetailModal`, `data_table.html`의 `#attachModal` 두 곳 모두 동일 패턴.
 - 크롤링 로그 회전은 `crawl_log_service.py`로 분리했다.

@@ -8,6 +8,59 @@
 
 ---
 
+## 2026-08-16 (2.5.3)
+
+### 동영상 프록시 tail-follow 전환 (첫 재생까지 전체 다운로드 대기 제거)
+
+상태: 완료
+
+배경:
+- 같은 신고 동영상인데 모바일 앱은 즉시 재생되고 웹은 한참 기다린다는 지적
+- 원인은 대역폭이 아니라 **재생 시작 조건**이었다
+  - 모바일: ExoPlayer 가 원본 URL 직결 + progressive 재생. `moov` + 약 2.5초 버퍼만 차면 첫 프레임
+    (upstream 의 `Content-Type: application/download` 는 컨테이너 스니핑으로 무시,
+     `Content-Disposition: attachment` 는 브라우저 전용 개념이라 무관)
+  - 웹: `/media/proxy` 가 `ensure_cached()` 로 **파일 100% 를 받은 뒤에야** 첫 바이트를 내보냄.
+    거기에 프론트가 `GET /media/status` 를 500ms 간격으로 폴링해 `ready` 를 기다린 다음에야
+    `<video src>` 를 붙였고, 같은 바이트가 네트워크를 두 번 탔다
+- 즉 35MB 영상이면 모바일은 수백 KB 받고 시작, 웹은 35MB 를 다 받고 시작하는 구조였다
+
+변경:
+- `services/media_proxy_service.py`
+  - `ensure_cached()` 가 다운로드 중에도 `_progress[url]` 로 `total`/`downloaded` 를 공개.
+    chunk 를 `flush()` 한 뒤에만 카운터를 올려 리더가 미완성 버퍼를 읽지 않게 함
+  - `open_stream(url)` 추가: 캐시 완료면 최종 파일, 아니면 upstream `Content-Length` 확보 즉시
+    진행 중인 `.tmp` 를 소스로 반환 (전체 다운로드를 기다리지 않음)
+  - `iter_stream(source, start, end)` 추가: 다운로더가 써 내려가는 만큼 따라 읽는 tail-follow 제너레이터.
+    `.tmp` 를 먼저 열고 그 사이 rename 됐으면 최종 파일로 폴백 (POSIX 에서 열린 fd 는 rename 후에도 같은 inode)
+  - `Content-Encoding` 이 identity 가 아니거나 `Content-Length` 가 없으면 Range 계산이 깨지므로
+    그때만 레거시 경로(완료까지 대기)로 폴백
+  - 아직 안 받은 오프셋으로의 Range 는 그 지점까지 대기, 정체 120초 초과 시 에러
+  - `prime_cache()` 가 작업 제출 전에 진행 상태를 초기화 — 리더가 옛 상태를 보고 없는 `.tmp` 를 여는 race 차단
+  - `get_cache_status()` 가 `bytes`/`total` 진행률을 함께 반환, `cleanup_cache()` 가 고아 진행 상태도 정리
+- `web/routers/media_route.py`
+  - `/media/proxy` 가 `ensure_cached()` 대신 `open_stream()` + `iter_stream()` 사용.
+    Range 파싱/`206`/`Content-Range` 계산은 그대로
+- `web/templates/base.html`
+  - 준비 완료 폴링(`waitUntilProxyReady`) 제거. `prepare` 는 백그라운드 워머를 깨우는 fire-and-forget 으로만 던지고
+    `<video src>` 를 즉시 연결
+  - 실패는 `<video>` 의 `error` 이벤트로 "동영상 준비 실패" 표시, `loadeddata` 에서 준비 문구 해제
+- `CLAUDE.md`
+  - 동영상 재생 운영 메모를 tail-follow 모델로 갱신
+
+검증:
+- `python3 -m compileall services/media_proxy_service.py web/routers/media_route.py main.py` 통과
+- 5MB 페이로드를 2초에 걸쳐 천천히 내려주는 로컬 upstream 으로 스모크:
+  - `open_stream()` 0.10초 만에 반환 (`complete=False`, `total` 정상)
+  - 첫 바이트 0.00초, 전체 수신 1.81초 → 다운로드를 실시간으로 따라감 (기존이면 약 2.0초 + 폴링 0.5초 뒤에야 첫 바이트)
+  - 최종 바이트 수/SHA-256 원본과 일치 (rename 가로지르기 정상)
+  - 완료 후 재요청 `complete=True`, 중간 Range 1000바이트 정확, 미수신 구간 Range 는 대기 후 정상 반환
+
+비고:
+- 캐시가 이미 있는 URL 의 동작은 종전과 동일 (즉시 206).
+- `iter_stream()` 은 동기 제너레이터라 Starlette threadpool 에서 돌아간다.
+  대기 중인 스트림 하나가 토큰 하나를 잡으므로 동시 재생 수가 크게 늘면 anyio 기본 한도(40)를 염두에 둘 것.
+
 ## 2026-07-01
 
 ### macOS x64 self-hosted 빌드 cryptography 소스 빌드 실패 수정

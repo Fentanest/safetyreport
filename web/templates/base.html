@@ -342,10 +342,6 @@ document.addEventListener('click', function(e) {
     }
     window.proxyMediaUrl = proxyMediaUrl;
 
-    function sleep(ms) {
-        return new Promise(function(resolve) { window.setTimeout(resolve, ms); });
-    }
-
     function setProxyVideoStatus(video, message, isError) {
         var statusEl = video && video.parentElement ? video.parentElement.querySelector('[data-proxy-video-status]') : null;
         if (!statusEl) return;
@@ -361,62 +357,45 @@ document.addEventListener('click', function(e) {
 
     function activateProxyVideo(video, proxyUrl) {
         if (video.getAttribute('src') === proxyUrl) return;
+        if (!video.hasAttribute('data-proxy-error-bound')) {
+            video.setAttribute('data-proxy-error-bound', '1');
+            video.addEventListener('error', function() {
+                if (video.getAttribute('src')) {
+                    setProxyVideoStatus(video, '동영상 준비 실패', true);
+                }
+            });
+            video.addEventListener('loadeddata', function() {
+                setProxyVideoStatus(video, '');
+            });
+        }
         video.setAttribute('src', proxyUrl);
         video.load();
         setProxyVideoStatus(video, '');
     }
 
-    async function waitUntilProxyReady(video, sourceUrl, token, preparePayload) {
-        if (preparePayload && preparePayload.ready) {
-            return preparePayload;
-        }
-        for (var attempt = 0; attempt < 120; attempt++) {
-            if (!document.body.contains(video)) return { status: 'cancelled', ready: false };
-            var scope = video.closest('[data-proxy-video-scope]');
-            if (scope && scope.getAttribute('data-proxy-video-token') !== token) {
-                return { status: 'cancelled', ready: false };
-            }
-
-            var response = await fetch('/media/status?url=' + encodeURIComponent(sourceUrl), {
-                headers: { 'Accept': 'application/json' },
-                cache: 'no-store'
-            });
-            if (!response.ok) {
-                throw new Error('media_status_http_' + response.status);
-            }
-            var payload = await response.json();
-            if (payload.ready) {
-                return payload;
-            }
-            if (payload.status === 'error') {
-                throw new Error(payload.error || 'media_prepare_error');
-            }
-            await sleep(500);
-        }
-        throw new Error('media_prepare_timeout');
-    }
-
-    async function prepareSingleProxyVideo(video, token) {
+    // /media/proxy 가 캐시 완성을 기다리지 않고 받는 즉시 흘려보내므로(tail-follow),
+    // 준비 완료 폴링 없이 곧바로 src 를 붙인다. prepare 는 백그라운드 캐시 워머를
+    // 조금 먼저 깨우는 용도라 실패해도 재생 자체에는 영향이 없다.
+    function prepareSingleProxyVideo(video, token) {
         var sourceUrl = normalizeDisplayValue(video.getAttribute('data-source-url'));
         var proxyUrl = normalizeDisplayValue(video.getAttribute('data-proxy-src'));
-        if (!sourceUrl || !proxyUrl) return;
+        if (!sourceUrl || !proxyUrl) return Promise.resolve();
 
         setProxyVideoStatus(video, '동영상 준비 중...');
+        try {
+            fetch('/media/prepare?url=' + encodeURIComponent(sourceUrl), {
+                method: 'POST',
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store'
+            }).catch(function() {});
+        } catch (_) {}
 
-        var prepareResponse = await fetch('/media/prepare?url=' + encodeURIComponent(sourceUrl), {
-            method: 'POST',
-            headers: { 'Accept': 'application/json' },
-            cache: 'no-store'
-        });
-        if (!prepareResponse.ok) {
-            throw new Error('media_prepare_http_' + prepareResponse.status);
-        }
-        var preparePayload = await prepareResponse.json();
-        var finalStatus = await waitUntilProxyReady(video, sourceUrl, token, preparePayload);
-        if (finalStatus.status === 'cancelled') {
-            return;
+        var scope = video.closest('[data-proxy-video-scope]');
+        if (scope && scope.getAttribute('data-proxy-video-token') !== token) {
+            return Promise.resolve();
         }
         activateProxyVideo(video, proxyUrl);
+        return Promise.resolve();
     }
 
     function prepareProxyVideos(scope) {
