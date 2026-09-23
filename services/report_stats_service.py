@@ -1,6 +1,7 @@
 import math
 import re
 from datetime import datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 import pandas as pd
 from sqlalchemy import func, select
@@ -53,10 +54,20 @@ def _extract_fine_amount(text) -> int:
     text = str(text)
     if "과태료" not in text:
         return 0
-    match = re.search(r"([\d,]+)\s*원", text)
+    # '40.000원' 처럼 점을 천 단위 구분자로 쓴 답변도 있다. 모바일 `extractFineAmount` 와 같은 규칙.
+    match = re.search(r"([\d,.]+)\s*원", text)
     if match:
-        return int(match.group(1).replace(",", ""))
+        digits = re.sub(r"[,.]", "", match.group(1))
+        return int(digits) if digits.isdigit() else 0
     return 0
+
+
+def _round_half_up(value, digits: int) -> float:
+    """통계 표시용 반올림. Python round()(짝수 쪽 반올림)와 달리 x.x5 를 올린다.
+
+    float 의 정확한 값 기준이라 모바일 Dart `toStringAsFixed` 와 같은 결과가 나온다(통계 요약·기관표 전용).
+    """
+    return float(Decimal(value).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP))
 
 
 
@@ -558,27 +569,81 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
     return available_years, df_t, df_p, df_o
 
 
+def _calc_avg_days(group_df):
+    # S-10: 처리기간은 처리가 끝난 신고만. 이송 답변일이 붙은 처리중 신고·취하는 넣지 않는다.
+    group_df = group_df[_stats_status_series(group_df).isin(_OVERVIEW_COMPLETED_STATUSES)]
+    try:
+        d_end = pd.to_datetime(group_df["답변일"], errors="coerce")
+        d_start = pd.to_datetime(group_df["신고일"], errors="coerce")
+        days = (d_end - d_start).dt.days.dropna()
+        days = days[days >= 0]
+        return _round_half_up(float(days.mean()), 1) if len(days) > 0 else None
+    except Exception:
+        return None
+
+
+def _calc_avg_rating(group_df):
+    if "별점" not in group_df.columns:
+        return None, 0
+    ratings = pd.to_numeric(group_df["별점"], errors="coerce").dropna()
+    ratings = ratings[(ratings >= 1) & (ratings <= 5)]
+    if len(ratings) == 0:
+        return None, 0
+    return _round_half_up(float(ratings.mean()), 2), int(len(ratings))
+
+
+def _build_stats_tables(df: pd.DataFrame):
+    """필터가 끝난 한 카테고리 프레임 → (기관별, 담당자별, 법규별) 행 목록. 모바일 `LocalDbService._buildCategory` 와 같은 규칙."""
+    # S-10: 표 포함 여부는 처리상태가 아니라 기관·담당자 값이 있는지로 정한다.
+    # 배정된 처리중 신고도 기관/담당자 행에 들어가고 `in_progress` 로 따로 센다.
+    df["처리기관"] = df.get("처리기관", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str).str.strip()
+    df["담당자"] = df.get("담당자", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str).str.strip()
+    df["범칙금_과태료"] = df.get("범칙금_과태료", pd.Series("", index=df.index, dtype="object")).fillna("")
+    df_agency = df[df["처리기관"] != ""]
+    df_person = df_agency[~df_agency["담당자"].isin(_UNASSIGNED_PERSON_VALUES)]
+
+    def _row_metrics(group):
+        total = len(group)
+        counts = _stats_row_disposition_counts(group)
+        avg_rating, rating_count = _calc_avg_rating(group)
+
+        def _pct(key):
+            return _round_half_up((counts[key] / total) * 100, 1) if total > 0 else 0
+
+        return {
+            "total": total,
+            "avg_days": _calc_avg_days(group),
+            "total_fine_amount": int(group["범칙금_과태료"].apply(_extract_fine_amount).sum()),
+            "fine_amount_unknown": _count_fine_amount_unknown(group),
+            **{key: counts[key] for key in counts},
+            **{f"{key}_pct": _pct(key) for key in counts},
+            "avg_rating": avg_rating,
+            "rating_count": rating_count,
+        }
+
+    stats_person = [
+        {"agency": agency, "person": person, **_row_metrics(group)}
+        for (agency, person), group in df_person.groupby(["처리기관", "담당자"])
+    ]
+    stats_agency = [
+        {"agency": agency, **_row_metrics(group)}
+        for agency, group in df_agency.groupby("처리기관")
+    ]
+
+    stats_law = []
+    if "위반법규" in df.columns:
+        df_law = df.copy()
+        df_law["위반법규"] = df_law["위반법규"].fillna("").astype(str)
+        df_law = df_law[df_law["위반법규"].str.strip() != ""]
+        stats_law = [
+            {"law": law, **_row_metrics(group)}
+            for law, group in df_law.groupby("위반법규")
+        ]
+    return stats_agency, stats_person, stats_law
+
+
 def get_agency_stats(engine, filters=None, mode: str = "canonical"):
     available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
-
-    def _calc_avg_days(group_df):
-        try:
-            d_end = pd.to_datetime(group_df["답변일"], errors="coerce")
-            d_start = pd.to_datetime(group_df["신고일"], errors="coerce")
-            days = (d_end - d_start).dt.days.dropna()
-            days = days[days >= 0]
-            return round(float(days.mean()), 1) if len(days) > 0 else None
-        except Exception:
-            return None
-
-    def _calc_avg_rating(group_df):
-        if "별점" not in group_df.columns:
-            return None, 0
-        ratings = pd.to_numeric(group_df["별점"], errors="coerce").dropna()
-        ratings = ratings[(ratings >= 1) & (ratings <= 5)]
-        if len(ratings) == 0:
-            return None, 0
-        return round(float(ratings.mean()), 2), int(len(ratings))
 
     def calc_stats(df):
         empty_payload = {
@@ -616,92 +681,7 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
         if app_settings.normalize_police and "처리기관" in df.columns:
             df["처리기관"] = df["처리기관"].apply(database.normalize_police_agency)
 
-        df["처리기관"] = df.get("처리기관", pd.Series()).fillna("알수없음")
-        df["담당자"] = df.get("담당자", pd.Series()).fillna("미지정")
-        df["처리상태"] = df.get("처리상태", pd.Series()).fillna("처리중")
-        df["범칙금_과태료"] = df.get("범칙금_과태료", pd.Series()).fillna("")
-        df = df[~((df["담당자"].isin(["", "미지정"])) & (df["처리상태"].isin(["처리중", "진행", "진행중", "검토중", "취하"])))]
-
-        stats_person = []
-        for (agency, person), group in df.groupby(["처리기관", "담당자"]):
-            total = len(group)
-            disposition_counts = _disposition_counts(group)
-            avg = _calc_avg_days(group)
-            total_fine = int(group["범칙금_과태료"].apply(_extract_fine_amount).sum())
-            avg_rating, rating_count = _calc_avg_rating(group)
-            stats_person.append({
-                "agency": agency,
-                "person": person,
-                "total": total,
-                "avg_days": avg,
-                "total_fine_amount": total_fine,
-                "fine_amount_unknown": _count_fine_amount_unknown(group),
-                "fines": disposition_counts["fines"],
-                "fines_pct": round((disposition_counts["fines"] / total) * 100, 1) if total > 0 else 0,
-                "warnings": disposition_counts["warnings"],
-                "warnings_pct": round((disposition_counts["warnings"] / total) * 100, 1) if total > 0 else 0,
-                "rejects": disposition_counts["rejects"],
-                "rejects_pct": round((disposition_counts["rejects"] / total) * 100, 1) if total > 0 else 0,
-                "unconfirmed": disposition_counts["unconfirmed"],
-                "unconfirmed_pct": round((disposition_counts["unconfirmed"] / total) * 100, 1) if total > 0 else 0,
-                "avg_rating": avg_rating,
-                "rating_count": rating_count,
-            })
-
-        stats_agency = []
-        for agency, group in df.groupby("처리기관"):
-            agency = agency[0] if isinstance(agency, tuple) else agency
-            total = len(group)
-            disposition_counts = _disposition_counts(group)
-            avg = _calc_avg_days(group)
-            total_fine = int(group["범칙금_과태료"].apply(_extract_fine_amount).sum())
-            avg_rating, rating_count = _calc_avg_rating(group)
-            stats_agency.append({
-                "agency": agency,
-                "total": total,
-                "avg_days": avg,
-                "total_fine_amount": total_fine,
-                "fine_amount_unknown": _count_fine_amount_unknown(group),
-                "fines": disposition_counts["fines"],
-                "fines_pct": round((disposition_counts["fines"] / total) * 100, 1) if total > 0 else 0,
-                "warnings": disposition_counts["warnings"],
-                "warnings_pct": round((disposition_counts["warnings"] / total) * 100, 1) if total > 0 else 0,
-                "rejects": disposition_counts["rejects"],
-                "rejects_pct": round((disposition_counts["rejects"] / total) * 100, 1) if total > 0 else 0,
-                "unconfirmed": disposition_counts["unconfirmed"],
-                "unconfirmed_pct": round((disposition_counts["unconfirmed"] / total) * 100, 1) if total > 0 else 0,
-                "avg_rating": avg_rating,
-                "rating_count": rating_count,
-            })
-
-        stats_law = []
-        if "위반법규" in df.columns:
-            df_law = df.copy()
-            df_law["위반법규"] = df_law["위반법규"].fillna("").astype(str)
-            df_law = df_law[df_law["위반법규"].str.strip() != ""]
-            for law, group in df_law.groupby("위반법규"):
-                total = len(group)
-                disposition_counts = _disposition_counts(group)
-                avg = _calc_avg_days(group)
-                total_fine = int(group["범칙금_과태료"].apply(_extract_fine_amount).sum())
-                avg_rating, rating_count = _calc_avg_rating(group)
-                stats_law.append({
-                    "law": law,
-                    "total": total,
-                    "avg_days": avg,
-                    "total_fine_amount": total_fine,
-                    "fine_amount_unknown": _count_fine_amount_unknown(group),
-                    "fines": disposition_counts["fines"],
-                    "fines_pct": round((disposition_counts["fines"] / total) * 100, 1) if total > 0 else 0,
-                    "warnings": disposition_counts["warnings"],
-                    "warnings_pct": round((disposition_counts["warnings"] / total) * 100, 1) if total > 0 else 0,
-                    "rejects": disposition_counts["rejects"],
-                    "rejects_pct": round((disposition_counts["rejects"] / total) * 100, 1) if total > 0 else 0,
-                    "unconfirmed": disposition_counts["unconfirmed"],
-                    "unconfirmed_pct": round((disposition_counts["unconfirmed"] / total) * 100, 1) if total > 0 else 0,
-                    "avg_rating": avg_rating,
-                    "rating_count": rating_count,
-                })
+        stats_agency, stats_person, stats_law = _build_stats_tables(df)
 
         category_total_fine = int(df["범칙금_과태료"].apply(_extract_fine_amount).sum())
 
@@ -766,14 +746,18 @@ def _summarize_overview_frame(df: pd.DataFrame) -> dict:
     reversed_count = 0
     reported_by_month: dict[str, int] = {}
     answered_by_month: dict[str, int] = {}
-    for reported, answered in zip(report_dates, answer_dates):
+    completed_flags = [status in _OVERVIEW_COMPLETED_STATUSES for status in statuses]
+    if len(completed_flags) < total:
+        completed_flags += [False] * (total - len(completed_flags))
+    for reported, answered, is_completed in zip(report_dates, answer_dates, completed_flags):
         if reported is not None:
             key = reported.strftime("%Y-%m")
             reported_by_month[key] = reported_by_month.get(key, 0) + 1
         if answered is not None:
             key = answered.strftime("%Y-%m")
             answered_by_month[key] = answered_by_month.get(key, 0) + 1
-        if reported is not None and answered is not None:
+        # S-10: 평균 처리기간은 완료 신고만(기관표 `_calc_avg_days` 와 같은 기준).
+        if is_completed and reported is not None and answered is not None:
             days = (answered - reported).days
             if days < 0:
                 reversed_count += 1
@@ -792,7 +776,7 @@ def _summarize_overview_frame(df: pd.DataFrame) -> dict:
         "supplement": _count(lambda s: s == "보완요청"),
         "processing": _count(lambda s: s in _OVERVIEW_PROCESSING_STATUSES),
         "withdraw": _count(lambda s: s == "취하"),
-        "avg_days": round(sum(day_samples) / len(day_samples), 1) if day_samples else None,
+        "avg_days": _round_half_up(sum(day_samples) / len(day_samples), 1) if day_samples else None,
         "avg_days_count": len(day_samples),
         "reversed_date_count": reversed_count,
         "undated_report_count": int(sum(1 for d in report_dates if d is None)),
@@ -855,6 +839,33 @@ def _disposition_counts(group_df: pd.DataFrame) -> dict[str, int]:
         "rejects": int(reject_mask.sum()),
         "unconfirmed": int(unconfirmed_mask.sum()),
     }
+
+
+_UNASSIGNED_PERSON_VALUES = {"", "미지정"}
+
+
+def _stats_status_series(group_df: pd.DataFrame) -> pd.Series:
+    return group_df.get("처리상태", pd.Series(dtype="object", index=group_df.index)).fillna("").astype(str).str.strip()
+
+
+def _stats_row_disposition_counts(group_df: pd.DataFrame) -> dict[str, int]:
+    """통계표(기관/담당자/법규) 행 처분 분류. S-10: 처리중은 '미분류'에 섞지 않고 `in_progress` 로 뺀다.
+
+    처리중 = 완료(수용·일부수용·불수용·기타·답변완료)도 취하도 아닌 상태(처리중·진행·검토중·보완요청·이송·빈 값 등).
+    모바일 Standalone `_AgencyAgg` 와 같은 정의. 대시보드용 `_disposition_counts` 는 바꾸지 않는다.
+    """
+    counts = _disposition_counts(group_df)
+    fine_series = group_df.get("범칙금_과태료", pd.Series(dtype="object", index=group_df.index)).fillna("").astype(str)
+    status_series = _stats_status_series(group_df)
+    decided = (
+        fine_series.str.contains("과태료", na=False)
+        | fine_series.str.contains("경고|범칙금", na=False)
+        | status_series.isin(["불수용", "기타"])
+    )
+    in_progress = ~decided & ~status_series.isin(_OVERVIEW_COMPLETED_STATUSES) & (status_series != "취하")
+    counts["in_progress"] = int(in_progress.sum())
+    counts["unconfirmed"] = int((~decided & ~in_progress).sum())
+    return counts
 
 
 def _build_status_breakdown(group_df: pd.DataFrame) -> list[dict]:

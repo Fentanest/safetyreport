@@ -10,6 +10,27 @@
 
 ## 2026-09-24 (버전 변경 없음, 브랜치 `feature/stats-overview-api`)
 
+### 기관/담당자 통계 행 규칙 정리(모바일 S-10), 과태료 금액·반올림 모바일과 일치
+
+상태: 완료 (사용자 결정 2026-09-24), 배포 안 함
+
+배경:
+- 기관표 제외 규칙이 "담당자 없음 + 처리중/취하" 라서, 처리기관을 붙이거나 이송으로 담당자가 생기면 같은 처리중 신고가 표에 들어갔다 빠졌다 한다. 모바일 Standalone 과도 규칙이 달랐다.
+
+변경 (`services/report_stats_service.py`):
+- 행 조립을 `_build_stats_tables(df)` 로 분리. 기관표 = 처리기관 있는 신고, 담당자표 = 처리기관+담당자 있는 신고(`미지정`·빈 값 제외). 처리기관 NULL 을 '알수없음'으로 묶던 처리 제거, 기관·담당자 앞뒤 공백 제거
+- 행에 `in_progress` / `in_progress_pct` 추가(완료도 취하도 아닌 상태: 처리중·진행·검토중·보완요청·이송·빈 값). 이 건은 `unconfirmed` 에서 뺀다
+- 행 `avg_days` 와 `/stats/overview` `avg_days` 를 완료 신고만으로 계산
+- `_extract_fine_amount`: `과태료: 40.000원` 처럼 점을 천 단위 구분자로 쓴 값도 읽음(이전엔 0원·금액 미확인). 모바일 `extractFineAmount` 와 같은 규칙
+- 통계 행·요약 반올림을 `_round_half_up` 으로(Python `round()` 는 23.25→23.2, 모바일은 23.3). Dart `toStringAsFixed` 와 51,479 케이스 대조 일치
+- 웹 통계 표(`web/templates/stats.html`) 에 `처리중`·비율 컬럼과 합계 추가
+
+검증:
+- `tests/test_report_stats_service.py` 8개 통과(행 규칙·요약 평균·금액·반올림 추가, 모바일 `test/services/stats_tables_test.dart` 와 같은 입력·기대값)
+- 5월 로컬 DB 사본으로 변경 전/후 비교: 취하 숨기기(기본) 켬 → 기관·담당자·법규 표 변경 0행. 끔 → 담당자 없는 취하 5건이 기관표에 들어가고 취하가 평균 처리일에서 빠짐. 현재 데이터의 처리중은 처리기관이 없어 `in_progress` 0
+- 같은 사본을 모바일 Standalone 에 import 해 기관·담당자 표 16개 필드와 요약 평균 처리일을 대조: 전부 일치(수정 전엔 교통 표에서 평균 처리일 끝자리·과태료 금액이 달랐다)
+- 웹 `/stats` 렌더: 헤더·본문·합계 15칸 일치 확인(TestClient)
+
 ### `/stats` 행 `fine_amount_unknown` 추가, 위반법규 필터 완전 일치
 
 상태: 완료 (모바일 통계 결정 S-05·S-09)
