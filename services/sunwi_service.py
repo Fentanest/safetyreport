@@ -160,6 +160,9 @@ def start_background_refresh():
 
     if _worker_thread and _worker_thread.is_alive():
         return
+    from core.utils.runtime_mode import skip_in_fixture
+    if skip_in_fixture("sunwi background refresh"):
+        return
 
     _stop_event.clear()
     _worker_thread = threading.Thread(

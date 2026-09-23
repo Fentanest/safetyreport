@@ -1,0 +1,15 @@
+{
+  "name": "safetyreport-web-tests",
+  "private": true,
+  "description": "개발 전용 브라우저 회귀 도구. 제품 실행(Python/PyInstaller/Docker)에는 필요 없다.",
+  "scripts": {
+    "test": "playwright test",
+    "test:chromium": "playwright test --project=chromium",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
+    "@playwright/cli": "0.1.21",
+    "@playwright/test": "1.63.0"
+  }
+}

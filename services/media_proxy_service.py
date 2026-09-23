@@ -129,6 +129,8 @@ def ensure_cached(url: str) -> Path:
     path = _cache_path(normalized)
     if _is_cached_file(path):
         return path
+    from core.utils.runtime_mode import block_if_fixture
+    block_if_fixture("media upstream download")
 
     lock = _get_lock(normalized)
     with lock:

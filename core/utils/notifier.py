@@ -45,6 +45,8 @@ async def main():
             sys.exit(1)
     else:
         message = sys.argv[1]
+    from core.utils.runtime_mode import block_if_fixture
+    block_if_fixture("telegram notify")
     bot = telegram.Bot(token=settings.telegram_token)
 
     max_len = 4096

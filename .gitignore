@@ -1,6 +1,7 @@
 # Python Cache
 __pycache__/
 venv/
+.venv/
 *.pyc
 
 # Personal / Sensitive (EXCLUDE FROM REPO)
@@ -11,12 +12,41 @@ logs/
 *.log
 config.ini
 .env
+*.db
+*.db-wal
+*.db-shm
 *.json
 *.md
-!CLAUDE.md
-!README.md
-!CHANGELOG.md
 test_*
+
+# ── Tracked exceptions (2026-09-24 문서 체계 개편) ──────────────────────────
+# 위의 *.md / *.json / test_* 는 개인 데이터·메모 보호용이다.
+# 유지보수 문서, 에이전트 스킬, 회귀 테스트, 개발 도구 잠금파일만 명시적으로 다시 추적한다.
+!/README.md
+!/CLAUDE.md
+!/CHANGELOG.md
+!/AGENTS.md
+!/GEMINI.md
+!/PROJECT_RULES.md
+!/docs/**/*.md
+!/.agents/skills/**/SKILL.md
+!/.claude/skills/**/SKILL.md
+!/.agents/mcp_config.json
+!/tests/test_*.py
+!/tools/web-tests/package.json
+!/tools/web-tests/package-lock.json
+!/tools/web-tests/tsconfig.json
+
+# Local agent / dev tool state (never tracked)
+.agent-runs/
+.playwright-cli/
+node_modules/
+tools/web-tests/test-results/
+tools/web-tests/playwright-report/
+tools/web-tests/.auth/
+.claude/settings.local.json
+# 디자인 참고 보드 원본(약 27MB). sha256 은 docs/design/asset-manifest.csv 로 추적한다.
+docs/design/reference/*.png
 
 # Build & Packaging
 dist/

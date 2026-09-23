@@ -16,6 +16,7 @@ from sqlalchemy.exc import OperationalError
 import settings.settings as app_settings
 from core.database import models
 from core.utils import logger
+from core.utils.runtime_mode import block_if_fixture
 
 
 KAKAO_ADDRESS_URL = "https://dapi.kakao.com/v2/local/search/address.json"
@@ -472,6 +473,7 @@ def resolve_address(engine, address: str, *, conn=None) -> dict:
     if not api_key:
         raise GeocodeConfigurationError("카카오 REST API 키가 비어 있습니다.")
 
+    block_if_fixture("kakao geocode request")
     try:
         response = requests.get(
             KAKAO_ADDRESS_URL,

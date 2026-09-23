@@ -7,7 +7,7 @@
 # Docker 자체
 Dockerfile
 .dockerignore
-docker-compose.yml
+docker-compose*.yml
 
 # 문서
 *.md
@@ -51,3 +51,17 @@ list_table.html
 mysafetyreport.ico
 mysafetyreport.png
 mysafetyreport.webp
+
+# 에이전트 문서/스킬·개발 전용 도구 (운영 이미지 제외, web/static·web/templates 는 포함)
+.agents/
+.agent-runs/
+.playwright-cli/
+.venv/
+node_modules/
+tools/
+docs/
+tests/
+scripts/dev/
+*.db
+*.db-wal
+*.db-shm

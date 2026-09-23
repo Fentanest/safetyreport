@@ -12,8 +12,9 @@ class AppSettings:
             project_root = os.path.dirname(sys.executable)
         else:
             project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-            
-        self.datapath = os.path.join(project_root, 'data')
+
+        from core.utils.runtime_mode import data_dir_override
+        self.datapath = data_dir_override() or os.path.join(project_root, 'data')
         self.config_path = os.path.join(self.datapath, 'config.ini')
         os.makedirs(self.datapath, exist_ok=True)
         
@@ -91,6 +92,12 @@ class AppSettings:
             self.telegram_token and self.telegram_token not in [None, 'your_token'] and
             self.chat_id and self.chat_id not in [None, 'your_chat_id']
         )
+
+        from core.utils.runtime_mode import is_fixture_mode
+        if is_fixture_mode():
+            # 테스트 fixture 에서는 텔레그램 봇/알림과 구글 시트 업로드를 설정과 무관하게 끈다.
+            self.telegram_enabled = False
+            self.google_sheet_enabled = False
 
         if not self.google_sheet_enabled:
             self.google_api_auth_file = None

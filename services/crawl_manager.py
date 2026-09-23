@@ -6,6 +6,7 @@ from typing import Optional, List
 
 from services import crawl_state_store
 from services.crawl_log_service import rotate_crawl_log
+from core.utils.runtime_mode import block_if_fixture
 
 class CrawlManager:
     _instance = None
@@ -31,6 +32,7 @@ class CrawlManager:
             if self._active_process is not None and self._active_process.poll() is None:
                 return False
 
+            block_if_fixture("crawl subprocess")
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
 
             # Force UTF-8 for subprocesses on Windows to avoid encoding issues in log streaming

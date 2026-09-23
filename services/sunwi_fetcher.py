@@ -254,6 +254,8 @@ def format_period_label(target_yyyymm):
     return f"{str(target_yyyymm)[:4]}-{str(target_yyyymm)[4:6]}"
 
 def build_session():
+    from core.utils.runtime_mode import block_if_fixture
+    block_if_fixture("sunwi statistics fetch")
     session = requests.Session()
 
     retry_strategy = Retry(

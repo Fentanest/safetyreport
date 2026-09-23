@@ -10,6 +10,7 @@ import settings.settings as settings
 from core.utils import logger
 from services import data_service
 from services.crawl_manager import crawl_manager
+from core.utils.runtime_mode import block_if_fixture
 
 
 def prepare_current_rating_log():
@@ -48,6 +49,7 @@ def start_batch_rating(engine, report_numbers, score: int):
             "현재 크롤링 프로세스가 진행 중입니다. 충돌 방지를 위해 크롤링 종료 후 실행해주세요."
         )
 
+    block_if_fixture("star rating batch")
     prepare_current_rating_log()
     threading.Thread(
         target=_run_rating_worker,

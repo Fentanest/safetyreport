@@ -46,6 +46,9 @@ def _build_ssl_context():
 
 def _urlopen(request_or_url, *, timeout: int = 5):
     import urllib.request
+    from core.utils.runtime_mode import block_if_fixture
+
+    block_if_fixture("github release request")
 
     opener = urllib.request.build_opener(
         urllib.request.HTTPSHandler(context=_build_ssl_context())

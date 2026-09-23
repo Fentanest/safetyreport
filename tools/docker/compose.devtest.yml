@@ -1,0 +1,29 @@
+# 개발/UI 테스트 전용 Docker 구성. 운영 docker-compose.yml 과 분리한다.
+# - 로컬 소스로 이미지를 빌드한다(ghcr 이미지 pull/push 없음).
+# - Watchtower, Docker socket 마운트, 고정 container_name, ./data 마운트를 쓰지 않는다.
+# - fixture 모드(SAFETYREPORT_FIXTURE_MODE=1) + 전용 named volume 에 합성 데이터만 둔다.
+# - 호스트에는 127.0.0.1:${SR_DOCKER_PORT:-18639} 로만 노출한다(운영 6819 와 겹치지 않음).
+#
+#   docker compose -f tools/docker/compose.devtest.yml -p safetyreport-devtest up -d --build
+#   curl -s http://127.0.0.1:18639/health
+#   docker compose -f tools/docker/compose.devtest.yml -p safetyreport-devtest down -v   # 이 프로젝트 volume 만 삭제
+name: safetyreport-devtest
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: safetyreport:devtest
+    ports:
+      - "127.0.0.1:${SR_DOCKER_PORT:-18639}:6819"
+    environment:
+      TZ: Asia/Seoul
+      SAFETYREPORT_DATA_DIR: /fixture-data
+      SAFETYREPORT_FIXTURE_MODE: "1"
+    # 개발 스크립트는 운영 이미지(.dockerignore 로 제외)에 넣지 않고 읽기 전용으로 마운트한다.
+    volumes:
+      - ../../scripts/dev:/app/scripts/dev:ro
+      - fixture-data:/fixture-data
+    command: ["python", "scripts/dev/fixture_server.py", "serve", "--data-dir", "/fixture-data/app", "--host", "0.0.0.0", "--port", "6819", "--reset"]
+volumes:
+  fixture-data: {}

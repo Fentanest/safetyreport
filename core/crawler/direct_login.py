@@ -53,6 +53,8 @@ def _rsa_encrypt_hex(modulus_hex: str, exponent_hex: str, plaintext: str) -> str
 
 
 def _make_session():
+    from core.utils.runtime_mode import block_if_fixture
+    block_if_fixture("safetyreport direct login")
     from curl_cffi import requests as cffi_requests
     s = cffi_requests.Session(impersonate="chrome120")
     s.headers.update(_COMMON_HEADERS)
@@ -272,6 +274,9 @@ def start_keepalive(interval_seconds: int = 55 * 60) -> bool:
     """백그라운드 갱신 스레드 시작. 이미 실행 중이면 False."""
     global _keepalive_thread
     if _keepalive_thread and _keepalive_thread.is_alive():
+        return False
+    from core.utils.runtime_mode import skip_in_fixture
+    if skip_in_fixture("direct_login keep-alive"):
         return False
     if not settings.username or not settings.password:
         if logger.LoggerFactory.logbot:
