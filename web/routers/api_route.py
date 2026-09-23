@@ -101,6 +101,20 @@ async def get_stats(_: str = Depends(_require_api_key), year: str = None, law: s
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+
+@router.get("/stats/overview")
+async def get_stats_overview(_: str = Depends(_require_api_key), year: str = None, law: str = None, dedupe: str | None = None):
+    try:
+        filters = {}
+        if year and year != "all":
+            filters["year"] = year
+        if law:
+            filters["law"] = law
+        dedupe_mode = normalize_dedupe_mode(dedupe)
+        return {"status": "success", "data": data_service.get_stats_overview(engine, filters or None, mode=dedupe_mode)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
 @router.get("/stats/map")
 async def get_stats_map(
     _: str = Depends(_require_api_key),

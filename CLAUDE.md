@@ -289,6 +289,11 @@ by_agency / by_person / police_by_agency / police_by_person / other_by_agency / 
 **crawl/done:** `done` `timestamp` `changed_count`
 **crawl/config:** `crawl_type` `crawl_mode` `max_empty_pages`
 **stats:** `traffic` / `parking` / `other` / `available_years` / `traffic_total_fine`
+**stats/overview** (2026-09-24, 모바일 통계 요약용): `all` / `traffic` / `parking` / `other` 각각
+`total completed accept partial reject supplement processing withdraw avg_days avg_days_count reversed_date_count undated_report_count monthly_reported[{month,count}] monthly_answered[{month,count}]`
++ `available_years` `year_basis`(='답변일') `exclude_withdraw` `dedupe_mode`.
+`get_agency_stats` 와 같은 행(로딩·대표건·행 필터·취하 제외·법규)을 쓴다 — 공통 헬퍼 `_load_stats_frames` / `_apply_stats_row_filters` / `_apply_stats_law_filter`.
+평균 처리일은 기관 평균을 합치지 않고 원자료에서 직접 계산(두 날짜 유효 + 차이 ≥ 0), 표본 수 함께 제공. 모바일 Standalone `LocalDbService.summarizeOverviewRows` 와 같은 정의 — 한쪽을 바꾸면 양쪽 테스트를 함께 고친다.
 
 Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `safetyreport-mobile` 레포의 CLAUDE.md 참조.
 

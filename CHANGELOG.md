@@ -8,6 +8,30 @@
 
 ---
 
+## 2026-09-24 (버전 변경 없음, 브랜치 `feature/stats-overview-api`)
+
+### 모바일 통계 요약 API `GET /api/v1/stats/overview` 추가
+
+상태: 구현·단위 테스트 완료 / 커밋·배포 안 함
+
+배경:
+- 모바일 UI 리뉴얼에서 통계 화면에 요약 카드(총 신고·답변 완료·처리 중·평균 처리기간)와 월별 추이를 넣기로 함(사용자 결정: Client 모드 데이터는 서버가 계산해 API 로 제공)
+- 기존 `/stats` 의 `avg_days` 는 기관·담당자 단위 평균만 있고 표본 수가 없어 전체 평균을 정확히 합칠 수 없었음
+
+변경:
+- `services/report_stats_service.py`
+  - `get_agency_stats` 의 DB 로딩·projection 을 `_load_stats_frames`, 행 필터를 `_apply_stats_row_filters`, 법규 필터를 `_apply_stats_law_filter` 로 분리(동작 동일)
+  - `get_stats_overview` / `_summarize_overview_frame` 추가: 카테고리별·전체 요약, 평균 처리일 원자료 직접 계산 + `avg_days_count`, 월별 신고(신고일)·월별 답변(답변일)
+- `web/routers/api_route.py`: `GET /api/v1/stats/overview?year=&law=&dedupe=` (API 키 인증, `/stats` 와 같은 파라미터 해석)
+- `services/data_service.py`: `get_stats_overview` 재노출
+- 기존 `/stats` 응답과 웹 화면은 변경 없음
+
+검증:
+- refactor 전후 `get_agency_stats` 출력 JSON 비교: DB 스냅샷 복사본에서 필터 4종 × raw/canonical = 8개 조합 모두 동일
+- `tests/test_report_stats_service.py` 에 요약 정의 테스트 2개 추가(모바일 `test/services/stats_overview_test.dart` 와 같은 입력·기대값) → 3 tests OK
+- 기존 테스트 4개 파일 OK
+- 주의: `.gitignore` 의 `test_*` 규칙 때문에 `tests/test_report_stats_service.py` 는 git 에 추적되지 않는다(다른 두 테스트 파일은 추적 중)
+
 ## 2026-08-16 (2.5.3)
 
 ### 동영상 프록시 tail-follow 전환 (첫 재생까지 전체 다운로드 대기 제거)

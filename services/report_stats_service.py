@@ -470,7 +470,53 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
     })
 
 
-def get_agency_stats(engine, filters=None, mode: str = "canonical"):
+def _apply_stats_row_filters(df: pd.DataFrame, filters=None) -> pd.DataFrame:
+    """`get_agency_stats` 와 `get_stats_overview` 가 공유하는 행 필터(연도·날짜·기관·텍스트)."""
+    if filters:
+        if filters.get("year") and filters["year"] not in ("all", "", None) and "답변일" in df.columns:
+            df = df[df["답변일"].str.startswith(filters["year"], na=False)]
+        if filters.get("reportName") and "신고명" in df.columns:
+            df = _apply_text_query(df, "신고명", filters["reportName"])
+        if filters.get("location") and "위반장소" in df.columns:
+            df = _apply_text_query(df, "위반장소", filters["location"])
+        if filters.get("reportDateStart") and "신고일" in df.columns:
+            df = df[df["신고일"] >= filters["reportDateStart"]]
+        if filters.get("reportDateEnd") and "신고일" in df.columns:
+            df = df[df["신고일"] <= filters["reportDateEnd"] + " 23:59:59"]
+        if filters.get("occurDateStart") and "발생일자" in df.columns:
+            df = df[df["발생일자"] >= filters["occurDateStart"]]
+        if filters.get("occurDateEnd") and "발생일자" in df.columns:
+            df = df[df["발생일자"] <= filters["occurDateEnd"]]
+        if filters.get("responseDateStart") and "답변일" in df.columns:
+            df = df[df["답변일"] >= filters["responseDateStart"]]
+        if filters.get("responseDateEnd") and "답변일" in df.columns:
+            df = df[df["답변일"] <= filters["responseDateEnd"]]
+        if filters.get("occurTimeStart") and "발생시각" in df.columns:
+            df = df[df["발생시각"] >= filters["occurTimeStart"]]
+        if filters.get("occurTimeEnd") and "발생시각" in df.columns:
+            df = df[df["발생시각"] <= filters["occurTimeEnd"]]
+        if filters.get("agency") and "처리기관" in df.columns:
+            agency_query = filters["agency"]
+            use_exact_agency = filters.get("agencyExact") and "&" not in agency_query and "," not in agency_query
+            df = _apply_text_query(df, "처리기관", agency_query, exact=use_exact_agency)
+        if filters.get("excludePolice") and "처리기관" in df.columns:
+            df = df[~df["처리기관"].str.contains("경찰", na=False)]
+        if filters.get("onlyPolice") and "처리기관" in df.columns:
+            df = df[df["처리기관"].str.contains("경찰", na=False)]
+    return df
+
+
+def _apply_stats_law_filter(df: pd.DataFrame, filters=None) -> pd.DataFrame:
+    if filters and filters.get("law") and "위반법규" in df.columns:
+        if filters["law"] == "__없음__":
+            df = df[df["위반법규"].fillna("").astype(str).str.strip() == ""]
+        else:
+            df = df[df["위반법규"].str.contains(filters["law"], na=False, regex=False)]
+    return df
+
+
+def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
+    """DB 에서 3개 카테고리 프레임을 읽고 대표건 projection 까지 적용한다. (available_years, df_t, df_p, df_o)"""
     with engine.connect() as conn:
         available_years = _load_available_years(conn)
         df_t = _read_stats_frame(conn, database.merge_traffic_table, filters)
@@ -497,6 +543,11 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
         for df_cat in (df_t, df_p, df_o):
             if "category" in df_cat.columns:
                 df_cat.drop(columns=["category"], inplace=True, errors="ignore")
+    return available_years, df_t, df_p, df_o
+
+
+def get_agency_stats(engine, filters=None, mode: str = "canonical"):
+    available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
 
     def _calc_avg_days(group_df):
         try:
@@ -532,37 +583,7 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
         if df.empty:
             return empty_payload
 
-        if filters:
-            if filters.get("year") and filters["year"] not in ("all", "", None) and "답변일" in df.columns:
-                df = df[df["답변일"].str.startswith(filters["year"], na=False)]
-            if filters.get("reportName") and "신고명" in df.columns:
-                df = _apply_text_query(df, "신고명", filters["reportName"])
-            if filters.get("location") and "위반장소" in df.columns:
-                df = _apply_text_query(df, "위반장소", filters["location"])
-            if filters.get("reportDateStart") and "신고일" in df.columns:
-                df = df[df["신고일"] >= filters["reportDateStart"]]
-            if filters.get("reportDateEnd") and "신고일" in df.columns:
-                df = df[df["신고일"] <= filters["reportDateEnd"] + " 23:59:59"]
-            if filters.get("occurDateStart") and "발생일자" in df.columns:
-                df = df[df["발생일자"] >= filters["occurDateStart"]]
-            if filters.get("occurDateEnd") and "발생일자" in df.columns:
-                df = df[df["발생일자"] <= filters["occurDateEnd"]]
-            if filters.get("responseDateStart") and "답변일" in df.columns:
-                df = df[df["답변일"] >= filters["responseDateStart"]]
-            if filters.get("responseDateEnd") and "답변일" in df.columns:
-                df = df[df["답변일"] <= filters["responseDateEnd"]]
-            if filters.get("occurTimeStart") and "발생시각" in df.columns:
-                df = df[df["발생시각"] >= filters["occurTimeStart"]]
-            if filters.get("occurTimeEnd") and "발생시각" in df.columns:
-                df = df[df["발생시각"] <= filters["occurTimeEnd"]]
-            if filters.get("agency") and "처리기관" in df.columns:
-                agency_query = filters["agency"]
-                use_exact_agency = filters.get("agencyExact") and "&" not in agency_query and "," not in agency_query
-                df = _apply_text_query(df, "처리기관", agency_query, exact=use_exact_agency)
-            if filters.get("excludePolice") and "처리기관" in df.columns:
-                df = df[~df["처리기관"].str.contains("경찰", na=False)]
-            if filters.get("onlyPolice") and "처리기관" in df.columns:
-                df = df[df["처리기관"].str.contains("경찰", na=False)]
+        df = _apply_stats_row_filters(df, filters)
 
         df = _exclude_withdraw_rows(df)
 
@@ -575,11 +596,7 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
             available_laws = []
             has_empty_law = False
 
-        if filters and filters.get("law") and "위반법규" in df.columns:
-            if filters["law"] == "__없음__":
-                df = df[df["위반법규"].fillna("").astype(str).str.strip() == ""]
-            else:
-                df = df[df["위반법규"].str.contains(filters["law"], na=False, regex=False)]
+        df = _apply_stats_law_filter(df, filters)
 
         if df.empty:
             return empty_payload
@@ -703,6 +720,99 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
         "traffic_total_fine": int(df_t["범칙금_과태료"].apply(_extract_fine_amount).sum()) if not df_t.empty else 0,
         "dedupe_mode": _normalize_mode(mode),
     })
+
+
+_OVERVIEW_COMPLETED_STATUSES = {"수용", "불수용", "일부수용", "기타", "답변완료"}
+_OVERVIEW_PROCESSING_STATUSES = {"처리중", "진행", "진행중", "검토중"}
+
+
+def _parse_overview_date(value):
+    text = _text_or_empty(value)
+    if len(text) < 10:
+        return None
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _summarize_overview_frame(df: pd.DataFrame) -> dict:
+    """통계 요약 카드/월별 추이용 집계. 모바일 Standalone `LocalDbService.computeStatsOverview` 와 같은 정의."""
+    total = int(len(df))
+    statuses = df["처리상태"].fillna("").astype(str).str.strip() if "처리상태" in df.columns else pd.Series(dtype=str)
+    report_dates = [_parse_overview_date(v) for v in (df["신고일"] if "신고일" in df.columns else [])]
+    answer_dates = [_parse_overview_date(v) for v in (df["답변일"] if "답변일" in df.columns else [])]
+    if len(report_dates) < total:
+        report_dates += [None] * (total - len(report_dates))
+    if len(answer_dates) < total:
+        answer_dates += [None] * (total - len(answer_dates))
+
+    day_samples = []
+    reversed_count = 0
+    reported_by_month: dict[str, int] = {}
+    answered_by_month: dict[str, int] = {}
+    for reported, answered in zip(report_dates, answer_dates):
+        if reported is not None:
+            key = reported.strftime("%Y-%m")
+            reported_by_month[key] = reported_by_month.get(key, 0) + 1
+        if answered is not None:
+            key = answered.strftime("%Y-%m")
+            answered_by_month[key] = answered_by_month.get(key, 0) + 1
+        if reported is not None and answered is not None:
+            days = (answered - reported).days
+            if days < 0:
+                reversed_count += 1
+            else:
+                day_samples.append(days)
+
+    def _count(predicate) -> int:
+        return int(sum(1 for status in statuses if predicate(status)))
+
+    return {
+        "total": total,
+        "completed": _count(lambda s: s in _OVERVIEW_COMPLETED_STATUSES),
+        "accept": _count(lambda s: s == "수용"),
+        "partial": _count(lambda s: s == "일부수용"),
+        "reject": _count(lambda s: s in {"불수용", "기타"}),
+        "supplement": _count(lambda s: s == "보완요청"),
+        "processing": _count(lambda s: s in _OVERVIEW_PROCESSING_STATUSES),
+        "withdraw": _count(lambda s: s == "취하"),
+        "avg_days": round(sum(day_samples) / len(day_samples), 1) if day_samples else None,
+        "avg_days_count": len(day_samples),
+        "reversed_date_count": reversed_count,
+        "undated_report_count": int(sum(1 for d in report_dates if d is None)),
+        "monthly_reported": [{"month": k, "count": v} for k, v in sorted(reported_by_month.items())],
+        "monthly_answered": [{"month": k, "count": v} for k, v in sorted(answered_by_month.items())],
+    }
+
+
+def get_stats_overview(engine, filters=None, mode: str = "canonical"):
+    """통계 화면 요약 카드 + 월별 추이(신고일/답변일 기준 각각).
+
+    `get_agency_stats` 와 같은 행(필터·대표건·취하 제외·법규)을 쓰므로 카드와 기관표가 같은 데이터 집합을 본다.
+    평균 처리일은 기관 평균을 합치지 않고 원자료에서 직접 계산하며 표본 수(`avg_days_count`)를 함께 내려준다.
+    """
+    available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
+
+    def _filtered(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return df
+        df = _apply_stats_row_filters(df, filters)
+        df = _exclude_withdraw_rows(df)
+        return _apply_stats_law_filter(df, filters)
+
+    frames = {"traffic": _filtered(df_t), "parking": _filtered(df_p), "other": _filtered(df_o)}
+    non_empty = [frame for frame in frames.values() if not frame.empty]
+    combined = pd.concat(non_empty, ignore_index=True) if non_empty else pd.DataFrame()
+    payload = {key: _summarize_overview_frame(frame) for key, frame in frames.items()}
+    payload["all"] = _summarize_overview_frame(combined)
+    payload.update({
+        "available_years": available_years,
+        "year_basis": "답변일",
+        "exclude_withdraw": bool(app_settings.exclude_withdraw),
+        "dedupe_mode": _normalize_mode(mode),
+    })
+    return _sanitize_jsonable(payload)
 
 
 def _ratio_item(label: str, count: int, total: int) -> dict:
