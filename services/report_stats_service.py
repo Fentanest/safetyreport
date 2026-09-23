@@ -59,6 +59,17 @@ def _extract_fine_amount(text) -> int:
     return 0
 
 
+
+def _is_fine_amount_unknown(text) -> bool:
+    """과태료 처분인데 금액을 읽을 수 없는 경우(0원과 구분, statistics-spec S-05)."""
+    return "과태료" in str(text or "") and _extract_fine_amount(text) == 0
+
+
+def _count_fine_amount_unknown(group_df: pd.DataFrame) -> int:
+    if "범칙금_과태료" not in group_df.columns:
+        return 0
+    return int(group_df["범칙금_과태료"].apply(_is_fine_amount_unknown).sum())
+
 _REPORT_FIELDS = [
     "ID",
     "신고번호",
@@ -511,7 +522,8 @@ def _apply_stats_law_filter(df: pd.DataFrame, filters=None) -> pd.DataFrame:
         if filters["law"] == "__없음__":
             df = df[df["위반법규"].fillna("").astype(str).str.strip() == ""]
         else:
-            df = df[df["위반법규"].str.contains(filters["law"], na=False, regex=False)]
+            # S-09: 완전 일치(드롭다운 값 그대로). 부분 일치는 이름이 겹치는 다른 법규를 섞는다.
+            df = df[df["위반법규"].fillna("").astype(str).str.strip() == str(filters["law"]).strip()]
     return df
 
 
@@ -623,6 +635,7 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
                 "total": total,
                 "avg_days": avg,
                 "total_fine_amount": total_fine,
+                "fine_amount_unknown": _count_fine_amount_unknown(group),
                 "fines": disposition_counts["fines"],
                 "fines_pct": round((disposition_counts["fines"] / total) * 100, 1) if total > 0 else 0,
                 "warnings": disposition_counts["warnings"],
@@ -648,6 +661,7 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
                 "total": total,
                 "avg_days": avg,
                 "total_fine_amount": total_fine,
+                "fine_amount_unknown": _count_fine_amount_unknown(group),
                 "fines": disposition_counts["fines"],
                 "fines_pct": round((disposition_counts["fines"] / total) * 100, 1) if total > 0 else 0,
                 "warnings": disposition_counts["warnings"],
@@ -676,6 +690,7 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
                     "total": total,
                     "avg_days": avg,
                     "total_fine_amount": total_fine,
+                    "fine_amount_unknown": _count_fine_amount_unknown(group),
                     "fines": disposition_counts["fines"],
                     "fines_pct": round((disposition_counts["fines"] / total) * 100, 1) if total > 0 else 0,
                     "warnings": disposition_counts["warnings"],

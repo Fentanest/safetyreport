@@ -67,5 +67,18 @@ class ReportStatsServiceTest(unittest.TestCase):
         self.assertEqual(summary["monthly_reported"], [])
         self.assertEqual(summary["monthly_answered"], [])
 
+    def test_fine_amount_unknown_is_distinct_from_zero(self):
+        frame = pd.DataFrame({"범칙금_과태료": ["과태료: 40,000원", "과태료", "과태료 부과 예정", "경고", "", None]})
+        self.assertEqual(report_stats_service._count_fine_amount_unknown(frame), 2)
+        self.assertFalse(report_stats_service._is_fine_amount_unknown("경고"))
+        self.assertFalse(report_stats_service._is_fine_amount_unknown("과태료: 40,000원"))
+
+    def test_law_filter_is_exact_match(self):
+        frame = pd.DataFrame({"위반법규": ["도로교통법", "도로교통법 제32조", " 도로교통법 ", None, ""]})
+        exact = report_stats_service._apply_stats_law_filter(frame, {"law": "도로교통법"})
+        self.assertEqual(len(exact), 2)  # 앞뒤 공백만 무시, 제32조는 제외
+        empty = report_stats_service._apply_stats_law_filter(frame, {"law": "__없음__"})
+        self.assertEqual(len(empty), 2)
+
 if __name__ == "__main__":
     unittest.main()

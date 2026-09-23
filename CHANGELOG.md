@@ -10,6 +10,17 @@
 
 ## 2026-09-24 (버전 변경 없음, 브랜치 `feature/stats-overview-api`)
 
+### `/stats` 행 `fine_amount_unknown` 추가, 위반법규 필터 완전 일치
+
+상태: 완료 (모바일 통계 결정 S-05·S-09)
+
+변경:
+- `services/report_stats_service.py`
+  - 기관/담당자/법규 행에 `fine_amount_unknown`(과태료인데 금액을 읽지 못한 건수, 0원과 구분) 추가
+  - `_apply_stats_law_filter`: 부분 일치(`contains`) → 앞뒤 공백 무시 완전 일치. "도로교통법" 선택 시 "도로교통법 제32조" 가 섞이던 문제 해소(웹 통계에도 적용)
+
+검증: `tests/test_report_stats_service.py` 에 금액 미확인·법규 완전 일치 테스트 추가, 전체 테스트 통과
+
 ### 모바일 통계 요약 API `GET /api/v1/stats/overview` 추가
 
 상태: 구현·단위 테스트 완료 / 커밋·배포 안 함
