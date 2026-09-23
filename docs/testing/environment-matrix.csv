@@ -1,7 +1,7 @@
 host,execution,target,client,minimum_evidence,status,evidence_2026_09_24
 Linux,source,Python 3.14.6 .venv + fixture server,Chromium (Playwright 1.63.0),fixture app·auth·static·목록·통계·API 계약,passed,tools/web-tests 5/5; http-smoke
 Linux,source,Python 3.14.6 .venv + fixture server,Firefox (Playwright 1.63.0),동일,passed,tools/web-tests 5/5
-Linux,source,Python 3.14.6 .venv + fixture server,WebKit (Playwright 1.63.0),동일,blocked,호스트 libavif16 등 누락(sudo install-deps 필요)
+Linux,source,Python 3.14.6 .venv + fixture server,WebKit (Playwright 1.63.0),동일,passed,tools/web-tests 5/5 (install-deps webkit 설치 후)
 Linux,frozen,PyInstaller ELF,Chromium/Firefox,resource_path·런처·한글경로,not-run,
 Windows,source,Python supported host,Chromium/Edge,venv·한글경로·로그·auth·static,not-run,
 Windows,frozen,PyInstaller .exe,Edge/Chromium,번들 static/template·다운로드·재기동,not-run,
