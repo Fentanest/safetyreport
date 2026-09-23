@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ROUTERS = ROOT / "web" / "routers"
 TEMPLATES = ROOT / "web" / "templates"
 
-_ROUTE_RE = re.compile(r"@(?:router|app)\.(get|post|put|patch|delete|websocket)\(\s*[\"']([^\"']+)[\"']")
+_ROUTE_RE = re.compile(r"@(?:router|app)\.(get|post|put|patch|delete|websocket)\(\s*[\"']([^\"']*)[\"']")
 _FUNC_RE = re.compile(r"^\s*(?:async\s+)?def\s+(\w+)")
 _PREFIX_RE = re.compile(r"APIRouter\([^)]*prefix\s*=\s*[\"']([^\"']+)[\"']")
 _RENDER_RE = re.compile(r"TemplateResponse\(\s*(?:request\s*,\s*)?[\"']([\w./-]+\.html)[\"']")

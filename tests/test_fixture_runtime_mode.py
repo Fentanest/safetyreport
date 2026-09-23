@@ -27,6 +27,14 @@ class RuntimeModeFlagTest(unittest.TestCase):
         with mock.patch.dict(os.environ, {DATA_DIR_ENV: "relative/fixture"}):
             self.assertTrue(os.path.isabs(runtime_mode.data_dir_override()))
 
+    def test_fixture_mode_without_data_dir_is_refused(self):
+        import settings.settings as app_settings
+        env = {FIXTURE_ENV: "1"}
+        with mock.patch.dict(os.environ, env):
+            os.environ.pop(DATA_DIR_ENV, None)
+            with self.assertRaises(RuntimeError):
+                app_settings.AppSettings()
+
     def test_blocked_error_is_runtime_error_for_existing_handlers(self):
         with mock.patch.dict(os.environ, FIXTURE_ON):
             with self.assertRaises(RuntimeError):

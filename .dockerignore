@@ -54,6 +54,8 @@ mysafetyreport.webp
 
 # 에이전트 문서/스킬·개발 전용 도구 (운영 이미지 제외, web/static·web/templates 는 포함)
 .agents/
+.mcp.json
+.playwright/
 .agent-runs/
 .playwright-cli/
 .venv/

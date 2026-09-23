@@ -13,8 +13,11 @@ class AppSettings:
         else:
             project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
-        from core.utils.runtime_mode import data_dir_override
-        self.datapath = data_dir_override() or os.path.join(project_root, 'data')
+        from core.utils.runtime_mode import data_dir_override, is_fixture_mode
+        override = data_dir_override()
+        if is_fixture_mode() and not override:
+            raise RuntimeError("SAFETYREPORT_FIXTURE_MODE 는 SAFETYREPORT_DATA_DIR(운영 data/ 가 아닌 경로)와 함께 써야 합니다.")
+        self.datapath = override or os.path.join(project_root, 'data')
         self.config_path = os.path.join(self.datapath, 'config.ini')
         os.makedirs(self.datapath, exist_ok=True)
         

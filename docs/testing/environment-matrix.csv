@@ -1,0 +1,12 @@
+host,execution,target,client,minimum_evidence,status,evidence_2026_09_24
+Linux,source,Python 3.14.6 .venv + fixture server,Chromium (Playwright 1.63.0),fixture app·auth·static·목록·통계·API 계약,passed,tools/web-tests 5/5; http-smoke
+Linux,source,Python 3.14.6 .venv + fixture server,Firefox (Playwright 1.63.0),동일,passed,tools/web-tests 5/5
+Linux,source,Python 3.14.6 .venv + fixture server,WebKit (Playwright 1.63.0),동일,blocked,호스트 libavif16 등 누락(sudo install-deps 필요)
+Linux,frozen,PyInstaller ELF,Chromium/Firefox,resource_path·런처·한글경로,not-run,
+Windows,source,Python supported host,Chromium/Edge,venv·한글경로·로그·auth·static,not-run,
+Windows,frozen,PyInstaller .exe,Edge/Chromium,번들 static/template·다운로드·재기동,not-run,
+macOS x64,source/frozen,Python / PyInstaller x86_64,WebKit; 실제 Safari 별도,번들·런처·미디어·키보드,not-run,
+macOS arm64,source/frozen,Python / PyInstaller arm64,WebKit; 실제 Safari 별도,native 종속성·자산·미디어,not-run,
+Docker,container (linux/amd64),tools/docker/compose.devtest.yml 로컬 빌드,curl (브라우저 미실행),isolated compose·volume·정적파일·auth,passed (HTTP),G2 project safetyreport-devtest-g2: /health·/login·/static/logo.png·/data/all 200; 이미지 내용 확인; down -v
+Docker,container (linux/arm64),Dockerfile.build / buildx,-,arm64 이미지·번들,not-run,
+All client targets,browser,동일 fixture dataset,Chromium/Firefox/WebKit,light/dark·반응형·aria·표·download,not-run (테마 미구현),

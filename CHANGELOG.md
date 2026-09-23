@@ -2,11 +2,41 @@
 
 작업, 버그 수정, 세션 기록용 문서.
 
-- 구조/운영 컨텍스트는 `CLAUDE.md`에 유지
+- 구조/운영 컨텍스트는 `docs/architecture/`에 유지(2026-09-24 이전에는 `CLAUDE.md`)
 - 리팩토링 작업지시 원문은 `REFACTOR.md`에 유지
 - 2026-04-30에 `CLAUDE.md`의 작업 이력 섹션과 최근 세션 메모를 이 파일로 이관
 
 ---
+
+## 2026-09-24 (dev, 미배포)
+
+### 웹UI 리뉴얼 착수 전 정비: 문서 체계 · 테스트 실행 경로 · 기준선
+
+상태: 완료(문서·도구·검증 기반). UI 변경 없음. main push·VERSION·릴리즈 없음.
+
+배경:
+- 서버 웹UI 를 네이비·블루 다크 / 화이트 테마로 리뉴얼하기 전에, 기존 기능·통계 의미를 코드 근거로 고정하고
+  Opus(Claude)·Gemini(agy)가 운영 자원을 건드리지 않고 함께 개발·검증할 수 있는 기반이 필요했다.
+
+변경:
+- 문서: 50KB 루트 `CLAUDE.md` 를 `docs/architecture/{overview,data-contracts,crawling-and-processing,web-ui}.md` 로 원문 그대로 분할
+  (미포함 0줄 검사, 원문 `legacy-claude-reference.md` 보관, 코드 대조 정정 표). 루트는 `AGENTS.md`/`PROJECT_RULES.md`/`CLAUDE.md`/`GEMINI.md` 로 재구성.
+  "README/CLAUDE/CHANGELOG 만 추적" 규칙 폐기 → 유지보수 문서·스킬·테스트 추적.
+- 설계: `docs/design/` — UI 리뉴얼 정본, 기능 보존표(118행, 라우트 100/100), 시범 DOM 계약, 통계 의미 명세(현행 정의·결함 8건·리뉴얼 지표 계약), 참고 이미지 매니페스트(sha256).
+- 테스트 실행 경로: `core/utils/runtime_mode.py`(`SAFETYREPORT_DATA_DIR`, `SAFETYREPORT_FIXTURE_MODE`) — 크롤러·별점·직접 로그인·카카오·Sunwi·미디어·GitHub·텔레그램·시트를 서버측에서 차단.
+  환경변수가 없으면 운영 동작 동일. `scripts/dev/fixture_server.py`(합성 24건 fixture 서버), `tools/docker/compose.devtest.yml`(격리 개발 Docker).
+- 테스트: `tests/test_fixture_runtime_mode.py`(부작용 미발생 12), `tests/test_stats_fixture_semantics.py`(통계 현행 의미 6), `tools/web-tests`(Playwright 1.63.0 + axe).
+- 도구: Playwright CLI 0.1.21 + 스킬, chrome-devtools-mcp 1.10.1(`.mcp.json`, `.agents/mcp_config.json`), Anthropic frontend-design(커밋 고정, 미추적), 프로젝트 스킬 sr-* 5종.
+- `.gitignore`/`.dockerignore` 개편(`*.db` 보호 추가, 개발 도구·에이전트 자료를 운영 이미지에서 제외).
+
+검증:
+- unittest: 변경 전 7/7 → 변경 후 25/25. Playwright chromium·firefox 10/10, WebKit blocked(호스트 라이브러리).
+- 개발 Docker 빌드·HTTP·이미지 내용·정리 확인. Gemini 작업 3건(G1/G1b/G2) 실제 agy 호출·검수 기록 `docs/reviews/2026-09-24-gemini-bootstrap-review.md`.
+
+발견한 기존 결함(미수정): http 접속 시 DataTables 한국어 파일 CORS 실패(BL-1), 통계 배너 총 과태료가 법규 필터 미반영(D-STAT-1),
+"미확인" 정의 이중화(D-STAT-2), 처리일 정의가 모바일 overview 와 다름(D-STAT-3) 등 — `docs/testing/baseline-2026-09-24.md`, `docs/design/statistics-spec.md`.
+
+다음: `docs/plans/web-ui-pilot-plan.md`(공통 셸·테마 → 목록/상세 모달 → 통계 상단), 사용자 결정 6건 대기.
 
 ## 2026-08-16 (2.5.3)
 

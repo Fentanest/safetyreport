@@ -123,12 +123,20 @@ def _write_config(data_dir: Path) -> None:
 
 def seed(data_dir: Path) -> dict:
     _write_config(data_dir)
-    from core.database import database, models
     from core.database.engine import get_engine
     from core.utils import logger
 
     logger.LoggerFactory.create_logger()
-    engine = get_engine()
+    result = seed_engine(get_engine())
+    if result.get("api_key"):
+        (data_dir / "fixture-api-key.txt").write_text(result.pop("api_key") + "\n", encoding="utf-8")
+    return result
+
+
+def seed_engine(engine) -> dict:
+    """합성 신고 24건 + 관리자 + API 키를 engine 에 넣는다. 테스트에서도 재사용한다."""
+    from core.database import database, models
+
     database.upgrade_schema(engine)
 
     with engine.begin() as conn:
@@ -173,9 +181,8 @@ def seed(data_dir: Path) -> dict:
     if not database.has_admin_user(engine):
         database.create_admin_user(engine, ADMIN_USER, ADMIN_PASSWORD)
     api_key = database.create_api_key(engine, "fixture-client")
-    (data_dir / "fixture-api-key.txt").write_text(api_key + "\n", encoding="utf-8")
     counts = {category: sum(1 for row in _REPORTS if row[0] == category) for category in ("traffic", "parking", "other")}
-    return {"seeded": True, "reports": counts, "admin_user": ADMIN_USER}
+    return {"seeded": True, "reports": counts, "admin_user": ADMIN_USER, "api_key": api_key}
 
 
 def serve(data_dir: Path, host: str, port: int) -> None:

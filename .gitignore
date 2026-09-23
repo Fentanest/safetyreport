@@ -32,6 +32,7 @@ test_*
 !/.agents/skills/**/SKILL.md
 !/.claude/skills/**/SKILL.md
 !/.agents/mcp_config.json
+!/.mcp.json
 !/tests/test_*.py
 !/tools/web-tests/package.json
 !/tools/web-tests/package-lock.json
@@ -45,6 +46,12 @@ tools/web-tests/test-results/
 tools/web-tests/playwright-report/
 tools/web-tests/.auth/
 .claude/settings.local.json
+.playwright/
+# 외부 배포 스킬은 고정 버전 명령으로 로컬 설치한다(docs/development/skills-and-tools.md). 저장소에 복제하지 않는다.
+.claude/skills/playwright-cli/
+.agents/skills/playwright-cli/
+.claude/skills/frontend-design/
+.agents/skills/frontend-design/
 # 디자인 참고 보드 원본(약 27MB). sha256 은 docs/design/asset-manifest.csv 로 추적한다.
 docs/design/reference/*.png
 
