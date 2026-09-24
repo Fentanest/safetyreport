@@ -244,7 +244,8 @@ $(document).ready(function() {
     if (qAgency) $('#searchAgency').val(qAgency);
     if (qPerson) $('#searchPerson').val(qPerson);
     if (qCar) $('#searchCar').val(qCar);
-    if (qLaw) $('#searchLaw').val(qLaw);
+    // '__없음__'(법규 없는 신고)은 서버가 이미 걸렀다. 검색칸에 넣으면 글자 그대로 다시 걸러 0건이 된다(D-STAT-8).
+    if (qLaw && qLaw !== '__없음__') $('#searchLaw').val(qLaw);
     if (qLocation) $('#searchLocation').val(qLocation);
 
     const isDuplicate = '{{ table_id }}' === 'duplicateTable';

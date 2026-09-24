@@ -10,6 +10,7 @@
     .stats-pane table.dataTable { font-size: 0.9rem; }
     .sr-law-filter #statsLawSidebar { max-height: 7.5rem; overflow-y: auto; }
     .stats-pane table.dataTable td { vertical-align: middle; }
+    .stats-pane tr.sr-drill { cursor: pointer; }
     .stats-pane table.dataTable td:first-child { white-space: normal; word-break: keep-all; min-width: 8rem; }
     .stats-pane table.dataTable th, .stats-pane table.dataTable td { padding-left: 0.4rem; padding-right: 0.4rem; }
     /* 정렬 화살표 자리(기본 26px)를 줄인다 */
@@ -19,39 +20,52 @@
     .stats-pane table.dataTable thead > tr > th.sorting:before, .stats-pane table.dataTable thead > tr > th.sorting:after,
     .stats-pane table.dataTable thead > tr > th.sorting_asc:before, .stats-pane table.dataTable thead > tr > th.sorting_asc:after,
     .stats-pane table.dataTable thead > tr > th.sorting_desc:before, .stats-pane table.dataTable thead > tr > th.sorting_desc:after { right: 3px; }
-    .stats-column-controls {
-        margin-bottom: 1rem;
-        padding: 1rem 1.1rem;
-        border: 1px solid var(--sr-border);
-        border-radius: 1rem;
-        background: var(--sr-surface-2);
+    /* ── P2 상단: 조건 요약·과태료 요약·세그먼트 탭·법규 칩·열 선택 패널 ── */
+    .sr-stats-top { display: flex; flex-direction: column; gap: 0.9rem; margin-bottom: 1rem; }
+    .sr-stats-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
+    .sr-stats-head .sr-hint { color: var(--sr-text-muted); font-size: 0.85rem; }
+    .sr-filter-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+    .sr-filter-chip {
+        display: inline-flex; align-items: center; gap: 0.35rem; max-width: 100%;
+        padding: 0.2rem 0.65rem; border-radius: 999px; font-size: 0.82rem;
+        background: var(--sr-primary-soft); color: var(--sr-text); border: 1px solid var(--sr-border);
     }
-
-    .stats-column-list {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 0.65rem 0.85rem;
-    }
-
-    .stats-column-item {
-        min-height: 0;
-        margin-bottom: 0;
-        padding: 0.6rem 0.8rem 0.6rem 2rem;
-        border: 1px solid var(--sr-border);
-        border-radius: 0.85rem;
-        background-color: var(--sr-surface);
-        box-shadow: var(--sr-shadow);
-    }
-
-    .stats-column-item .form-check-input {
-        margin-top: 0.15rem;
-    }
-
-    .stats-column-item .form-check-label {
-        display: block;
-        font-size: 0.95rem;
-        font-weight: 500;
-        cursor: pointer;
+    .sr-filter-chip .sr-k { color: var(--sr-text-muted); }
+    .sr-filter-chip .sr-v { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 16rem; }
+    .sr-fine-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; }
+    .sr-fine-tile { padding: 0.75rem 1rem; border: 1px solid var(--sr-border); border-radius: var(--sr-radius); background: var(--sr-surface-2); }
+    .sr-fine-tile .sr-fine-label { font-size: 0.8rem; color: var(--sr-text-muted); }
+    .sr-fine-tile .sr-fine-value { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.3; }
+    .sr-fine-tile.is-confirmed .sr-fine-value { color: var(--sr-status-fine); }
+    .sr-fine-tile .sr-fine-note { font-size: 0.78rem; color: var(--sr-text-muted); }
+    .sr-seg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; }
+    .sr-seg-label { font-size: 0.8rem; font-weight: 600; color: var(--sr-text-muted); min-width: 4.5rem; }
+    .sr-seg { display: flex; flex-wrap: wrap; gap: 0.25rem; padding: 0.25rem; border-radius: calc(var(--sr-radius-sm) + 0.25rem);
+              background: var(--sr-surface-2); border: 1px solid var(--sr-border); }
+    .sr-seg .btn { border: 0; border-radius: var(--sr-radius-sm); color: var(--sr-text); background: transparent; font-weight: 500; }
+    .sr-seg .btn:hover { background: var(--sr-surface-3); }
+    .sr-seg .btn.active { background: var(--sr-surface); color: var(--sr-seg-accent, var(--sr-primary)); box-shadow: var(--sr-shadow); font-weight: 700; }
+    #statsCatGroup .btn[data-cat="traffic"] { --sr-seg-accent: var(--sr-primary); }
+    #statsCatGroup .btn[data-cat="parking"] { --sr-seg-accent: var(--sr-status-supplement); }
+    #statsCatGroup .btn[data-cat="other"]   { --sr-seg-accent: var(--sr-status-accept); }
+    #statsCatGroup .btn.active { box-shadow: inset 0 -3px 0 var(--sr-seg-accent), var(--sr-shadow); }
+    #statsLawSidebar .btn { border-radius: 999px; font-size: 0.8rem; padding: 0.15rem 0.65rem; }
+    #statsLawSidebar .btn.active { background: var(--sr-primary); border-color: var(--sr-primary); color: #fff; }
+    #statsLawSidebar .btn.sr-law-none.active { background: var(--sr-status-supplement); border-color: var(--sr-status-supplement); }
+    .stats-column-controls { border: 1px solid var(--sr-border); border-radius: var(--sr-radius); background: var(--sr-surface-2); }
+    .stats-column-controls .sr-col-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+        padding: 0.55rem 0.9rem; background: transparent; border: 0; color: var(--sr-text); font-weight: 600; text-align: left; }
+    .stats-column-controls .sr-col-toggle .fa-chevron-down { transition: transform 0.15s; }
+    .stats-column-controls .sr-col-toggle[aria-expanded="true"] .fa-chevron-down { transform: rotate(180deg); }
+    .stats-column-controls .sr-col-body { padding: 0 0.9rem 0.8rem; }
+    .stats-column-list { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .stats-column-item { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; padding: 0.2rem 0.65rem 0.2rem 0.5rem;
+        border: 1px solid var(--sr-border); border-radius: 999px; background: var(--sr-surface); font-size: 0.85rem; }
+    .stats-column-item .form-check-input { float: none; margin: 0; }
+    .stats-column-item .form-check-label { cursor: pointer; }
+    @media (max-width: 575px) {
+        .dataTables_wrapper .dataTables_filter label { display: flex; align-items: center; gap: 0.5rem; width: 100%; }
+        .dataTables_wrapper .dataTables_filter input { flex: 1 1 auto; min-width: 0; width: auto; margin-left: 0 !important; }
     }
 
     .stats-pane .table th,
@@ -74,23 +88,43 @@
 <div class="row g-3 align-items-start">
 <div class="col-12">
 <div class="card card-custom">
-    <div class="card-header bg-white fw-bold">
-        기관별 / 담당자별 처리 통계
-    </div>
     <div class="card-body">
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle"></i> 행을 클릭하면 해당 부서 및 담당자의 데이터 조회 페이지로 이동합니다.
-        </div>
+        {% set chip_defs = [
+    ('처리기관', f.agency), ('신고명', f.reportName), ('위반장소', f.location), ('위반법규', ('없음' if f.law == '__없음__' else f.law)),
+    ('신고일', ((f.reportDateStart or '') ~ ' ~ ' ~ (f.reportDateEnd or '')) if (f.reportDateStart or f.reportDateEnd) else None),
+    ('발생일', ((f.occurDateStart or '') ~ ' ~ ' ~ (f.occurDateEnd or '')) if (f.occurDateStart or f.occurDateEnd) else None),
+    ('답변일', ((f.responseDateStart or '') ~ ' ~ ' ~ (f.responseDateEnd or '')) if (f.responseDateStart or f.responseDateEnd) else None),
+    ('발생시간', ((f.occurTimeStart or '') ~ ' ~ ' ~ (f.occurTimeEnd or '')) if (f.occurTimeStart or f.occurTimeEnd) else None),
+    ('경찰기관', '제외' if f.excludePolice else ('만' if f.onlyPolice else None)),
+] %}
+{% set active_chips = chip_defs | selectattr(1) | list %}
 
-        <!-- 교통위반 총 과태료 -->
-        <div class="alert alert-warning d-flex align-items-center gap-3 py-2 mb-3">
-            <i class="fas fa-won-sign fa-lg text-warning"></i>
-            <div>
-                <span class="fw-bold fs-5 text-danger">{{ "{:,}".format(traffic_total_fine) }}원</span>
-                <span class="ms-2 text-muted">확정 과태료 <small class="text-secondary">(교통위반, 현재 필터 적용)</small></span>
+        <div class="sr-stats-top">
+            <div class="sr-stats-head">
+                <div class="sr-filter-chips" id="statsFilterSummary">
+                    <span class="fw-bold me-1">조건</span>
+                    <span class="sr-filter-chip"><span class="sr-k">답변 연도</span><span class="sr-v">{{ '전체' if current_year == 'all' else current_year }}</span></span>
+                    {% for label, value in active_chips %}
+                    <span class="sr-filter-chip"><span class="sr-k">{{ label }}</span><span class="sr-v" title="{{ value }}">{{ value }}</span></span>
+                    {% endfor %}
+                    {% if active_chips %}<a href="/stats" class="small ms-1">조건 초기화</a>{% endif %}
+                </div>
+                <span class="sr-hint"><i class="fas fa-hand-pointer me-1"></i>행을 누르면 해당 기관·담당자의 신고 목록으로 이동합니다.</span>
+            </div>
+
+            <!-- 교통위반 과태료 요약: 현재 조건(연도·필터·법규·취하 제외)이 반영된 값 — 결정 D-STAT-1(2026-09-24) -->
+            <div class="sr-fine-summary" id="statsFineSummary">
+                <div class="sr-fine-tile is-confirmed">
+                    <div class="sr-fine-label"><i class="fas fa-won-sign me-1"></i>확정 과태료 · 교통위반</div>
+                    <div class="sr-fine-value">{{ "{:,}".format(traffic_total_fine) }}원</div>
+                    <div class="sr-fine-note">답변에 금액이 적힌 건만 · 현재 조건 적용</div>
+                </div>
                 {% if traffic_estimated_fine_count %}
-                <span class="ms-3 fw-bold text-secondary">추정 {{ "{:,}".format(traffic_estimated_fine) }}원</span>
-                <small class="text-muted">({{ traffic_estimated_fine_count }}건, 법정 최저 기준 · 확정 금액에 포함 안 함)</small>
+                <div class="sr-fine-tile">
+                    <div class="sr-fine-label"><i class="fas fa-calculator me-1"></i>추정 과태료 · 교통위반</div>
+                    <div class="sr-fine-value">{{ "{:,}".format(traffic_estimated_fine) }}원 <small class="fs-6 fw-normal text-muted">{{ traffic_estimated_fine_count }}건</small></div>
+                    <div class="sr-fine-note">금액 없는 과태료의 법정 최저 기준 · 확정 금액에 포함 안 함</div>
+                </div>
                 {% endif %}
             </div>
         </div>
@@ -186,73 +220,57 @@
             </div>
         </div>
 
-        <!-- Stats navigation -->
-        <div class="mb-3">
-            <!-- 0행: 연도별 -->
-            <div class="d-flex gap-2 mb-2 flex-wrap" id="statsYearGroup">
-                <button type="button" class="btn btn-sm stats-year-btn {{ 'btn-dark' if current_year == 'all' else 'btn-outline-dark' }}" data-year="all">
-                    전체
-                </button>
-                {% for yr in available_years %}
-                <button type="button" class="btn btn-sm stats-year-btn {{ 'btn-dark' if current_year == yr else 'btn-outline-dark' }}" data-year="{{ yr }}">
-                    {{ yr }}
-                </button>
-                {% endfor %}
+        <!-- Stats navigation (id·클래스·data-* 는 DOM 계약 — pilot-dom-contracts.md) -->
+        <div class="d-flex flex-column gap-2 mb-3">
+            <div class="sr-seg-row">
+                <span class="sr-seg-label">답변 연도</span>
+                <div class="sr-seg" id="statsYearGroup" role="group" aria-label="답변 연도">
+                    <button type="button" class="btn btn-sm stats-year-btn {{ 'active' if current_year == 'all' }}" aria-pressed="{{ 'true' if current_year == 'all' else 'false' }}" data-year="all">전체</button>
+                    {% for yr in available_years %}
+                    <button type="button" class="btn btn-sm stats-year-btn {{ 'active' if current_year == yr }}" aria-pressed="{{ 'true' if current_year == yr else 'false' }}" data-year="{{ yr }}">{{ yr }}</button>
+                    {% endfor %}
+                </div>
             </div>
-            <!-- 1행: 카테고리 -->
-            <div class="d-flex gap-2 mb-2" id="statsCatGroup">
-                <button type="button" class="btn btn-outline-primary flex-fill stats-cat-btn" data-cat="traffic">
-                    <i class="fas fa-road me-1"></i>교통위반
-                </button>
-                <button type="button" class="btn btn-outline-warning flex-fill stats-cat-btn" data-cat="parking">
-                    <i class="fas fa-parking me-1"></i>주정차위반
-                </button>
-                <button type="button" class="btn btn-outline-success flex-fill stats-cat-btn" data-cat="other">
-                    <i class="fas fa-list me-1"></i>기타위반
-                </button>
+            <div class="sr-seg-row">
+                <span class="sr-seg-label">분류</span>
+                <div class="sr-seg" id="statsCatGroup" role="group" aria-label="분류">
+                    <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="traffic"><i class="fas fa-road me-1"></i>교통위반</button>
+                    <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="parking"><i class="fas fa-parking me-1"></i>주정차위반</button>
+                    <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="other"><i class="fas fa-list me-1"></i>기타위반</button>
+                </div>
             </div>
-            <!-- 2행: 유형 -->
-            <div class="d-flex gap-2 flex-wrap" id="statsTypeGroup">
-                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="agency">
-                    <i class="fas fa-building me-1"></i>기관별
-                </button>
-                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="person">
-                    <i class="fas fa-user-tie me-1"></i>담당자별
-                </button>
-                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="police-agency">
-                    <i class="fas fa-shield-alt me-1"></i>경찰 기관
-                </button>
-                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="police-person">
-                    <i class="fas fa-user-shield me-1"></i>경찰 담당자
-                </button>
-                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="other-agency">
-                    <i class="fas fa-building me-1"></i>비경찰 기관
-                </button>
-                <button type="button" class="btn btn-outline-secondary stats-type-btn" data-type="other-person">
-                    <i class="fas fa-user-tie me-1"></i>비경찰 담당자
-                </button>
+            <div class="sr-seg-row">
+                <span class="sr-seg-label">묶는 기준</span>
+                <div class="sr-seg" id="statsTypeGroup" role="group" aria-label="묶는 기준">
+                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="agency"><i class="fas fa-building me-1"></i>기관별</button>
+                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="person"><i class="fas fa-user-tie me-1"></i>담당자별</button>
+                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="police-agency"><i class="fas fa-shield-alt me-1"></i>경찰 기관</button>
+                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="police-person"><i class="fas fa-user-shield me-1"></i>경찰 담당자</button>
+                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="other-agency"><i class="fas fa-building me-1"></i>비경찰 기관</button>
+                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="other-person"><i class="fas fa-user-tie me-1"></i>비경찰 담당자</button>
+                </div>
             </div>
         </div>
 
         <!-- 위반법규 필터: 표 폭 확보를 위해 오른쪽 세로 패널에서 표 위 가로 줄로 옮겼다(id 유지). -->
         <div class="sr-law-filter mb-3">
-            <div class="small fw-bold mb-1"><i class="fas fa-gavel me-1 text-info"></i>위반법규</div>
+            <div class="sr-seg-label mb-1"><i class="fas fa-gavel me-1"></i>위반법규</div>
             <div id="statsLawSidebar" class="d-flex flex-wrap gap-1">
                 <!-- JS로 채워짐 -->
             </div>
         </div>
-        <div class="stats-column-controls">
-            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-                <div>
-                    <div class="fw-bold">표 컬럼 선택</div>
-                    <div class="small text-muted">체크한 컬럼만 현재 통계 표에 표시됩니다.</div>
-                </div>
-                <div class="d-flex align-items-center gap-2">
-                    <span class="badge text-bg-light border" id="statsColumnScope"></span>
+        <div class="stats-column-controls mb-3">
+            <button type="button" class="sr-col-toggle" id="statsColumnsToggle" aria-expanded="false" aria-controls="statsColumnBody">
+                <span><i class="fas fa-table-columns me-2"></i>표 열 선택 <span class="text-muted fw-normal small" id="statsColumnCount"></span></span>
+                <span class="d-flex align-items-center gap-2"><span class="badge text-bg-secondary fw-normal" id="statsColumnScope"></span><i class="fas fa-chevron-down"></i></span>
+            </button>
+            <div class="sr-col-body" id="statsColumnBody" hidden>
+                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                    <div class="small text-muted">체크한 열만 지금 보는 통계 표에 나옵니다.</div>
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="statsColumnsSelectAll">전체 선택</button>
                 </div>
+                <div class="stats-column-list" id="statsColumnCheckboxes"></div>
             </div>
-            <div class="stats-column-list" id="statsColumnCheckboxes"></div>
         </div>
 
         <!-- Stats panes -->
@@ -278,7 +296,8 @@
             {% endmacro %}
             {% macro agency_rows(records, base_url, law_filter='') %}
                 {% for r in records %}
-                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&agencyExact=true{% if law_filter %}&law={{ law_filter }}{% endif %}'">
+                {% set q = {'agency': r.agency, 'agencyExact': 'true'} %}{% if law_filter %}{% set _ = q.update({'law': law_filter}) %}{% endif %}
+                <tr class="sr-drill" data-href="{{ base_url }}?{{ q | urlencode }}">
                     <td>{{ r.agency }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
@@ -288,7 +307,8 @@
             {% endmacro %}
             {% macro person_rows(records, base_url, law_filter='') %}
                 {% for r in records %}
-                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?agency={{ r.agency }}&person={{ r.person }}&agencyExact=true{% if law_filter %}&law={{ law_filter }}{% endif %}'">
+                {% set q = {'agency': r.agency, 'person': r.person, 'agencyExact': 'true'} %}{% if law_filter %}{% set _ = q.update({'law': law_filter}) %}{% endif %}
+                <tr class="sr-drill" data-href="{{ base_url }}?{{ q | urlencode }}">
                     <td>{{ r.agency }}</td>
                     <td class="text-center">{{ r.person }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
@@ -299,7 +319,7 @@
             {% endmacro %}
             {% macro law_rows(records, base_url) %}
                 {% for r in records %}
-                <tr style="cursor:pointer;" onclick="window.location.href='{{ base_url }}?law={{ r.law }}'">
+                <tr class="sr-drill" data-href="{{ base_url }}?{{ {'law': r.law} | urlencode }}">
                     <td>{{ r.law }}</td>
                     <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
@@ -478,6 +498,11 @@
 {% block extra_js %}
 <script>
     $(document).ready(function () {
+        // 행 클릭 → 목록 드릴다운. 주소는 서버에서 URL 인코딩해 data-href 에 담는다(기관명의 & # + 보존 — D-STAT-8).
+        $('#statsTabsContent').on('click', 'tr.sr-drill', function () {
+            window.location.href = $(this).attr('data-href');
+        });
+
         // 합계 행 계산 콜백 생성기
         // cfg: { total, avg, fine, fines, warn, rejects, unconfirmed, inProgress, rating } — 컬럼 인덱스 (0-based)
         // 합계 행. 열을 숨기면 tr 안 td 순서가 바뀌므로 DataTables API 로 열 번호를 지정해 읽고 쓴다(D-STAT-7).
@@ -629,6 +654,8 @@
         function renderColumnControls(meta) {
             var $box = $('#statsColumnCheckboxes');
             $box.empty();
+            var shown = meta.filter(isColumnVisible).length;
+            $('#statsColumnCount').text('(' + shown + '/' + meta.length + ')');
             meta.forEach(function (item) {
                 var inputId = 'stats-column-' + currentType.replace(/[^a-z0-9]+/gi, '-') + '-' + item.index;
                 var $item = $('<div class="form-check stats-column-item"></div>');
@@ -686,15 +713,17 @@
                 return 0;
             });
 
-            function mkBtn(label, isActive, colorClass, onClick) {
-                return $('<button type="button" class="btn btn-sm"></button>')
-                    .addClass(isActive ? colorClass : 'btn-outline-secondary')
+            function mkBtn(label, isActive, extraClass, onClick) {
+                return $('<button type="button" class="btn btn-sm btn-outline-secondary"></button>')
+                    .addClass(extraClass || '')
+                    .toggleClass('active', !!isActive)
+                    .attr('aria-pressed', isActive ? 'true' : 'false')
                     .text(label)
                     .on('click', onClick);
             }
 
             // 전체
-            $sb.append(mkBtn('전체', !activeLaw, 'btn-secondary', function () {
+            $sb.append(mkBtn('전체', !activeLaw, '', function () {
                 var p = new URLSearchParams(window.location.search);
                 p.delete('law');
                 var qs = p.toString();
@@ -703,17 +732,16 @@
 
             // 없음
             if (hasEmptyLaw[cat]) {
-                $sb.append(mkBtn('없음', activeLaw === '__없음__', 'btn-warning', function () {
+                $sb.append(mkBtn('없음', activeLaw === '__없음__', 'sr-law-none', function () {
                     var p = new URLSearchParams(window.location.search);
                     p.set('law', '__없음__');
                     window.location.href = '/stats?' + p.toString();
                 }));
             }
 
-            if (laws.length > 0) { $sb.append('<hr class="my-1">'); }
 
             laws.forEach(function (law) {
-                $sb.append(mkBtn(law, activeLaw === law, 'btn-info', function () {
+                $sb.append(mkBtn(law, activeLaw === law, '', function () {
                     var p = new URLSearchParams(window.location.search);
                     p.set('law', law);
                     window.location.href = '/stats?' + p.toString();
@@ -733,22 +761,17 @@
             sessionStorage.setItem('stats_type', currentType);
         }
 
-        var catColorMap = { traffic: 'primary', parking: 'warning', other: 'success' };
+        // 선택 표시는 .active + aria-pressed 만 바꾼다. 색은 CSS(분류별 --sr-seg-accent)가 정한다.
+        function setPressed($btns, isOn) {
+            $btns.each(function () {
+                var on = isOn($(this));
+                $(this).toggleClass('active', on).attr('aria-pressed', on ? 'true' : 'false');
+            });
+        }
 
         function updateButtons() {
-            // 카테고리 버튼: 선택 시 btn-*, 미선택 시 btn-outline-*
-            $('.stats-cat-btn').each(function () {
-                var cat = $(this).data('cat');
-                var color = catColorMap[cat] || 'secondary';
-                $(this).removeClass('btn-' + color + ' btn-outline-' + color)
-                       .addClass(cat === currentCat ? 'btn-' + color : 'btn-outline-' + color);
-            });
-            // 유형 버튼: 선택 시 btn-secondary, 미선택 시 btn-outline-secondary
-            $('.stats-type-btn').each(function () {
-                var type = $(this).data('type');
-                $(this).removeClass('btn-secondary btn-outline-secondary')
-                       .addClass(type === currentType ? 'btn-secondary' : 'btn-outline-secondary');
-            });
+            setPressed($('.stats-cat-btn'), function ($b) { return $b.data('cat') === currentCat; });
+            setPressed($('.stats-type-btn'), function ($b) { return $b.data('type') === currentType; });
             renderLawButtons(currentCat);
         }
 
@@ -781,6 +804,20 @@
             saveColumnVisibilityState();
             syncActiveTableColumns();
         });
+
+        // 열 선택 패널: 기본 접힘, 펼침 상태는 탭 세션 동안 유지
+        var columnsOpenKey = 'stats_columns_open';
+        function setColumnsOpen(open) {
+            $('#statsColumnsToggle').attr('aria-expanded', open ? 'true' : 'false');
+            $('#statsColumnBody').prop('hidden', !open);
+            try { sessionStorage.setItem(columnsOpenKey, open ? '1' : '0'); } catch (e) {}
+        }
+        $('#statsColumnsToggle').on('click', function () {
+            setColumnsOpen($(this).attr('aria-expanded') !== 'true');
+        });
+        var columnsOpen = false;
+        try { columnsOpen = sessionStorage.getItem(columnsOpenKey) === '1'; } catch (e) {}
+        setColumnsOpen(columnsOpen);
 
         updateButtons();
         showPane();
@@ -823,8 +860,8 @@
             }
         });
 
-        // 폼 제출 시 빈 값 제외 (hidden year 제외)
-        $('form').on('submit', function () {
+        // 상세 조건 폼 제출 시 빈 값 제외 (hidden year 제외). 다른 form(테마 전환 등)에는 걸지 않는다.
+        $('#offcanvasSearch form').on('submit', function () {
             $(this).find('input').not('[name="year"]').each(function () {
                 if (!$(this).val()) {
                     $(this).attr('disabled', 'disabled');

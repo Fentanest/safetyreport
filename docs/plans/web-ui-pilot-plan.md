@@ -1,6 +1,6 @@
 # 웹UI 첫 시범 구현 계획
 
-작성 2026-09-24. 상태: **P0 사용자 승인(2026-09-24)**. P1 착수(Gemini G10, 브랜치 `gemini/p1-list`), P2 는 P1 검수 뒤. 로고는 LOGO 시안 채택(`f442759`).
+작성 2026-09-24. 상태: **P0 사용자 승인(2026-09-24)**. P1 dev 병합(G10 + Opus 통합). P2 dev 구현(Opus, D-STAT-1 결정: 필터 반영) — 사용자 시범 검토 대기. 로고는 LOGO 시안 채택(`f442759`).
 근거 문서: [../design/ui-renewal-spec.md](../design/ui-renewal-spec.md), [../design/pilot-dom-contracts.md](../design/pilot-dom-contracts.md),
 [../design/statistics-spec.md](../design/statistics-spec.md), [../testing/web-ui-test-plan.md](../testing/web-ui-test-plan.md).
 

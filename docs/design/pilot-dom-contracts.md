@@ -21,7 +21,7 @@
 | data_table.html | `.view-all-btn[data-links][data-type]`, `#attachModal(Label/Body)`, `#textModal(Title/Content)` | 937-986, 1200-1259 |
 | stats.html | `#statsYearGroup .stats-year-btn[data-year]`, `#statsCatGroup .stats-cat-btn[data-cat]`, `#statsTypeGroup .stats-type-btn[data-type]` | 739-810 |
 | stats.html | `.stats-pane#<cat>-<type>`(18개), 표 id `statsTable<Cat><Type>` | showPane, DataTable init |
-| stats.html | `#statsColumnCheckboxes`, `#statsColumnScope`, `#statsColumnsSelectAll`, `.stats-column-checkbox[data-column-key]` | 572-657, 778-794 |
+| stats.html | `#statsColumnCheckboxes`, `#statsColumnScope`, `#statsColumnsSelectAll`, `.stats-column-checkbox[data-column-key]`; P2 추가: `#statsColumnsToggle[aria-expanded]`, `#statsColumnBody`, `#statsColumnCount`, `#statsFilterSummary`, `#statsFineSummary`, 행 `tr.sr-drill[data-href]`(URL 인코딩된 드릴다운 주소) | 572-657, 778-794 |
 | stats.html | `#statsLawSidebar` (2026-09-24 오른쪽 세로 패널 → 표 위 가로 줄로 이동, id 유지) | renderLawButtons |
 | index.html | `#sunwi*` (Prev/Next Parent/Child Category, Items, Content, UpdatedAtLabel), `.progress-bar[data-width]` | initSunwiWidget, animateProgressBars |
 
@@ -29,17 +29,16 @@
 - data_table 헤더 `th` 텍스트 = CSV 열 이름(1024, 1046) = 더블클릭 모달 제목(1255). 헤더 문구를 바꾸면 내보낸 파일 열 이름이 바뀐다.
 - stats 헤더 텍스트 = sessionStorage `stats_column_visibility` 키(`getColumnLabel`, `★`→`별점`, `비율`→`<앞 열> 비율`). 바꾸면 저장된 열 설정이 끊긴다.
   2026-09-24 표 폭 조정으로 `비율` 열을 건수 칸에 합쳤다(13열). 예전 `… 비율` 키는 남아 있어도 무시된다. 합계 행 칸 수 = 머리글 칸 수(`tools/web-tests/specs/stats-layout.spec.ts`).
-- sessionStorage 키: `stats_cat`, `stats_type`, `stats_column_visibility`. localStorage 사용 없음(테마 저장 키를 새로 만들 때 충돌 없음).
+- sessionStorage 키: `stats_cat`, `stats_type`, `stats_column_visibility`, `stats_columns_open`(P2 열 패널 펼침). localStorage 사용 없음(테마 저장 키를 새로 만들 때 충돌 없음).
 
 ## 3. JS 가 클래스 이름으로 색을 바꾸는 곳 (CSS 만 바꾸면 되돌아감)
-- stats.html:747-761 `catColorMap` — `btn-primary|warning|success` ↔ `btn-outline-*`, 구분 탭 `btn-secondary` ↔ `btn-outline-secondary`.
-- stats.html:700-704 법규 버튼 `btn-secondary|btn-warning|btn-info|btn-outline-secondary`.
-- stats.html:172,176 연도 `btn-dark`/`btn-outline-dark`(Jinja).
+- (P2, 2026-09-24 이후) stats.html 연도·분류·구분·법규 버튼은 색 클래스를 바꾸지 않는다. 선택 표시는 `.active` + `aria-pressed` 만 토글하고 색은 CSS(`#statsCatGroup .btn[data-cat]` 의 `--sr-seg-accent`, 법규 `.sr-law-none`)가 정한다. `catColorMap` 삭제.
+  예전: `catColorMap` 으로 `btn-primary|warning|success` ↔ `btn-outline-*`, 법규 `btn-secondary|btn-warning|btn-info`, 연도 `btn-dark`/`btn-outline-dark`.
 - base.html:170-178 버전 상태 인라인 색, 436-441 상태 배지, 572-589 보완 이력 `bg-white/bg-light`, 702-733 미디어 래퍼 `bg-light` + `background:#000`.
 - data_table.html:504-513 배지(fallback `bg-light text-dark border`), 580 보완 배지, 949-963 첨부 항목.
 
 ## 4. 전역 선택자 부작용 (새 요소를 넣을 때 주의)
-- stats.html:838 `$('form').on('submit')` — 페이지의 **모든 form** 에서 빈 input 을 disabled 로 만든다(테마 스위치를 form 으로 만들면 영향).
+- stats.html `$('#offcanvasSearch form').on('submit')` — 빈 input 을 disabled 로(P2 에서 상세 조건 폼으로 범위를 좁힘. 예전엔 페이지의 모든 form).
 - index.html:439 모든 `.progress-bar` 애니메이션, data_table.html:886 모든 `input[type=date]`, data_table.html:33 전역 `th {}` 스타일(모달 안 표 포함), base.html:228-230 사이드바 모든 `a` 클릭 시 사이드바 닫힘.
 
 ## 5. 층위(z-index)

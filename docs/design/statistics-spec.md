@@ -42,14 +42,14 @@
 
 | ID | 내용 | 근거 | 영향 | 제안 |
 |---|---|---|---|---|
-| D-STAT-1 | 상단 배너 총 과태료는 법규·AND/OR·취하 필터 전 값이라 아래 표 합계와 다를 수 있다 | `web/routers/stats.py:56`, `report_stats_service.py:703`; 테스트 `test_law_filter_does_not_change_traffic_total_fine_banner`(`?law=도로교통법 제13조` → 표 0원, 배너 80,000원) | 사용자가 필터된 값으로 오해 | 배너를 `records["traffic"]["total_fine_amount"]` 로 바꾸거나 "필터 전 전체" 라벨 명시. **결정 필요** |
+| D-STAT-1 | 상단 배너 총 과태료는 법규·AND/OR·취하 필터 전 값이라 아래 표 합계와 다를 수 있다 | `web/routers/stats.py:56`, `report_stats_service.py:703`; 테스트 `test_law_filter_does_not_change_traffic_total_fine_banner`(`?law=도로교통법 제13조` → 표 0원, 배너 80,000원) | 사용자가 필터된 값으로 오해 | 배너를 `records["traffic"]["total_fine_amount"]` 로 바꾸거나 "필터 전 전체" 라벨 명시. **결정(2026-09-24 사용자): 필터 반영** — `web/routers/stats.py` 가 표와 같은 값을 쓴다. API `traffic_total_fine` 은 호환 때문에 그대로 |
 | D-STAT-2 | "미확인" 정의가 둘이다: 대시보드는 값=`미확인`, 기관 표는 "나머지 전부" | :417 vs :725 | 같은 단어, 다른 숫자 | 기관 표 라벨을 "기타(미분류)"로 바꾸거나 정의 통일. **결정 필요** |
 | D-STAT-3 | 처리 소요일 정의 차이: 기관 표는 신고 **시각** 포함 차이의 내림, 모바일 `stats/overview`(feature 브랜치 진행 중)는 **달력 날짜** 차이 | :501-509 vs feature 브랜치 `_summarize_overview_frame` | fixture 강서경찰서 3건: 표 방식 8.3일 vs 달력 방식 9.3일 → KPI 카드와 표가 어긋남 | 두 곳 모두 달력 날짜 차이(`답변일 − 신고일(날짜)`)로 통일 권장. 기존 표 숫자가 바뀌므로 **사용자 승인 필요** |
 | D-STAT-4 | 대시보드 `total` 은 취하·답변완료·이송을 포함하지만 % 분모는 제외 → 카드 합계와 비율 바의 모집단이 다르다 | :401-437 | 비율 바에서 답변완료·이송이 사라짐 | 리뉴얼 KPI 에 분모를 표기하고 "기타 상태 N건"을 따로 보인다 |
 | D-STAT-5 (→ §4-1 결정) | 금액 없는 "과태료" 는 합계에 0 으로 들어가 "0원 확정"과 구분되지 않는다 | `_extract_fine_amount` :50-59 | 총액 과소 표시 가능 | "금액 미확인 과태료 N건" 병기 — 모바일 브랜치 `3ce6bd7`(미병합)이 행마다 `fine_amount_unknown` 을 추가해 해결 중. 병합 후 웹 표시 |
-| D-STAT-6 | 연도 버튼은 답변일 기준이라 미답변 건은 연도 선택 시 빠지고, 12/30 신고·1/2 답변은 다음 해로 잡힌다 | :210-211, 테스트 `test_year_filter_uses_answer_date` | 라벨 "2026" 이 신고 연도로 오해됨 | 버튼·차트 축에 "답변 연도" 표기, 신고 연도 필터는 별도 제안 |
-| D-STAT-7 | 통계 표 footer 합계가 고정 열 인덱스로 읽혀 열을 숨기면 틀릴 가능성 | `stats.html:486-494`(코드 확인, 실행 미확인) | 합계 오표시 | 시범 구현 시 재현 테스트 먼저 |
-| D-STAT-8 | drilldown URL 이 URL 인코딩되지 않음(기관명에 `& # +`), `?law=__없음__` 을 목록의 `#searchLaw` 에 그대로 넣어 결과가 비는 것으로 추정 | `stats.html:240,259`, `data_table.html:318,795`(코드 확인, 실행 미확인) | 드릴다운 실패 | 시범 구현 시 재현 테스트 먼저 |
+| D-STAT-6 | 연도 버튼은 답변일 기준이라 미답변 건은 연도 선택 시 빠지고, 12/30 신고·1/2 답변은 다음 해로 잡힌다 | :210-211, 테스트 `test_year_filter_uses_answer_date` | 라벨 "2026" 이 신고 연도로 오해됨 | 버튼·차트 축에 "답변 연도" 표기(P2 에서 연도 줄 라벨·조건 요약에 반영), 신고 연도 필터는 별도 제안 |
+| D-STAT-7 | 통계 표 footer 합계가 고정 열 인덱스로 읽혀 열을 숨기면 틀릴 가능성 | `stats.html:486-494`(코드 확인, 실행 미확인) | 합계 오표시 | 해결: 합계를 DataTables 열 번호로 읽고 씀(`makeDrawCallback`) |
+| D-STAT-8 | drilldown URL 이 URL 인코딩되지 않음(기관명에 `& # +`), `?law=__없음__` 을 목록의 `#searchLaw` 에 그대로 넣어 결과가 비는 것으로 추정 | `stats.html:240,259`, `data_table.html:318,795`(코드 확인, 실행 미확인) | 드릴다운 실패 | **해결(P2)**: 재현 테스트 `tools/web-tests/specs/stats-drilldown.spec.ts`(기관명 `A&B #1 시험구청+분소` → 예전엔 `A` 만 전달, 법규 없음 → 예전엔 0건). 드릴다운 주소를 서버에서 URL 인코딩(`data-href`), 목록은 `__없음__` 을 검색칸에 넣지 않음 |
 
 ## 4-1. 결정: 금액 없는 과태료의 추정 (2026-09-24 사용자 결정)
 
