@@ -323,9 +323,44 @@ def count_saved_coordinate_records(engine) -> int:
     return int(value or 0)
 
 
+def _override_address_conditions(merge_table):
+    """편집기로 고친 주소의 좌표가 아직 없는 신고(S-4). 좌표는 화면용 표에만 있고 상세(사이트 원본)에는 쓰지 않는다."""
+    override = models.report_override_table
+    return [
+        override.c.column_name == "위반장소",
+        override.c.value.is_not(None),
+        func.trim(override.c.value) != "",
+        or_(merge_table.c["위도"].is_(None), merge_table.c["경도"].is_(None)),
+        or_(merge_table.c["지오코딩상태"].is_(None), merge_table.c["지오코딩상태"] != "not_found"),
+    ]
+
+
+def _override_pending_query(merge_table, *, cache_only: bool, limit: int | None = None, count: bool = False):
+    override = models.report_override_table
+    source = merge_table.join(override, override.c.ID == merge_table.c.ID)
+    if cache_only:  # 화면용 표의 주소정규화 = 고친 주소를 정규화한 값(reports_repo._geo_for_overridden_address)
+        cache = models.geocode_cache_table
+        source = source.join(cache, cache.c["주소정규화"] == merge_table.c["주소정규화"])
+    query = select(func.count()) if count else select(merge_table.c.ID, override.c.value.label("위반장소"))
+    query = query.select_from(source).where(*_override_address_conditions(merge_table))
+    if cache_only:
+        query = query.where(models.geocode_cache_table.c["상태"].in_(["ok", "not_found"]))
+    if count:
+        return query
+    return query.order_by(merge_table.c.ID.desc()).limit(limit)
+
+
+def _count_override_pending(conn, *, cache_only: bool) -> int:
+    return sum(
+        conn.execute(_override_pending_query(merge_table, cache_only=cache_only, count=True)).scalar() or 0
+        for _, merge_table, _ in REPORT_TABLE_PAIRS
+    )
+
+
 def count_cache_backfillable_reports(engine) -> int:
     total = 0
     with engine.connect() as conn:
+        total += _count_override_pending(conn, cache_only=True)
         for detail_table, _, _ in REPORT_TABLE_PAIRS:
             total += conn.execute(
                 select(func.count())
@@ -591,6 +626,7 @@ def _cache_backfillable_rows_query(detail_table, limit: int):
 def count_pending_reports(engine) -> int:
     total = 0
     with engine.connect() as conn:
+        total += _count_override_pending(conn, cache_only=False)
         for detail_table, _, _ in REPORT_TABLE_PAIRS:
             total += conn.execute(
                 select(func.count())
@@ -645,6 +681,20 @@ def backfill_missing_report_coordinates(engine, *, limit: int = 150) -> dict:
                         "detail_table": detail_table,
                         "merge_table": merge_table,
                         "category": category,
+                        "override": False,
+                    })
+            for _, merge_table, category in REPORT_TABLE_PAIRS:
+                remaining = limit - len(pending_rows)
+                if remaining <= 0:
+                    break
+                query = _override_pending_query(merge_table, cache_only=not api_key_available, limit=remaining)
+                for row in conn.execute(query).mappings().all():
+                    pending_rows.append({
+                        "ID": str(row["ID"]),
+                        "위반장소": str(row.get("위반장소") or "").strip(),
+                        "merge_table": merge_table,
+                        "category": category,
+                        "override": True,
                     })
 
         if not pending_rows:
@@ -675,7 +725,13 @@ def backfill_missing_report_coordinates(engine, *, limit: int = 150) -> dict:
                 break
 
             with engine.begin() as conn:
-                _apply_geo_payload(conn, row["detail_table"], row["merge_table"], row["ID"], payload)
+                if row["override"]:
+                    # resolve_address 가 캐시에 넣었으니 화면용 표만 다시 만든다(상세의 원본 좌표는 그대로).
+                    from core.storage import reports_repo
+
+                    reports_repo.refresh_merge_rows(conn, [row["ID"]])
+                else:
+                    _apply_geo_payload(conn, row["detail_table"], row["merge_table"], row["ID"], payload)
 
             if payload.get("지오코딩상태") == "ok":
                 updated += 1

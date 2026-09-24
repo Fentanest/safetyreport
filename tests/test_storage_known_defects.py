@@ -135,6 +135,33 @@ class ServerKnownDefectTests(_SeededDb):
         web = {r["ID"]: r for r in report_query_service.get_traffic_records(self.engine)}
         self.assertEqual(web["90000001"]["담당자"], "")
 
+    def test_S4_backfill_fills_coordinates_for_an_edited_address(self):
+        """S-4(R6 고침): 편집기로 고친 주소가 캐시에 없으면 화면용 표 좌표가 비는데, 백필이 그 주소도 채운다. 상세의 원본 좌표는 그대로."""
+        from unittest import mock
+        from services import db_editor_service, geocode_service
+
+        detail_before = self.detail_row(models.detail_traffic_table, "90000001")
+        address = "서울특별시 중구 세종대로 110"
+        pending_before = geocode_service.count_pending_reports(self.engine)
+        db_editor_service.update_record(self.engine, "traffic", "90000001", {"위반장소": address})
+        merged = self.merge_row(models.merge_traffic_table, "90000001")
+        self.assertEqual((merged["위반장소"], merged["위도"], merged["지오코딩상태"]), (address, None, "pending"))
+        self.assertEqual(geocode_service.count_pending_reports(self.engine), pending_before + 1)
+
+        normalized = geocode_service.normalize_address(address)
+        with self.engine.begin() as conn:  # 키 없이도 캐시에 있으면 채운다
+            conn.execute(models.geocode_cache_table.insert().values(
+                주소정규화=normalized, 원본주소=normalized, 행정구역="서울특별시 중구", 위도=37.5663, 경도=126.9779, 상태="ok", source="kakao"))
+        self.assertGreaterEqual(geocode_service.count_cache_backfillable_reports(self.engine), 1)
+        with mock.patch.object(geocode_service, "has_kakao_rest_api_key", return_value=False):
+            geocode_service.backfill_missing_report_coordinates(self.engine, limit=500)
+
+        merged = self.merge_row(models.merge_traffic_table, "90000001")
+        self.assertEqual((merged["위도"], merged["경도"], merged["지오코딩상태"]), (37.5663, 126.9779, "ok"))
+        detail_after = self.detail_row(models.detail_traffic_table, "90000001")
+        self.assertEqual((detail_after["위반장소"], detail_after["위도"]), (detail_before["위반장소"], detail_before["위도"]))
+        self.assertEqual(geocode_service.count_pending_reports(self.engine), pending_before)
+
     def test_S34_watchlist_remove_accepts_ids(self):
         """S-34(R6 고침): 감시목록 제거도 추가처럼 ID 를 신고번호로 바꿔 지운다. 신고가 없는 신고번호도 그대로 지운다."""
         from unittest import mock
