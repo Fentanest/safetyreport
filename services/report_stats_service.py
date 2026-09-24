@@ -11,6 +11,7 @@ from core.database import database
 import settings.settings as app_settings
 from services import duplicate_group_service
 from services.report_query_service import _safe_read
+from services import fine_estimate
 
 
 _STATS_COLUMNS = [
@@ -29,6 +30,9 @@ _STATS_COLUMNS = [
     "발생시각",
     "별점",
     "synced_at",
+    "차량번호",
+    "사진_첫촬영",
+    "사진_끝촬영",
 ]
 
 _MAP_COLUMNS = [
@@ -545,6 +549,10 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
         df_t = _read_stats_frame(conn, database.merge_traffic_table, filters)
         df_p = _read_stats_frame(conn, database.merge_parking_table, filters)
         df_o = _read_stats_frame(conn, database.merge_other_table, filters)
+        try:
+            df_entry = pd.read_sql_query(select(database.entry_value_table.c.ID, database.entry_value_table.c.entry_value), conn)
+        except OperationalError:
+            df_entry = pd.DataFrame(columns=["ID", "entry_value"])
 
     df_t = _ensure_id_column(df_t)
     df_p = _ensure_id_column(df_p)
@@ -559,13 +567,14 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
 
     combined_df = pd.concat([df_t, df_p, df_o], ignore_index=True) if not (df_t.empty and df_p.empty and df_o.empty) else pd.DataFrame()
     combined_df = _project_stats_frame(engine, combined_df, mode=mode)
+    if not combined_df.empty and "ID" in combined_df.columns:
+        # 처분 분류(처분 대상 아님)와 추정 과태료 규칙이 신고 메뉴(entry_value)를 쓴다.
+        entry_map = dict(zip(df_entry["ID"].astype(str), df_entry["entry_value"].fillna("").astype(str)))
+        combined_df["entry_value"] = combined_df["ID"].astype(str).map(entry_map).fillna("")
     if not combined_df.empty and "category" in combined_df.columns:
         df_t = combined_df[combined_df["category"] == "traffic"].copy()
         df_p = combined_df[combined_df["category"] == "parking"].copy()
         df_o = combined_df[combined_df["category"] == "other"].copy()
-        for df_cat in (df_t, df_p, df_o):
-            if "category" in df_cat.columns:
-                df_cat.drop(columns=["category"], inplace=True, errors="ignore")
     return available_years, df_t, df_p, df_o
 
 
@@ -573,8 +582,10 @@ def _calc_avg_days(group_df):
     # S-10: 처리기간은 처리가 끝난 신고만. 이송 답변일이 붙은 처리중 신고·취하는 넣지 않는다.
     group_df = group_df[_stats_status_series(group_df).isin(_OVERVIEW_COMPLETED_STATUSES)]
     try:
-        d_end = pd.to_datetime(group_df["답변일"], errors="coerce")
-        d_start = pd.to_datetime(group_df["신고일"], errors="coerce")
+        # 2026-09-24 사용자 결정: 처리일 = 답변일(날짜) − 신고일(날짜). 신고 시각은 버린다(12/30 23:40 → 1/2 = 3일).
+        # 모바일 overview `_parse_overview_date` 와 같은 정의.
+        d_end = pd.to_datetime(group_df["답변일"].astype(str).str.slice(0, 10), errors="coerce", format="%Y-%m-%d")
+        d_start = pd.to_datetime(group_df["신고일"].astype(str).str.slice(0, 10), errors="coerce", format="%Y-%m-%d")
         days = (d_end - d_start).dt.days.dropna()
         days = days[days >= 0]
         return _round_half_up(float(days.mean()), 1) if len(days) > 0 else None
@@ -592,13 +603,15 @@ def _calc_avg_rating(group_df):
     return _round_half_up(float(ratings.mean()), 2), int(len(ratings))
 
 
-def _build_stats_tables(df: pd.DataFrame):
+def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
     """필터가 끝난 한 카테고리 프레임 → (기관별, 담당자별, 법규별) 행 목록. 모바일 `LocalDbService._buildCategory` 와 같은 규칙."""
     # S-10: 표 포함 여부는 처리상태가 아니라 기관·담당자 값이 있는지로 정한다.
     # 배정된 처리중 신고도 기관/담당자 행에 들어가고 `in_progress` 로 따로 센다.
     df["처리기관"] = df.get("처리기관", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str).str.strip()
     df["담당자"] = df.get("담당자", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str).str.strip()
     df["범칙금_과태료"] = df.get("범칙금_과태료", pd.Series("", index=df.index, dtype="object")).fillna("")
+    if category and "category" not in df.columns:
+        df["category"] = category
     df_agency = df[df["처리기관"] != ""]
     df_person = df_agency[~df_agency["담당자"].isin(_UNASSIGNED_PERSON_VALUES)]
 
@@ -615,6 +628,7 @@ def _build_stats_tables(df: pd.DataFrame):
             "avg_days": _calc_avg_days(group),
             "total_fine_amount": int(group["범칙금_과태료"].apply(_extract_fine_amount).sum()),
             "fine_amount_unknown": _count_fine_amount_unknown(group),
+            **_estimated_fine_totals(group),
             **{key: counts[key] for key in counts},
             **{f"{key}_pct": _pct(key) for key in counts},
             "avg_rating": avg_rating,
@@ -645,7 +659,7 @@ def _build_stats_tables(df: pd.DataFrame):
 def get_agency_stats(engine, filters=None, mode: str = "canonical"):
     available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
 
-    def calc_stats(df):
+    def calc_stats(df, category):
         empty_payload = {
             "by_agency": [],
             "by_person": [],
@@ -681,9 +695,10 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
         if app_settings.normalize_police and "처리기관" in df.columns:
             df["처리기관"] = df["처리기관"].apply(database.normalize_police_agency)
 
-        stats_agency, stats_person, stats_law = _build_stats_tables(df)
+        stats_agency, stats_person, stats_law = _build_stats_tables(df, category)
 
         category_total_fine = int(df["범칙금_과태료"].apply(_extract_fine_amount).sum())
+        category_estimates = _estimated_fine_totals(df)
 
         def _sort(items, key="total"):
             return pd.DataFrame(items).sort_values(by=[key], ascending=False).to_dict("records") if items else []
@@ -700,13 +715,15 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
             "other_by_person": [item for item in all_person if "경찰" not in item["agency"]],
             "by_law": all_law,
             "total_fine_amount": category_total_fine,
+            **category_estimates,
+            "estimate_rule_version": fine_estimate.RULE_VERSION,
             "available_laws": available_laws,
             "has_empty_law": has_empty_law,
         })
 
-    res_t = calc_stats(df_t)
-    res_p = calc_stats(df_p)
-    res_o = calc_stats(df_o)
+    res_t = calc_stats(df_t, "traffic")
+    res_p = calc_stats(df_p, "parking")
+    res_o = calc_stats(df_o, "other")
     return _sanitize_jsonable({
         "traffic": res_t,
         "parking": res_p,
@@ -863,9 +880,50 @@ def _stats_row_disposition_counts(group_df: pd.DataFrame) -> dict[str, int]:
         | status_series.isin(["불수용", "기타"])
     )
     in_progress = ~decided & ~status_series.isin(_OVERVIEW_COMPLETED_STATUSES) & (status_series != "취하")
+    unconfirmed = ~decided & ~in_progress
     counts["in_progress"] = int(in_progress.sum())
-    counts["unconfirmed"] = int((~decided & ~in_progress).sum())
+    counts["unconfirmed"] = int(unconfirmed.sum())
+    # 2026-09-24 (b) 열 분리 — `unconfirmed` 는 그대로 두고(모바일 API 호환) 하위 분류를 추가한다.
+    #   disposition_unknown: 과태료 대상 신고인데 파서가 처분을 못 읽은 건(`범칙금_과태료` == '미확인')
+    #   no_penalty: 과태료 대상이 아닌 유형(시설물 등)의 완료 신고
+    #   unclassified: 나머지(과태료 대상 유형인데 처분 문구 없는 완료, 취하 등)
+    eligible = _penalty_eligible_mask(group_df)
+    disposition_unknown = unconfirmed & (fine_series.str.strip() == "미확인")
+    no_penalty = unconfirmed & ~disposition_unknown & ~eligible & status_series.isin(_OVERVIEW_COMPLETED_STATUSES)
+    counts["disposition_unknown"] = int(disposition_unknown.sum())
+    counts["no_penalty"] = int(no_penalty.sum())
+    counts["unclassified"] = int((unconfirmed & ~disposition_unknown & ~no_penalty).sum())
     return counts
+
+
+def _penalty_eligible_mask(group_df: pd.DataFrame) -> pd.Series:
+    """과태료가 붙을 수 있는 유형: 교통위반, 불법주정차, 쓰레기·폐기물 메뉴. 그 밖(시설물 등)은 처분 대상 아님."""
+    index = group_df.index
+    category = group_df.get("category", pd.Series("", index=index, dtype="object")).fillna("").astype(str)
+    entry = group_df.get("entry_value", pd.Series("", index=index, dtype="object")).fillna("").astype(str)
+    return (
+        category.isin(["traffic", "parking"])
+        | entry.str.contains("자동차·교통위반", regex=False)
+        | entry.str.contains("불법주정차신고", regex=False)
+        | entry.str.contains("쓰레기, 폐기물", regex=False)
+    )
+
+
+def _estimated_fine_totals(group_df: pd.DataFrame) -> dict[str, int]:
+    """금액 없는 과태료 행의 법정 최저 기준 추정 합계. 확정 금액(`total_fine_amount`)과 섞지 않는다."""
+    if group_df.empty or "범칙금_과태료" not in group_df.columns:
+        return {"estimated_fine_amount": 0, "estimated_fine_count": 0}
+    amount = 0
+    count = 0
+    for record in group_df.to_dict(orient="records"):
+        if not _is_fine_amount_unknown(record.get("범칙금_과태료")):
+            continue
+        result = fine_estimate.estimate(record)
+        if result is None:
+            continue
+        amount += result["amount"]
+        count += 1
+    return {"estimated_fine_amount": int(amount), "estimated_fine_count": int(count)}
 
 
 def _build_status_breakdown(group_df: pd.DataFrame) -> list[dict]:

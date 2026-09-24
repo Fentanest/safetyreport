@@ -53,7 +53,10 @@ async def view_stats(
         "title": "부서 통계",
         "available_years": records.get("available_years", []),
         "current_year": year or "all",
-        "traffic_total_fine": records.get("traffic_total_fine", 0),
+        # 2026-09-24 결정: 배너도 현재 필터를 반영한다(표 합계와 같은 값). API 의 traffic_total_fine 은 호환을 위해 그대로 둔다.
+        "traffic_total_fine": records["traffic"].get("total_fine_amount", 0),
+        "traffic_estimated_fine": records["traffic"].get("estimated_fine_amount", 0),
+        "traffic_estimated_fine_count": records["traffic"].get("estimated_fine_count", 0),
         "records_traffic_agency":         records["traffic"]["by_agency"],
         "records_traffic_person":         records["traffic"]["by_person"],
         "records_traffic_police_agency":  records["traffic"]["police_by_agency"],

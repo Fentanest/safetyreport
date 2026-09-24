@@ -1,0 +1,43 @@
+{
+  "rule_version": "2026-09-24.1",
+  "note": "서버 services/fine_estimate.py 와 모바일 Standalone 규칙이 같은 결과를 내야 한다. 이 파일은 양쪽 레포에 같은 내용으로 둔다.",
+  "plates": [
+    {"plate": "12가3456", "kind": "승용", "class": "승용등"},
+    {"plate": "123가4567", "kind": "승용", "class": "승용등"},
+    {"plate": "75나1234", "kind": "승합", "class": "승합등"},
+    {"plate": "750나1234", "kind": "승합", "class": "승합등"},
+    {"plate": "85다1234", "kind": "화물", "class": "승용등"},
+    {"plate": "850가1234", "kind": "화물", "class": "승용등"},
+    {"plate": "서울85바1234", "kind": "화물", "class": "승용등"},
+    {"plate": "99라1234", "kind": "특수", "class": "승합등"},
+    {"plate": "990라1234", "kind": "특수", "class": "승합등"},
+    {"plate": "998마1234", "kind": "긴급", "class": "승용등"},
+    {"plate": "서울12바3456", "kind": "승용", "class": "승용등"},
+    {"plate": "1가23456", "kind": "이륜", "class": "이륜등"},
+    {"plate": "12 가 3456", "kind": "승용", "class": "승용등"},
+    {"plate": "", "kind": null, "class": "승용등"},
+    {"plate": "알수없음", "kind": null, "class": "승용등"}
+  ],
+  "cases": [
+    {"name": "버스전용차로 승용", "record": {"category": "traffic", "신고명": "버스전용차로 위반", "차량번호": "12가3456", "범칙금_과태료": "과태료"}, "amount": 50000, "rule": "bus_lane"},
+    {"name": "버스전용차로 승합", "record": {"category": "traffic", "신고명": "버스차로 위반", "차량번호": "75나1234", "범칙금_과태료": "과태료"}, "amount": 60000, "rule": "bus_lane"},
+    {"name": "버스전용차로 이륜", "record": {"category": "traffic", "신고명": "버스전용차로 위반", "차량번호": "1가23456", "범칙금_과태료": "과태료"}, "amount": 40000, "rule": "bus_lane"},
+    {"name": "버스전용차로 화물(4톤 모름→승용등)", "record": {"category": "traffic", "신고명": "버스전용차로 위반", "차량번호": "85다1234", "범칙금_과태료": "과태료"}, "amount": 50000, "rule": "bus_lane"},
+    {"name": "주정차 일반", "record": {"category": "parking", "entry_value": "불법주정차신고-인도", "차량번호": "12가3456", "범칙금_과태료": "과태료"}, "amount": 40000, "rule": "parking"},
+    {"name": "주정차 승합", "record": {"category": "parking", "entry_value": "불법주정차신고-교차로 모퉁이", "차량번호": "75나1234", "범칙금_과태료": "과태료"}, "amount": 50000, "rule": "parking"},
+    {"name": "주정차 2시간 이상", "record": {"category": "parking", "entry_value": "불법주정차신고-인도", "차량번호": "12가3456", "범칙금_과태료": "과태료", "사진_첫촬영": "2026-09-22 13:00:00", "사진_끝촬영": "2026-09-22 15:00:00"}, "amount": 50000, "rule": "parking"},
+    {"name": "주정차 1시간59분", "record": {"category": "parking", "entry_value": "불법주정차신고-인도", "차량번호": "12가3456", "범칙금_과태료": "과태료", "사진_첫촬영": "2026-09-22 13:00:00", "사진_끝촬영": "2026-09-22 14:59:59"}, "amount": 40000, "rule": "parking"},
+    {"name": "주정차 이륜(표에 없음)", "record": {"category": "parking", "entry_value": "불법주정차신고-인도", "차량번호": "1가23456", "범칙금_과태료": "과태료"}, "amount": null, "rule": "parking"},
+    {"name": "소화전(표지 미확인 → 나목)", "record": {"category": "parking", "entry_value": "불법주정차신고-소화전", "차량번호": "12가3456", "범칙금_과태료": "과태료"}, "amount": 40000, "rule": "hydrant"},
+    {"name": "충전구역", "record": {"category": "parking", "entry_value": "불법주정차신고-친환경차 충전구역 불법주차", "차량번호": "75나1234", "범칙금_과태료": "과태료"}, "amount": 100000, "rule": "ev_charging"},
+    {"name": "장애인구역", "record": {"category": "parking", "entry_value": "불법주정차신고-장애인 전용구역 불법주차", "차량번호": "12가3456", "범칙금_과태료": "과태료"}, "amount": 100000, "rule": "disabled_parking"},
+    {"name": "어린이보호구역 주간", "record": {"category": "parking", "entry_value": "불법주정차신고-어린이보호구역", "발생시각": "09:30", "차량번호": "12가3456", "범칙금_과태료": "과태료"}, "amount": 120000, "rule": "school_zone"},
+    {"name": "어린이보호구역 야간(20시)", "record": {"category": "parking", "entry_value": "불법주정차신고-어린이보호구역", "발생시각": "20:00", "차량번호": "12가3456", "범칙금_과태료": "과태료"}, "amount": 40000, "rule": "parking"},
+    {"name": "쓰레기·폐기물(지자체)", "record": {"category": "other", "entry_value": "생활불편 신고-쓰레기, 폐기물", "차량번호": "12가3456", "범칙금_과태료": "과태료"}, "amount": 50000, "rule": "waste"},
+    {"name": "밤샘주차 사업용 화물 01:00~02:30", "record": {"category": "parking", "entry_value": "불법주정차신고-기타 불법주정차", "차량번호": "서울85바1234", "범칙금_과태료": "과태료", "사진_첫촬영": "2026-09-22 01:00:00", "사진_끝촬영": "2026-09-22 02:30:00"}, "amount": 50000, "rule": "overnight_truck"},
+    {"name": "밤샘주차 창 넘김 23:30~01:00 → 일반 주정차", "record": {"category": "parking", "entry_value": "불법주정차신고-기타 불법주정차", "차량번호": "서울85바1234", "범칙금_과태료": "과태료", "사진_첫촬영": "2026-09-21 23:30:00", "사진_끝촬영": "2026-09-22 01:00:00"}, "amount": 40000, "rule": "parking"},
+    {"name": "밤샘주차 자가용 화물 → 일반 주정차", "record": {"category": "parking", "entry_value": "불법주정차신고-기타 불법주정차", "차량번호": "850가1234", "범칙금_과태료": "과태료", "사진_첫촬영": "2026-09-22 01:00:00", "사진_끝촬영": "2026-09-22 02:30:00"}, "amount": 40000, "rule": "parking"},
+    {"name": "시설물(과태료 대상 아님)", "record": {"category": "other", "entry_value": "안전신고-생활안전", "신고명": "도로 파손", "범칙금_과태료": "과태료"}, "amount": null, "rule": null},
+    {"name": "교통 일반(버스 아님)", "record": {"category": "traffic", "신고명": "신호위반", "차량번호": "12가3456", "범칙금_과태료": "과태료"}, "amount": null, "rule": null}
+  ]
+}
