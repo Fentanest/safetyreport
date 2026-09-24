@@ -108,6 +108,53 @@ class ExchangeRestoreTests(unittest.TestCase):
         with get_engine().connect() as conn:
             self.assertEqual(conn.execute(select(models.report_override_table.c.value)).scalar(), "서버에서 고침")
 
+    def _add_legacy_duplicate(self, *, decisions=True):
+        """앱 DB 에 같은 본문 신고 2건 + 옛(레거시) id 중복군 + 그 id 로 남긴 사용자 판단."""
+        con = sqlite3.connect(self.upload)
+        con.execute("INSERT INTO reports VALUES ('m2','수용','SPP-2609-9000012','신호위반','2026-09-01','참여 가능',NULL,NULL,'N','수용','기관','','서울 강서구 1','Y','traffic','자동차·교통위반-신호위반','',NULL)")
+        con.executemany("INSERT INTO report_raw VALUES (?, ?, 'report_body', 1)", [("m1", "같은  본문\n"), ("m2", "같은 본문")])
+        con.executescript(
+            """
+            CREATE TABLE duplicate_group (group_id TEXT PRIMARY KEY, fingerprint TEXT, match_type TEXT, status TEXT, representative_mode TEXT,
+              representative_id TEXT, member_count INTEGER, apply_globally INTEGER, note TEXT, created_at INTEGER, updated_at INTEGER);
+            CREATE TABLE duplicate_member (group_id TEXT, report_id TEXT, report_number TEXT, category TEXT, is_representative INTEGER,
+              priority_score INTEGER, raw_match INTEGER, field_match INTEGER, created_at INTEGER, updated_at INTEGER);
+            CREATE TABLE duplicate_decision (group_id TEXT PRIMARY KEY, status TEXT, representative_mode TEXT, representative_id TEXT,
+              apply_globally INTEGER, note TEXT, updated_at INTEGER);
+            INSERT INTO duplicate_group VALUES ('legacyfnv0001','legacyfnv0001','payload_exact','not_duplicate','manual','m2',2,0,'앱 메모',1,5);
+            INSERT INTO duplicate_member VALUES ('legacyfnv0001','m1','SPP-2609-9000011','traffic',0,1,1,1,1,1),
+                                                ('legacyfnv0001','m2','SPP-2609-9000012','traffic',1,2,1,1,1,1);
+            """
+        )
+        if decisions:
+            con.execute("INSERT INTO duplicate_decision VALUES ('legacyfnv0001','not_duplicate','manual','m2',0,'앱 메모',5)")
+        con.commit()
+        con.close()
+
+    def test_mobile_decisions_follow_the_canonical_group_id(self):
+        """G11-1: 옛 id 로 남은 앱 그룹의 판단도 서버 기준 id 로 옮겨져 그룹에 붙는다."""
+        import hashlib
+
+        _mobile_db(self.upload)
+        self._add_legacy_duplicate()
+        exchange.restore(str(self.upload), "mobile")
+        canonical = hashlib.sha256("같은 본문".encode("utf-8")).hexdigest()
+        with get_engine().connect() as conn:
+            groups = {r.group_id: r for r in conn.execute(select(models.duplicate_group_table))}
+            decisions = conn.execute(select(models.duplicate_decision_table)).mappings().all()
+        self.assertIn(canonical, groups)
+        self.assertEqual([(d["group_id"], d["status"], d["representative_id"]) for d in decisions], [(canonical, "not_duplicate", "m2")])
+
+    def test_empty_decision_table_from_the_app_clears_server_decisions(self):
+        """G11-2: 앱에 판단 표가 있고 비어 있으면 그것이 원천(서버 판단도 비움). 표가 없는 구앱은 서버 것 유지(위 테스트와 같은 규칙)."""
+        with get_engine().begin() as conn:
+            conn.execute(models.duplicate_decision_table.insert().values(
+                group_id="server-only", status="confirmed_duplicate", representative_mode="auto", apply_globally=1, updated_at=1))
+        _mobile_db(self.upload)
+        self._add_legacy_duplicate(decisions=False)
+        exchange.restore(str(self.upload), "mobile")
+        self.assertEqual(self._count(models.duplicate_decision_table), 0)
+
     def test_server_restore_refuses_newer_schema_without_touching_live_db(self):
         newer = Path(self._tmp.name) / "newer.db"
         exchange._copy_sqlite(settings.db_path, str(newer))

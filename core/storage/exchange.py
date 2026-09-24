@@ -144,6 +144,8 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
                 raw_rows.append({"ID": r["ID"], "raw_content": r["raw_content"], "raw_type": "", "saved_at": r.get("synced_at")})
                 raw_by_id[r["ID"]] = r["raw_content"]
 
+    group_id_map = _canonical_group_ids(snapshot, raw_by_id)
+
     title_cols = _columns(models.title_table)
     detail_cols = _columns(models.detail_traffic_table)
     report_ids = set()
@@ -200,10 +202,19 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
                 conn.execute(models.geocode_cache_table.delete().where(models.geocode_cache_table.c["주소정규화"] == row["주소정규화"]))
             _insert(conn, models.geocode_cache_table, [{c: row.get(c) for c in cache_cols} for row in snapshot.geocode_cache])
 
-        # 사용자 소유 새 표: 앱에 표가 있으면 앱 것이 원천, 없으면(구앱) 서버 것 유지.
-        # 중복 판단은 앱이 아직 기록하지 않는 동안(모바일 R3 전) 빈 표가 오므로, 비어 있으면 서버 판단을 지우지 않는다.
+        # 사용자 소유 새 표: 앱에 표가 있으면(빈 표 포함) 앱 것이 원천, 없으면(구앱) 서버 것 유지.
+        # 중복 판단의 group_id 는 그룹과 같은 규칙으로 서버 기준 id 로 바꾼다 — 안 바꾸면 옛 id 로 남은 앱 그룹의 판단이
+        # 서버에서 어느 그룹에도 붙지 않는다(G11-1). 같은 id 로 모이면 가장 최근 판단을 남긴다.
+        decisions = None
+        if snapshot.duplicate_decision is not None:
+            latest: dict[str, dict] = {}
+            for row in snapshot.duplicate_decision:
+                gid = group_id_map.get(row["group_id"], row["group_id"])
+                if gid not in latest or (row.get("updated_at") or 0) >= (latest[gid].get("updated_at") or 0):
+                    latest[gid] = {**row, "group_id": gid}
+            decisions = list(latest.values())
         for rows, table in ((snapshot.report_override, models.report_override_table),
-                            (snapshot.duplicate_decision or None, models.duplicate_decision_table)):
+                            (decisions, models.duplicate_decision_table)):
             if rows is not None:
                 conn.execute(table.delete())
                 _insert(conn, table, [{c: row.get(c) for c in _columns(table)} for row in rows])
@@ -211,7 +222,7 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
     # merge 재생성(중복군도 여기서 재계산) 뒤, 앱의 중복군을 그대로 덮는다.
     database.merge_final(engine)
     if snapshot.duplicate_group is not None:
-        mapping = _canonical_group_ids(snapshot, raw_by_id)
+        mapping = group_id_map
         group_cols = _columns(models.duplicate_group_table)
         member_cols = _columns(models.duplicate_member_table)
         groups, seen = [], set()

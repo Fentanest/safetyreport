@@ -10,6 +10,11 @@
 
 ## 2026-09-24 (dev, 미배포)
 
+### 저장 계층 Gemini 교차 검토(G11) 반영
+
+- 앱 DB 로 복원할 때 앱의 중복 판단이 서버 그룹에 붙도록 그룹 id 를 같은 규칙으로 변환. 앱의 판단 표가 비어 있으면 서버 판단도 비움(표가 없는 구앱은 유지).
+- 검토 기록: `docs/reviews/2026-09-24-gemini-g11-storage-review.md`. 테스트: unittest 98 통과, 왕복 차이 0.
+
 ### 웹 리뉴얼 P1: 신고 목록·상세 모달 (Gemini G10 + Opus 통합)
 
 상태: 완료(dev). main·VERSION·릴리즈 없음. 검수: `docs/reviews/2026-09-24-gemini-g10-p1-review.md`.
