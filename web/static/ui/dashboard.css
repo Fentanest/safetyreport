@@ -2,7 +2,7 @@
 .dashboard-grid {
     display: grid;
     gap: 1.25rem;
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr)); /* 휴대폰도 2열 — 1열이면 카드 12개가 세로로 너무 길다 */
     margin-bottom: 1.5rem;
 }
 
@@ -219,3 +219,10 @@
 .dashboard-last-sync { color: var(--sr-text-muted); font-size: 0.9rem; }
 .dashboard-last-sync strong { color: var(--sr-text); font-variant-numeric: tabular-nums; }
 .dashboard-card[role="link"]:focus-visible { outline: 3px solid var(--sr-focus); outline-offset: 2px; }
+/* 감시목록·최근 답변 표: 좁은 화면에서는 찌그러뜨리지 않고 가로 스크롤(.table-responsive) */
+.table-responsive > .table-custom { min-width: 760px; }
+@media (max-width: 575px) {
+    .dashboard-grid { gap: 0.75rem; }
+    .dashboard-card { padding: 0.9rem 0.5rem; }
+    .dashboard-card-value { font-size: 1.6rem; }
+}
