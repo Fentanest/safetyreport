@@ -8,9 +8,10 @@
     .map-toolbar-card,
     .map-summary-card,
     .map-panel-card {
-        border: none;
-        border-radius: 1rem;
-        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+        border: 1px solid var(--sr-border);
+        border-radius: var(--sr-radius);
+        background: var(--sr-surface);
+        box-shadow: var(--sr-shadow);
     }
 
     .map-toolbar .btn,
@@ -18,25 +19,26 @@
         border-radius: 999px;
     }
 
-    .map-hero {
-        padding: 1.25rem 1.35rem;
-        border-radius: 1rem;
-        background:
-            radial-gradient(circle at top left, rgba(13, 110, 253, 0.16), transparent 34%),
-            radial-gradient(circle at bottom right, rgba(255, 193, 7, 0.18), transparent 28%),
-            linear-gradient(135deg, #f8fbff 0%, #fef6e7 100%);
-    }
+    .map-hero { padding: 1rem 1.2rem; }
+    .map-chip { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.7rem; border-radius: 999px; font-size: 0.8rem;
+                background: var(--sr-surface-2); color: var(--sr-text); border: 1px solid var(--sr-border); }
+    .map-chip b { font-variant-numeric: tabular-nums; }
 
+    .map-summary-card { border-left: 4px solid var(--sr-kpi-accent, var(--sr-primary)); }
     .map-summary-value {
-        font-size: 1.55rem;
+        font-size: 1.5rem;
         font-weight: 800;
-        color: #0f172a;
+        color: var(--sr-text);
+        font-variant-numeric: tabular-nums;
     }
 
     .map-summary-label {
-        color: #64748b;
-        font-size: 0.92rem;
+        color: var(--sr-text-muted);
+        font-size: 0.88rem;
     }
+    #mapCategoryGroup .btn[data-category="traffic"] { --sr-seg-accent: var(--sr-primary); }
+    #mapCategoryGroup .btn[data-category="parking"] { --sr-seg-accent: var(--sr-status-supplement); }
+    #mapCategoryGroup .btn[data-category="other"]   { --sr-seg-accent: var(--sr-status-accept); }
 
     #reportMap {
         width: 100%;
@@ -44,7 +46,7 @@
         min-height: 520px;
         border-radius: 1rem;
         overflow: hidden;
-        border: 1px solid rgba(148, 163, 184, 0.24);
+        border: 1px solid var(--sr-border);
     }
 
     .report-map-point {
@@ -375,24 +377,25 @@
     }
 
     .map-empty {
-        border: 1px dashed #cbd5e1;
-        border-radius: 1rem;
+        border: 1px dashed var(--sr-border);
+        border-radius: var(--sr-radius);
         padding: 2rem;
         text-align: center;
-        background: #fff;
-        color: #64748b;
+        background: var(--sr-surface-2);
+        color: var(--sr-text-muted);
     }
 
     .map-progress-card {
-        border: none;
-        border-radius: 1rem;
-        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.08);
+        border: 1px solid var(--sr-border);
+        border-radius: var(--sr-radius);
+        background: var(--sr-surface);
+        box-shadow: var(--sr-shadow);
     }
 
     .map-progress-bar {
         height: 14px;
         border-radius: 999px;
-        background: #e2e8f0;
+        background: var(--sr-surface-3);
         overflow: hidden;
     }
 
@@ -400,15 +403,15 @@
         height: 100%;
         width: 0%;
         border-radius: inherit;
-        background: linear-gradient(90deg, #2563eb 0%, #0f766e 100%);
+        background: var(--sr-primary);
         transition: width 0.35s ease;
     }
 
     .missing-report-card {
-        border: 1px solid #e2e8f0;
-        border-radius: 0.9rem;
+        border: 1px solid var(--sr-border);
+        border-radius: var(--sr-radius-sm);
         padding: 0.9rem 1rem;
-        background: #fff;
+        background: var(--sr-surface-2);
     }
 
     .missing-report-meta {
@@ -416,7 +419,7 @@
         flex-wrap: wrap;
         gap: 0.45rem 0.75rem;
         font-size: 0.83rem;
-        color: #64748b;
+        color: var(--sr-text-muted);
     }
 
     .missing-report-meta span {
@@ -445,19 +448,7 @@
             max-width: 276px;
         }
     }
-    /* 다크 테마: 본문 상자만 맞춘다. 지도 위 팝업·툴팁은 밝은 지도 타일 위에 뜨므로 그대로 둔다. */
-    [data-bs-theme="dark"] .map-hero {
-        background:
-            radial-gradient(circle at top left, rgba(59, 130, 246, 0.22), transparent 34%),
-            radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.14), transparent 28%),
-            linear-gradient(135deg, var(--sr-surface) 0%, var(--sr-surface-2) 100%);
-    }
-    [data-bs-theme="dark"] .map-summary-value { color: var(--sr-text); }
-    [data-bs-theme="dark"] .map-summary-label,
-    [data-bs-theme="dark"] .missing-report-meta { color: var(--sr-text-muted); }
-    [data-bs-theme="dark"] .map-empty { background: var(--sr-surface-2); color: var(--sr-text-muted); border-color: var(--sr-border); }
-    [data-bs-theme="dark"] .map-progress-bar { background: var(--sr-surface-3); }
-    [data-bs-theme="dark"] .missing-report-card { background: var(--sr-surface-2); border-color: var(--sr-border); }
+    /* 지도 위 팝업·툴팁·마커는 밝은 지도 타일 위에 뜨는 데이터 색이라 테마와 무관하게 둔다. 지도 바깥은 모두 토큰. */
 </style>
 {% endblock %}
 
@@ -465,19 +456,15 @@
 <div class="card map-toolbar-card mb-3">
     <div class="card-body map-hero">
         <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
-            <div>
-                <div class="small text-uppercase text-primary fw-bold mb-2">Map Analytics</div>
-                <h2 class="h4 fw-bold mb-2">신고 지도 통계</h2>
-                <div class="text-muted">건수는 원 크기로, 확대하면 세부 주소별 원형 숫자로 분리됩니다.</div>
-            </div>
-            <div class="d-flex flex-wrap gap-2 map-toolbar">
-                <button type="button" class="btn btn-sm btn-outline-dark" data-bs-toggle="modal" data-bs-target="#missingAddressModal" title="미변환 주소 보기">
+            <div class="text-muted small"><i class="fas fa-circle-info me-1"></i>건수는 원 크기로, 확대하면 세부 주소별 원형 숫자로 나뉩니다.</div>
+            <div class="d-flex flex-wrap align-items-center gap-2 map-toolbar">
+                <span class="map-chip">중복 반영 <b>{{ '대표건만' if dedupe_mode == 'canonical' else '원본 전체' }}</b></span>
+                <span class="map-chip">주소 그룹 <b>{{ map_meta.address_groups or 0 }}곳</b></span>
+                <span class="map-chip">미좌표 <b>{{ map_meta.missing_reports or 0 }}건</b></span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#missingAddressModal" title="미변환 주소 보기">
                     <i class="fas fa-triangle-exclamation me-1"></i> 미변환 주소
-                    <span class="badge text-bg-secondary ms-1">{{ missing_map_meta.report_count or 0 }}</span>
+                    <span class="sr-badge sr-badge-supplement ms-1">{{ missing_map_meta.report_count or 0 }}</span>
                 </button>
-                <span class="badge text-bg-light border">중복 반영: {{ '대표건만' if dedupe_mode == 'canonical' else '원본 전체' }}</span>
-                <span class="badge text-bg-light border">주소 그룹: {{ map_meta.address_groups or 0 }}곳</span>
-                <span class="badge text-bg-light border">미좌표: {{ map_meta.missing_reports or 0 }}건</span>
             </div>
         </div>
     </div>
@@ -516,7 +503,7 @@
 
 <div class="row g-3 mb-3">
     <div class="col-xl-3 col-md-6">
-        <div class="card map-summary-card h-100">
+        <div class="card map-summary-card h-100" style="--sr-kpi-accent: var(--sr-primary);">
             <div class="card-body">
                 <div class="map-summary-value">{{ map_meta.total_reports or 0 }}</div>
                 <div class="map-summary-label">집계된 신고건</div>
@@ -524,7 +511,7 @@
         </div>
     </div>
     <div class="col-xl-3 col-md-6">
-        <div class="card map-summary-card h-100">
+        <div class="card map-summary-card h-100" style="--sr-kpi-accent: var(--sr-status-accept);">
             <div class="card-body">
                 <div class="map-summary-value">{{ map_meta.geocoded_reports or 0 }}</div>
                 <div class="map-summary-label">좌표 반영 신고건</div>
@@ -532,7 +519,7 @@
         </div>
     </div>
     <div class="col-xl-3 col-md-6">
-        <div class="card map-summary-card h-100">
+        <div class="card map-summary-card h-100" style="--sr-kpi-accent: var(--sr-status-partial);">
             <div class="card-body">
                 <div class="map-summary-value">{{ map_meta.address_groups or 0 }}</div>
                 <div class="map-summary-label">지도 주소 그룹</div>
@@ -540,7 +527,7 @@
         </div>
     </div>
     <div class="col-xl-3 col-md-6">
-        <div class="card map-summary-card h-100">
+        <div class="card map-summary-card h-100" style="--sr-kpi-accent: var(--sr-status-supplement);">
             <div class="card-body">
                 <div class="map-summary-value">{{ backfill_progress.remaining_missing or 0 }}</div>
                 <div class="map-summary-label">남은 자동 백필 대상</div>
@@ -553,27 +540,26 @@
     <div class="card-body">
         <div class="d-flex flex-wrap justify-content-between gap-3 mb-3">
             <div>
-                <div class="small text-muted fw-bold mb-2">연도</div>
-                <div class="d-flex flex-wrap gap-2 map-toolbar" id="mapYearGroup">
-                    <button type="button" class="btn btn-sm {{ 'btn-dark' if current_year == 'all' else 'btn-outline-dark' }}" data-year="all">전체</button>
+                <div class="small text-muted fw-bold mb-2">답변 연도</div>
+                <div class="sr-seg" id="mapYearGroup" role="group" aria-label="답변 연도">
+                    <button type="button" class="btn btn-sm {{ 'active' if current_year == 'all' }}" aria-pressed="{{ 'true' if current_year == 'all' else 'false' }}" data-year="all">전체</button>
                     {% for yr in available_years %}
-                    <button type="button" class="btn btn-sm {{ 'btn-dark' if current_year == yr else 'btn-outline-dark' }}" data-year="{{ yr }}">{{ yr }}</button>
+                    <button type="button" class="btn btn-sm {{ 'active' if current_year == yr }}" aria-pressed="{{ 'true' if current_year == yr else 'false' }}" data-year="{{ yr }}">{{ yr }}</button>
                     {% endfor %}
                 </div>
             </div>
             <div>
-                <div class="small text-muted fw-bold mb-2">카테고리</div>
-                <div class="d-flex flex-wrap gap-2 map-toolbar" id="mapCategoryGroup">
-                    <button type="button" class="btn btn-sm {{ 'btn-secondary' if selected_category == 'all' else 'btn-outline-secondary' }}" data-category="all">전체</button>
-                    <button type="button" class="btn btn-sm {{ 'btn-primary' if selected_category == 'traffic' else 'btn-outline-primary' }}" data-category="traffic">교통위반</button>
-                    <button type="button" class="btn btn-sm {{ 'btn-warning' if selected_category == 'parking' else 'btn-outline-warning' }}" data-category="parking">주정차위반</button>
-                    <button type="button" class="btn btn-sm {{ 'btn-success' if selected_category == 'other' else 'btn-outline-success' }}" data-category="other">기타위반</button>
+                <div class="small text-muted fw-bold mb-2">분류</div>
+                <div class="sr-seg" id="mapCategoryGroup" role="group" aria-label="분류">
+                    {% for key, label in [('all', '전체'), ('traffic', '교통위반'), ('parking', '주정차위반'), ('other', '기타위반')] %}
+                    <button type="button" class="btn btn-sm {{ 'active' if selected_category == key }}" aria-pressed="{{ 'true' if selected_category == key else 'false' }}" data-category="{{ key }}">{{ label }}</button>
+                    {% endfor %}
                 </div>
             </div>
             <div>
                 <div class="small text-muted fw-bold mb-2">중복 신고 반영</div>
                 <div class="d-flex flex-wrap gap-2 map-toolbar">
-                    <span class="badge text-bg-light border px-3 py-2">{{ '설정: 중복 신고 대표건만 반영' if dedupe_mode == 'canonical' else '설정: 원본 신고 row 모두 반영' }}</span>
+                    <span class="map-chip">{{ '설정: 중복 신고 대표건만 반영' if dedupe_mode == 'canonical' else '설정: 원본 신고 모두 반영' }}</span>
                 </div>
             </div>
         </div>
@@ -611,8 +597,8 @@
             </div>
             <div class="modal-body">
                 <div class="d-flex flex-wrap gap-2 mb-3">
-                    <span class="badge text-bg-light border">주소 그룹 {{ missing_map_meta.group_count or 0 }}곳</span>
-                    <span class="badge text-bg-light border">신고건 {{ missing_map_meta.report_count or 0 }}건</span>
+                    <span class="map-chip">주소 그룹 <b>{{ missing_map_meta.group_count or 0 }}곳</b></span>
+                    <span class="map-chip">신고건 <b>{{ missing_map_meta.report_count or 0 }}건</b></span>
                 </div>
                 {% if missing_map_groups %}
                 <div class="accordion" id="missingAddressAccordion">
@@ -624,7 +610,7 @@
                                     <div class="fw-semibold">{{ group.address or group.normalized_address or '주소 정보 없음' }}</div>
                                     <div class="small text-muted">{{ group.region or '행정구역 미상' }}</div>
                                 </div>
-                                <span class="badge text-bg-secondary ms-auto">{{ group.report_count or 0 }}건</span>
+                                <span class="sr-badge sr-badge-default ms-auto">{{ group.report_count or 0 }}건</span>
                             </button>
                         </h2>
                         <div id="missingCollapse{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" aria-labelledby="missingHeading{{ loop.index }}" data-bs-parent="#missingAddressAccordion">
@@ -639,7 +625,7 @@
                                             </div>
                                             <div class="d-flex flex-wrap gap-2 justify-content-end">
                                                 {% if report.처리상태 %}
-                                                <span class="badge text-bg-light border">{{ report.처리상태 }}</span>
+                                                <span class="sr-badge sr-badge-processing">{{ report.처리상태 }}</span>
                                                 {% endif %}
                                                 {% if report.category %}
                                                 <span class="badge text-bg-primary-subtle border text-primary-emphasis">{{ report.category }}</span>
