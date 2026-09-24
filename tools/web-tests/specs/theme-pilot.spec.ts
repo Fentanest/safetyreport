@@ -73,3 +73,21 @@ test('narrow viewport keeps sidebar toggle and theme switch reachable', async ({
   await expect(page.locator('#mainSidebar .sr-theme-switch')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('dark-390-sidebar.png') });
 });
+
+test('on phones the menu button does not cover an open search panel', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/login');
+  await page.locator('#username').fill('fixture-admin');
+  await page.locator('#password').fill('fixture-pass-1234');
+  await Promise.all([page.waitForURL('**/'), page.getByRole('button', { name: '로그인' }).click()]);
+  for (const url of ['/data/all', '/stats']) {
+    await page.goto(url);
+    await expect(page.locator('#btnSidebarToggle')).toBeVisible();
+    await page.locator('.floating-search-btn').click();
+    await expect(page.locator('#offcanvasSearch.show')).toHaveCount(1);
+    await expect(page.locator('#btnSidebarToggle')).toBeHidden();
+    await page.locator('#offcanvasSearch .btn-close').click();
+    await expect(page.locator('#offcanvasSearch.show')).toHaveCount(0);
+    await expect(page.locator('#btnSidebarToggle')).toBeVisible();
+  }
+});

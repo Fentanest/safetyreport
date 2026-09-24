@@ -235,15 +235,14 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 })();
 
-// Offcanvas 열릴 때 플로팅 버튼 숨기기
-document.addEventListener('show.bs.offcanvas', function() {
-    var btn = document.querySelector('.floating-search-btn');
-    if (btn) btn.style.visibility = 'hidden';
-});
-document.addEventListener('hidden.bs.offcanvas', function() {
-    var btn = document.querySelector('.floating-search-btn');
-    if (btn) btn.style.visibility = '';
-});
+// Offcanvas 열릴 때 떠 있는 버튼 숨기기. 휴대폰 폭의 메뉴 버튼(z-index 1046)은 offcanvas(1045) 위라 제목을 가린다.
+function setFloatingButtonsHidden(hidden) {
+    document.querySelectorAll('.floating-search-btn, .btn-sidebar-toggle').forEach(function (btn) {
+        btn.style.visibility = hidden ? 'hidden' : '';
+    });
+}
+document.addEventListener('show.bs.offcanvas', function() { setFloatingButtonsHidden(true); });
+document.addEventListener('hidden.bs.offcanvas', function() { setFloatingButtonsHidden(false); });
 
 // 세션 만료(401) 시 로그인 화면으로 이동
 (function() {
