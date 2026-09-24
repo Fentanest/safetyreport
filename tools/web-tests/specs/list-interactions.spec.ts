@@ -37,8 +37,8 @@ test.describe('List Interactions and Modals', () => {
     await page.waitForSelector('#offcanvasSearch', { state: 'visible' });
 
     await page.locator('#searchStatusDropdown .multi-select-toggle').click();
-    // Click on '수용' which is the first after '전체'
-    await page.locator('#searchStatusDropdown .multi-select-option:has-text("수용")').click();
+    // Click on '수용' exactly
+    await page.locator('#searchStatusDropdown .multi-select-option').filter({ has: page.locator('span', { hasText: /^수용$/ }) }).click();
     await page.locator('#btnSearch').click();
   });
 
@@ -86,11 +86,11 @@ test.describe('List Interactions and Modals', () => {
 
     await page.locator('.btn-copy-page-ids').first().click();
     await page.waitForTimeout(100);
-    expect(clipboardText.split('\\n').length).toBeGreaterThan(1);
+    expect(clipboardText.split('\n').length).toBeGreaterThan(1);
 
     await page.locator('.btn-copy-ids').first().click();
     await page.waitForTimeout(100);
-    expect(clipboardText.split('\\n').length).toBeGreaterThan(10);
+    expect(clipboardText.split('\n').length).toBeGreaterThan(10);
   });
 
   test('CSV export matches table headers', async ({ page }) => {

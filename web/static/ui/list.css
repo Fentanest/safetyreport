@@ -1,27 +1,3 @@
-/* 상태 배지 */
-.sr-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0.25em 0.6em;
-    font-size: 0.75rem;
-    font-weight: 600;
-    line-height: 1;
-    text-align: center;
-    white-space: nowrap;
-    vertical-align: baseline;
-    border-radius: var(--sr-radius-sm, 8px);
-    color: #ffffff;
-}
-
-.sr-badge-accept { background-color: var(--sr-status-accept); }
-.sr-badge-partial { background-color: var(--sr-status-partial); }
-.sr-badge-reject { background-color: var(--sr-status-reject); }
-.sr-badge-processing { background-color: var(--sr-status-processing); }
-.sr-badge-supplement { background-color: var(--sr-status-supplement); }
-.sr-badge-withdraw { background-color: var(--sr-status-withdraw); }
-.sr-badge-fine { background-color: var(--sr-status-fine); }
-.sr-badge-default { background-color: var(--sr-border); color: var(--sr-text); }
 /* data_table.html specific styles */
 .table-fixed {
     table-layout: fixed !important;
@@ -46,22 +22,47 @@
     height: 1px;
     border: none;
 }
-th {
+
+/* 표 머리글 배경, 굵기 토큰화 */
+table.dataTable thead th {
+    background-color: var(--sr-surface-2) !important;
+    border-bottom: 2px solid var(--sr-border) !important;
+    font-weight: 600;
     vertical-align: middle !important;
     text-align: center !important;
     white-space: nowrap;
+    padding: 0.75rem 0.5rem;
+    color: var(--sr-text);
 }
+
+/* 표 행 높이, 패딩, 호버, 선택 행 */
+table.dataTable tbody td {
+    vertical-align: middle;
+    padding: 0.75rem 0.5rem;
+}
+table.dataTable tbody tr:hover td {
+    background-color: var(--sr-surface-3) !important;
+}
+
+/* 날짜 및 숫자 열 정렬 */
+table.dataTable tbody td.tabular-nums {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+}
+
 tr.row-selected td {
-    background-color: rgba(245, 158, 11, 0.16) !important;
+    background-color: rgba(245, 158, 11, 0.08) !important;
 }
 [data-bs-theme="dark"] tr.row-selected td {
     background-color: rgba(245, 158, 11, 0.16) !important;
     color: var(--sr-text);
 }
+
 .search-logic-hint {
     font-size: 0.9rem;
     line-height: 1.45;
 }
+
 .multi-select-toggle {
     width: 100%;
     padding: 0.5rem 0.75rem;
@@ -88,6 +89,10 @@ tr.row-selected td {
     padding: 0.35rem 0;
     max-height: 240px;
     overflow-y: auto;
+    background: var(--sr-surface);
+    border: 1px solid var(--sr-border);
+    border-radius: var(--sr-radius-sm);
+    box-shadow: var(--sr-shadow);
 }
 .multi-select-option {
     display: flex;
@@ -95,6 +100,8 @@ tr.row-selected td {
     justify-content: space-between;
     gap: 0.75rem;
     color: var(--sr-text);
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
 }
 .multi-select-option:hover {
     background-color: var(--sr-surface-3);
@@ -111,4 +118,45 @@ tr.row-selected td {
 }
 .multi-select-option.active .multi-select-check {
     visibility: visible;
+}
+
+/* 작업 바 툴바 스타일 */
+.sr-list-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--sr-surface-2);
+    padding: 0.75rem;
+    border-radius: var(--sr-radius);
+    border: 1px solid var(--sr-border);
+    margin-bottom: 1rem;
+}
+.sr-list-toolbar .primary-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.sr-list-toolbar .secondary-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* 모바일 390px 반응형 정리 */
+@media (max-width: 575px) {
+    .sr-list-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .sr-list-toolbar .primary-actions, 
+    .sr-list-toolbar .secondary-actions {
+        width: 100%;
+    }
+    .sr-list-toolbar .btn {
+        flex: 1;
+        font-size: 0.85rem;
+        padding: 0.4rem 0.5rem;
+    }
 }

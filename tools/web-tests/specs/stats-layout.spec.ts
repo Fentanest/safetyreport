@@ -18,6 +18,8 @@ for (const width of [1280, 1440]) {
       await page.locator(`.stats-type-btn[data-type="${type}"]`).first().click();
       const table = page.locator('.stats-pane:visible table').first();
       await expect(table).toBeVisible();
+      // DataTables 는 한국어 파일을 비동기로 받은 뒤 표를 감싼다 — 초기화가 끝난 뒤에 잰다.
+      await expect(page.locator('.stats-pane:visible .dataTables_wrapper')).toHaveCount(1);
       const { tableW, boxW, headCells, footCells } = await table.evaluate((t: HTMLTableElement) => ({
         tableW: t.scrollWidth,
         boxW: (t.closest('.dataTables_wrapper') as HTMLElement).clientWidth,

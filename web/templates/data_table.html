@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="/static/ui/list.css?v={{ request.state.app_version }}">
 {% endblock %}
 
 {% block content %}
@@ -151,13 +152,17 @@
 </div>
 
 <!-- 데이터 도구 상단 툴바 -->
-<div class="d-flex flex-wrap gap-2 mb-3">
-    <button type="button" class="btn btn-warning shadow-sm btn-add-watchlist"><i class="fas fa-eye me-1"></i> 감시목록 추가</button>
-    <button type="button" class="btn btn-primary shadow-sm btn-enqueue-crawl"><i class="fas fa-play me-1"></i> 선택건 크롤링</button>
-    <button type="button" class="btn btn-success shadow-sm btn-export-excel"><i class="fas fa-file-excel me-1"></i> 엑셀 다운로드</button>
-    <button type="button" class="btn btn-secondary text-white shadow-sm btn-copy-selected-ids"><i class="fas fa-clipboard-check me-1"></i> 선택된 신고번호 복사</button>
-    <button type="button" class="btn btn-outline-info shadow-sm btn-copy-page-ids"><i class="fas fa-file-alt me-1"></i> 현재 페이지 신고번호 복사</button>
-    <button type="button" class="btn btn-info text-white shadow-sm btn-copy-ids"><i class="fas fa-copy me-1"></i> 전체 신고번호 복사</button>
+<div class="sr-list-toolbar">
+    <div class="primary-actions">
+        <button type="button" class="btn btn-primary btn-sm shadow-sm btn-enqueue-crawl"><i class="fas fa-play me-1"></i> 선택건 크롤링</button>
+        <button type="button" class="btn btn-warning btn-sm shadow-sm btn-add-watchlist"><i class="fas fa-eye me-1"></i> 감시목록 추가</button>
+    </div>
+    <div class="secondary-actions">
+        <button type="button" class="btn btn-outline-secondary btn-sm shadow-sm btn-copy-selected-ids"><i class="fas fa-clipboard-check me-1"></i> 선택 복사</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm shadow-sm btn-copy-page-ids"><i class="fas fa-file-alt me-1"></i> 페이지 복사</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm shadow-sm btn-copy-ids"><i class="fas fa-copy me-1"></i> 전체 복사</button>
+        <button type="button" class="btn btn-success btn-sm shadow-sm btn-export-excel"><i class="fas fa-file-excel me-1"></i> 엑셀 다운로드</button>
+    </div>
 </div>
 
 <div class="card card-custom">
@@ -174,8 +179,8 @@
                     <th style="width: 40.89px;">상태</th>
                     <th style="width: 120.61px;">신고번호</th>
                     <th style="width: 225.19px;">신고명</th>
-                    <th style="width: 64.19px;">신고일</th>
-                    <th style="width: 58.89px;">처리상태</th>
+                    <th style="width: 135px;">신고일</th>
+                    <th style="width: 80px;">처리상태</th>
                     <th style="width: 89.45px;">차량번호</th>
                     {% if table_id == "duplicateTable" %}
                     <th style="width: 100px;">중복횟수</th>
@@ -185,10 +190,10 @@
                     <th style="width: 29.45px;">벌점</th>
                     <th style="width: 270.64px;">처리기관</th>
                     <th style="width: 44.17px;">담당자</th>
-                    <th style="width: 64.19px;">답변일</th>
+                    <th style="width: 135px;">답변일</th>
                     <th style="width: 48px;">보완</th>
-                    <th style="width: 64.19px;">발생일자</th>
-                    <th style="width: 58.89px;">발생시각</th>
+                    <th style="width: 85px;">발생일자</th>
+                    <th style="width: 75px;">발생시각</th>
                     <th style="width: 310.45px;">위반장소</th>
                     <th style="width: 58.89px;">종결여부</th>
                     <th style="width: 182px;">신고내용</th>
@@ -208,13 +213,17 @@
 </div>
 
 <!-- 데이터 도구 하단 툴바 -->
-<div class="d-flex flex-wrap gap-2 mt-3">
-    <button type="button" class="btn btn-warning shadow-sm btn-add-watchlist"><i class="fas fa-eye me-1"></i> 감시목록 추가</button>
-    <button type="button" class="btn btn-primary shadow-sm btn-enqueue-crawl"><i class="fas fa-play me-1"></i> 선택건 크롤링</button>
-    <button type="button" class="btn btn-success shadow-sm btn-export-excel"><i class="fas fa-file-excel me-1"></i> 엑셀 다운로드</button>
-    <button type="button" class="btn btn-secondary text-white shadow-sm btn-copy-selected-ids"><i class="fas fa-clipboard-check me-1"></i> 선택된 신고번호 복사</button>
-    <button type="button" class="btn btn-outline-info shadow-sm btn-copy-page-ids"><i class="fas fa-file-alt me-1"></i> 현재 페이지 신고번호 복사</button>
-    <button type="button" class="btn btn-info text-white shadow-sm btn-copy-ids"><i class="fas fa-copy me-1"></i> 전체 신고번호 복사</button>
+<div class="sr-list-toolbar mt-3">
+    <div class="primary-actions">
+        <button type="button" class="btn btn-primary btn-sm shadow-sm btn-enqueue-crawl"><i class="fas fa-play me-1"></i> 선택건 크롤링</button>
+        <button type="button" class="btn btn-warning btn-sm shadow-sm btn-add-watchlist"><i class="fas fa-eye me-1"></i> 감시목록 추가</button>
+    </div>
+    <div class="secondary-actions">
+        <button type="button" class="btn btn-outline-secondary btn-sm shadow-sm btn-copy-selected-ids"><i class="fas fa-clipboard-check me-1"></i> 선택 복사</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm shadow-sm btn-copy-page-ids"><i class="fas fa-file-alt me-1"></i> 페이지 복사</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm shadow-sm btn-copy-ids"><i class="fas fa-copy me-1"></i> 전체 복사</button>
+        <button type="button" class="btn btn-success btn-sm shadow-sm btn-export-excel"><i class="fas fa-file-excel me-1"></i> 엑셀 다운로드</button>
+    </div>
 </div>
 {% endblock %}
 
@@ -544,8 +553,8 @@ $(document).ready(function() {
             { targets: 2, width: '40.89px' },
             { targets: 3, width: '120.61px' },
             { targets: 4, width: '225.19px' },
-            { targets: 5, width: '64.19px' },
-            { targets: 6, width: '58.89px' },
+            { targets: 5, width: '135px', className: 'tabular-nums' },
+            { targets: 6, width: '80px' },
             { targets: 7, width: '89.45px' },
             ...(isDuplicate ? [{ targets: 8, width: '100px' }] : []),
             { targets: 8 + offset, width: '141.13px' },
@@ -553,10 +562,10 @@ $(document).ready(function() {
             { targets: 10 + offset, width: '29.45px' },
             { targets: 11 + offset, width: '270.64px' },
             { targets: 12 + offset, width: '44.17px' },
-            { targets: 13 + offset, width: '64.19px' },
+            { targets: 13 + offset, width: '135px', className: 'tabular-nums' },
             { targets: 14 + offset, width: '48px' },
-            { targets: 15 + offset, width: '64.19px' },
-            { targets: 16 + offset, width: '58.89px' },
+            { targets: 15 + offset, width: '85px', className: 'tabular-nums' },
+            { targets: 16 + offset, width: '75px', className: 'tabular-nums' },
             { targets: 17 + offset, width: '310.45px' },
             { targets: 18 + offset, width: '58.89px' },
             { targets: 19 + offset, width: '182px' },
@@ -570,7 +579,9 @@ $(document).ready(function() {
             { targets: 27 + offset, width: '58.89px' }
         ],
         language: {
-            url: 'https://cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json'
+            url: 'https://cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json',
+            emptyTable: '<div class="text-center py-5 text-muted"><i class="fas fa-search fa-3x mb-3" style="color: var(--sr-border);"></i><br><h5>조건에 맞는 신고 내역이 없습니다</h5><p>상세 검색 필터를 조정해 보세요.</p></div>',
+            zeroRecords: '<div class="text-center py-5 text-muted"><i class="fas fa-search fa-3x mb-3" style="color: var(--sr-border);"></i><br><h5>조건에 맞는 신고 내역이 없습니다</h5><p>상세 검색 필터를 조정해 보세요.</p></div>'
         }
     });
 
