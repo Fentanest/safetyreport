@@ -12,7 +12,7 @@
   "legacy": "옛 열. 새 코드는 쓰지 않는다."
  },
  "schema_version": {
-  "server": 1,
+  "server": 2,
   "mobile": 12,
   "note": "서버는 PRAGMA user_version(core/database/database.py SCHEMA_VERSION), 모바일은 openDatabase version."
  },
@@ -137,7 +137,7 @@
      ],
      "mobile": true,
      "exchange": true,
-     "note": "감시목록 표에서 계산하는 표시값. 원천은 watchlist 엔터티(결정 D-6·S-16)."
+     "note": "감시목록 표(서버 mysafety_watchlist, 모바일 sync_meta 'watchlist')에서 계산하는 표시값. 서버는 merge_final·감시목록 변경 때 다시 계산(refresh_watch_flags)."
     },
     {
      "name": "처리상태",
@@ -598,7 +598,7 @@
      "exchange": true
     }
    ],
-   "note": "키: last_sync(ISO8601), watchlist(서버는 mysafety_watchlist 가 원천 — 결정 D-6/R1 에서 통일), map_backfill_state(서버 런타임, 교환 제외)."
+   "note": "키: last_sync(ISO8601), watchlist(모바일 전용 — 서버 원천은 mysafety_watchlist, 서버 sync_meta 에는 두지 않음; 스키마 버전 2 에서 삭제), map_backfill_state(서버 런타임, 교환 제외). value 는 양쪽 모두 NULL 허용."
   },
   {
    "entity": "geocode_cache",

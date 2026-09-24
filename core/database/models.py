@@ -133,7 +133,7 @@ raw_content_table = Table('mysafety_raw_content', metadata,
 
 sync_meta_table = Table('mysafety_sync_meta', metadata,
                         Column('key', String, primary_key=True),
-                        Column('value', String, nullable=False, default=''))
+                        Column('value', String, default=''))  # 모바일과 같게 NULL 허용(스키마 버전 2)
 
 duplicate_group_table = Table('mysafety_duplicate_group', metadata,
                               Column('group_id', String, primary_key=True),

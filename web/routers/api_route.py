@@ -603,12 +603,16 @@ async def upload_database(file: UploadFile = File(...), _: str = Depends(_requir
                     break
                 out.write(chunk)
 
+        from core.storage.exchange import RestoreRefused
         kind = db_backup.detect_db_kind(tmp_path)
-        if kind == "server":
-            backup, count = db_backup.restore_from_server_db(tmp_path)
-        elif kind == "mobile":
-            backup, count = db_backup.restore_from_mobile_db(tmp_path)
-        else:
+        try:
+            if kind == "server":
+                backup, count = db_backup.restore_from_server_db(tmp_path)
+            elif kind == "mobile":
+                backup, count = db_backup.restore_from_mobile_db(tmp_path)
+        except RestoreRefused as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        if kind not in ("server", "mobile"):
             raise HTTPException(
                 status_code=400,
                 detail="알 수 없는 DB 형식 — 서버(mysafety*) 또는 모바일(reports+sync_meta) DB만 허용됩니다.",

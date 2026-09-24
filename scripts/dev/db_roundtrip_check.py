@@ -56,7 +56,14 @@ with engine.begin() as conn:
     conn.execute(text("UPDATE mysafetydetail_other SET 처리내용='첫 줄\n둘째 줄\n“따옴표”' WHERE ID='90000201'"))
     conn.execute(text("UPDATE mysafetydetail_traffic SET 벌점=NULL WHERE ID='90000003'"))
     conn.execute(text("UPDATE mysafety SET 별점사유='' WHERE ID='90000001'"))
-    conn.execute(text("INSERT OR REPLACE INTO mysafety_sync_meta(key, value) VALUES ('watchlist', 'SPP-2604-9000006,SPP-2608-9000010')"))
+    # R1b: NULL 보존(sync_meta 값, 캐시 error_message)과 새 사용자 표(수정값·중복 판단) 교환
+    conn.execute(text("INSERT OR REPLACE INTO mysafety_sync_meta(key, value) VALUES ('rt_null_probe', NULL)"))
+    conn.execute(text("INSERT OR REPLACE INTO mysafety_geocode_cache(주소정규화, 원본주소, 행정구역, 위도, 경도, 상태, source, error_message, updated_at) "
+                      "VALUES ('서울특별시 강서구 공항동 1', NULL, NULL, NULL, NULL, 'pending', 'kakao', NULL, NULL)"))
+    conn.execute(text("INSERT INTO mysafety_report_override(ID, column_name, value, updated_at) VALUES ('90000001', '처리내용', '내가 고친 처리내용', 1790000000999)"))
+    conn.execute(text("INSERT INTO mysafety_report_override(ID, column_name, value, updated_at) VALUES ('90000001', '담당자', '', 1790000000998)"))
+    conn.execute(text("INSERT INTO mysafety_duplicate_decision(group_id, status, representative_mode, representative_id, apply_globally, note, updated_at) "
+                      "VALUES ('deadbeef', 'not_duplicate', 'manual', NULL, 0, NULL, 1790000000997)"))
     # 사용자 데이터 시나리오(R0): 별점·사유, 중복 수동 판단(상태·대표건·메모)
     conn.execute(text("UPDATE mysafety SET 만족도조사여부='참여 완료', 별점=5, 별점사유='친절하고 빠름' WHERE ID='90000002'"))
     conn.execute(text("UPDATE mysafety SET 만족도조사여부='참여 완료', 별점=1, 별점사유='' WHERE ID='90000003'"))
@@ -164,6 +171,17 @@ def _rows(db: Path, table: str, key: str) -> dict:
     return result
 
 
+def _all(db: Path, table: str) -> list[dict]:
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        return [dict(r) for r in con.execute(f'SELECT * FROM "{table}"')]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        con.close()
+
+
 def _dup_meta(db: Path, group_table: str, member_table: str) -> tuple[dict, dict]:
     groups = _rows(db, group_table, "group_id")
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
@@ -233,9 +251,21 @@ def main() -> int:
         diffs += compare("A:duplicate_group", g0, g2)
         diffs += compare("A:duplicate_member", mem0, mem2)
         diffs += compare("A:mysafety_geocode_cache", _rows(s0, "mysafety_geocode_cache", "주소정규화"), _rows(s2, "mysafety_geocode_cache", "주소정규화"))
+        diffs += compare("A:mysafety_duplicate_decision", _rows(s0, "mysafety_duplicate_decision", "group_id"), _rows(s2, "mysafety_duplicate_decision", "group_id"))
+        ov0 = {f'{r["ID"]}|{r["column_name"]}': r for r in _all(s0, "mysafety_report_override")}
+        ov2 = {f'{r["ID"]}|{r["column_name"]}': r for r in _all(s2, "mysafety_report_override")}
+        diffs += compare("A:mysafety_report_override", ov0, ov2)
 
         for table, key in MOBILE_TABLES.items():
             diffs += compare(f"B:{table}", _rows(m1, table, key), _rows(m3, table, key))
+        diffs += compare("B:duplicate_decision", _rows(m1, "duplicate_decision", "group_id"), _rows(m3, "duplicate_decision", "group_id"))
+        mo1 = {f'{r["ID"]}|{r["column_name"]}': r for r in _all(m1, "report_override")}
+        mo3 = {f'{r["ID"]}|{r["column_name"]}': r for r in _all(m3, "report_override")}
+        diffs += compare("B:report_override", mo1, mo3)
+        # 교환 대상 표가 실제로 채워졌는지(빈 표끼리 같다고 통과하지 않도록). 합성 S0 에만 해당 — 운영 사본엔 아직 수정값이 없다.
+        for label, db, table in () if args.server_db else (("M1", m1, "report_override"), ("M1", m1, "duplicate_decision"), ("S2", s2, "mysafety_report_override")):
+            if not _all(db, table):
+                diffs.append(f"[coverage] {label}.{table} 가 비어 있음 — 교환이 새 표를 옮기지 않음")
         mg1, mm1 = _dup_meta(m1, "duplicate_group", "duplicate_member")
         mg3, mm3 = _dup_meta(m3, "duplicate_group", "duplicate_member")
         diffs += compare("B:duplicate_group", mg1, mg3)

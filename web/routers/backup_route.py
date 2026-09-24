@@ -54,33 +54,40 @@ async def upload_db(file: UploadFile = File(...)):
 
     # 임시 파일에 저장
     tmp_path = await _save_upload_to_tmp(file)
+    from core.storage.exchange import RestoreRefused
     try:
-        kind = db_backup.detect_db_kind(tmp_path)
-        if kind == "server":
-            backup, count = db_backup.restore_from_server_db(tmp_path)
-            return JSONResponse({
-                "status": "ok",
-                "kind": "server",
-                "imported": count,
-                "backup": os.path.basename(backup) if backup else "",
-                "message": f"서버 형식 DB로 복원 완료. ({count}건)",
-            })
-        elif kind == "mobile":
-            backup, count = db_backup.restore_from_mobile_db(tmp_path)
-            return JSONResponse({
-                "status": "ok",
-                "kind": "mobile",
-                "imported": count,
-                "backup": os.path.basename(backup) if backup else "",
-                "message": f"모바일 DB → 서버 형식 변환 복원 완료. ({count}건)",
-            })
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="알 수 없는 DB 형식 — 서버(mysafety*) 또는 모바일(reports+sync_meta) DB만 허용됩니다.",
-            )
+        return _restore_uploaded(tmp_path)
+    except RestoreRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     finally:
         _safe_unlink(tmp_path)
+
+
+def _restore_uploaded(tmp_path: str):
+    kind = db_backup.detect_db_kind(tmp_path)
+    if kind == "server":
+        backup, count = db_backup.restore_from_server_db(tmp_path)
+        return JSONResponse({
+            "status": "ok",
+            "kind": "server",
+            "imported": count,
+            "backup": os.path.basename(backup) if backup else "",
+            "message": f"서버 형식 DB로 복원 완료. ({count}건)",
+        })
+    elif kind == "mobile":
+        backup, count = db_backup.restore_from_mobile_db(tmp_path)
+        return JSONResponse({
+            "status": "ok",
+            "kind": "mobile",
+            "imported": count,
+            "backup": os.path.basename(backup) if backup else "",
+            "message": f"모바일 DB → 서버 형식 변환 복원 완료. ({count}건)",
+        })
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="알 수 없는 DB 형식 — 서버(mysafety*) 또는 모바일(reports+sync_meta) DB만 허용됩니다.",
+        )
 
 
 async def _save_upload_to_tmp(file: UploadFile) -> str:

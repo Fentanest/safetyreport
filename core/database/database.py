@@ -315,7 +315,7 @@ def upgrade_schema(engine):
 
 # 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다.
 # 위의 열 추가식 upgrade 는 그대로 두고, 이후 데이터 이동이 필요한 변경은 번호 붙은 단계로 쌓는다(저장 계층 재설계 R1).
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _migration_1_storage_tables(conn):
@@ -326,7 +326,31 @@ def _migration_1_storage_tables(conn):
         raise RuntimeError(f"스키마 버전 1 표 누락: {sorted(missing)}")
 
 
-_VERSIONED_MIGRATIONS = {1: _migration_1_storage_tables}
+def _migration_2_sync_meta_and_watch_flags(conn):
+    """R1b: sync_meta.value 를 NULL 허용으로(모바일과 같게, 표 재생성), 서버 sync_meta 의 감시목록 사본 삭제(원천은 mysafety_watchlist),
+    title/merge 의 `감시목록` 열을 감시목록 표 기준으로 다시 계산."""
+    conn.execute(text("CREATE TABLE mysafety_sync_meta_new (key VARCHAR NOT NULL PRIMARY KEY, value VARCHAR)"))
+    conn.execute(text("INSERT INTO mysafety_sync_meta_new (key, value) SELECT key, value FROM mysafety_sync_meta WHERE key != 'watchlist'"))
+    conn.execute(text("DROP TABLE mysafety_sync_meta"))
+    conn.execute(text("ALTER TABLE mysafety_sync_meta_new RENAME TO mysafety_sync_meta"))
+    refresh_watch_flags(conn)
+
+
+_VERSIONED_MIGRATIONS = {1: _migration_1_storage_tables, 2: _migration_2_sync_meta_and_watch_flags}
+
+
+def refresh_watch_flags(conn, report_numbers=None):
+    """title·merge 의 `감시목록` 열 = mysafety_watchlist 에 있으면 'Y' 아니면 'N' (계산값, 계약 owner=derived)."""
+    for table in (title_table, merge_traffic_table, merge_parking_table, merge_other_table):
+        flag = text(
+            f"UPDATE {table.name} SET 감시목록 = CASE WHEN 신고번호 IN (SELECT 신고번호 FROM mysafety_watchlist) THEN 'Y' ELSE 'N' END"
+            + (" WHERE 신고번호 IN :numbers" if report_numbers else "")
+        )
+        if report_numbers:
+            flag = flag.bindparams(bindparam("numbers", expanding=True))
+            conn.execute(flag, {"numbers": list(report_numbers)})
+        else:
+            conn.execute(flag)
 
 
 def get_schema_version(engine) -> int:
@@ -766,6 +790,7 @@ def merge_final(engine, conn=None, *, track_duplicate_changes: bool = False):
         _merge_for_table(conn, merge_traffic_table, detail_traffic_table)
         _merge_for_table(conn, merge_parking_table, detail_parking_table)
         _merge_for_table(conn, merge_other_table, detail_other_table)
+        refresh_watch_flags(conn)
         conn.commit()
         logger.LoggerFactory.logbot.info("최종 데이터 병합 완료 (Traffic/Parking/Other 분리)")
     return _refresh_duplicate_groups(engine, track_changes=track_duplicate_changes)
