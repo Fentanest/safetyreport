@@ -156,10 +156,6 @@ def peek_crawl_changes():
     return _read_json(_state_file("crawl_changes.json"), [])
 
 
-def get_and_clear_crawl_changes():
-    return _take_json(_state_file("crawl_changes.json"), [])
-
-
 def save_crawl_done(changed_count: int, *, report_changed_count: int | None = None, duplicate_changed_count: int = 0):
     _write_json(
         _state_file("crawl_done.json"),

@@ -261,24 +261,3 @@ def save_results(df):
 
     save_to_excel(processed_df)
     save_to_google_sheet(processed_df, photo_cols)
-
-
-def save_results_by_category(category_dfs):
-    """카테고리별 dict({"교통위반": df, "주정차위반": df, "기타위반": df})를 받아
-    Excel과 구글 시트에 카테고리별 시트로 저장.
-    photo_cols는 카테고리별로 다를 수 있어 각자 _process_dataframe 통과."""
-    if not category_dfs or all(df.empty for df in category_dfs.values()):
-        logger.LoggerFactory.logbot.info("결과가 모두 비어 있어 저장을 건너뜁니다.")
-        return
-
-    excel_data = {}
-    sheet_data = {}
-    for label, df in category_dfs.items():
-        if df is None or df.empty:
-            continue
-        processed_df, photo_cols = _process_dataframe(df)
-        excel_data[label] = processed_df
-        sheet_data[label] = (processed_df, photo_cols)
-
-    save_to_excel(excel_data)
-    save_to_google_sheet(sheet_data, photo_cols=None)

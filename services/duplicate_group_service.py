@@ -136,18 +136,6 @@ def _priority_tuple(record: dict):
     return (fine_rank, status_rank, answer_rank, synced_rank, report_number)
 
 
-def _priority_score(record: dict) -> int:
-    fine_rank, status_rank, answer_rank, synced_rank, _ = _priority_tuple(record)
-    answer_rank //= 1000
-    synced_rank //= 1000
-    return (
-        fine_rank * 10**15
-        + max(status_rank + 10, 0) * 10**14
-        + min(answer_rank, 10**11 - 1) * 10**3
-        + min(synced_rank, 999)
-    )
-
-
 def _choose_representative(records: list[dict]) -> dict:
     return sorted(records, key=_priority_tuple, reverse=True)[0]
 

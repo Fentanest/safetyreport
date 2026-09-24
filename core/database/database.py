@@ -462,9 +462,6 @@ def get_pending_detail_ids(engine, force=False):
         return detaillist
 
 
-def get_cNo(engine, force=False):
-    return get_pending_detail_ids(engine=engine, force=force)
-
 def title_to_sql(dataframes, engine, conn=None):
     if not dataframes:
         return []
@@ -573,13 +570,6 @@ def merge_final(engine, conn=None, *, track_duplicate_changes: bool = False):
         conn.commit()
         logger.LoggerFactory.logbot.info("최종 데이터 병합 완료 (Traffic/Parking/Other 분리)")
     return _refresh_duplicate_groups(engine, track_changes=track_duplicate_changes)
-
-def clear_old_attachments(engine):
-    """6개월 지난 첨부 가림. 이제 화면용 표를 만들 때마다 같은 규칙으로 적용되므로(S-31) 여기서는 다시 적용만 한다."""
-    from core.storage import reports_repo
-
-    with engine.begin() as conn:
-        reports_repo._apply_attachment_expiry(conn, None)
 
 def load_results(engine, conn=None):
     """전체 카테고리 합본 (레거시 호환). 새 코드는 load_results_by_category 사용 권장."""

@@ -227,10 +227,6 @@ def _build_select_for_columns(table_obj, column_names):
     return select(*columns)
 
 
-def _build_stats_select(table_obj):
-    return _build_select_for_columns(table_obj, _STATS_COLUMNS)
-
-
 def _build_stats_query(table_obj, filters=None, column_names=None):
     query = _build_select_for_columns(table_obj, column_names or _STATS_COLUMNS)
     if not filters:

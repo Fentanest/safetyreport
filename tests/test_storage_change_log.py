@@ -45,6 +45,20 @@ class ChangeLogTests(unittest.TestCase):
         self.batch("b")
         self.assertEqual([c["ID"] for c in change_log.read_for_device(self.engine, None)], ["b"])
 
+    def test_idle_device_positions_are_dropped_when_a_batch_is_added(self):
+        from sqlalchemy import select, update
+        from core.database import models
+
+        self.batch("a")
+        change_log.read_for_device(self.engine, "gone-phone")
+        change_log.read_for_device(self.engine, "active-phone")
+        with self.engine.begin() as conn:
+            conn.execute(update(models.change_cursor_table).where(models.change_cursor_table.c.device_id == "gone-phone").values(updated_at=0))
+        self.batch("b")
+        with self.engine.connect() as conn:
+            devices = set(conn.execute(select(models.change_cursor_table.c.device_id)).scalars())
+        self.assertEqual(devices, {"active-phone"})
+
     def test_save_crawl_changes_also_records_the_batch_and_writes_atomically(self):
         import settings.settings as app_settings
         from scripts.dev import fixture_server

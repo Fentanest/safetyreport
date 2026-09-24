@@ -10,7 +10,6 @@
 
 from services.crawl_state_store import (
     clear_crawl_changes,
-    get_and_clear_crawl_changes,
     get_and_clear_crawl_done,
     get_and_clear_crawl_done_ext,
     peek_crawl_changes,
@@ -39,6 +38,3 @@ from services.report_stats_service import (
     get_stats_overview,
 )
 
-
-def resolve_ids_for_rating(engine, id_list):
-    return resolve_to_report_numbers(engine, id_list)

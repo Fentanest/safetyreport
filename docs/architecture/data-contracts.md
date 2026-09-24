@@ -89,6 +89,28 @@ by_law (법규별, 같은 필드 + law)
 - 별점 일괄 제출·이미 참여 확인은 점수도 기록(`sync_rating_status(score=, cause=)`).
 - `upgrade_schema(engine, maintenance=False)`: 크롤링 서브프로세스용 가벼운 확인(표·열·버전). 스키마 버전 4(인덱스).
 
+## 2026-09-24 저장 계층 재설계 R6 — 시각 형식 (S-32)
+
+형식이 여러 개인 것은 받는 쪽이 이미 그 형식으로 읽고 있어서다. 저장된 값을 바꾸지 않고, 새 필드는 아래 규칙을 따른다.
+
+| 종류 | 형식 | 필드 |
+|---|---|---|
+| 기계용 기록 시각(새 필드 기본값) | 정수 Unix epoch **밀리초** | `synced_at`, `mysafety_raw_content.saved_at`, 중복 그룹·멤버·판단의 `created_at`/`updated_at`, `mysafety_report_override.updated_at`, `mysafety_change_log.created_at`, `mysafety_change_cursor.updated_at` (모바일 같은 이름 열도 같음) |
+| 마지막 동기화 | ISO8601 로컬 시각, 시간대 없음 | `mysafety_sync_meta.last_sync` — 서버는 초까지, 모바일(`toIso8601String`)은 마이크로초까지. 둘 다 `datetime.fromisoformat`·`DateTime.parse` 로 읽힌다 |
+| 사이트 원문 날짜 | `YYYY-MM-DD` 문자열, 시각은 `HH:MM` | `신고일`·`답변일`·`발생일자`·`발생시각`, 사진 촬영 시각 열 — 사이트가 준 값 그대로 |
+| 사람이 보는 표시용 | `YYYY-MM-DD HH:MM:SS` 문자열 | `crawl_done*.json` 의 `timestamp`, `api_keys.created_at`, 기기 연결 목록 — 서버 전용·화면 표시 |
+| WebSocket 메시지 | `datetime.isoformat()`(마이크로초 포함) | `/ws/events` 의 `timestamp` |
+
+`synced_at` 의 뜻: "이 신고의 상세가 마지막으로 실제로 바뀐 시각". 2026-05-06 이전 행은 그 시각을 알 수 없어 `답변일`(없으면 `신고일`) 그날 끝으로 추정해 채웠다 —
+정렬(최근 답변)용으로는 같은 뜻으로 쓰고, "언제 크롤링했나"로 쓰지 않는다. 크롤링 시각은 `last_sync`.
+
+## 2026-09-24 저장 계층 재설계 R6 — 라우터 실행 (S-29)
+
+- 웹·모바일 API 라우터는 await 가 없으면 `def`(FastAPI 스레드풀에서 실행)로 둔다. 본문을 읽느라 `async def` 인 라우터는 DB·파일 작업을 `run_in_threadpool` 로 넘긴다.
+  판다스·SQLite 작업을 이벤트 루프에서 돌리면 복원·편집·중복 판단 저장 동안 WebSocket·미디어 스트림까지 멈춘다.
+- 스레드에서 돌기 때문에 크롤링 시작·큐 적재·중지는 `crawl_control._launch_lock` 으로 한 줄로 세운다(실행 중 확인 → 로그 회전 → 프로세스 시작이 끊기지 않게).
+- 스레드풀 토큰은 미디어 스트림(`iter_stream`)과 같이 쓴다(anyio 기본 40).
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 199-307 -->
@@ -341,7 +363,8 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 - 일반 신고 변경 목록은 저장 전에 `synced_at DESC`, fallback `답변일 DESC`, `신고번호 DESC` 로 재정렬한다.
 - 각 report payload 에는 `change_reason ('supplement' | 'report')`, `supplement_open`, `supplement_round_no`, `supplement_round_count` 도 함께 들어간다. `supplement` 는 신고가 보완요청 상태이거나 보완 history 에 열린 round 가 있을 때.
 - `services.crawl_state_store.peek_crawl_changes()` — 읽기만 (삭제 안 함) → WS 브로드캐스트용
-- `services.crawl_state_store.get_and_clear_crawl_changes()` — 읽고 즉시 삭제 → 모바일 API 폴링용
+- 모바일 API 폴링(`/api/v1/crawl/results`)은 이 파일이 아니라 `core/storage/change_log.py`(변경 기록 + 기기별 읽은 위치, R5)를 읽는다. 파일을 읽고 지우던 `get_and_clear_crawl_changes()` 는 R6 에서 삭제.
+  기록은 60일·5천 건까지, 180일 넘게 안 온 기기의 읽은 위치는 새 묶음을 쌓을 때 지운다.
 - 위치: `data/crawl_changes.json`
 
 ### 연속 알림 큐 처리 (crawl_manager.py)

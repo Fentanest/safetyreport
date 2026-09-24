@@ -19,6 +19,7 @@ from core.database import models
 LEGACY_DEVICE = "legacy"
 _RETENTION_DAYS = 60
 _MAX_ROWS = 5000
+_IDLE_DEVICE_DAYS = 180
 
 
 def _now_ms() -> int:
@@ -45,6 +46,9 @@ def append_batch(engine, changes: list[dict]) -> int:
         if overflow > 0:
             oldest = select(table.c.seq).order_by(table.c.seq).limit(overflow).scalar_subquery()
             conn.execute(delete(table).where(table.c.seq.in_(oldest)))
+        # 오래 안 온 기기의 읽은 위치도 여기서 정리한다(다시 오면 최근 묶음부터).
+        idle_cutoff = created_at - _IDLE_DEVICE_DAYS * 24 * 3600 * 1000
+        conn.execute(delete(models.change_cursor_table).where(models.change_cursor_table.c.updated_at < idle_cutoff))
     return len(rows)
 
 
@@ -72,7 +76,7 @@ def read_for_device(engine, device_id: str | None) -> list[dict]:
     return [json.loads(row.payload) for row in rows]
 
 
-def forget_idle_devices(engine, *, days: int = 180) -> int:
+def forget_idle_devices(engine, *, days: int = _IDLE_DEVICE_DAYS) -> int:
     """오래 안 온 기기의 읽은 위치를 지운다(다시 오면 최근 묶음부터)."""
     cutoff = int((datetime.now() - timedelta(days=days)).timestamp() * 1000)
     with engine.begin() as conn:
