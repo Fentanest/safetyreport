@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import os
 import sys
 import threading
@@ -9,6 +10,18 @@ import settings.settings as settings
 from services.crawl_log_service import get_current_crawl_log_path, rotate_crawl_log
 from services.crawl_manager import crawl_manager
 from services.ws_manager import ws_manager
+
+# 시작 판단(실행 중인가) → 로그 회전 → 프로세스 시작을 한 덩어리로. 웹·모바일·스케줄러 요청이 스레드에서 겹쳐도
+# 두 번째 요청이 돌고 있는 크롤링의 로그를 회전시키거나 큐를 잃지 않게 한다(S-29 로 라우터가 스레드풀에서 돈다).
+_launch_lock = threading.RLock()
+
+
+def _serialized(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with _launch_lock:
+            return func(*args, **kwargs)
+    return wrapper
 
 
 def get_work_dir():
@@ -64,6 +77,7 @@ def _start_after_crawl_hook(log_file: str):
         ).start()
 
 
+@_serialized
 def start_crawl(
     *,
     login_mode: str,
@@ -110,6 +124,7 @@ def start_crawl(
     return log_file
 
 
+@_serialized
 def enqueue_report(report_number: str):
     normalized = str(report_number).strip()
     if not normalized:
@@ -141,6 +156,7 @@ def enqueue_report(report_number: str):
     return {"status": "success", "queue_size": 1}
 
 
+@_serialized
 def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
     normalized = []
     seen = set()
@@ -191,6 +207,7 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
     }
 
 
+@_serialized
 def stop_crawl():
     if not crawl_manager.is_crawling():
         return False

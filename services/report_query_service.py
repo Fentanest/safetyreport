@@ -374,7 +374,7 @@ def update_watchlist_status(engine, report_numbers, status):
             from sqlalchemy import delete
 
             stmt = delete(database.watchlist_table).where(database.watchlist_table.c.신고번호.in_(report_numbers))
-            conn.execute(stmt)
+            removed = conn.execute(stmt).rowcount
         database.refresh_watch_flags(conn, report_numbers)
 
-    return len(report_numbers)
+    return len(report_numbers) if status == "Y" else int(removed or 0)

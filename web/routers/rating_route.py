@@ -11,7 +11,7 @@ engine = get_engine()
 router = APIRouter(prefix="/rating")
 
 @router.get("/")
-async def view_rating_page(request: Request):
+def view_rating_page(request: Request):
     records = data_service.get_unrated_records(engine)
             
     return templates.TemplateResponse(request, "rating.html", {
@@ -21,7 +21,7 @@ async def view_rating_page(request: Request):
     })
 
 @router.post("/start")
-async def start_batch_rating(request: Request, ids: str = Form(""), score: int = Form(5)):
+def start_batch_rating(request: Request, ids: str = Form(""), score: int = Form(5)):
     id_list = [i.strip() for i in ids.replace(',', '\n').split('\n') if i.strip()]
     if not id_list:
         return JSONResponse({"status": "error", "message": "별점을 부여할 신고 번호 또는 ID를 입력해주세요."})

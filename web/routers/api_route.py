@@ -2,6 +2,7 @@ import os
 import tempfile
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
 from starlette.background import BackgroundTask
@@ -38,7 +39,7 @@ def _require_api_key_flex(request: Request, header_key: str = Depends(_api_key_q
 
 
 @router.get("/summary")
-async def get_summary(request: Request, dedupe: str | None = None, _: str = Depends(_require_api_key)):
+def get_summary(request: Request, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
         dedupe_mode = normalize_dedupe_mode(dedupe)
         return {"status": "success", "data": data_service.get_dashboard_stats(engine, mode=dedupe_mode)}
@@ -47,7 +48,7 @@ async def get_summary(request: Request, dedupe: str | None = None, _: str = Depe
 
 
 @router.get("/reports/{category}")
-async def get_reports(category: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
+def get_reports(category: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
         dedupe_mode = normalize_dedupe_mode(dedupe)
         if category == "traffic":
@@ -68,7 +69,7 @@ async def get_reports(category: str, dedupe: str | None = None, _: str = Depends
 
 
 @router.get("/vehicle/{vehicle_number}")
-async def get_vehicle_reports(vehicle_number: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
+def get_vehicle_reports(vehicle_number: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
         dedupe_mode = normalize_dedupe_mode(dedupe)
         results = data_service.search_by_vehicle(engine, vehicle_number, mode=dedupe_mode)
@@ -78,7 +79,7 @@ async def get_vehicle_reports(vehicle_number: str, dedupe: str | None = None, _:
 
 
 @router.get("/address")
-async def get_address_reports(q: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
+def get_address_reports(q: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
         dedupe_mode = normalize_dedupe_mode(dedupe)
         results = data_service.search_by_address(engine, q, mode=dedupe_mode)
@@ -88,7 +89,7 @@ async def get_address_reports(q: str, dedupe: str | None = None, _: str = Depend
 
 
 @router.get("/stats")
-async def get_stats(_: str = Depends(_require_api_key), year: str = None, law: str = None, dedupe: str | None = None):
+def get_stats(_: str = Depends(_require_api_key), year: str = None, law: str = None, dedupe: str | None = None):
     try:
         filters = {}
         if year and year != "all":
@@ -103,7 +104,7 @@ async def get_stats(_: str = Depends(_require_api_key), year: str = None, law: s
 
 
 @router.get("/stats/overview")
-async def get_stats_overview(_: str = Depends(_require_api_key), year: str = None, law: str = None, dedupe: str | None = None):
+def get_stats_overview(_: str = Depends(_require_api_key), year: str = None, law: str = None, dedupe: str | None = None):
     try:
         filters = {}
         if year and year != "all":
@@ -116,7 +117,7 @@ async def get_stats_overview(_: str = Depends(_require_api_key), year: str = Non
         raise HTTPException(status_code=500, detail=str(exc))
 
 @router.get("/stats/map")
-async def get_stats_map(
+def get_stats_map(
     _: str = Depends(_require_api_key),
     year: str | None = None,
     category: str = "all",
@@ -135,7 +136,7 @@ async def get_stats_map(
 
 
 @router.get("/stats/map/missing")
-async def get_stats_map_missing(
+def get_stats_map_missing(
     _: str = Depends(_require_api_key),
     year: str | None = None,
     category: str = "all",
@@ -153,7 +154,7 @@ async def get_stats_map_missing(
 
 
 @router.get("/stats/map/progress")
-async def get_stats_map_progress(_: str = Depends(_require_api_key)):
+def get_stats_map_progress(_: str = Depends(_require_api_key)):
     try:
         progress = geocode_service.get_backfill_progress(engine)
         return {"status": "success", "data": progress}
@@ -162,7 +163,7 @@ async def get_stats_map_progress(_: str = Depends(_require_api_key)):
 
 
 @router.get("/sunwi/payload")
-async def get_sunwi_payload(_: str = Depends(_require_api_key)):
+def get_sunwi_payload(_: str = Depends(_require_api_key)):
     try:
         return {"status": "success", "data": sunwi_service.get_dashboard_payload()}
     except Exception as exc:
@@ -170,7 +171,7 @@ async def get_sunwi_payload(_: str = Depends(_require_api_key)):
 
 
 @router.post("/sunwi/export/{kind}")
-async def export_sunwi_csv(kind: str, _: str = Depends(_require_api_key)):
+def export_sunwi_csv(kind: str, _: str = Depends(_require_api_key)):
     normalized = kind.strip().lower()
     if normalized not in {"all", "top5"}:
         raise HTTPException(status_code=400, detail="kind must be 'all' or 'top5'")
@@ -189,7 +190,7 @@ async def export_sunwi_csv(kind: str, _: str = Depends(_require_api_key)):
 
 
 @router.get("/watchlist")
-async def get_watchlist(_: str = Depends(_require_api_key)):
+def get_watchlist(_: str = Depends(_require_api_key)):
     try:
         items = data_service.get_all_watchlist(engine)
         return {"status": "success", "count": len(items), "data": items}
@@ -205,14 +206,14 @@ async def update_watchlist(request: Request, _: str = Depends(_require_api_key))
     if not report_numbers:
         raise HTTPException(status_code=400, detail="report_numbers is required")
     try:
-        updated = data_service.update_watchlist_status(engine, report_numbers, "Y" if action == "add" else "N")
+        updated = await run_in_threadpool(data_service.update_watchlist_status, engine, report_numbers, "Y" if action == "add" else "N")
         return {"status": "success", "updated": updated}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.get("/duplicates/groups")
-async def get_duplicate_groups(status: str | None = None, _: str = Depends(_require_api_key)):
+def get_duplicate_groups(status: str | None = None, _: str = Depends(_require_api_key)):
     try:
         groups = duplicate_group_service.get_duplicate_groups(engine, status=status)
         return {"status": "success", "count": len(groups), "data": groups}
@@ -224,7 +225,8 @@ async def get_duplicate_groups(status: str | None = None, _: str = Depends(_requ
 async def update_duplicate_group_api(group_id: str, request: Request, _: str = Depends(_require_api_key)):
     body = await request.json()
     try:
-        updated = duplicate_group_service.update_duplicate_group(
+        updated = await run_in_threadpool(
+            duplicate_group_service.update_duplicate_group,
             engine,
             group_id,
             representative_id=body.get("representative_id"),
@@ -250,7 +252,8 @@ async def bulk_update_duplicate_group_status_api(request: Request, _: str = Depe
     if not isinstance(group_ids, list) or not group_ids:
         raise HTTPException(status_code=400, detail="group_ids is required")
     try:
-        updated = duplicate_group_service.bulk_update_duplicate_status(
+        updated = await run_in_threadpool(
+            duplicate_group_service.bulk_update_duplicate_status,
             engine,
             group_ids,
             duplicate_status,
@@ -262,12 +265,12 @@ async def bulk_update_duplicate_group_status_api(request: Request, _: str = Depe
 
 
 @router.get("/editor/schema")
-async def get_editor_schema(_: str = Depends(_require_api_key)):
+def get_editor_schema(_: str = Depends(_require_api_key)):
     return {"status": "success", "data": db_editor_service.get_editor_schema()}
 
 
 @router.get("/editor/{category}/{record_id}")
-async def get_editor_record(category: str, record_id: str, _: str = Depends(_require_api_key)):
+def get_editor_record(category: str, record_id: str, _: str = Depends(_require_api_key)):
     record = db_editor_service.get_record(engine, category, record_id)
     if not record:
         raise HTTPException(status_code=404, detail="수정 대상을 찾을 수 없습니다.")
@@ -288,7 +291,7 @@ async def get_editor_record(category: str, record_id: str, _: str = Depends(_req
 async def save_editor_record(category: str, record_id: str, request: Request, _: str = Depends(_require_api_key)):
     body = await request.json()
     values = body.get("values") if isinstance(body.get("values"), dict) else body
-    updated = db_editor_service.update_record(engine, category, record_id, values or {})
+    updated = await run_in_threadpool(db_editor_service.update_record, engine, category, record_id, values or {})
     if not updated:
         raise HTTPException(status_code=404, detail="수정 대상을 찾을 수 없습니다.")
     return {"status": "success", "message": "데이터가 저장되었습니다."}
@@ -310,7 +313,7 @@ async def api_start_batch_rating(request: Request, _: str = Depends(_require_api
         raise HTTPException(status_code=400, detail="유효한 신고번호가 없습니다.")
 
     try:
-        final_ids = rating_service.start_batch_rating(engine, normalized, score)
+        final_ids = await run_in_threadpool(rating_service.start_batch_rating, engine, normalized, score)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except RuntimeError as exc:
@@ -332,7 +335,7 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
         raise HTTPException(status_code=400, detail="report_number is required")
 
     try:
-        result = crawl_control.enqueue_report(str(report_number))
+        result = await run_in_threadpool(crawl_control.enqueue_report, str(report_number))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
@@ -351,7 +354,7 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
 
 
 @router.get("/crawl/results")
-async def get_crawl_results(device_id: str | None = None, _: str = Depends(_require_api_key)):
+def get_crawl_results(device_id: str | None = None, _: str = Depends(_require_api_key)):
     """기기별로 아직 안 읽은 변경(결정 D-5). device_id 가 없는 구앱은 공용 'legacy' 위치를 함께 쓴다."""
     try:
         from core.storage import change_log
@@ -363,12 +366,12 @@ async def get_crawl_results(device_id: str | None = None, _: str = Depends(_requ
 
 
 @router.get("/crawl/status")
-async def get_crawl_status(_: str = Depends(_require_api_key)):
+def get_crawl_status(_: str = Depends(_require_api_key)):
     return {"status": "success", "running": crawl_manager.is_crawling()}
 
 
 @router.get("/server/version")
-async def get_server_version(_: str = Depends(_require_api_key)):
+def get_server_version(_: str = Depends(_require_api_key)):
     from core.utils.updater import _version_gt, get_current_version, get_latest_version_cached
 
     current = get_current_version() or "unknown"
@@ -383,7 +386,7 @@ async def get_server_version(_: str = Depends(_require_api_key)):
 
 
 @router.get("/crawl/done/ext")
-async def get_crawl_done_ext(_: str = Depends(_require_api_key)):
+def get_crawl_done_ext(_: str = Depends(_require_api_key)):
     try:
         done = crawl_state_store.get_and_clear_crawl_done_ext()
         if done is None:
@@ -401,7 +404,7 @@ async def get_crawl_done_ext(_: str = Depends(_require_api_key)):
 
 
 @router.get("/crawl/done")
-async def get_crawl_done(_: str = Depends(_require_api_key)):
+def get_crawl_done(_: str = Depends(_require_api_key)):
     try:
         done = crawl_state_store.get_and_clear_crawl_done()
         if done is None:
@@ -417,7 +420,7 @@ async def get_crawl_done(_: str = Depends(_require_api_key)):
 
 
 @router.get("/crawl/config")
-async def get_crawl_config(_: str = Depends(_require_api_key)):
+def get_crawl_config(_: str = Depends(_require_api_key)):
     settings._instance.load()
     return {
         "status": "success",
@@ -451,7 +454,8 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
         raise HTTPException(status_code=409, detail="크롤링이 이미 실행 중입니다.")
 
     try:
-        crawl_control.start_crawl(
+        await run_in_threadpool(
+            crawl_control.start_crawl,
             login_mode=login_mode,
             crawl_mode=crawl_mode,
             crawl_type=crawl_type,
@@ -470,20 +474,20 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
 
 
 @router.post("/crawl/kill")
-async def mobile_kill_crawl(_: str = Depends(_require_api_key)):
+def mobile_kill_crawl(_: str = Depends(_require_api_key)):
     if not crawl_control.stop_crawl():
         raise HTTPException(status_code=409, detail="실행 중인 크롤링이 없습니다.")
     return {"status": "success", "message": "크롤링이 강제 중지되었습니다."}
 
 
 @router.post("/crawl/resume")
-async def mobile_resume_crawl(_: str = Depends(_require_api_key)):
+def mobile_resume_crawl(_: str = Depends(_require_api_key)):
     crawl_control.resume_crawl()
     return {"status": "success", "message": "크롤링 재개 신호가 전송되었습니다."}
 
 
 @router.get("/files")
-async def list_files(path: str = "", _: str = Depends(_require_api_key)):
+def list_files(path: str = "", _: str = Depends(_require_api_key)):
     try:
         current_path, items = file_service.list_api_entries(path)
     except PermissionError:
@@ -496,7 +500,7 @@ async def list_files(path: str = "", _: str = Depends(_require_api_key)):
 
 
 @router.get("/files/download")
-async def download_file(path: str = "", _: str = Depends(_require_api_key_flex)):
+def download_file(path: str = "", _: str = Depends(_require_api_key_flex)):
     try:
         target = file_service.resolve_api_file(path)
         download_path, cleanup_path = file_service.snapshot_live_log_if_needed(target)
@@ -527,7 +531,7 @@ async def download_files_archive(request: Request, _: str = Depends(_require_api
     paths = body.get("paths", [])
     if not isinstance(paths, list) or not paths:
         raise HTTPException(status_code=400, detail="paths is required")
-    zip_buffer, filename = file_service.build_api_download_zip(paths)
+    zip_buffer, filename = await run_in_threadpool(file_service.build_api_download_zip, paths)
     return StreamingResponse(
         zip_buffer,
         media_type="application/x-zip-compressed",
@@ -541,7 +545,7 @@ async def delete_files_archive(request: Request, _: str = Depends(_require_api_k
     paths = body.get("paths", [])
     if not isinstance(paths, list) or not paths:
         raise HTTPException(status_code=400, detail="paths is required")
-    deleted_count, errors = file_service.delete_api_files(paths)
+    deleted_count, errors = await run_in_threadpool(file_service.delete_api_files, paths)
     return {
         "status": "success" if not errors else "partial_success",
         "deleted_count": deleted_count,
@@ -550,7 +554,7 @@ async def delete_files_archive(request: Request, _: str = Depends(_require_api_k
 
 
 @router.get("/app/config")
-async def get_app_config(_: str = Depends(_require_api_key)):
+def get_app_config(_: str = Depends(_require_api_key)):
     settings._instance.load()
     return {
         "status": "success",
@@ -568,7 +572,7 @@ async def get_app_config(_: str = Depends(_require_api_key)):
 
 
 @router.get("/settings/db")
-async def download_database(_: str = Depends(_require_api_key_flex)):
+def download_database(_: str = Depends(_require_api_key_flex)):
     from services import db_backup
 
     try:
@@ -612,9 +616,9 @@ async def upload_database(file: UploadFile = File(...), _: str = Depends(_requir
         kind = db_backup.detect_db_kind(tmp_path)
         try:
             if kind == "server":
-                backup, count = db_backup.restore_from_server_db(tmp_path)
+                backup, count = await run_in_threadpool(db_backup.restore_from_server_db, tmp_path)
             elif kind == "mobile":
-                backup, count = db_backup.restore_from_mobile_db(tmp_path)
+                backup, count = await run_in_threadpool(db_backup.restore_from_mobile_db, tmp_path)
         except RestoreRefused as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         if kind not in ("server", "mobile"):

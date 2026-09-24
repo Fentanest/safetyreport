@@ -9,7 +9,7 @@ router = APIRouter(prefix="/devices")
 
 
 @router.get("/", response_class=HTMLResponse)
-async def view_devices(request: Request):
+def view_devices(request: Request):
     from services.ws_manager import ws_manager
     engine = get_engine()
     api_keys = database.get_all_api_keys(engine)
@@ -22,20 +22,20 @@ async def view_devices(request: Request):
 
 
 @router.get("/connected-clients")
-async def get_connected_clients(request: Request):
+def get_connected_clients(request: Request):
     from services.ws_manager import ws_manager
     return JSONResponse(ws_manager.get_connected_clients())
 
 
 @router.post("/api-keys/create")
-async def create_api_key(request: Request, key_name: str = Form(...)):
+def create_api_key(request: Request, key_name: str = Form(...)):
     engine = get_engine()
     new_key = database.create_api_key(engine, key_name.strip() or "unnamed")
     return JSONResponse({"key": new_key, "name": key_name})
 
 
 @router.post("/api-keys/delete")
-async def delete_api_key(request: Request, key: str = Form(...)):
+def delete_api_key(request: Request, key: str = Form(...)):
     engine = get_engine()
     database.delete_api_key(engine, key)
     return RedirectResponse(url="/devices", status_code=303)

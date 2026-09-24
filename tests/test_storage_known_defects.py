@@ -135,5 +135,24 @@ class ServerKnownDefectTests(_SeededDb):
         web = {r["ID"]: r for r in report_query_service.get_traffic_records(self.engine)}
         self.assertEqual(web["90000001"]["담당자"], "")
 
+    def test_S34_watchlist_remove_accepts_ids(self):
+        """S-34(R6 고침): 감시목록 제거도 추가처럼 ID 를 신고번호로 바꿔 지운다. 신고가 없는 신고번호도 그대로 지운다."""
+        from unittest import mock
+        from web.routers import watchlist_route
+
+        report_number = self.merge_row(models.merge_traffic_table, "90000001")["신고번호"]
+        with mock.patch.object(watchlist_route, "engine", self.engine):
+            watchlist_route.add_to_watchlist(watchlist_route.WatchlistReq(rnums=["90000001"]))
+            with self.engine.begin() as conn:
+                conn.execute(models.watchlist_table.insert().values(신고번호="SPP-GONE"))
+            self.assertEqual(self.merge_row(models.merge_traffic_table, "90000001")["감시목록"], "Y")
+            result = watchlist_route.remove_from_watchlist(watchlist_route.WatchlistReq(rnums=["90000001", "SPP-GONE"]))
+        with self.engine.connect() as conn:
+            remaining = set(conn.execute(select(models.watchlist_table.c.신고번호)).scalars())
+        self.assertFalse({report_number, "SPP-GONE"} & remaining)
+        self.assertTrue(remaining)  # 다른 감시 항목은 그대로
+        self.assertEqual(self.merge_row(models.merge_traffic_table, "90000001")["감시목록"], "N")
+        self.assertIn("2건", result["message"])
+
 if __name__ == "__main__":
     unittest.main()

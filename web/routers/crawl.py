@@ -18,7 +18,7 @@ class QueueCrawlReq(BaseModel):
 
 
 @router.get("/")
-async def crawl_dashboard(request: Request):
+def crawl_dashboard(request: Request):
     import settings.settings as app_settings
 
     app_settings._instance.load()
@@ -32,7 +32,7 @@ async def crawl_dashboard(request: Request):
 
 
 @router.post("/start")
-async def start_crawl(
+def start_crawl(
     login_mode: str = Form("member"),
     queue_list: str = Form(""),
     crawl_mode: str = Form("full"),
@@ -59,20 +59,20 @@ async def start_crawl(
 
 
 @router.post("/resume")
-async def resume_crawl():
+def resume_crawl():
     crawl_control.resume_crawl()
     return JSONResponse({"status": "success", "message": "크롤링 재개 신호가 전송되었습니다."})
 
 
 @router.post("/kill")
-async def kill_crawl():
+def kill_crawl():
     if not crawl_control.stop_crawl():
         return JSONResponse({"status": "error", "message": "현재 실행 중인 크롤링 프로세스가 없습니다."})
     return JSONResponse({"status": "success", "message": "크롤링 프로세스가 강제로 종료되었습니다."})
 
 
 @router.post("/enqueue-selected")
-async def enqueue_selected_crawl(req: QueueCrawlReq):
+def enqueue_selected_crawl(req: QueueCrawlReq):
     if not req.report_numbers:
         return JSONResponse({"status": "error", "message": "신고번호를 하나 이상 선택해주세요."})
     try:
@@ -95,14 +95,14 @@ async def enqueue_selected_crawl(req: QueueCrawlReq):
 
 
 @router.post("/export/excel")
-async def export_excel():
+def export_excel():
     if not export_service.export_results(get_engine(), save_excel=True, save_sheet=False):
         return JSONResponse({"status": "error", "message": "저장할 데이터가 없습니다."})
     return JSONResponse({"status": "success", "message": "DB 기반 엑셀 파일 생성이 완료되었습니다."})
 
 
 @router.post("/export/sheet")
-async def export_sheet():
+def export_sheet():
     import settings.settings as app_settings
 
     if not app_settings.google_sheet_enabled:

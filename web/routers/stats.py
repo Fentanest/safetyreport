@@ -8,7 +8,7 @@ router = APIRouter()
 engine = get_engine()
 
 @router.get("/stats")
-async def view_stats(
+def view_stats(
     request: Request,
     reportName: str = None,
     law: str = None,
@@ -89,7 +89,7 @@ async def view_stats(
 
 
 @router.get("/stats/map")
-async def view_report_map(
+def view_report_map(
     request: Request,
     year: str = None,
     category: str = "all",
@@ -130,13 +130,13 @@ async def view_report_map(
 
 
 @router.get("/stats/map/progress")
-async def get_report_map_progress():
+def get_report_map_progress():
     progress = geocode_service.get_backfill_progress(engine)
     return progress
 
 
 @router.get("/stats/map/missing")
-async def get_report_map_missing(
+def get_report_map_missing(
     year: str = None,
     category: str = "all",
 ):

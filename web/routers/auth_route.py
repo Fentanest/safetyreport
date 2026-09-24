@@ -12,7 +12,7 @@ router = APIRouter(tags=["auth"])
 # ── 최초 설정 (관리자 계정 생성) ─────────────────────────────────────────────
 
 @router.get("/setup", response_class=HTMLResponse)
-async def setup_page(request: Request):
+def setup_page(request: Request):
     engine = get_engine()
     if database.has_admin_user(engine):
         return RedirectResponse("/login", status_code=302)
@@ -20,7 +20,7 @@ async def setup_page(request: Request):
 
 
 @router.post("/setup")
-async def do_setup(
+def do_setup(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
@@ -44,7 +44,7 @@ async def do_setup(
 # ── 로그인 ────────────────────────────────────────────────────────────────────
 
 @router.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request):
+def login_page(request: Request):
     if request.session.get("admin_logged_in"):
         return RedirectResponse("/", status_code=302)
     engine = get_engine()
@@ -56,7 +56,7 @@ async def login_page(request: Request):
 
 
 @router.post("/login")
-async def do_login(
+def do_login(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
@@ -81,7 +81,7 @@ async def do_login(
 # ── 로그아웃 ──────────────────────────────────────────────────────────────────
 
 @router.get("/logout")
-async def do_logout(request: Request):
+def do_logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=302)
 
@@ -89,7 +89,7 @@ async def do_logout(request: Request):
 # ── 관리자 계정 변경 ──────────────────────────────────────────────────────────
 
 @router.get("/settings/admin", response_class=HTMLResponse)
-async def admin_change_page(request: Request):
+def admin_change_page(request: Request):
     return templates.TemplateResponse(request, "admin_change.html", {
         "title": "관리자 계정 변경",
         "admin_username": request.session.get("admin_username", ""),
@@ -99,7 +99,7 @@ async def admin_change_page(request: Request):
 
 
 @router.post("/change-admin")
-async def change_admin(
+def change_admin(
     request: Request,
     new_username: str = Form(...),
     current_password: str = Form(...),

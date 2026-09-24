@@ -27,5 +27,7 @@ def add_to_watchlist(req: WatchlistReq):
 
 @router.post("/remove")
 def remove_from_watchlist(req: WatchlistReq):
-    res = data_service.update_watchlist_status(engine, req.rnums, 'N')
+    # ID 로 와도 지운다(S-34). 신고가 이미 사라진 감시 항목도 지울 수 있게 받은 값도 그대로 넣는다.
+    rnums = sorted(set(data_service.resolve_to_report_numbers(engine, req.rnums)) | {r for r in req.rnums if r})
+    res = data_service.update_watchlist_status(engine, rnums, 'N')
     return {"status": "success", "message": f"{res}건이 감시목록에서 제거되었습니다."}

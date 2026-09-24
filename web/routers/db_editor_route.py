@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse
 from core.utils.templating import templates
 from core.database.engine import get_engine
@@ -9,7 +10,7 @@ engine = get_engine()
 
 
 @router.get("", response_class=HTMLResponse)
-async def db_editor_list(request: Request, category: str = "traffic"):
+def db_editor_list(request: Request, category: str = "traffic"):
     if not db_editor_service.get_category_tables(category):
         category = "traffic"
     records = db_editor_service.list_records(engine, category)
@@ -21,7 +22,7 @@ async def db_editor_list(request: Request, category: str = "traffic"):
 
 
 @router.get("/{category}/{record_id}", response_class=HTMLResponse)
-async def db_editor_form(request: Request, category: str, record_id: str):
+def db_editor_form(request: Request, category: str, record_id: str):
     if not db_editor_service.get_category_tables(category):
         return RedirectResponse("/db-editor")
     record = db_editor_service.get_record(engine, category, record_id)
@@ -44,5 +45,5 @@ async def db_editor_save(request: Request, category: str, record_id: str):
     if not db_editor_service.get_category_tables(category):
         return RedirectResponse("/db-editor", status_code=303)
     form = await request.form()
-    db_editor_service.update_record(engine, category, record_id, dict(form))
+    await run_in_threadpool(db_editor_service.update_record, engine, category, record_id, dict(form))
     return RedirectResponse(f"/db-editor?category={category}", status_code=303)

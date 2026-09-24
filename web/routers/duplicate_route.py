@@ -15,7 +15,7 @@ def _redirect(url: str) -> RedirectResponse:
 
 
 @router.get("/manage")
-async def view_duplicate_groups(
+def view_duplicate_groups(
     request: Request,
     duplicate_status: str | None = None,
     message: str | None = None,
@@ -44,7 +44,7 @@ async def view_duplicate_groups(
 
 
 @router.post("/manage/refresh")
-async def refresh_duplicate_groups():
+def refresh_duplicate_groups():
     result = duplicate_group_service.refresh_duplicate_groups(engine)
     return _redirect(
         f"/duplicates/manage?message=중복군%20{result['group_count']}개,%20멤버%20{result['member_count']}건을%20재생성했습니다."
@@ -52,7 +52,7 @@ async def refresh_duplicate_groups():
 
 
 @router.post("/manage/{group_id}/update")
-async def update_duplicate_group(
+def update_duplicate_group(
     group_id: str,
     representative_id: str = Form(""),
     duplicate_status: str = Form("confirmed_duplicate"),
@@ -73,7 +73,7 @@ async def update_duplicate_group(
 
 
 @router.post("/manage/bulk-status")
-async def bulk_update_duplicate_status(
+def bulk_update_duplicate_status(
     group_ids: list[str] = Form([]),
     duplicate_status: str = Form("review_required"),
     representative_mode: str = Form("auto"),

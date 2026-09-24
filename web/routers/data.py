@@ -36,7 +36,7 @@ def _filter_title(base, status=None, fine=None, agency=None, person=None, law=No
 
 
 @router.get("/traffic")
-async def view_traffic(
+def view_traffic(
     request: Request,
     status: Optional[str] = Query(None),
     fine: Optional[str] = Query(None),
@@ -60,7 +60,7 @@ async def view_traffic(
 
 
 @router.get("/parking")
-async def view_parking(
+def view_parking(
     request: Request,
     status: Optional[str] = Query(None),
     fine: Optional[str] = Query(None),
@@ -84,7 +84,7 @@ async def view_parking(
 
 
 @router.get("/other")
-async def view_other(
+def view_other(
     request: Request,
     status: Optional[str] = Query(None),
     fine: Optional[str] = Query(None),
@@ -108,7 +108,7 @@ async def view_other(
 
 
 @router.get("/all")
-async def view_all(
+def view_all(
     request: Request,
     status: Optional[str] = Query(None),
     fine: Optional[str] = Query(None),
@@ -130,7 +130,7 @@ async def view_all(
 
 
 @router.get("/duplicates")
-async def view_duplicates(request: Request, dedupe: str | None = Query(None)):
+def view_duplicates(request: Request, dedupe: str | None = Query(None)):
     dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_duplicate_records(engine, mode=dedupe_mode)
     return templates.TemplateResponse(request, "data_table.html", {

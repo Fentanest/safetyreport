@@ -9,7 +9,7 @@ from core.utils.templating import templates
 router = APIRouter(prefix="/settings")
 
 @router.get("/")
-async def view_settings(request: Request):
+def view_settings(request: Request):
     import sys
     app_settings._instance.load() # Reload to show latest values
 
@@ -59,7 +59,7 @@ async def view_settings(request: Request):
     })
 
 @router.post("/save")
-async def save_settings(
+def save_settings(
     request: Request,
     username: str = Form(""),
     password: str = Form(""),

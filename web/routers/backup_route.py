@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 
 from fastapi import APIRouter, Request, UploadFile, File, HTTPException
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTask
 
@@ -14,14 +15,14 @@ router = APIRouter()
 
 
 @router.get("/backup")
-async def view_backup(request: Request):
+def view_backup(request: Request):
     return templates.TemplateResponse(request, "backup.html", {
         "title": "데이터 백업/복원",
     })
 
 
 @router.get("/backup/download")
-async def download_db():
+def download_db():
     """WAL/SHM이 정리된 단일 .db 파일 다운로드. 다운로드 후 임시 파일 자동 삭제."""
     try:
         tmp_path = db_backup.export_clean_db()
@@ -56,7 +57,7 @@ async def upload_db(file: UploadFile = File(...)):
     tmp_path = await _save_upload_to_tmp(file)
     from core.storage.exchange import RestoreRefused
     try:
-        return _restore_uploaded(tmp_path)
+        return await run_in_threadpool(_restore_uploaded, tmp_path)
     except RestoreRefused as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     finally:

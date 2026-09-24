@@ -12,7 +12,7 @@ engine = get_engine()
 router = APIRouter()
 
 @router.get("/")
-async def dashboard(request: Request):
+def dashboard(request: Request):
     try:
         stats = data_service.get_dashboard_stats(engine, mode=default_dedupe_mode())
     except Exception as e:
@@ -32,12 +32,12 @@ async def dashboard(request: Request):
 
 
 @router.get("/sunwi/payload")
-async def sunwi_payload():
+def sunwi_payload():
     return sunwi_service.get_dashboard_payload()
 
 
 @router.get("/sunwi/download/top5")
-async def download_sunwi_top5_csv():
+def download_sunwi_top5_csv():
     csv_path = sunwi_service.get_top5_csv_path()
     if not os.path.exists(csv_path):
         raise HTTPException(status_code=404, detail="CSV file not found")
@@ -50,7 +50,7 @@ async def download_sunwi_top5_csv():
 
 
 @router.get("/sunwi/download/all")
-async def download_sunwi_all_csv():
+def download_sunwi_all_csv():
     csv_path = sunwi_service.get_all_csv_path()
     if not os.path.exists(csv_path):
         raise HTTPException(status_code=404, detail="CSV file not found")
