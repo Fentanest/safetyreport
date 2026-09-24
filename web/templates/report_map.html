@@ -445,6 +445,19 @@
             max-width: 276px;
         }
     }
+    /* 다크 테마: 본문 상자만 맞춘다. 지도 위 팝업·툴팁은 밝은 지도 타일 위에 뜨므로 그대로 둔다. */
+    [data-bs-theme="dark"] .map-hero {
+        background:
+            radial-gradient(circle at top left, rgba(59, 130, 246, 0.22), transparent 34%),
+            radial-gradient(circle at bottom right, rgba(245, 158, 11, 0.14), transparent 28%),
+            linear-gradient(135deg, var(--sr-surface) 0%, var(--sr-surface-2) 100%);
+    }
+    [data-bs-theme="dark"] .map-summary-value { color: var(--sr-text); }
+    [data-bs-theme="dark"] .map-summary-label,
+    [data-bs-theme="dark"] .missing-report-meta { color: var(--sr-text-muted); }
+    [data-bs-theme="dark"] .map-empty { background: var(--sr-surface-2); color: var(--sr-text-muted); border-color: var(--sr-border); }
+    [data-bs-theme="dark"] .map-progress-bar { background: var(--sr-surface-3); }
+    [data-bs-theme="dark"] .missing-report-card { background: var(--sr-surface-2); border-color: var(--sr-border); }
 </style>
 {% endblock %}
 

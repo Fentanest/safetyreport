@@ -75,6 +75,18 @@ body { background-color: var(--sr-bg); color: var(--sr-text); letter-spacing: -0
 [data-bs-theme="dark"] .btn-outline-dark { --bs-btn-color: var(--sr-text); --bs-btn-border-color: var(--sr-border); --bs-btn-hover-bg: var(--sr-surface-3); --bs-btn-hover-color: #fff; --bs-btn-hover-border-color: var(--sr-border); }
 [data-bs-theme="dark"] .btn-dark { --bs-btn-bg: var(--sr-sidebar-active-bg); --bs-btn-border-color: var(--sr-sidebar-active-bg); --bs-btn-color: #fff; }
 [data-bs-theme="dark"] .text-bg-light { background-color: var(--sr-surface-3) !important; color: var(--sr-text) !important; }
+/* Bootstrap 표 강조 행(table-primary 등)은 다크에서도 밝은 고정색이라 글자가 묻힌다 */
+[data-bs-theme="dark"] .table-primary { --bs-table-bg: var(--sr-primary-soft); --bs-table-color: var(--sr-text); --bs-table-border-color: var(--sr-border); }
+[data-bs-theme="dark"] .table-secondary { --bs-table-bg: var(--sr-surface-3); --bs-table-color: var(--sr-text); --bs-table-border-color: var(--sr-border); }
+[data-bs-theme="dark"] .table-info { --bs-table-bg: rgba(34, 211, 238, 0.12); --bs-table-color: var(--sr-text); --bs-table-border-color: var(--sr-border); }
+[data-bs-theme="dark"] .table-success { --bs-table-bg: rgba(22, 163, 74, 0.16); --bs-table-color: var(--sr-text); --bs-table-border-color: var(--sr-border); }
+[data-bs-theme="dark"] .table-warning { --bs-table-bg: rgba(245, 158, 11, 0.16); --bs-table-color: var(--sr-text); --bs-table-border-color: var(--sr-border); }
+[data-bs-theme="dark"] .table-danger { --bs-table-bg: rgba(220, 38, 38, 0.16); --bs-table-color: var(--sr-text); --bs-table-border-color: var(--sr-border); }
+/* 화면 안 보조 상자 (라이트는 기존 색 그대로) */
+.sr-panel-muted { background: #f8f9fa; }
+.sr-panel-warn { background: #fffdf0; }
+[data-bs-theme="dark"] .sr-panel-muted { background: var(--sr-surface-2); }
+[data-bs-theme="dark"] .sr-panel-warn { background: rgba(245, 158, 11, 0.08); border-color: rgba(245, 158, 11, 0.35) !important; }
 
 /* DataTables */
 table.dataTable tbody tr { background-color: var(--sr-surface); }
