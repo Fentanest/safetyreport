@@ -296,8 +296,9 @@ G9-3 의견 반영: 사용자 소유 데이터의 **표 구조**는 쓰기 경�
 | 시각 형식 | 저장된 값은 바꾸지 않고 필드별 형식·뜻을 `docs/architecture/data-contracts.md` 에 고정. 새 기계용 시각은 epoch 밀리초 | S-32 |
 | 앱 | 동기화 중지는 요청 플래그(루프가 빠져나갈 때까지 `isRunning` 유지 → 겹쳐 시작 안 됨, 중지된 동기화는 정리·last_sync 생략), DB 닫기는 동기화·자동 동기화·지오코딩이 다음 확인 지점에서 멈출 때까지 기다림, 그 사이 백업·복원·서버 DB 가져오기는 거절(`DbBusyException`), 모드 전환 백업은 기다린 뒤 진행, 서버 DB 가져오기 500행 배치, 안 읽던 prefs 사본 삭제 | M-19·21·25·27 |
 | 덤 | Safari(webkit)에서 1280px 담당자 통계 표가 16px 넘치던 것 — 머리글 `/`·`·` 뒤 줄바꿈 지점 추가. 이전 Playwright 기록(24건)은 webkit 을 빼고 돌린 것이었음 | |
-| 남은 것 | S-8(종결된 주정차 사진 시각 재시도), S-4(고친 주소가 캐시에 없을 때 좌표), Kotlin 쪽 prefs 읽고-쓰기 경합, 중복 판단 이력 화면, 저장 계층 전체 Gemini 교차 검토 | |
-| 검증 | 서버 unittest 94, Playwright 36(chromium·firefox·webkit), 모바일 flutter test 138 통과, 합성 왕복 차이 0 | |
+| 후속(같은 날) | S-8: 크롤링 끝에 좌표처럼 사진 촬영 시각도 재시도(6개월 이내 주정차, 30건/회). S-4: 서버 백필이 고친 주소도 지오코딩(캐시만 채우고 merge 재생성, 상세 원본 좌표 그대로), 모바일은 보기 `reports_effective` 가 고친 주소의 캐시 좌표를 쓰고 백필 후보에 포함. Kotlin↔Dart: 서비스는 수신함 키(`inbox.history.*`·`inbox.pending.*`)에 새 키로만 쓰고 앱이 합친 키만 지움 — 같은 키를 둘이 읽고-고쳐-쓰지 않음(M-29·31 근본 해결) | S-4·8, M-29·31 |
+| 남은 것 | 중복 판단 이력 화면(판단 표는 있음), 수신함 경로의 실기기 확인(서버 크롤링 이벤트 필요), 저장 계층 전체 Gemini 교차 검토, 모바일 브랜치를 모바일 origin/dev 에 합치기(다른 모바일 세션과 조율) | |
+| 검증 | 서버 unittest 96, Playwright 36(chromium·firefox·webkit), 모바일 flutter test 141 통과, 합성 왕복 차이 0. 보기 읽기 3천 건(10% 주소 수정) 76ms | |
 
 ## 6. 다음 순서
 1. ~~Gemini 교차 검토~~ 완료(G9 3회차, `docs/reviews/2026-09-24-gemini-g9-storage-review.md`).
