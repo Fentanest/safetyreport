@@ -160,3 +160,29 @@ tr.row-selected td {
         padding: 0.4rem 0.5rem;
     }
 }
+
+/* 빈 결과: 넓은 표(scrollX)의 보이는 영역 왼쪽에 고정. 폭은 data_table.html pinEmptyState() 가 맞춘다. */
+table.dataTable td.dataTables_empty {
+    padding: 0 !important;
+    text-align: left !important;
+}
+.sr-empty-state {
+    position: sticky;
+    left: 0;
+}
+
+/* 좁은 화면에서 검색칸이 카드 밖으로 나가지 않게 */
+@media (max-width: 575px) {
+    .dataTables_wrapper .dataTables_filter label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        width: 100%;
+    }
+    .dataTables_wrapper .dataTables_filter input {
+        flex: 1 1 auto;
+        min-width: 0;
+        width: auto;
+        margin-left: 0 !important;
+    }
+}

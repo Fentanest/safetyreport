@@ -538,7 +538,15 @@ $(document).ready(function() {
         '첨부사진', '첨부파일', '만족도조사여부', '별점', '별점사유', '감시목록'
     ];
 
+    // 빈 결과 안내. 표가 가로로 매우 넓어(scrollX) 칸 가운데에 두면 화면 밖에 놓이므로, 보이는 폭에 맞춰 왼쪽에 붙인다.
+    var SR_EMPTY_STATE_HTML = '<div class="sr-empty-state text-center py-5 text-muted"><i class="fas fa-search fa-3x mb-3" style="color: var(--sr-border);"></i><br><h5>조건에 맞는 신고 내역이 없습니다</h5><p>상세 검색 필터를 조정해 보세요.</p></div>';
+    function pinEmptyState(api) {
+        var body = $(api.table().container()).find('.dataTables_scrollBody')[0];
+        if (body) $(body).find('.sr-empty-state').css('width', body.clientWidth + 'px');
+    }
+
     var table = $('#{{ table_id }}').DataTable({
+        drawCallback: function () { pinEmptyState(this.api()); },
         data: _tableData,
         columns: columns,
         deferRender: true,   // 현재 페이지(50행)만 DOM 생성 — 핵심 최적화
@@ -580,8 +588,8 @@ $(document).ready(function() {
         ],
         language: {
             url: 'https://cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json',
-            emptyTable: '<div class="text-center py-5 text-muted"><i class="fas fa-search fa-3x mb-3" style="color: var(--sr-border);"></i><br><h5>조건에 맞는 신고 내역이 없습니다</h5><p>상세 검색 필터를 조정해 보세요.</p></div>',
-            zeroRecords: '<div class="text-center py-5 text-muted"><i class="fas fa-search fa-3x mb-3" style="color: var(--sr-border);"></i><br><h5>조건에 맞는 신고 내역이 없습니다</h5><p>상세 검색 필터를 조정해 보세요.</p></div>'
+            emptyTable: SR_EMPTY_STATE_HTML,
+            zeroRecords: SR_EMPTY_STATE_HTML
         }
     });
 
@@ -614,6 +622,8 @@ $(document).ready(function() {
         $('#selectAll').prop('indeterminate', pageChecked > 0 && pageChecked < pageTotal);
         $('#selectAll').prop('checked', pageTotal > 0 && pageChecked === pageTotal);
     }
+
+    $(window).on('resize', function () { pinEmptyState(table); });
 
     table.on('draw', function () {
         syncScroll();
