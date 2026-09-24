@@ -47,6 +47,10 @@ def get_detail_columns():
         Column('보완_완료일시', String),
         Column('보완_요청_내용', String),
         Column('보완_신고자_의견', String),
+        # 주정차 사진 EXIF 촬영 시각(services/photo_capture_time.py). NULL = 아직 시도 안 함, 사진_촬영수 0 = 촬영 정보 없음
+        Column('사진_첫촬영', String),
+        Column('사진_끝촬영', String),
+        Column('사진_촬영수', Integer),
     ]
 
 detail_traffic_table = Table(settings.table_detail_traffic, metadata, *get_detail_columns())
@@ -94,6 +98,10 @@ def get_merge_columns():
         Column('보완_완료일시', String),
         Column('보완_요청_내용', String),
         Column('보완_신고자_의견', String),
+        # 주정차 사진 EXIF 촬영 시각(services/photo_capture_time.py). NULL = 아직 시도 안 함, 사진_촬영수 0 = 촬영 정보 없음
+        Column('사진_첫촬영', String),
+        Column('사진_끝촬영', String),
+        Column('사진_촬영수', Integer),
     ]
 
 merge_traffic_table = Table(settings.table_merge_traffic, metadata, *get_merge_columns())

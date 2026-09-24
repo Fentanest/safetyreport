@@ -324,6 +324,9 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
             "보완_완료일시": rd.get("보완_완료일시", "") if "보완_완료일시" in src_cols else "",
             "보완_요청_내용": rd.get("보완_요청_내용", "") if "보완_요청_내용" in src_cols else "",
             "보완_신고자_의견": rd.get("보완_신고자_의견", "") if "보완_신고자_의견" in src_cols else "",
+            "사진_첫촬영": rd.get("사진_첫촬영") if "사진_첫촬영" in src_cols else None,
+            "사진_끝촬영": rd.get("사진_끝촬영") if "사진_끝촬영" in src_cols else None,
+            "사진_촬영수": rd.get("사진_촬영수") if "사진_촬영수" in src_cols else None,
         })
 
         record_id = rd.get("ID", "")

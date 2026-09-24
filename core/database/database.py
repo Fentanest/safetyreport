@@ -442,6 +442,39 @@ _TITLE_STATUS_FROM_PROGRESS = {
     '이송':     '이송',
 }
 
+_PHOTO_COLUMNS = ("사진_첫촬영", "사진_끝촬영", "사진_촬영수")
+
+
+def _resolve_photo_capture(engine, target_table, record_id, category, entry_value, new_record):
+    """주정차 신고 사진 촬영 시각. 이미 값(또는 시도 결과 0)이 있으면 그대로 이어받고, 없을 때만 받아 온다.
+
+    네트워크 요청은 DB 트랜잭션 밖에서 한다(SQLite 쓰기 잠금을 오래 잡지 않기 위해).
+    upsert 가 모든 컬럼을 덮어쓰므로, 이어받지 않으면 재크롤링 때 기존 값이 NULL 로 지워진다.
+    """
+    existing = {}
+    try:
+        with engine.connect() as read_conn:
+            row = read_conn.execute(
+                select(*[target_table.c[name] for name in _PHOTO_COLUMNS]).where(target_table.c.ID == record_id)
+            ).first()
+            if row is not None:
+                existing = dict(row._mapping)
+    except Exception:
+        existing = {}
+    carried = {name: existing.get(name) for name in _PHOTO_COLUMNS}
+    if existing.get("사진_촬영수") is not None:
+        return carried
+    from services import photo_capture_time
+    if not photo_capture_time.is_parking_report(category, entry_value):
+        return carried
+    try:
+        collected = photo_capture_time.collect(new_record.get("첨부사진"))
+    except Exception as exc:  # fixture 차단 포함 — 크롤링은 멈추지 않는다
+        logger.LoggerFactory.logbot.warning(f"[photo] ID {record_id} 촬영 시각 수집 실패: {exc}")
+        collected = None
+    return collected if collected is not None else carried
+
+
 def detail_to_sql(dataframes_with_category, engine, conn=None):
     if not dataframes_with_category:
         return []
@@ -488,6 +521,7 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
 
         new_record = records[0]
         record_id = new_record['ID']
+        photo_values = _resolve_photo_capture(engine, target_table, record_id, category, entry_value, new_record)
 
         try:
             with engine.begin() as conn:
@@ -519,6 +553,7 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
 
                 for column_name in geo_columns:
                     new_record[column_name] = geo_payload.get(column_name)
+                new_record.update(photo_values)
 
                 # entry_value 저장
                 if entry_value is not None:
@@ -561,7 +596,8 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
                     new_record["synced_at"] = now_ms
                 else:
                     for key, new_value in new_record.items():
-                        if key == "synced_at":
+                        # 사진 촬영 시각은 보조 메타데이터라 신고 변경(synced_at·변경 알림)으로 보지 않는다.
+                        if key == "synced_at" or key in _PHOTO_COLUMNS:
                             continue
                         if key in existing_record and str(existing_record[key]) != str(new_value):
                             is_changed = True
@@ -678,6 +714,9 @@ def _merge_for_table(conn, merge_target, detail_source):
         detail_source.c.보완_완료일시,
         detail_source.c.보완_요청_내용,
         detail_source.c.보완_신고자_의견,
+        detail_source.c.사진_첫촬영,
+        detail_source.c.사진_끝촬영,
+        detail_source.c.사진_촬영수,
     ).select_from(j_inner)
 
     insert_stmt = merge_target.insert().from_select([c.name for c in merge_target.c], select_stmt)

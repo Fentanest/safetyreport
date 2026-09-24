@@ -45,6 +45,16 @@ by_law (법규별, 같은 필드 + law)
 `get_agency_stats` 와 같은 행(로딩·대표건·행 필터·취하 제외·법규)을 쓴다 — 공통 헬퍼 `_load_stats_frames` / `_apply_stats_row_filters` / `_apply_stats_law_filter`.
 평균 처리일은 기관 평균을 합치지 않고 원자료에서 직접 계산(완료 상태 + 두 날짜 유효 + 차이 ≥ 0), 표본 수 함께 제공. 모바일 Standalone `LocalDbService.summarizeOverviewRows` 와 같은 정의 — 한쪽을 바꾸면 양쪽 테스트를 함께 고친다.
 
+## 2026-09-24 사진 촬영 시각 컬럼 (주정차 과태료 추정용)
+
+- detail/merge 3개 테이블에 `사진_첫촬영`(TEXT `YYYY-MM-DD HH:MM:SS`), `사진_끝촬영`(TEXT), `사진_촬영수`(INTEGER) 추가. `upgrade_schema()` 가 자동 ALTER.
+- 의미: NULL = 아직 시도 안 함(또는 네트워크 오류로 다음 크롤링에 재시도), `사진_촬영수 = 0` = 받았지만 EXIF 촬영 시각 없음.
+- 채우는 곳: `database.detail_to_sql` → `_resolve_photo_capture`(주정차 신고만, 트랜잭션 밖에서 사진 앞 128KB 스트리밍) → `services/photo_capture_time.py`.
+  값은 재크롤링에서 이어받고, 변경 감지(`synced_at`, 변경 알림)에 포함하지 않는다.
+- 서버↔모바일 변환: `db_backup.restore_from_mobile_db` 가 세 컬럼을 옮긴다. 모바일 `reports` 테이블과 서버 DB 가져오기 쪽도 같은 세 컬럼을 가져야 한다(PROJECT_RULES §3-1).
+- API: `/api/v1/reports/*` 는 테이블 전체 컬럼을 내보내므로 세 필드가 추가된다. 대시보드 `recent_answers`/`watchlist` 레코드에도 포함.
+- 추정 과태료(`services/fine_estimate.py`)는 이 컬럼과 번호판·신고 메뉴로 계산하며 DB 에 저장하지 않는다(statistics-spec §4-2).
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 199-307 -->

@@ -118,6 +118,9 @@ _REPORT_FIELDS = [
     "보완_완료일시",
     "보완_요청_내용",
     "보완_신고자_의견",
+    "사진_첫촬영",
+    "사진_끝촬영",
+    "사진_촬영수",
 ]
 
 _MAP_MISSING_COLUMNS = list(dict.fromkeys(_REPORT_FIELDS + [
