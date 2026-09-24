@@ -43,7 +43,12 @@ body { background-color: var(--sr-bg); color: var(--sr-text); letter-spacing: -0
 .sidebar a:focus-visible, .sr-theme-switch button:focus-visible { outline: none; box-shadow: var(--sr-focus); }
 .sidebar .sr-brand-title, .sidebar .sr-brand-version { color: var(--sr-sidebar-text); }
 .sidebar .sidebar-heading { color: var(--sr-sidebar-muted); font-size: 0.78rem; letter-spacing: 0.02em; }
-.sidebar .sr-brand-logo { width: 72px; height: auto; border-radius: 16px; box-shadow: var(--sr-shadow); }
+/* 로고: LOGO 시안(docs/design/reference/13) 라이트용/다크용 두 벌을 테마로 전환 */
+.sr-brand-lockup { display: block; width: 100%; max-width: 200px; height: auto; margin: 4px auto 6px; }
+.logo-area img.sr-auth-lockup { display: block; width: 100%; max-width: 300px; height: auto; margin: 0 auto 10px; border-radius: 0; box-shadow: none; }
+img.sr-logo-dark { display: none !important; }
+[data-bs-theme="dark"] img.sr-logo-light { display: none !important; }
+[data-bs-theme="dark"] img.sr-logo-dark { display: block !important; }
 
 /* 테마 전환 */
 .sr-theme-switch { display: flex; gap: 4px; margin: 16px 10px 8px; padding: 4px; border-radius: 10px; background: var(--sr-surface-2); border: 1px solid var(--sr-sidebar-border); }

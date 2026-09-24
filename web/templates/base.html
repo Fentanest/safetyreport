@@ -103,10 +103,9 @@
         <!-- Sidebar -->
         <nav class="col-md-2 d-md-block sidebar" id="mainSidebar">
             <div class="sidebar-sticky">
-                <div class="text-center mb-2">
-                    <img src="/static/logo.png?v={{ request.state.app_version }}-icon2" alt="나만의 안전신문고 로고" class="sr-brand-logo">
+                <div class="text-center mb-2 sr-brand">
+                    <img src="/static/brand/logo-lockup-light.png?v={{ request.state.app_version }}-logo2" alt="나만의 안전신문고" class="sr-brand-lockup sr-logo-light"><img src="/static/brand/logo-lockup-dark.png?v={{ request.state.app_version }}-logo2" alt="나만의 안전신문고" class="sr-brand-lockup sr-logo-dark">
                 </div>
-                <h5 class="text-center mb-0 fw-bold sr-brand-title">나만의<br>안전신문고</h5>
                 <div class="text-center fw-bold sr-brand-version" style="font-size: 0.8rem;">프로젝트 버전: v{{ request.state.app_version }}</div>
                 <div class="text-center mb-4" id="sidebarVersionStatus" style="font-size: 0.72rem; min-height: 1.2em;"></div>
                 <a href="/" class="{% if request.url.path == '/' %}active{% endif %}"><i class="fas fa-tachometer-alt fa-fw me-2"></i>대시보드</a>
