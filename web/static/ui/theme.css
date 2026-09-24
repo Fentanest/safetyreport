@@ -122,3 +122,7 @@ table.dataTable tbody tr { background-color: var(--sr-surface); }
 .sr-seg .btn.active { background: var(--sr-surface); color: var(--sr-seg-accent, var(--sr-primary)); box-shadow: var(--sr-shadow); font-weight: 700; }
 /* 빈 목록 안내(여러 화면 공통) */
 .sr-empty-panel { text-align: center; color: var(--sr-text-muted); padding: 3rem 1rem; border: 1px dashed var(--sr-border); border-radius: var(--sr-radius); }
+/* 카드 머리의 강조 아이콘(원색 머리 배경 대신) */
+.card-header .sr-accent-icon { color: var(--sr-primary); }
+/* 긴 설정 폼: 저장 버튼이 화면 아래에 붙어 따라온다 */
+.sr-sticky-save { position: sticky; bottom: 0.75rem; z-index: 5; }
