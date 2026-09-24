@@ -509,313 +509,44 @@ _TITLE_STATUS_FROM_PROGRESS = {
     '이송':     '이송',
 }
 
-_PHOTO_COLUMNS = ("사진_첫촬영", "사진_끝촬영", "사진_촬영수")
-
-
-def _resolve_photo_capture(engine, target_table, record_id, category, entry_value, new_record):
-    """주정차 신고 사진 촬영 시각. 이미 값(또는 시도 결과 0)이 있으면 그대로 이어받고, 없을 때만 받아 온다.
-
-    네트워크 요청은 DB 트랜잭션 밖에서 한다(SQLite 쓰기 잠금을 오래 잡지 않기 위해).
-    upsert 가 모든 컬럼을 덮어쓰므로, 이어받지 않으면 재크롤링 때 기존 값이 NULL 로 지워진다.
-    """
-    existing = {}
-    try:
-        with engine.connect() as read_conn:
-            row = read_conn.execute(
-                select(*[target_table.c[name] for name in _PHOTO_COLUMNS]).where(target_table.c.ID == record_id)
-            ).first()
-            if row is not None:
-                existing = dict(row._mapping)
-    except Exception:
-        existing = {}
-    carried = {name: existing.get(name) for name in _PHOTO_COLUMNS}
-    if existing.get("사진_촬영수") is not None:
-        return carried
-    from services import photo_capture_time
-    if not photo_capture_time.is_parking_report(category, entry_value):
-        return carried
-    try:
-        collected = photo_capture_time.collect(new_record.get("첨부사진"))
-    except Exception as exc:  # fixture 차단 포함 — 크롤링은 멈추지 않는다
-        logger.LoggerFactory.logbot.warning(f"[photo] ID {record_id} 촬영 시각 수집 실패: {exc}")
-        collected = None
-    return collected if collected is not None else carried
-
-
 def detail_to_sql(dataframes_with_category, engine, conn=None):
-    if not dataframes_with_category:
-        return []
+    """크롤러 튜플(2~7개 원소) → core/storage/reports_repo.save_crawled. 반환: 변경 목록 [{'id', 'change_type'}].
 
-    changed_item_ids = []
-    total_records = 0
-    geo_columns = ["주소정규화", "행정구역", "위도", "경도", "지오코딩상태"]
+    저장 규칙(열 주인·트랜잭션·변경 판정)은 reports_repo 에 있다(저장 계층 재설계 R2).
+    """
+    from core.storage import reports_repo
 
-    for item in dataframes_with_category:
-        # 2~7-tuple 모두 지원
-        # (df, category)
-        # (df, category, entry_value)
-        # (df, category, entry_value, progress_status)
-        # (df, category, entry_value, progress_status, title_fields)
-        # (df, category, entry_value, progress_status, title_fields, raw_content, raw_type)
-        progress_status = None
-        title_fields = None
-        raw_content = None
-        raw_type = ""
-        if len(item) == 7:
-            df, category, entry_value, progress_status, title_fields, raw_content, raw_type = item
-        elif len(item) == 6:
-            df, category, entry_value, progress_status, title_fields, raw_content = item
-        elif len(item) == 5:
-            df, category, entry_value, progress_status, title_fields = item
-        elif len(item) == 4:
-            df, category, entry_value, progress_status = item
-        elif len(item) == 3:
-            df, category, entry_value = item
-        else:
-            df, category = item
-            entry_value = None
-
-        if category == "traffic":
-            target_table = detail_traffic_table
-        elif category == "parking":
-            target_table = detail_parking_table
-        else:
-            target_table = detail_other_table
-
-        records = df.to_dict('records')
-        if not records:
-            continue
-
-        new_record = records[0]
-        record_id = new_record['ID']
-        photo_values = _resolve_photo_capture(engine, target_table, record_id, category, entry_value, new_record)
-
+    records = []
+    for item in dataframes_with_category or []:
         try:
-            with engine.begin() as conn:
-                now_ms = _current_epoch_millis()
-                select_stmt = select(target_table).where(target_table.c.ID == record_id)
-                existing_record_proxy = conn.execute(select_stmt).first()
+            records.append(reports_repo.CrawledDetail.from_legacy_tuple(item))
+        except ValueError:
+            continue
+    if not records:
+        return []
+    result = reports_repo.save_crawled(engine, records)
+    logger.LoggerFactory.logbot.info(
+        f"총 {result.saved}건 detail 저장 완료. (변경/신규: {len(result.changed)}건, 실패: {len(result.failed)}건)"
+    )
+    return result.changed
 
-                is_new = existing_record_proxy is None
-                is_changed = False
-                existing_record = dict(existing_record_proxy._mapping) if existing_record_proxy else {}
-
-                try:
-                    from services import geocode_service
-                    # 동일 트랜잭션 연결을 재사용해 SQLite self-lock을 피한다.
-                    geo_payload = geocode_service.prepare_geo_payload(
-                        engine,
-                        new_record.get("위반장소", ""),
-                        existing_record=existing_record,
-                        conn=conn,
-                    )
-                except Exception as exc:
-                    logger.LoggerFactory.logbot.warning(f"[geocode] ID {record_id} 지오코딩 준비 실패: {exc}")
-                    new_address = new_record.get("위반장소", "")
-                    existing_address = existing_record.get("주소정규화") or existing_record.get("위반장소") or ""
-                    if geocode_service.normalize_address(existing_address) == geocode_service.normalize_address(new_address):
-                        geo_payload = geocode_service.extract_geo_payload(existing_record, fallback_address=new_address)
-                    else:
-                        geo_payload = geocode_service.build_pending_geo_payload(new_address, status="error")
-
-                for column_name in geo_columns:
-                    new_record[column_name] = geo_payload.get(column_name)
-                new_record.update(photo_values)
-
-                # entry_value 저장
-                if entry_value is not None:
-                    ev_stmt = insert(entry_value_table).values(ID=record_id, entry_value=entry_value)
-                    ev_stmt = ev_stmt.on_conflict_do_update(index_elements=['ID'], set_={'entry_value': entry_value})
-                    conn.execute(ev_stmt)
-                total_records += 1
-
-                if raw_content is not None and str(raw_content).strip():
-                    existing_raw_proxy = conn.execute(
-                        select(raw_content_table).where(raw_content_table.c.ID == record_id)
-                    ).first()
-                    existing_raw = dict(existing_raw_proxy._mapping) if existing_raw_proxy else {}
-                    raw_payload = {
-                        "ID": record_id,
-                        "raw_content": str(raw_content),
-                        "raw_type": str(raw_type or ""),
-                        "saved_at": existing_raw.get("saved_at"),
-                    }
-                    if (
-                        existing_raw.get("raw_content") != raw_payload["raw_content"]
-                        or existing_raw.get("raw_type", "") != raw_payload["raw_type"]
-                        or raw_payload["saved_at"] is None
-                    ):
-                        raw_payload["saved_at"] = now_ms
-
-                    raw_stmt = insert(raw_content_table).values(**raw_payload)
-                    raw_stmt = raw_stmt.on_conflict_do_update(
-                        index_elements=['ID'],
-                        set_={
-                            "raw_content": raw_payload["raw_content"],
-                            "raw_type": raw_payload["raw_type"],
-                            "saved_at": raw_payload["saved_at"],
-                        },
-                    )
-                    conn.execute(raw_stmt)
-
-                if is_new:
-                    changed_item_ids.append({"id": record_id, "change_type": "신규"})
-                    new_record["synced_at"] = now_ms
-                else:
-                    for key, new_value in new_record.items():
-                        # 사진 촬영 시각은 보조 메타데이터라 신고 변경(synced_at·변경 알림)으로 보지 않는다.
-                        if key == "synced_at" or key in _PHOTO_COLUMNS:
-                            continue
-                        if key in existing_record and str(existing_record[key]) != str(new_value):
-                            is_changed = True
-                            break
-
-                    if is_changed:
-                        changed_item_ids.append({"id": record_id, "change_type": "변경"})
-                        new_record["synced_at"] = now_ms
-                    else:
-                        new_record["synced_at"] = existing_record.get("synced_at")
-
-                insert_stmt = insert(target_table).values(new_record)
-                update_dict = {col.name: getattr(insert_stmt.excluded, col.name) for col in target_table.c if col.name != 'ID'}
-
-                upsert_query = insert_stmt.on_conflict_do_update(
-                    index_elements=['ID'],
-                    set_=update_dict
-                )
-                conn.execute(upsert_query)
-
-                if title_fields:
-                    from sqlalchemy import case as sa_case
-                    # 만족도조사여부: '참여 완료' → 다운그레이드 금지 (단 별점 조회로 미참여 확인된 경우만 예외)
-                    poll = title_fields.get('만족도조사여부', '')
-                    has_rating_field = '별점' in title_fields  # fetcher가 점수 조회 시도했음을 의미
-                    if has_rating_field and poll == '참여 가능':
-                        # 미참여 재분류: 다운그레이드 허용
-                        poll_expr = poll
-                    elif poll:
-                        poll_expr = sa_case(
-                            (title_table.c.만족도조사여부 == '참여 완료', title_table.c.만족도조사여부),
-                            else_=poll
-                        )
-                    else:
-                        poll_expr = title_table.c.만족도조사여부
-
-                    update_values = dict(
-                        상태=title_fields['상태'],
-                        신고번호=title_fields['신고번호'],
-                        신고명=title_fields['신고명'],
-                        신고일=title_fields['신고일'],
-                        만족도조사여부=poll_expr,
-                    )
-                    if has_rating_field:
-                        update_values['별점'] = title_fields.get('별점')
-                        update_values['별점사유'] = title_fields.get('별점사유') or ''
-                    conn.execute(
-                        update(title_table)
-                        .where(title_table.c.ID == record_id)
-                        .values(**update_values)
-                    )
-                else:
-                    # title_fields 없을 때 기존 동작: 상태=='진행'인 경우만 동기화
-                    title_status = _TITLE_STATUS_FROM_PROGRESS.get(progress_status)
-                    if title_status:
-                        conn.execute(
-                            update(title_table)
-                            .where(title_table.c.ID == record_id)
-                            .where(title_table.c.상태 == '진행')
-                            .values(상태=title_status)
-                        )
-                # engine.begin() 블록 종료 시 자동 commit
-        except Exception as e:
-            logger.LoggerFactory.logbot.error(f"ID {record_id} upsert 실패, 건너뜀: {e}")
-
-    logger.LoggerFactory.logbot.info(f"총 {total_records}건 detail 테이블 upsert 완료. (변경/신규: {len(changed_item_ids)}건)")
-    return changed_item_ids
-
-
-def deatil_to_sql(dataframes_with_category, engine, conn=None):
-    return detail_to_sql(dataframes_with_category=dataframes_with_category, engine=engine, conn=conn)
-
-def _merge_for_table(conn, merge_target, detail_source):
-    conn.execute(merge_target.delete())
-    j_inner = title_table.join(detail_source, title_table.c.ID == detail_source.c.ID)
-
-    select_stmt = select(
-        title_table.c.ID,
-        title_table.c.상태,
-        title_table.c.신고번호,
-        title_table.c.신고명,
-        title_table.c.신고일,
-        title_table.c.만족도조사여부,
-        title_table.c.별점,
-        title_table.c.별점사유,
-        title_table.c.감시목록,
-        detail_source.c.처리상태,
-        detail_source.c.차량번호,
-        detail_source.c.위반법규,
-        detail_source.c.범칙금_과태료,
-        detail_source.c.벌점,
-        detail_source.c.처리기관,
-        detail_source.c.담당자,
-        detail_source.c.답변일,
-        detail_source.c.발생일자,
-        detail_source.c.발생시각,
-        detail_source.c.위반장소,
-        detail_source.c.주소정규화,
-        detail_source.c.행정구역,
-        detail_source.c.위도,
-        detail_source.c.경도,
-        detail_source.c.지오코딩상태,
-        detail_source.c.종결여부,
-        detail_source.c.신고내용,
-        detail_source.c.처리내용,
-        detail_source.c.지도,
-        detail_source.c.첨부사진,
-        detail_source.c.첨부파일,
-        detail_source.c.synced_at,
-        detail_source.c.보완횟수,
-        detail_source.c.보완_미응답,
-        detail_source.c.보완_요청자,
-        detail_source.c.보완_요청일시,
-        detail_source.c.보완_완료일시,
-        detail_source.c.보완_요청_내용,
-        detail_source.c.보완_신고자_의견,
-        detail_source.c.사진_첫촬영,
-        detail_source.c.사진_끝촬영,
-        detail_source.c.사진_촬영수,
-    ).select_from(j_inner)
-
-    insert_stmt = merge_target.insert().from_select([c.name for c in merge_target.c], select_stmt)
-    conn.execute(insert_stmt)
 
 def merge_final(engine, conn=None, *, track_duplicate_changes: bool = False):
+    """화면용 표 전체 재생성. 1건 저장과 같은 규칙(reports_repo.refresh_merge_rows): 상세 + 수정값 + 감시목록 + 6개월 첨부 가림."""
+    from core.storage import reports_repo
+
     with engine.connect() as conn:
-        _merge_for_table(conn, merge_traffic_table, detail_traffic_table)
-        _merge_for_table(conn, merge_parking_table, detail_parking_table)
-        _merge_for_table(conn, merge_other_table, detail_other_table)
-        refresh_watch_flags(conn)
+        reports_repo.refresh_merge_rows(conn)
         conn.commit()
         logger.LoggerFactory.logbot.info("최종 데이터 병합 완료 (Traffic/Parking/Other 분리)")
     return _refresh_duplicate_groups(engine, track_changes=track_duplicate_changes)
 
 def clear_old_attachments(engine):
-    six_months_ago = datetime.now() - relativedelta(months=6)
-    six_months_ago_str = six_months_ago.strftime('%Y-%m-%d')
+    """6개월 지난 첨부 가림. 이제 화면용 표를 만들 때마다 같은 규칙으로 적용되므로(S-31) 여기서는 다시 적용만 한다."""
+    from core.storage import reports_repo
 
-    with engine.connect() as conn:
-        for t in [merge_traffic_table, merge_parking_table, merge_other_table]:
-            stmt = (
-                update(t)
-                .where(t.c.신고일 < six_months_ago_str)
-                .values(
-                    지도="6개월 초과",
-                    첨부사진="6개월 초과",
-                    첨부파일="6개월 초과"
-                )
-            )
-            conn.execute(stmt)
-        conn.commit()
+    with engine.begin() as conn:
+        reports_repo._apply_attachment_expiry(conn, None)
 
 def load_results(engine, conn=None):
     """전체 카테고리 합본 (레거시 호환). 새 코드는 load_results_by_category 사용 권장."""

@@ -65,15 +65,16 @@ class ServerKnownDefectTests(_SeededDb):
         self.assertEqual(after["처리내용"], "일부만 수정")
         self.assertEqual(after["처리기관"], "")
 
-    def test_S5_currently_null_vs_empty_counts_as_change(self):
-        """S-5(R2): 내용이 같아도 DB 의 NULL 과 새 값 '' 를 다르게 보고 변경으로 친다(synced_at 갱신·변경 알림)."""
+    def test_S5_null_vs_empty_is_not_a_change(self):
+        """S-5(R2b 고침): 내용이 같으면 DB 의 NULL 과 새 값 '' 를 같게 본다(가짜 변경 알림·synced_at 오염 없음)."""
         base = self.detail_row(models.detail_traffic_table, "90000002")
         fields = dict(처리상태=base["처리상태"], 처리내용=base["처리내용"], 위반장소=base["위반장소"], 종결여부=base["종결여부"], 벌점="")
         self.crawl("90000002", **fields)
         self.assertEqual(self.crawl("90000002", **fields), [])  # 같은 값 두 번째 저장 → 변경 없음(정상)
         with self.engine.begin() as conn:
             conn.execute(update(models.detail_traffic_table).where(models.detail_traffic_table.c.ID == "90000002").values(벌점=None))
-        self.assertEqual(self.crawl("90000002", **fields), [{"id": "90000002", "change_type": "변경"}])
+        self.assertEqual(self.crawl("90000002", **fields), [])
+        self.assertEqual(self.crawl("90000002", **{**fields, "처리내용": "실제로 바뀐 내용"}), [{"id": "90000002", "change_type": "변경"}])
 
     def test_S19_null_closed_flag_is_recrawled(self):
         """S-19(R2a 고침): 종결여부 NULL(모름) 인 신고도 재크롤링 대상이다."""

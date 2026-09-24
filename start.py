@@ -229,18 +229,16 @@ def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fal
             logger.LoggerFactory.logbot.info("[API 방식 - Selenium fallback] 상세 데이터 추출 시작")
         else:
             logger.LoggerFactory.logbot.info("[API 방식] 상세 데이터 추출 시작")
-        detail_datas = list(
-            crawldetail_api.crawl_details(
-                driver=driver,
-                report_ids=detaillist,
-                browser_fallback=api_browser_fallback,
-            )
+        detail_stream = crawldetail_api.crawl_details(
+            driver=driver,
+            report_ids=detaillist,
+            browser_fallback=api_browser_fallback,
         )
     else:
         logger.LoggerFactory.logbot.info("[웹 방식(레거시)] 상세 데이터 추출 시작")
-        detail_datas = list(crawldetail.crawl_details(driver=driver, report_ids=detaillist))
-        
-    changed_item_ids = database.detail_to_sql(dataframes_with_category=detail_datas, engine=engine)
+        detail_stream = crawldetail.crawl_details(driver=driver, report_ids=detaillist)
+
+    changed_item_ids = _save_details_as_they_arrive(engine, detail_stream)
     if settings.telegram_enabled:
         msg = f"2/5. 상세 정보(Detail) 크롤링 {len(detaillist)}건 및 DB 저장을 완료했습니다. (내용 변경/신규 처리: {len(changed_item_ids)}건)"
         # changed_item_ids는 [{"id": ..., "change_type": "신규"/"변경"}] 형식
@@ -252,10 +250,35 @@ def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fal
     
     return changed_item_ids
 
+def _save_details_as_they_arrive(engine, detail_stream):
+    """상세를 받는 즉시 1건씩 저장한다(저장 계층 재설계 R2, S-9). 크롤러가 중간에 멈춰도 받은 만큼은 남는다.
+    중복군 재계산은 뒤의 merge_final 에서 한 번만 한다."""
+    from core.storage import reports_repo
+
+    changed, failed, saved = [], [], 0
+    try:
+        for item in detail_stream:
+            try:
+                record = reports_repo.CrawledDetail.from_legacy_tuple(item)
+            except ValueError:
+                continue
+            result = reports_repo.save_crawled(engine, [record], refresh_duplicates=False)
+            changed.extend(result.changed)
+            failed.extend(result.failed)
+            saved += result.saved
+    except Exception as exc:
+        logger.LoggerFactory.logbot.error(f"상세 크롤링이 중간에 멈췄습니다({saved}건까지 저장됨): {exc}")
+    logger.LoggerFactory.logbot.info(
+        f"상세 저장 {saved}건 (변경/신규 {len(changed)}건, 실패 {len(failed)}건)"
+    )
+    if failed:
+        logger.LoggerFactory.logbot.error("저장 실패 ID: " + ", ".join(rid for rid, _ in failed[:50]))
+    return changed
+
+
 def _process_and_save_results(engine, changed_item_ids):
     logger.LoggerFactory.logbot.info("최종 데이터 병합 및 저장 시작")
-    duplicate_refresh = database.merge_final(engine=engine, track_duplicate_changes=True) or {}
-    database.clear_old_attachments(engine=engine)
+    duplicate_refresh = database.merge_final(engine=engine, track_duplicate_changes=True) or {}  # 6개월 첨부 가림도 여기서 적용
     duplicate_changes = list(duplicate_refresh.get("changes") or [])
     total_changed_count = len(changed_item_ids) + len(duplicate_changes)
 
