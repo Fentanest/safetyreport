@@ -1,0 +1,976 @@
+{
+ "contract_version": 1,
+ "updated": "2026-09-24",
+ "description": "서버·모바일 저장 계약(PROJECT_RULES §3-1). 두 레포의 같은 경로 contracts/storage-contract.json 에 바이트 동일하게 둔다(scripts/dev/db_roundtrip_check.py 가 sha256 비교). R0 판은 현재 스키마를 그대로 적은 것이고, NULL·기본값 정렬은 R1 에서 한다.",
+ "null_rule": "NULL = 모름/아직 안 해 봄. '' = 비어 있음이 확인됨. 정규화는 파서 출력 한 곳에서만 하고 저장·변환·API 는 값을 바꾸지 않는다.",
+ "owners": {
+  "site": "안전신문고가 원천. 크롤러만 쓴다.",
+  "user": "사용자가 원천. 사용자 동작만 쓴다.",
+  "derived": "계산값. 정해진 계산기만 쓴다.",
+  "meta": "동기화·스키마 메타.",
+  "server_only": "서버 전용(교환 안 함).",
+  "legacy": "옛 열. 새 코드는 쓰지 않는다."
+ },
+ "schema_version": {
+  "server": null,
+  "mobile": 11,
+  "note": "서버는 아직 번호 없는 upgrade_schema(R1 에서 PRAGMA user_version 도입)."
+ },
+ "entities": [
+  {
+   "entity": "report",
+   "server_tables": {
+    "title": "mysafety",
+    "detail": [
+     "mysafetydetail_traffic",
+     "mysafetydetail_parking",
+     "mysafetydetail_other"
+    ],
+    "merge": [
+     "mysafetymerge_traffic",
+     "mysafetymerge_parking",
+     "mysafetymerge_other"
+    ]
+   },
+   "mobile_table": "reports",
+   "columns": [
+    {
+     "name": "ID",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "title",
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true,
+     "pk": true
+    },
+    {
+     "name": "상태",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "title",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "신고번호",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "title",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "신고명",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "title",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "신고일",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "title",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "만족도조사여부",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "title",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true,
+     "note": "사이트 값 우선, 조회 실패·빈 값이면 기존 유지. '참여 완료'→'참여 가능'은 확정 미참여일 때만(결정 D-2·D-3)."
+    },
+    {
+     "name": "별점",
+     "type": "integer",
+     "owner": "site",
+     "server": [
+      "title",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true,
+     "note": "사이트 값 우선, 조회 실패면 기존 유지(결정 D-2)."
+    },
+    {
+     "name": "별점사유",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "title",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true,
+     "note": "사이트 값 우선, 조회 실패면 기존 유지(결정 D-2)."
+    },
+    {
+     "name": "감시목록",
+     "type": "text",
+     "owner": "derived",
+     "server": [
+      "title",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true,
+     "note": "감시목록 표에서 계산하는 표시값. 원천은 watchlist 엔터티(결정 D-6·S-16)."
+    },
+    {
+     "name": "처리상태",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "차량번호",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "위반법규",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "범칙금_과태료",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "벌점",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "처리기관",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "담당자",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "답변일",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "발생일자",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "발생시각",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "위반장소",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "주소정규화",
+     "type": "text",
+     "owner": "derived",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "행정구역",
+     "type": "text",
+     "owner": "derived",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "위도",
+     "type": "real",
+     "owner": "derived",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "경도",
+     "type": "real",
+     "owner": "derived",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "지오코딩상태",
+     "type": "text",
+     "owner": "derived",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "종결여부",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "신고내용",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "처리내용",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "지도",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "첨부사진",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "첨부파일",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "category",
+     "type": "text",
+     "owner": "derived",
+     "server": [],
+     "mobile": true,
+     "exchange": true,
+     "server_via": "표 이름(mysafety*_traffic|parking|other)",
+     "note": "traffic|parking|other. 서버는 merge/detail 표 이름으로 표현."
+    },
+    {
+     "name": "entry_value",
+     "type": "text",
+     "owner": "site",
+     "server": [],
+     "mobile": true,
+     "exchange": true,
+     "server_via": "mysafety_entry_value.entry_value",
+     "note": "서버는 mysafety_entry_value 표, 모바일은 reports 열."
+    },
+    {
+     "name": "raw_content",
+     "type": "text",
+     "owner": "legacy",
+     "server": [],
+     "mobile": true,
+     "exchange": false,
+     "note": "모바일 reports 의 옛 열(항상 ''). 원문은 raw_content 엔터티."
+    },
+    {
+     "name": "synced_at",
+     "type": "integer",
+     "owner": "derived",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true,
+     "note": "epoch ms. 상세 내용이 실제로 바뀐 시각."
+    },
+    {
+     "name": "보완횟수",
+     "type": "integer",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "보완_미응답",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "보완_요청자",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "보완_요청일시",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "보완_완료일시",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "보완_요청_내용",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "보완_신고자_의견",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "사진_첫촬영",
+     "type": "text",
+     "owner": "derived",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "사진_끝촬영",
+     "type": "text",
+     "owner": "derived",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "사진_촬영수",
+     "type": "integer",
+     "owner": "derived",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true,
+     "note": "NULL=아직 시도 안 함, 0=받았지만 촬영 시각 없음."
+    }
+   ]
+  },
+  {
+   "entity": "raw_content",
+   "server_table": "mysafety_raw_content",
+   "mobile_table": "report_raw",
+   "columns": [
+    {
+     "name": "ID",
+     "type": "text",
+     "owner": "site",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "pk": true
+    },
+    {
+     "name": "raw_content",
+     "type": "text",
+     "owner": "site",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "raw_type",
+     "type": "text",
+     "owner": "site",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "saved_at",
+     "type": "integer",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    }
+   ]
+  },
+  {
+   "entity": "sync_meta",
+   "server_table": "mysafety_sync_meta",
+   "mobile_table": "sync_meta",
+   "columns": [
+    {
+     "name": "key",
+     "type": "text",
+     "owner": "meta",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "pk": true
+    },
+    {
+     "name": "value",
+     "type": "text",
+     "owner": "meta",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    }
+   ],
+   "note": "키: last_sync(ISO8601), watchlist(서버는 mysafety_watchlist 가 원천 — 결정 D-6/R1 에서 통일), map_backfill_state(서버 런타임, 교환 제외)."
+  },
+  {
+   "entity": "geocode_cache",
+   "server_table": "mysafety_geocode_cache",
+   "mobile_table": "geocode_cache",
+   "columns": [
+    {
+     "name": "주소정규화",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "pk": true
+    },
+    {
+     "name": "원본주소",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "행정구역",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "위도",
+     "type": "real",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "경도",
+     "type": "real",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "상태",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "source",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "error_message",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "updated_at",
+     "type": "integer",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    }
+   ]
+  },
+  {
+   "entity": "duplicate_group",
+   "server_table": "mysafety_duplicate_group",
+   "mobile_table": "duplicate_group",
+   "columns": [
+    {
+     "name": "group_id",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "pk": true
+    },
+    {
+     "name": "fingerprint",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "match_type",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "status",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "representative_mode",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "representative_id",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "member_count",
+     "type": "integer",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "apply_globally",
+     "type": "integer",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "note",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "created_at",
+     "type": "integer",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "updated_at",
+     "type": "integer",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    }
+   ],
+   "note": "status·대표건·메모는 사용자 판단 — R1 에서 duplicate_decision 으로 분리(결정 D-6)."
+  },
+  {
+   "entity": "duplicate_member",
+   "server_table": "mysafety_duplicate_member",
+   "mobile_table": "duplicate_member",
+   "columns": [
+    {
+     "name": "group_id",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "pk": true
+    },
+    {
+     "name": "report_id",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "pk": true
+    },
+    {
+     "name": "report_number",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "category",
+     "type": "text",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "is_representative",
+     "type": "integer",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "priority_score",
+     "type": "integer",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "raw_match",
+     "type": "integer",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "field_match",
+     "type": "integer",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "created_at",
+     "type": "integer",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "updated_at",
+     "type": "integer",
+     "owner": "derived",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    }
+   ]
+  },
+  {
+   "entity": "watchlist",
+   "server_table": "mysafety_watchlist",
+   "mobile_table": null,
+   "columns": [
+    {
+     "name": "신고번호",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": false,
+     "exchange": false,
+     "pk": true
+    }
+   ],
+   "note": "모바일은 sync_meta 키 'watchlist'(쉼표 구분 신고번호)로 표현. 교환은 변환기가 담당."
+  },
+  {
+   "entity": "entry_value",
+   "server_table": "mysafety_entry_value",
+   "mobile_table": null,
+   "columns": [
+    {
+     "name": "ID",
+     "type": "text",
+     "owner": "site",
+     "server": true,
+     "mobile": false,
+     "exchange": false,
+     "pk": true
+    },
+    {
+     "name": "entry_value",
+     "type": "text",
+     "owner": "site",
+     "server": true,
+     "mobile": false,
+     "exchange": false
+    }
+   ],
+   "note": "모바일은 reports.entry_value 열."
+  },
+  {
+   "entity": "admin_users",
+   "server_table": "admin_users",
+   "mobile_table": null,
+   "columns": [
+    {
+     "name": "username",
+     "type": "text",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false,
+     "pk": true
+    },
+    {
+     "name": "password_hash",
+     "type": "text",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false
+    },
+    {
+     "name": "salt",
+     "type": "text",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false
+    }
+   ]
+  },
+  {
+   "entity": "api_keys",
+   "server_table": "api_keys",
+   "mobile_table": null,
+   "columns": [
+    {
+     "name": "key",
+     "type": "text",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false,
+     "pk": true
+    },
+    {
+     "name": "name",
+     "type": "text",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false
+    },
+    {
+     "name": "created_at",
+     "type": "text",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false
+    }
+   ]
+  }
+ ]
+}

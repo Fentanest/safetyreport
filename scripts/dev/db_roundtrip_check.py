@@ -71,6 +71,56 @@ print(engine.url.database)
     return data_dir / "data.db"
 
 
+def prepare_server_copy(source: Path, data_dir: Path) -> Path:
+    """외부 서버 DB(예: 운영 사본)를 임시 폴더로 복사하고 서버 기동과 같은 upgrade_schema 를 적용한다. 원본은 읽기만 한다."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    target = data_dir / "data.db"
+    src = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    dst = sqlite3.connect(target)
+    src.backup(dst)  # WAL 내용까지 일관된 사본
+    dst.close()
+    src.close()
+    code = r'''
+from core.database.engine import get_engine
+from core.database import database
+from core.utils import logger
+logger.LoggerFactory.create_logger()
+database.upgrade_schema(get_engine())
+'''
+    out = subprocess.run([sys.executable, "-c", code], env=_server_env(data_dir), capture_output=True, text=True, cwd=REPO_ROOT)
+    if out.returncode != 0:
+        raise SystemExit("server copy upgrade failed:\n" + out.stderr[-3000:])
+    return target
+
+
+def summarize(diffs: list[str]) -> dict:
+    """값·신고 ID 없이 표·열별 차이 개수만 (운영 사본 리허설용, 결정 D-8)."""
+    import re
+    counts: dict[str, int] = {}
+    for d in diffs:
+        m = re.match(r"\[(?P<label>[^\]]+)\] (?:(?P<kind>행 누락|행 추가)|[^.]*\.(?P<col>[^: (]+))", d)
+        if not m:
+            key = "기타"
+        elif m.group("kind"):
+            key = f"{m.group('label')} :: {m.group('kind')}"
+        else:
+            key = f"{m.group('label')} :: {m.group('col')}"
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def table_counts(db: Path, tables) -> dict:
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    result = {}
+    for t in tables:
+        try:
+            result[t] = con.execute(f'SELECT count(*) FROM "{t}"').fetchone()[0]
+        except sqlite3.OperationalError:
+            result[t] = None
+    con.close()
+    return result
+
+
 def restore_mobile_into_server(mobile_db: Path, data_dir: Path) -> Path:
     code = r'''
 import sys
@@ -146,16 +196,24 @@ def main() -> int:
     parser.add_argument("--mobile-repo", required=True, type=Path)
     parser.add_argument("--flutter", default=shutil.which("flutter") or "flutter")
     parser.add_argument("--keep", action="store_true", help="임시 파일 유지")
+    parser.add_argument("--server-db", type=Path, help="fixture 대신 이 서버 DB 의 사본으로 시작(원본은 읽기만)")
+    parser.add_argument("--summary-only", action="store_true", help="값·ID 없이 표·열별 차이 개수와 행 수만 출력")
     args = parser.parse_args()
 
     work = Path(tempfile.mkdtemp(prefix="sr_roundtrip_"))
     try:
-        s0 = build_server_db(work / "s0")
+        s0 = prepare_server_copy(args.server_db.resolve(), work / "s0") if args.server_db else build_server_db(work / "s0")
         m1 = mobile_import(s0, work / "m1.db", args.mobile_repo.resolve(), args.flutter)
         s2 = restore_mobile_into_server(m1, work / "s2")
         m3 = mobile_import(s2, work / "m3.db", args.mobile_repo.resolve(), args.flutter)
 
         diffs = []
+        # 저장 계약은 두 레포에 바이트 동일해야 한다(저장 계층 재설계 R0).
+        import hashlib
+        contract_paths = [REPO_ROOT / "contracts" / "storage-contract.json", args.mobile_repo.resolve() / "contracts" / "storage-contract.json"]
+        digests = [hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None for p in contract_paths]
+        if None in digests or digests[0] != digests[1]:
+            diffs.append(f"[contract] 서버·모바일 storage-contract.json 불일치: {digests}")
         keys = {"mysafety_entry_value": "ID", "mysafety_raw_content": "ID"}
         for table in SERVER_TABLES_BY_ID:
             diffs += compare(f"A:{table}", _rows(s0, table, keys.get(table, "ID")), _rows(s2, table, keys.get(table, "ID")))
@@ -177,6 +235,17 @@ def main() -> int:
         diffs += compare("B:duplicate_group", mg1, mg3)
         diffs += compare("B:duplicate_member", mm1, mm3)
 
+        if args.summary_only:
+            server_tables = SERVER_TABLES_BY_ID + ["mysafety_watchlist", "mysafety_sync_meta", "mysafety_geocode_cache", "mysafety_duplicate_group", "mysafety_duplicate_member"]
+            mobile_tables = list(MOBILE_TABLES) + ["duplicate_group", "duplicate_member"]
+            report = {"diff_count": len(diffs), "diff_by_table_column": summarize(diffs),
+                      "rows": {"S0": table_counts(s0, server_tables), "S2": table_counts(s2, server_tables),
+                               "M1": table_counts(m1, mobile_tables), "M3": table_counts(m3, mobile_tables)},
+                      # 키 이름만(값 제외): last_sync / watchlist / map_backfill_state 같은 메타 키
+                      "sync_meta_keys": {"S0": sorted(_rows(s0, "mysafety_sync_meta", "key")), "S2": sorted(_rows(s2, "mysafety_sync_meta", "key")),
+                                         "M1": sorted(_rows(m1, "sync_meta", "key")), "M3": sorted(_rows(m3, "sync_meta", "key"))}}
+            print(json.dumps(report, ensure_ascii=False, indent=1))
+            return 1 if diffs else 0
         report = {"work_dir": str(work), "diff_count": len(diffs), "diffs": diffs}
         print(json.dumps(report, ensure_ascii=False, indent=1))
         return 1 if diffs else 0

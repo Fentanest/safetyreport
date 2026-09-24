@@ -35,6 +35,7 @@ test_*
 !/.mcp.json
 !/tests/test_*.py
 !/tests/fixtures/*.json
+!/contracts/*.json
 !/tools/web-tests/package.json
 !/tools/web-tests/package-lock.json
 !/tools/web-tests/tsconfig.json
