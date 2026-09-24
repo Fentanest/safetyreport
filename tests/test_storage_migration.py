@@ -100,6 +100,16 @@ class ServerMigrationTests(unittest.TestCase):
             database.upgrade_schema(self.engine)
         self.assertNotIn("주소정규화", self._columns("mysafetydetail_traffic"))  # 거부 전에 아무것도 바꾸지 않음
 
+    def test_light_upgrade_for_crawler_applies_versions_and_indexes(self):
+        database.upgrade_schema(self.engine, maintenance=False)
+        self.assertEqual(database.get_schema_version(self.engine), database.SCHEMA_VERSION)
+        con = sqlite3.connect(self.path)
+        try:
+            indexes = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+        finally:
+            con.close()
+        self.assertTrue({"ix_mysafety_report_number", "ix_detail_traffic_closed", "ix_duplicate_member_report"} <= indexes)
+
 
 if __name__ == "__main__":
     unittest.main()

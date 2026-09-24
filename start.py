@@ -91,7 +91,20 @@ def _prepare_database(engine, reset=False):
                 )
             )
             conn.exec_driver_sql("DROP TABLE IF EXISTS mysafety_supplement_history")
-    database.upgrade_schema(engine)
+    # 크롤링 서브프로세스: 표·열·버전만 확인하고 무거운 정리는 서버 시작 때 한다(S-22). reset 직후엔 비어 있어 정리할 것도 없다.
+    database.upgrade_schema(engine, maintenance=False)
+
+def _resolve_report_number(conn, item):
+    """큐 신고번호 → 내부 ID. 정확 일치 → 'SPP-' 를 붙인 정확 일치 → 부분 일치가 딱 1건일 때만(S-24).
+    예전엔 LIKE '%item%' 의 아무 첫 결과를 썼다."""
+    title = database.title_table
+    for candidate in dict.fromkeys([item, item if item.startswith("SPP-") else f"SPP-{item}"]):
+        found = conn.execute(select(title.c.ID).where(title.c.신고번호 == candidate)).scalar()
+        if found:
+            return found
+    matches = conn.execute(select(title.c.ID).where(title.c.신고번호.like(f"%{item}%")).limit(2)).scalars().all()
+    return matches[0] if len(matches) == 1 else None
+
 
 def extract_ids_from_queue(engine, queuelist):
     """Returns (resolved_ids, missing_report_numbers) tuple."""
@@ -102,8 +115,7 @@ def extract_ids_from_queue(engine, queuelist):
             item = item.strip()
             if not item: continue
             if item.startswith('SPP-') or '-' in item:
-                query = select(database.title_table.c.ID).where(database.title_table.c.신고번호.like(f"%{item}%"))
-                res = conn.execute(query).scalar()
+                res = _resolve_report_number(conn, item)
                 if res:
                     resolved_ids.append(res)
                 else:

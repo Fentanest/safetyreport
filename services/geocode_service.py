@@ -601,6 +601,10 @@ def count_pending_reports(engine) -> int:
 
 
 def _apply_geo_payload(conn, detail_table, merge_table, report_id: str, payload: dict):
+    """백필한 좌표는 상세(계산값 열)에 쓰고, 화면용 표는 같은 규칙으로 그 신고만 다시 만든다(저장 계층 재설계 R2, S-30).
+    예전처럼 merge 를 직접 고치면 수정값·첨부 가림 규칙을 건너뛴다."""
+    from core.storage import reports_repo
+
     values = {
         "주소정규화": payload.get("주소정규화") or "",
         "행정구역": payload.get("행정구역") or "",
@@ -609,7 +613,7 @@ def _apply_geo_payload(conn, detail_table, merge_table, report_id: str, payload:
         "지오코딩상태": payload.get("지오코딩상태") or "",
     }
     conn.execute(update(detail_table).where(detail_table.c.ID == report_id).values(**values))
-    conn.execute(update(merge_table).where(merge_table.c.ID == report_id).values(**values))
+    reports_repo.refresh_merge_rows(conn, [report_id])
 
 
 def backfill_missing_report_coordinates(engine, *, limit: int = 150) -> dict:

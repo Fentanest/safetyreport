@@ -263,7 +263,9 @@ def migrate_by_entry_value(engine):
         logger.LoggerFactory.logbot.debug("[migrate] entry_value 기반 재분류: 이동할 항목 없음.")
 
 
-def upgrade_schema(engine):
+def upgrade_schema(engine, *, maintenance: bool = True):
+    """표·열 추가와 번호 붙은 마이그레이션은 항상, 무거운 정리 작업(entry_value 재분류·synced_at 백필·상태 정규화·중복군 재계산)은
+    maintenance=True 일 때만(서버 시작·복원). 크롤링 서브프로세스는 maintenance=False 로 가볍게 부른다(S-22)."""
     _refuse_newer_schema(engine)
     inspector = inspect(engine)
     with engine.connect() as connection:
@@ -304,18 +306,21 @@ def upgrade_schema(engine):
                             logger.LoggerFactory.logbot.error(f"스키마 업그레이드 오류: {e}")
         connection.commit()
 
+    _apply_versioned_migrations(engine)
+    if not maintenance:
+        return
     migrate_by_entry_value(engine)
     backfill_synced_at(engine)
     normalized_rows = _normalize_processing_layers(engine)
     if normalized_rows:
         merge_final(engine)
-    _refresh_duplicate_groups(engine)
-    _apply_versioned_migrations(engine)
+    else:
+        _refresh_duplicate_groups(engine)
 
 
 # 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다.
 # 위의 열 추가식 upgrade 는 그대로 두고, 이후 데이터 이동이 필요한 변경은 번호 붙은 단계로 쌓는다(저장 계층 재설계 R1).
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _migration_1_storage_tables(conn):
@@ -346,7 +351,25 @@ def _migration_3_duplicate_decisions(conn):
     ))
 
 
-_VERSIONED_MIGRATIONS = {1: _migration_1_storage_tables, 2: _migration_2_sync_meta_and_watch_flags, 3: _migration_3_duplicate_decisions}
+def _migration_4_indexes(conn):
+    """R2d: 자주 거르는 열에 인덱스(S-33). 신고번호(감시목록·별점·큐), 종결여부(재크롤링 대상), 중복 멤버의 신고 ID."""
+    statements = [
+        'CREATE INDEX IF NOT EXISTS ix_mysafety_report_number ON mysafety ("신고번호")',
+        'CREATE INDEX IF NOT EXISTS ix_duplicate_member_report ON mysafety_duplicate_member (report_id)',
+    ]
+    for category in ("traffic", "parking", "other"):
+        statements.append(f'CREATE INDEX IF NOT EXISTS ix_merge_{category}_report_number ON mysafetymerge_{category} ("신고번호")')
+        statements.append(f'CREATE INDEX IF NOT EXISTS ix_detail_{category}_closed ON mysafetydetail_{category} ("종결여부")')
+    for statement in statements:
+        conn.execute(text(statement))
+
+
+_VERSIONED_MIGRATIONS = {
+    1: _migration_1_storage_tables,
+    2: _migration_2_sync_meta_and_watch_flags,
+    3: _migration_3_duplicate_decisions,
+    4: _migration_4_indexes,
+}
 
 
 def refresh_watch_flags(conn, report_numbers=None):

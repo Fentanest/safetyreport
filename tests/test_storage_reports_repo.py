@@ -121,6 +121,16 @@ class ReportsRepoTests(unittest.TestCase):
         database.sync_rating_status(self.engine, number)  # 점수 없이 부르면 점수는 그대로
         self.assertEqual(self.row(models.title_table, "90000004")["별점"], 4)
 
+    def test_queue_report_number_resolution(self):
+        """S-24: 큐 신고번호는 정확 일치 우선, 부분 일치는 딱 1건일 때만."""
+        import start
+
+        number = self.row(models.title_table, "90000004")["신고번호"]  # SPP-2602-9000004
+        with self.engine.connect() as conn:
+            self.assertEqual(start._resolve_report_number(conn, number), "90000004")
+            self.assertEqual(start._resolve_report_number(conn, number[4:]), "90000004")  # 'SPP-' 없이
+            self.assertIsNone(start._resolve_report_number(conn, "SPP-26"))  # 여러 건에 걸리는 부분 일치는 거부
+
 
 if __name__ == "__main__":
     unittest.main()
