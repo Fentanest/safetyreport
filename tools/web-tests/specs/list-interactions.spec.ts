@@ -18,18 +18,33 @@ test.describe('List Interactions and Modals', () => {
   });
 
   test('advanced search AND/OR filters correctly', async ({ page }) => {
-    // Open offcanvas
-    await page.locator('.floating-search-btn').click({ force: true });
-    await page.waitForSelector('#offcanvasSearch', { state: 'visible' });
+    // 창이 완전히 열리고 닫힌 뒤에 다음 동작을 한다(닫히는 중에 다시 누르면 가끔 안 열려 30초 대기하던 문제).
+    const panel = page.locator('#offcanvasSearch');
+    async function search(text: string) {
+      await page.locator('.floating-search-btn').click();
+      await expect(panel).toHaveClass(/show/);
+      await page.locator('#searchReportName').fill(text);
+      await page.locator('#btnSearch').click(); // 검색 버튼은 창을 닫지 않는다
+      await panel.locator('.btn-close').click();
+      await expect(panel).not.toHaveClass(/show/);
+      await expect(page.locator('.offcanvas-backdrop')).toHaveCount(0);
+    }
+    async function visibleNames() {
+      const rows = page.locator('table.dataTable tbody tr:not(:has(td.dataTables_empty))');
+      return rows.evaluateAll((trs) => trs.map((tr) => (tr as HTMLElement).innerText));
+    }
 
-    // Test AND
-    await page.locator('#searchReportName').fill('교통&위반');
-    await page.locator('#btnSearch').click({ force: true });
-    
-    // Test OR
-    await page.locator('.floating-search-btn').click({ force: true });
-    await page.locator('#searchReportName').fill('불법,교통');
-    await page.locator('#btnSearch').click({ force: true });
+    await search('교통&위반'); // AND: 두 단어 모두
+    for (const text of await visibleNames()) {
+      expect(text.includes('교통') && text.includes('위반')).toBeTruthy();
+    }
+
+    await search('불법,신호'); // OR: 둘 중 하나
+    const orRows = await visibleNames();
+    expect(orRows.length).toBeGreaterThan(0);
+    for (const text of orRows) {
+      expect(text.includes('불법') || text.includes('신호')).toBeTruthy();
+    }
   });
 
   test('multi-select for status filters correctly', async ({ page }) => {
