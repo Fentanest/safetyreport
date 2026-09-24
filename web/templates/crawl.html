@@ -1,92 +1,97 @@
 {% extends "base.html" %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="/static/ui/ops.css?v={{ request.state.app_version }}">
+{% endblock %}
+
 {% block content %}
-<div class="row">
+<div class="row g-3">
     <!-- Configuration Card -->
     <div class="col-md-5">
-        <div class="card card-custom mb-4">
-            <div class="card-header bg-white fw-bold">크롤링 옵션 설정</div>
-            <div class="card-body">
+        <div class="ops-card h-100">
+            <div class="ops-card-header">
+                <div><i class="fas fa-cog me-2" style="color: var(--sr-primary)"></i> 크롤링 옵션 설정</div>
+            </div>
+            <div class="ops-card-body">
                 <form id="crawlForm">
                     <input type="hidden" name="crawl_type" value="{{ crawl_type }}">
-                    <h6 class="mb-3 text-primary border-bottom pb-2">1. 로그인 모드</h6>
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="radio" name="login_mode" id="loginMember" value="member"
-                            checked>
-                        <label class="form-check-label" for="loginMember">
-                            <strong>회원 로그인 모드</strong> <br><small class="text-muted">설정된 ID/PW로 자동 로그인 후 동작합니다.</small>
-                        </label>
-                    </div>
-                    <div class="form-check mb-4">
-                        <input class="form-check-input" type="radio" name="login_mode" id="loginNonMember"
-                            value="nonmember">
-                        <label class="form-check-label" for="loginNonMember">
-                            <strong>비회원(수동) 로그인 모드</strong> <br><small class="text-muted">브라우저가 열리면 수동으로 로그인 후, 아래 '수동조작
-                                완료' 버튼을 눌러야 시작됩니다.</small>
-                        </label>
-                    </div>
-
-                    <div class="mb-3 d-flex align-items-center gap-2">
-                        <i class="fas fa-exchange-alt text-muted" style="font-size:0.85em;"></i>
-                        <span class="text-muted" style="font-size:0.85em;">크롤링 방식:</span>
-                        {% if crawl_type == 'api' %}
-                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle">API 방식</span>
-                        {% else %}
-                        <span class="badge bg-warning-subtle text-warning border border-warning-subtle">웹 크롤링 방식 (레거시)</span>
-                        {% endif %}
-                        <a href="/settings#crawl-type" class="ms-auto text-muted" style="font-size:0.8em;" title="설정에서 변경"><i class="fas fa-cog"></i></a>
-                    </div>
-
-                    <h6 class="mb-3 text-primary border-bottom pb-2">2. 크롤링 범위</h6>
-                    <div class="form-check mb-2">
-                        <input class="form-check-input" type="radio" name="crawl_mode" id="crawlFull" value="full"
-                            checked>
-                        <label class="form-check-label" for="crawlFull">전체 크롤링</label>
-                    </div>
-                    <div class="form-check mb-2">
-                        <div class="d-flex align-items-center">
-                            <input class="form-check-input me-2" type="radio" name="crawl_mode" id="crawlMin"
-                                value="min" style="margin-top:0;">
-                            <label class="form-check-label mb-0" for="crawlMin">최소 크롤링 (변경사항 감지된 곳까지만)</label>
-                            <span class="ms-3 text-muted" style="font-size: 0.9em;">탐색 페이지 한도:</span>
-                            <input type="number" class="form-control form-control-sm ms-2" name="max_empty_pages"
-                                id="maxEmptyPages" value="{{ max_empty_pages }}" style="width: 70px;" disabled>
+                    
+                    <div class="ops-section">
+                        <div class="ops-section-title">로그인 모드</div>
+                        <div class="sr-seg mb-2" style="display: flex;">
+                            <input type="radio" class="sr-seg-radio" name="login_mode" id="loginMember" value="member" checked>
+                            <label class="sr-seg-label-btn flex-grow-1 text-center" for="loginMember">
+                                <i class="fas fa-user-check me-1"></i> 회원 로그인
+                            </label>
+                            
+                            <input type="radio" class="sr-seg-radio" name="login_mode" id="loginNonMember" value="nonmember">
+                            <label class="sr-seg-label-btn flex-grow-1 text-center" for="loginNonMember">
+                                <i class="fas fa-user-times me-1"></i> 비회원(수동)
+                            </label>
+                        </div>
+                        <div class="ops-hint">
+                            <span id="loginMemberHint">설정된 ID/PW로 자동 로그인 후 동작합니다.</span>
+                            <span id="loginNonMemberHint" style="display:none;">브라우저가 열리면 수동으로 로그인 후, 아래 '수동조작 완료' 버튼을 눌러야 시작됩니다.</span>
+                        </div>
+                        
+                        <div class="d-flex align-items-center gap-2 mt-2 p-2 rounded" style="background-color: var(--sr-surface-2); border: 1px solid var(--sr-border);">
+                            <i class="fas fa-exchange-alt text-muted" style="font-size:0.85em;"></i>
+                            <span style="font-size:0.85em; color: var(--sr-text-muted);">크롤링 방식:</span>
+                            {% if crawl_type == 'api' %}
+                            <span class="badge" style="background-color: var(--sr-primary-soft); color: var(--sr-primary); border: 1px solid var(--sr-primary-soft);">API 방식</span>
+                            {% else %}
+                            <span class="sr-badge sr-badge-supplement">웹 크롤링 방식 (레거시)</span>
+                            {% endif %}
+                            <a href="/settings#crawl-type" class="ms-auto" style="color: var(--sr-text-muted); font-size:0.8em;" title="설정에서 변경"><i class="fas fa-cog"></i></a>
                         </div>
                     </div>
-                    <div class="form-check mb-4">
-                        <input class="form-check-input" type="radio" name="crawl_mode" id="crawlReset" value="reset">
-                        <label class="form-check-label text-danger" for="crawlReset">DB 초기화 후 새로 크롤링 (--reset)</label>
+
+                    <div class="ops-section">
+                        <div class="ops-section-title">크롤링 범위</div>
+                        <div class="sr-seg mb-2" style="display: flex;">
+                            <input type="radio" class="sr-seg-radio" name="crawl_mode" id="crawlFull" value="full" checked>
+                            <label class="sr-seg-label-btn flex-grow-1 text-center" for="crawlFull">전체 크롤링</label>
+                            
+                            <input type="radio" class="sr-seg-radio" name="crawl_mode" id="crawlMin" value="min">
+                            <label class="sr-seg-label-btn flex-grow-1 text-center" for="crawlMin">최소 크롤링</label>
+                            
+                            <input type="radio" class="sr-seg-radio" name="crawl_mode" id="crawlReset" value="reset">
+                            <label class="sr-seg-label-btn flex-grow-1 text-center text-danger" for="crawlReset">DB 초기화</label>
+                        </div>
+                        
+                        <div class="d-flex align-items-center p-2 rounded mt-2" id="minCrawlOptions" style="background-color: var(--sr-surface-2); border: 1px solid var(--sr-border);">
+                            <span style="font-size: 0.85rem; color: var(--sr-text-muted);">최소 크롤링 탐색 한도:</span>
+                            <input type="number" class="ops-input ms-auto" name="max_empty_pages" id="maxEmptyPages" value="{{ max_empty_pages }}" style="width: 80px; padding: 0.25rem 0.5rem; text-align: right;" disabled>
+                        </div>
                     </div>
 
-                    <h6 class="mb-3 text-primary border-bottom pb-2">3. 큐(Queue) 기능 (선택사항)</h6>
-                    <div class="mb-4">
-                        <label class="form-label text-muted"><small>신고번호(SPP-...) 또는 ID를 입력하면, 해당 리스트만 순차적으로 강제 크롤링 및
-                                덮어쓰기합니다. 여러 개일 경우 줄바꿈으로 구분하세요.</small></label>
-                        <textarea class="form-control" name="queue_list" rows="3"
-                            placeholder="SPP-231120-1234567&#10;SPP-231121-7654321"></textarea>
+                    <div class="ops-section">
+                        <div class="ops-section-title">큐(Queue) 기능 (선택사항)</div>
+                        <div class="ops-hint">신고번호(SPP-...) 또는 ID를 입력하면, 해당 리스트만 순차적으로 강제 크롤링 및 덮어쓰기합니다. 여러 개일 경우 줄바꿈으로 구분하세요.</div>
+                        <textarea class="ops-textarea" name="queue_list" rows="3" placeholder="SPP-231120-1234567&#10;SPP-231121-7654321"></textarea>
                     </div>
 
-                    <h6 class="mb-3 text-success border-bottom pb-2">4. 수동 데이터 내보내기</h6>
-                    <div class="d-flex gap-2 mb-4">
-                        <button type="button" class="btn btn-outline-success flex-grow-1" id="btnExportExcel">
-                            <i class="fas fa-file-excel me-1"></i> 현재 DB 엑셀 저장
-                        </button>
-                        <button type="button" class="btn btn-outline-primary flex-grow-1" id="btnExportSheet"
-                            {% if not google_sheet_enabled %}disabled title="구글 시트 연동이 비활성화되어 있습니다. 설정에서 gspread.json과 시트 키를 등록하세요."{% endif %}>
-                            <i class="fas fa-file-csv me-1"></i> 구글 시트에 업로드
-                        </button>
+                    <div class="ops-section">
+                        <div class="ops-section-title" style="color: var(--sr-status-accept);">수동 데이터 내보내기</div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn flex-grow-1" id="btnExportExcel" style="background-color: var(--sr-surface); border: 1px solid var(--sr-status-accept); color: var(--sr-status-accept);">
+                                <i class="fas fa-file-excel me-1"></i> 현재 DB 엑셀 저장
+                            </button>
+                            <button type="button" class="btn flex-grow-1" id="btnExportSheet" style="background-color: var(--sr-surface); border: 1px solid var(--sr-primary); color: var(--sr-primary);"
+                                {% if not google_sheet_enabled %}disabled title="구글 시트 연동이 비활성화되어 있습니다."{% endif %}>
+                                <i class="fas fa-file-csv me-1"></i> 구글 시트에 업로드
+                            </button>
+                        </div>
                     </div>
 
-                    <div class="d-flex gap-2 mt-4">
-                        <button type="submit" class="btn btn-primary flex-grow-1" id="btnStart" {% if is_running
-                            %}disabled{% endif %}>
+                    <div class="d-flex gap-2 mt-4 pt-3" style="border-top: 1px solid var(--sr-border);">
+                        <button type="submit" class="btn flex-grow-1 text-white" id="btnStart" style="background-color: var(--sr-primary); border: none;" {% if is_running %}disabled{% endif %}>
                             <i class="fas fa-play me-1"></i> 크롤링 시작
                         </button>
-                        <button type="button" class="btn btn-warning" id="btnResume">
-                            <i class="fas fa-play"></i> 수동조작 완료 (계속하기)
+                        <button type="button" class="btn" id="btnResume" style="background-color: var(--sr-status-supplement); color: #fff; border: none;">
+                            <i class="fas fa-play"></i> 수동조작 완료
                         </button>
-                        <button type="button" class="btn btn-danger flex-grow-1" id="btnKill" {% if not is_running
-                            %}disabled{% endif %}>
+                        <button type="button" class="btn flex-grow-1 text-white" id="btnKill" style="background-color: var(--sr-status-reject); border: none;" {% if not is_running %}disabled{% endif %}>
                             <i class="fas fa-stop-circle me-1"></i> 강제 중지
                         </button>
                     </div>
@@ -97,18 +102,14 @@
 
     <!-- Live Terminal / Logs Card -->
     <div class="col-md-7">
-        <div class="card card-custom h-100">
-            <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
-                <span><i class="fas fa-terminal me-2"></i> 실시간 진행 모니터링</span>
-                <span id="statusIndicator" class="badge {% if is_running %}bg-success{% else %}bg-secondary{% endif %}">
+        <div class="ops-card h-100 ops-console-wrapper">
+            <div class="ops-card-header">
+                <div><i class="fas fa-terminal me-2"></i> 실시간 진행 모니터링</div>
+                <span id="statusIndicator" class="ops-status-badge {% if is_running %}active{% else %}inactive{% endif %}">
                     {% if is_running %}실행 중{% else %}대기 중{% endif %}
                 </span>
             </div>
-            <div class="card-body p-0 d-flex flex-column" style="background-color: #1e1e1e; height: 650px;">
-                <div id="logConsole"
-                    style="flex-grow: 1; overflow-y: auto; padding: 15px; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.9em; white-space: pre-wrap;">
-                </div>
-            </div>
+            <div id="logConsole" class="ops-console"></div>
         </div>
     </div>
 </div>
@@ -135,6 +136,17 @@
         }
         connectWs();
 
+        // UI hints
+        $('input[name="login_mode"]').change(function() {
+            if (this.value === 'member') {
+                $('#loginMemberHint').show();
+                $('#loginNonMemberHint').hide();
+            } else {
+                $('#loginMemberHint').hide();
+                $('#loginNonMemberHint').show();
+            }
+        });
+
         function updateCrawlOptions() {
             const isApi = '{{ crawl_type }}' === 'api';
             if (isApi) {
@@ -143,12 +155,15 @@
                     $('#crawlFull').prop('checked', true);
                 }
                 $('#maxEmptyPages').prop('disabled', true);
+                $('#minCrawlOptions').css('opacity', '0.5');
             } else {
                 $('#crawlMin').prop('disabled', false);
                 if ($('#crawlMin').is(':checked')) {
                     $('#maxEmptyPages').prop('disabled', false);
+                    $('#minCrawlOptions').css('opacity', '1');
                 } else {
                     $('#maxEmptyPages').prop('disabled', true);
+                    $('#minCrawlOptions').css('opacity', '0.5');
                 }
             }
         }
@@ -169,7 +184,7 @@
             $.post('/crawl/start', formData, function (response) {
                 alert(response.message);
                 if (response.status === 'success') {
-                    $('#statusIndicator').removeClass('bg-secondary').addClass('bg-success').text('실행 중');
+                    $('#statusIndicator').removeClass('inactive').addClass('active').text('실행 중');
                     logConsole.textContent = ""; // Clear console
                     $('#btnKill').prop('disabled', false);
                 } else {
@@ -183,7 +198,7 @@
                 $.post('/crawl/kill', function (response) {
                     alert(response.message);
                     if (response.status === 'success') {
-                        $('#statusIndicator').removeClass('bg-success').addClass('bg-secondary').text('대기 중');
+                        $('#statusIndicator').removeClass('active').addClass('inactive').text('대기 중');
                         $('#btnStart').prop('disabled', false);
                         $('#btnKill').prop('disabled', true);
                     }

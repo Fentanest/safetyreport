@@ -1,0 +1,173 @@
+/* web/static/ui/ops.css */
+
+/* Layout & Cards */
+.ops-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.ops-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+}
+
+.ops-col {
+    flex: 1 1 0%;
+    min-width: 0;
+}
+
+.ops-card {
+    background-color: var(--sr-surface);
+    border: 1px solid var(--sr-border);
+    border-radius: var(--sr-radius);
+    box-shadow: var(--sr-shadow);
+    display: flex;
+    flex-direction: column;
+}
+
+.ops-card-header {
+    background-color: var(--sr-surface-2);
+    border-bottom: 1px solid var(--sr-border);
+    padding: 1rem 1.25rem;
+    font-weight: 700;
+    color: var(--sr-text);
+    border-top-left-radius: calc(var(--sr-radius) - 1px);
+    border-top-right-radius: calc(var(--sr-radius) - 1px);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.ops-card-body {
+    padding: 1.25rem;
+    flex-grow: 1;
+}
+
+/* Segments (from stats.html) */
+.sr-seg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; margin-bottom: 0.75rem; }
+.sr-seg-label { font-size: 0.85rem; font-weight: 600; color: var(--sr-text-muted); min-width: 4.5rem; }
+.sr-seg { display: flex; flex-wrap: wrap; gap: 0.25rem; padding: 0.25rem; border-radius: calc(var(--sr-radius-sm) + 0.25rem);
+            background: var(--sr-surface-2); border: 1px solid var(--sr-border); }
+.sr-seg .btn { border: 0; border-radius: var(--sr-radius-sm); color: var(--sr-text); background: transparent; font-weight: 500; font-size: 0.85rem; padding: 0.3rem 0.75rem; }
+.sr-seg .btn:hover { background: var(--sr-surface-3); }
+.sr-seg .btn.active { background: var(--sr-surface); color: var(--sr-primary); box-shadow: var(--sr-shadow); font-weight: 700; }
+
+.sr-seg-radio { display: none; }
+.sr-seg-label-btn { margin: 0; cursor: pointer; border: 0; border-radius: var(--sr-radius-sm); color: var(--sr-text); background: transparent; font-weight: 500; font-size: 0.85rem; padding: 0.4rem 0.85rem; display: inline-block; }
+.sr-seg-label-btn:hover { background: var(--sr-surface-3); }
+.sr-seg-radio:checked + .sr-seg-label-btn { background: var(--sr-surface); color: var(--sr-primary); box-shadow: var(--sr-shadow); font-weight: 700; }
+
+
+/* Form Elements */
+.ops-label {
+    font-weight: 600;
+    color: var(--sr-text);
+    margin-bottom: 0.4rem;
+    display: block;
+}
+.ops-hint {
+    font-size: 0.8rem;
+    color: var(--sr-text-muted);
+    margin-bottom: 0.75rem;
+}
+.ops-input, .ops-textarea, .ops-select {
+    background-color: var(--sr-surface);
+    border: 1px solid var(--sr-border);
+    color: var(--sr-text);
+    border-radius: var(--sr-radius-sm);
+    padding: 0.5rem 0.75rem;
+    width: 100%;
+}
+.ops-input:focus, .ops-textarea:focus, .ops-select:focus {
+    outline: none;
+    box-shadow: var(--sr-focus);
+    border-color: var(--sr-primary);
+}
+.ops-input:disabled {
+    background-color: var(--sr-surface-2);
+    color: var(--sr-text-muted);
+}
+
+/* Console */
+.ops-console-wrapper {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+.ops-console {
+    background-color: var(--sr-surface-2);
+    color: var(--sr-text);
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.9em;
+    padding: 1rem;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    flex-grow: 1;
+    border-radius: 0 0 calc(var(--sr-radius) - 1px) calc(var(--sr-radius) - 1px);
+    border: none;
+    border-top: 1px solid var(--sr-border);
+}
+/* 로그 콘솔: 두 테마 모두 토큰 색(배경 surface-2, 글자 text) — 대비는 본문과 같다 */
+.ops-console {
+    background-color: var(--sr-surface-2);
+    color: var(--sr-text);
+}
+
+/* 표 (list.css 참고) */
+.ops-table-wrap {
+    overflow-x: auto;
+}
+.ops-table {
+    width: 100%;
+    margin-bottom: 0;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+}
+.ops-table th {
+    background-color: var(--sr-surface-2);
+    color: var(--sr-text-muted);
+    font-weight: 600;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--sr-border);
+    white-space: nowrap;
+}
+.ops-table td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--sr-border);
+    vertical-align: middle;
+    color: var(--sr-text);
+}
+.ops-table tbody tr:hover {
+    background-color: var(--sr-surface-2);
+}
+
+/* 추가 여백 유틸 */
+.ops-section { margin-bottom: 1.5rem; }
+.ops-section-title { font-weight: 700; color: var(--sr-text); margin-bottom: 0.75rem; font-size: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+.ops-section-title::before { content: ""; display: block; width: 4px; height: 1em; background-color: var(--sr-primary); border-radius: 2px; }
+
+/* 뱃지 추가 (상태 표시용) */
+.ops-status-badge {
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+.ops-status-badge.active { background-color: var(--sr-status-accept); color: var(--sr-surface); }
+.ops-status-badge.inactive { background-color: var(--sr-surface-3); color: var(--sr-text-muted); border: 1px solid var(--sr-border); }
+
+/* 버튼 색상 덮어쓰기 (Bootstrap 의존도 줄이기) */
+.ops-btn-outline {
+    background: transparent;
+    border: 1px solid var(--sr-border);
+    color: var(--sr-text);
+    padding: 0.4rem 0.8rem;
+    border-radius: var(--sr-radius-sm);
+    font-weight: 500;
+    transition: all 0.2s;
+}
+.ops-btn-outline:hover { background: var(--sr-surface-2); }

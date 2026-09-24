@@ -1,21 +1,28 @@
 {% extends "base.html" %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="/static/ui/badges.css?v={{ request.state.app_version }}">
+<link rel="stylesheet" href="/static/ui/ops.css?v={{ request.state.app_version }}">
+{% endblock %}
+
 {% block content %}
 <div class="row mb-4">
     <div class="col-md-12">
-        <div class="card card-custom">
-            <div class="card-header bg-white fw-bold">자동 별점(만족도 조사) 매크로 제어</div>
-            <div class="card-body">
+        <div class="ops-card">
+            <div class="ops-card-header">
+                <div><i class="fas fa-star me-2" style="color: var(--sr-status-accept)"></i> 자동 별점(만족도 조사) 매크로 제어</div>
+            </div>
+            <div class="ops-card-body">
                 <form id="ratingForm" class="row align-items-center">
                     <div class="col-md-6 mb-3">
-                        <label class="form-label text-primary fw-bold">별점 대상 신고번호 또는 고유 ID 입력</label>
-                        <p class="text-muted small mb-2">하단 표에서 행을 클릭하거나, 대상의 신고번호(예: SPP-...)나 ID를 여러 줄로 직접 입력하세요.</p>
-                        <textarea class="form-control" name="ids" id="ratingIds" rows="4"
-                            placeholder="SPP-..."></textarea>
+                        <label class="ops-label" style="color: var(--sr-primary)">별점 대상 신고번호 또는 고유 ID 입력</label>
+                        <div class="ops-hint">하단 표에서 행을 클릭하거나, 대상의 신고번호(예: SPP-...)나 ID를 여러 줄로 직접 입력하세요.</div>
+                        <textarea class="ops-textarea" name="ids" id="ratingIds" rows="4" placeholder="SPP-..."></textarea>
                     </div>
                     <div class="col-md-3 mb-3">
-                        <label class="form-label text-success fw-bold">부여할 별점(1~5점)</label>
-                        <select class="form-select" name="score" id="ratingScore">
+                        <label class="ops-label" style="color: var(--sr-status-accept)">부여할 별점(1~5점)</label>
+                        <div class="ops-hint">&nbsp;</div>
+                        <select class="ops-select" name="score" id="ratingScore">
                             <option value="5" selected>5점 (매우 만족)</option>
                             <option value="4">4점 (만족)</option>
                             <option value="3">3점 (보통)</option>
@@ -23,12 +30,11 @@
                             <option value="1">1점 (매우 불만족)</option>
                         </select>
                     </div>
-                    <div class="col-md-3 mb-3 d-flex flex-column align-items-end justify-content-end"
-                        style="height: 100%;">
+                    <div class="col-md-3 mb-3 d-flex flex-column align-items-end justify-content-end" style="height: 100%;">
                         <input type="hidden" id="phoneNumberSet" value="{{ phone_number }}">
-                <button type="submit" class="btn btn-warning w-100" id="btnStartRating"
-                            style="height: 60px; font-weight: bold; font-size: 1.1em;">
-                            <i class="fas fa-star me-2"></i> 선택 건 별점 처리 시작
+                        <button type="submit" class="btn text-white w-100" id="btnStartRating"
+                            style="background-color: var(--sr-status-supplement); height: 60px; font-weight: bold; font-size: 1.1em; border: none;">
+                            <i class="fas fa-play me-2"></i> 선택 건 별점 처리 시작
                         </button>
                     </div>
                 </form>
@@ -40,82 +46,81 @@
 <!-- Live Logs Card -->
 <div class="row mb-4" id="rowLogs">
     <div class="col-md-12">
-        <div class="card card-custom h-100">
-            <div class="card-header bg-dark text-white fw-bold d-flex justify-content-between align-items-center">
-                <span><i class="fas fa-terminal me-2"></i> 별점 처리 실시간 진행 모니터링</span>
-                <span id="ratingStatus" class="badge bg-secondary">대기 중</span>
+        <div class="ops-card ops-console-wrapper" style="height: 400px;">
+            <div class="ops-card-header">
+                <div><i class="fas fa-terminal me-2"></i> 별점 처리 실시간 진행 모니터링</div>
+                <span id="ratingStatus" class="ops-status-badge inactive">대기 중</span>
             </div>
-            <div class="card-body p-0 d-flex flex-column" style="background-color: #1e1e1e; height: 350px;">
-                <div id="ratingLogConsole"
-                    style="flex-grow: 1; overflow-y: auto; padding: 15px; color: #00ff00; font-family: 'Consolas', 'Courier New', monospace; font-size: 0.9em; white-space: pre-wrap;">
-                </div>
-            </div>
+            <div id="ratingLogConsole" class="ops-console"></div>
         </div>
     </div>
 </div>
 
-<div class="card card-custom">
-    <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
-        <span><i class="fas fa-list"></i> 만족도조사 미참여 대상 </span>
+<div class="ops-card">
+    <div class="ops-card-header">
+        <div><i class="fas fa-list me-2"></i> 만족도조사 미참여 대상</div>
     </div>
-    <div class="card-body">
-        <h6 class="fw-bold mb-3">만족도조사 참여 가능 신고건</h6>
+    <div class="ops-card-body">
+        <div class="ops-section-title">만족도조사 참여 가능 신고건</div>
         <!-- Advanced Search Form -->
-        <form class="row g-3 mb-4" id="ratingSearchForm">
+        <form class="row g-2 mb-4 align-items-end" id="ratingSearchForm">
             <div class="col-md-2">
-                <label class="form-label">신고명</label>
-                <input type="text" class="form-control form-control-sm" id="sTitle">
+                <label class="ops-label">신고명</label>
+                <input type="text" class="ops-input" id="sTitle">
             </div>
             <div class="col-md-2">
-                <label class="form-label">처리기관</label>
-                <input type="text" class="form-control form-control-sm" id="sAgency">
+                <label class="ops-label">처리기관</label>
+                <input type="text" class="ops-input" id="sAgency">
             </div>
             <div class="col-md-2">
-                <label class="form-label">담당자</label>
-                <input type="text" class="form-control form-control-sm" id="sPerson">
+                <label class="ops-label">담당자</label>
+                <input type="text" class="ops-input" id="sPerson">
             </div>
             <div class="col-md-2">
-                <label class="form-label">처리상태</label>
-                <input type="text" class="form-control form-control-sm" id="sStatus">
+                <label class="ops-label">처리상태</label>
+                <input type="text" class="ops-input" id="sStatus">
             </div>
             <div class="col-md-2">
-                <label class="form-label">과태료/범칙금</label>
-                <input type="text" class="form-control form-control-sm" id="sFine">
+                <label class="ops-label">과태료/범칙금</label>
+                <input type="text" class="ops-input" id="sFine">
             </div>
-            <div class="col-12 text-end">
-                <button type="button" class="btn btn-sm btn-secondary me-2" id="btnAutoFill"><i
-                        class="fas fa-magic me-1"></i>검색 결과 자동 입력</button>
-                <button type="button" class="btn btn-sm btn-primary" id="btnRatingSearch">표에서 검색</button>
+            <div class="col-md-2 d-flex gap-2">
+                <button type="button" class="btn flex-grow-1" id="btnRatingSearch" style="background-color: var(--sr-primary); color: #fff; border: none;">표에서 검색</button>
+            </div>
+            <div class="col-12 mt-2">
+                <button type="button" class="btn btn-sm ops-btn-outline" id="btnAutoFill"><i class="fas fa-magic me-1"></i>검색 결과 자동 입력</button>
             </div>
         </form>
 
-        <table id="ratingTable" class="table table-striped table-hover table-bordered" style="width:100%">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>신고번호</th>
-                    <th>신고명</th>
-                    <th>신고일</th>
-                    <th>처리기관</th>
-                    <th>담당자</th>
-                    <th>처리상태</th>
-                    <th>과태료/범칙금</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
+        <div class="ops-table-wrap">
+            <table id="ratingTable" class="ops-table table-hover" style="width:100%">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>신고번호</th>
+                        <th>신고명</th>
+                        <th>신고일</th>
+                        <th>처리기관</th>
+                        <th>담당자</th>
+                        <th>처리상태</th>
+                        <th>과태료/범칙금</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
     </div>
 </div>
 <!-- Cell Content Modal -->
 <div class="modal fade" id="cellModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <div class="modal-header py-2">
-                <h6 class="modal-title" id="cellModalLabel"></h6>
+        <div class="modal-content" style="background-color: var(--sr-surface); border: 1px solid var(--sr-border); border-radius: var(--sr-radius);">
+            <div class="modal-header py-2" style="border-bottom: 1px solid var(--sr-border);">
+                <h6 class="modal-title" id="cellModalLabel" style="color: var(--sr-text); font-weight: bold;"></h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <p id="cellModalContent" class="mb-0" style="word-break: break-all; white-space: pre-wrap;"></p>
+                <p id="cellModalContent" class="mb-0" style="word-break: break-all; white-space: pre-wrap; color: var(--sr-text);"></p>
             </div>
         </div>
     </div>
@@ -142,13 +147,14 @@
         }
         function renderBadge(status) {
             if (!status) return '';
-            var cls = 'bg-light text-dark border';
-            if (status === '수용') cls = 'bg-success';
-            else if (status === '불수용' || status === '기타') cls = 'bg-danger';
-            else if (status === '취하') cls = 'bg-secondary text-white';
-            else if (status === '일부수용') cls = 'bg-warning text-dark';
-            else if (status === '처리중') cls = 'bg-primary';
-            return '<span class="badge ' + cls + '">' + esc(status) + '</span>';
+            var cls = 'sr-badge-default';
+            if (status === '수용') cls = 'sr-badge-accept';
+            else if (status === '불수용' || status === '기타') cls = 'sr-badge-reject';
+            else if (status === '취하') cls = 'sr-badge-withdraw';
+            else if (status === '일부수용') cls = 'sr-badge-partial';
+            else if (status === '처리중') cls = 'sr-badge-processing';
+            else if (status === '보완요청') cls = 'sr-badge-supplement';
+            return '<span class="sr-badge ' + cls + '">' + esc(status) + '</span>';
         }
 
         var table = $('#ratingTable').DataTable({
@@ -218,9 +224,9 @@
                 logConsole.scrollTop = logConsole.scrollHeight;
 
                 if (event.data.includes("처리가 종료되었습니다")) {
-                    $('#ratingStatus').removeClass('bg-success').addClass('bg-secondary').text('대기 중/종료됨');
+                    $('#ratingStatus').removeClass('active').addClass('inactive').text('대기 중/종료됨');
                 } else if (event.data.includes("작업 로그 시작") || event.data.includes("처리 중")) {
-                    $('#ratingStatus').removeClass('bg-secondary').addClass('bg-success').text('진행 중');
+                    $('#ratingStatus').removeClass('inactive').addClass('active').text('진행 중');
                 }
             };
         }
@@ -283,7 +289,7 @@
             if (confirm(`선택하신 건들에 무조건 ${score}점으로 평가를 제출합니다.\n크롤링이 진행 중이지 않을 때만 계속 진행하십시오.\n계속하시겠습니까?`)) {
                 $('#btnStartRating').prop('disabled', true);
                 logConsole.textContent = ""; // Clear for new job
-                $('#ratingStatus').removeClass('bg-secondary').addClass('bg-success').text('요청 중...');
+                $('#ratingStatus').removeClass('inactive').addClass('active').text('요청 중...');
 
                 $.post('/rating/start', { ids: ids, score: parseInt(score) }, function (response) {
                     alert(response.message);
