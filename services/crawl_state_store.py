@@ -14,8 +14,11 @@ def _state_file(name: str) -> str:
 
 
 def _write_json(path: str, payload):
-    with open(path, "w", encoding="utf-8") as file_obj:
+    """임시 파일에 쓴 뒤 바꿔 끼운다 — 읽는 쪽이 반쯤 쓴 파일을 보지 않게(S-18)."""
+    tmp_path = f"{path}.tmp{os.getpid()}"
+    with open(tmp_path, "w", encoding="utf-8") as file_obj:
         json.dump(payload, file_obj, ensure_ascii=False)
+    os.replace(tmp_path, path)
 
 
 def _read_json(path: str, default):
@@ -29,8 +32,13 @@ def _read_json(path: str, default):
 
 
 def _take_json(path: str, default):
-    payload = _read_json(path, default)
-    if payload == default and not os.path.exists(path):
+    """읽고 지운다. 읽기(파싱)에 실패하면 지우지 않는다(S-18)."""
+    if not os.path.exists(path):
+        return default
+    try:
+        with open(path, "r", encoding="utf-8") as file_obj:
+            payload = json.load(file_obj)
+    except Exception:
         return default
     try:
         os.remove(path)
@@ -129,7 +137,10 @@ def save_crawl_changes(engine, changed_item_ids, duplicate_changes=None):
         item["notification_kind"] = "duplicate"
         changes.append(item)
 
-    _write_json(_state_file("crawl_changes.json"), changes)
+    _write_json(_state_file("crawl_changes.json"), changes)  # 웹소켓·크롬 확장용(마지막 크롤링 1회분)
+    # 모바일 /api/v1/crawl/results 는 기기별 읽은 위치로 변경 기록 표에서 읽는다(결정 D-5).
+    from core.storage import change_log
+    change_log.append_batch(engine, changes)
 
 
 def clear_crawl_changes():

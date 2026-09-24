@@ -349,9 +349,12 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
 
 
 @router.get("/crawl/results")
-async def get_crawl_results(_: str = Depends(_require_api_key)):
+async def get_crawl_results(device_id: str | None = None, _: str = Depends(_require_api_key)):
+    """기기별로 아직 안 읽은 변경(결정 D-5). device_id 가 없는 구앱은 공용 'legacy' 위치를 함께 쓴다."""
     try:
-        changes = crawl_state_store.get_and_clear_crawl_changes()
+        from core.storage import change_log
+
+        changes = change_log.read_for_device(engine, device_id)
         return {"status": "success", "count": len(changes), "data": changes}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
