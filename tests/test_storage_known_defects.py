@@ -107,6 +107,18 @@ class ServerKnownDefectTests(_SeededDb):
         self.assertEqual(item["담당자"], "None")
         crawl_state_store.clear_crawl_changes()
 
+    def test_S35_currently_api_records_turn_null_into_empty_and_int_into_float(self):
+        """S-35(R1): API 조회 경로는 NULL→'' , 정수 열(별점·synced_at)에 NULL 이 섞이면 실수로 보낸다. DB 파일 경로는 원형 그대로라 채널마다 값이 다르다."""
+        from services import report_query_service
+
+        with self.engine.begin() as conn:
+            conn.execute(update(models.merge_traffic_table).where(models.merge_traffic_table.c.ID == "90000001").values(담당자=None, 별점=None))
+            conn.execute(update(models.merge_traffic_table).where(models.merge_traffic_table.c.ID == "90000002").values(별점=3))
+        records = {r["ID"]: r for r in report_query_service.get_traffic_records(self.engine)}
+        self.assertEqual(records["90000001"]["담당자"], "")
+        self.assertEqual(records["90000001"]["별점"], "")
+        self.assertIsInstance(records["90000002"]["별점"], float)
+
 
 if __name__ == "__main__":
     unittest.main()

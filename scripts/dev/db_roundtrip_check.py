@@ -57,12 +57,18 @@ with engine.begin() as conn:
     conn.execute(text("UPDATE mysafetydetail_traffic SET 벌점=NULL WHERE ID='90000003'"))
     conn.execute(text("UPDATE mysafety SET 별점사유='' WHERE ID='90000001'"))
     conn.execute(text("INSERT OR REPLACE INTO mysafety_sync_meta(key, value) VALUES ('watchlist', 'SPP-2604-9000006,SPP-2608-9000010')"))
+    # 사용자 데이터 시나리오(R0): 별점·사유, 중복 수동 판단(상태·대표건·메모)
+    conn.execute(text("UPDATE mysafety SET 만족도조사여부='참여 완료', 별점=5, 별점사유='친절하고 빠름' WHERE ID='90000002'"))
+    conn.execute(text("UPDATE mysafety SET 만족도조사여부='참여 완료', 별점=1, 별점사유='' WHERE ID='90000003'"))
     conn.execute(text("INSERT OR REPLACE INTO mysafety_geocode_cache(주소정규화, 원본주소, 행정구역, 위도, 경도, 상태, source, error_message, updated_at) "
                       "VALUES ('서울특별시 강서구 등촌동 101', '서울 강서구 등촌동 101 앞', '서울특별시 강서구', 37.5601234, 126.8301234, 'ok', 'kakao', '', 1790000000123)"))
     conn.execute(text("INSERT OR REPLACE INTO mysafety_geocode_cache(주소정규화, 원본주소, 행정구역, 위도, 경도, 상태, source, error_message, updated_at) "
                       "VALUES ('서울특별시 없는구 1', '서울 없는구 1', '', NULL, NULL, 'failed', 'kakao', 'not found', 1790000000456)"))
 from core.database import database
 database.merge_final(engine)
+with engine.begin() as conn:
+    conn.execute(text("UPDATE mysafety_duplicate_group SET status='not_duplicate', representative_mode='manual', representative_id='90000012', note='사용자 메모: 서로 다른 건'"))
+    conn.execute(text("UPDATE mysafety_duplicate_member SET is_representative = CASE WHEN report_id='90000012' THEN 1 ELSE 0 END"))
 print(engine.url.database)
 '''
     out = subprocess.run([sys.executable, "-c", code], env=_server_env(data_dir), capture_output=True, text=True, cwd=REPO_ROOT)

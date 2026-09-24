@@ -1,6 +1,6 @@
 # 저장 계층 전면 재설계 계획 (서버 + 모바일)
 
-작성 2026-09-24, Opus. 상태: **결정 확정(2026-09-24, D-1~D-8 전부 권장안 (a)), R0 착수**.
+작성 2026-09-24, Opus. 상태: **결정 확정(2026-09-24, D-1~D-8 전부 권장안 (a)), R0 완료 — R1 대기**.
 자매 문서: 모바일 레포 `docs/plans/storage-refactor-plan.md`(이 문서를 가리킨다).
 
 ## 0. 범위와 근거
@@ -236,10 +236,12 @@ G9-3 의견 반영: 사용자 소유 데이터의 **표 구조**는 쓰기 경�
 | 항목 | 결과 |
 |---|---|
 | 저장 계약 파일 | `contracts/storage-contract.json` 두 레포 바이트 동일(왕복 검사가 sha256 비교). 서버 `tests/test_storage_contract.py` 4건, 모바일 `test/storage/storage_contract_test.dart` 3건 통과 |
-| 알려진 결함 고정 | 서버 `tests/test_storage_known_defects.py`(S-1·2·5·17·19·26), 모바일 `test/storage/known_defects_test.dart`(M-1·2/3·12·24) — 모두 현재 잘못된 동작이 재현됨. 고치면 실패하므로 그때 기대값을 뒤집는다 |
+| 알려진 결함 고정 | 서버 `tests/test_storage_known_defects.py`(S-1·2·5·17·19·26·35), 모바일 `test/storage/known_defects_test.dart`(M-1·2/3·12·24) — 모두 현재 잘못된 동작이 재현됨. 고치면 실패하므로 그때 기대값을 뒤집는다 |
 | 구버전 서버 DB | `tests/fixtures/db/server-2026-05-16.schema.sql`(2026-05-16 운영 DB 의 구조만) + `tests/test_storage_migration.py` — 업그레이드 뒤 계약 일치·값 보존 |
 | 운영 사본 왕복(D-8) | `db_roundtrip_check.py --server-db … --summary-only`: 3,063건, 표별 행 수 전부 일치, 값 차이 49건 = 감시목록 표현 하나(merge·title 의 `감시목록` 열 24+24, sync_meta `watchlist` 키 1). S-15·S-16·M-8 이 실제 데이터에서 확인됨 → R1 |
 | 운영 사본 업그레이드(D-8) | `scripts/dev/migration_rehearsal.py`(5월 사본 2,792건): 행 손실 0, 원본 표 값 변화 0, 새 열 8개. merge 첨부 3열 1,626건 변화 = "6개월 초과" 가림이 merge 재생성으로 되살아남(S-31 실데이터 확인). 중복 멤버 created_at 18건 초기화(S-34 확인) |
+| 왕복 시나리오 | 합성 S0 에 별점·사유, 중복 수동 판단(not_duplicate·manual·대표건·메모), 감시목록을 넣어 서버→모바일→서버 모두 보존 확인(차이 0) |
+| 구버전 모바일 DB | `test/storage/migration_test.dart` — v9·v10 → v11 계약 일치·값 보존 |
 | 임시 파일 | 모바일 왕복 하네스가 임시 DB 를 남기던 것을 고침(운영 사본 리허설 뒤 /tmp 잔여 0 확인) |
 
 ## 6. 다음 순서
