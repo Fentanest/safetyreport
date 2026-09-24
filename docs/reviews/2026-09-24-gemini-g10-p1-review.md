@@ -15,3 +15,7 @@ worktree `safetyreport-gemini-g10`, 브랜치 `gemini/p1-list`(dev `f7a5051` 에
 ## 2회차
 지시서 `.agent-runs/g10/ROUND2.md`: CSS 범위 제한(배지만 공통 `badges.css`), 실제 리뉴얼 항목(작업 바, 표 머리글·행·정렬, 신고일 잘림, 알약형 배지, 빈 결과, 모달 2열 그리드), 테스트 수정·전체 재실행 출력 첨부, 캡처 재제출.
 결과는 아래에 추가한다.
+
+## 2회차 (중단)
+- 2829초 뒤 `RESOURCE_EXHAUSTED (429): Individual quota reached … Resets in 1h41m` 로 멈춤(12:07 기준, 13:48 무렵 해제). 보고서·커밋 없음.
+- 멈추기 전 변경(미커밋): `web/static/ui/list.css`, `web/templates/components/theme_head.html`, `web/templates/data_table.html`, 새 `web/static/ui/badges.css`. 작업트리를 그대로 두고 한도 해제 뒤 같은 대화(`084660de-…`)로 이어서 진행한다.
