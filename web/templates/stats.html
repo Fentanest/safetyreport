@@ -63,6 +63,29 @@
         border: 1px solid var(--sr-border); border-radius: 999px; background: var(--sr-surface); font-size: 0.85rem; }
     .stats-column-item .form-check-input { float: none; margin: 0; }
     .stats-column-item .form-check-label { cursor: pointer; }
+    /* P2b 요약 카드·월별 추이 */
+    .sr-overview { border: 1px solid var(--sr-border); border-radius: var(--sr-radius); background: var(--sr-surface); padding: 0.9rem 1rem; }
+    .sr-overview-title { font-weight: 700; margin-bottom: 0.6rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
+    .sr-overview-title small { font-weight: 400; color: var(--sr-text-muted); }
+    .sr-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; margin-bottom: 0.8rem; }
+    @media (max-width: 767px) { .sr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .sr-kpi { padding: 0.6rem 0.8rem; border-radius: var(--sr-radius-sm); background: var(--sr-surface-2); border-left: 4px solid var(--sr-kpi-accent, var(--sr-primary)); }
+    .sr-kpi .sr-kpi-label { font-size: 0.78rem; color: var(--sr-text-muted); }
+    .sr-kpi .sr-kpi-value { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .sr-kpi .sr-kpi-note { font-size: 0.75rem; color: var(--sr-text-muted); min-height: 1em; }
+    .sr-kpi[data-kpi="total"] { --sr-kpi-accent: var(--sr-primary); }
+    .sr-kpi[data-kpi="completed"] { --sr-kpi-accent: var(--sr-status-accept); }
+    .sr-kpi[data-kpi="processing"] { --sr-kpi-accent: var(--sr-status-processing); }
+    .sr-kpi[data-kpi="avg"] { --sr-kpi-accent: var(--sr-status-partial); }
+    .sr-chart-legend { display: flex; gap: 1rem; font-size: 0.8rem; color: var(--sr-text-muted); margin-bottom: 0.3rem; }
+    .sr-chart-legend i { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 2px; margin-right: 0.3rem; vertical-align: -1px; }
+    .sr-chart-scroll { overflow-x: auto; }
+    .sr-chart-scroll svg { display: block; }
+    .sr-chart-scroll svg text { fill: var(--sr-text-muted); font-size: 11px; font-family: inherit; }
+    .sr-chart-scroll svg .sr-grid { stroke: var(--sr-border); stroke-width: 1; }
+    .sr-chart-scroll svg .sr-bar-reported { fill: var(--sr-primary); }
+    .sr-chart-scroll svg .sr-bar-answered { fill: var(--sr-status-accept); }
+    .sr-overview-notes { font-size: 0.75rem; color: var(--sr-text-muted); margin-top: 0.4rem; }
     @media (max-width: 575px) {
         .dataTables_wrapper .dataTables_filter label { display: flex; align-items: center; gap: 0.5rem; width: 100%; }
         .dataTables_wrapper .dataTables_filter input { flex: 1 1 auto; min-width: 0; width: auto; margin-left: 0 !important; }
@@ -251,6 +274,20 @@
                 </div>
             </div>
         </div>
+
+        <!-- P2b 요약(현재 분류, 표와 같은 조건). 값은 서버 get_stats_overview 결과(아래 tojson)로 그린다. -->
+        <section class="sr-overview mb-3" id="statsOverview" aria-live="polite">
+            <div class="sr-overview-title"><span id="statsOverviewTitle">요약</span><small>현재 조건 · 취하 {{ '제외' if overview.exclude_withdraw else '포함' }}</small></div>
+            <div class="sr-kpis">
+                <div class="sr-kpi" data-kpi="total"><div class="sr-kpi-label">총 신고</div><div class="sr-kpi-value" data-v="total">-</div><div class="sr-kpi-note"></div></div>
+                <div class="sr-kpi" data-kpi="completed"><div class="sr-kpi-label">답변 완료</div><div class="sr-kpi-value" data-v="completed">-</div><div class="sr-kpi-note" data-v="completedNote"></div></div>
+                <div class="sr-kpi" data-kpi="processing"><div class="sr-kpi-label">처리 중</div><div class="sr-kpi-value" data-v="processing">-</div><div class="sr-kpi-note" data-v="processingNote"></div></div>
+                <div class="sr-kpi" data-kpi="avg"><div class="sr-kpi-label">평균 처리기간</div><div class="sr-kpi-value" data-v="avg">-</div><div class="sr-kpi-note" data-v="avgNote"></div></div>
+            </div>
+            <div class="sr-chart-legend"><span><i style="background: var(--sr-primary)"></i>신고 (신고일 기준)</span><span><i style="background: var(--sr-status-accept)"></i>답변 (답변일 기준)</span></div>
+            <div class="sr-chart-scroll" id="statsMonthlyChart"></div>
+            <div class="sr-overview-notes" id="statsOverviewNotes"></div>
+        </section>
 
         <!-- 위반법규 필터: 표 폭 확보를 위해 오른쪽 세로 패널에서 표 위 가로 줄로 옮겼다(id 유지). -->
         <div class="sr-law-filter mb-3">
@@ -761,6 +798,73 @@
             sessionStorage.setItem('stats_type', currentType);
         }
 
+        // ── P2b 요약·월별 추이 ──
+        var overview = {{ overview | tojson }};
+        var catLabels = { traffic: '교통위반', parking: '주정차위반', other: '기타위반' };
+
+        function monthlyChartSvg(reported, answered) {
+            var months = {};
+            reported.forEach(function (m) { months[m.month] = months[m.month] || { r: 0, a: 0 }; months[m.month].r = m.count; });
+            answered.forEach(function (m) { months[m.month] = months[m.month] || { r: 0, a: 0 }; months[m.month].a = m.count; });
+            var keys = Object.keys(months).sort();
+            if (!keys.length) return '<div class="text-muted small py-3">표시할 월별 자료가 없습니다.</div>';
+            // 건수가 없는 달도 0 으로 채워 축이 건너뛰지 않게 한다
+            var filled = [], cur = keys[0].split('-').map(Number), last = keys[keys.length - 1];
+            while (filled.length < 600) {
+                var key = cur[0] + '-' + String(cur[1]).padStart(2, '0');
+                filled.push(key);
+                if (!months[key]) months[key] = { r: 0, a: 0 };
+                if (key === last) break;
+                cur = cur[1] === 12 ? [cur[0] + 1, 1] : [cur[0], cur[1] + 1];
+            }
+            keys = filled;
+            var max = 1;
+            keys.forEach(function (k) { max = Math.max(max, months[k].r, months[k].a); });
+            var step = Math.max(1, Math.ceil(max / 4)), top = Math.ceil(max / step) * step;
+            var padL = 28, padB = 22, h = 170, plotH = h - padB - 8;
+            var boxW = ($('#statsMonthlyChart').width() || 320) - 2;
+            var colW = Math.min(90, Math.max(44, (boxW - padL - 8) / keys.length));  // 넓으면 칸을 늘리고, 좁으면 가로 스크롤
+            var bar = Math.min(22, Math.floor((colW - 10) / 2));
+            var w = Math.max(padL + keys.length * colW + 8, 320);
+            function y(v) { return 8 + plotH - (v / top) * plotH; }
+            var out = ['<svg role="img" aria-label="월별 신고·답변 건수" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">'];
+            for (var t = 0; t <= top; t += step) {
+                out.push('<line class="sr-grid" x1="' + padL + '" x2="' + (w - 4) + '" y1="' + y(t) + '" y2="' + y(t) + '"/>');
+                out.push('<text x="' + (padL - 4) + '" y="' + (y(t) + 4) + '" text-anchor="end">' + t + '</text>');
+            }
+            keys.forEach(function (k, i) {
+                var x = padL + i * colW + (colW - bar * 2 - 2) / 2, d = months[k];
+                out.push('<rect class="sr-bar-reported" x="' + x + '" y="' + y(d.r) + '" width="' + bar + '" height="' + (y(0) - y(d.r)) + '"><title>' + k + ' 신고 ' + d.r + '건</title></rect>');
+                out.push('<rect class="sr-bar-answered" x="' + (x + bar + 2) + '" y="' + y(d.a) + '" width="' + bar + '" height="' + (y(0) - y(d.a)) + '"><title>' + k + ' 답변 ' + d.a + '건</title></rect>');
+                out.push('<text x="' + (padL + i * colW + colW / 2) + '" y="' + (h - 6) + '" text-anchor="middle">' + k.slice(2).replace('-', '.') + '</text>');
+            });
+            out.push('</svg>');
+            return out.join('');
+        }
+
+        function renderOverview(cat) {
+            var s = overview && overview[cat];
+            var $box = $('#statsOverview');
+            if (!s) { $box.prop('hidden', true); return; }
+            $box.prop('hidden', false);
+            $('#statsOverviewTitle').text('요약 · ' + (catLabels[cat] || cat));
+            function v(key, text) { $box.find('[data-v="' + key + '"]').text(text); }
+            v('total', s.total + '건');
+            v('completed', s.completed + '건');
+            v('completedNote', s.total > 0 ? (s.completed / s.total * 100).toFixed(1) + '% · 수용 ' + s.accept + ' · 일부 ' + s.partial : '');
+            v('processing', s.processing + '건');
+            v('processingNote', s.supplement > 0 ? '보완요청 ' + s.supplement + '건 별도' : '');
+            v('avg', s.avg_days == null ? '—' : s.avg_days.toFixed(1) + '일');
+            v('avgNote', '완료 신고 표본 ' + s.avg_days_count + '건');
+            $('#statsMonthlyChart').html(monthlyChartSvg(s.monthly_reported || [], s.monthly_answered || []));
+            var chart = $('#statsMonthlyChart')[0];
+            if (chart) chart.scrollLeft = chart.scrollWidth; // 최근 달부터 보이게
+            var notes = ['연도 버튼은 ' + (overview.year_basis || '답변일') + ' 기준'];
+            if (s.undated_report_count) notes.push('신고일 없는 신고 ' + s.undated_report_count + '건은 추이에서 빠짐');
+            if (s.reversed_date_count) notes.push('답변일이 신고일보다 앞선 ' + s.reversed_date_count + '건은 평균에서 빠짐');
+            $('#statsOverviewNotes').text(notes.join(' · '));
+        }
+
         // 선택 표시는 .active + aria-pressed 만 바꾼다. 색은 CSS(분류별 --sr-seg-accent)가 정한다.
         function setPressed($btns, isOn) {
             $btns.each(function () {
@@ -773,6 +877,7 @@
             setPressed($('.stats-cat-btn'), function ($b) { return $b.data('cat') === currentCat; });
             setPressed($('.stats-type-btn'), function ($b) { return $b.data('type') === currentType; });
             renderLawButtons(currentCat);
+            renderOverview(currentCat);
         }
 
         $('.stats-cat-btn').on('click', function () {

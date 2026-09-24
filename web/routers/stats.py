@@ -48,10 +48,13 @@ def view_stats(
     }
     dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_agency_stats(engine, filters, mode=dedupe_mode)
+    # 요약 카드·월별 추이: 모바일 통계 요약과 같은 함수·같은 조건(표와 같은 행) — statistics-spec §5, P2b
+    overview = data_service.get_stats_overview(engine, filters, mode=dedupe_mode)
 
     return templates.TemplateResponse(request, "stats.html", {
         "title": "부서 통계",
         "available_years": records.get("available_years", []),
+        "overview": overview,
         "current_year": year or "all",
         # 2026-09-24 결정: 배너도 현재 필터를 반영한다(표 합계와 같은 값). API 의 traffic_total_fine 은 호환을 위해 그대로 둔다.
         "traffic_total_fine": records["traffic"].get("total_fine_amount", 0),

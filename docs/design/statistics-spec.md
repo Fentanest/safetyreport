@@ -133,6 +133,11 @@
 
 기존 기관/담당자/경찰/비경찰 표, 열 선택(sessionStorage `stats_column_visibility`, 헤더 텍스트가 키), 법규 사이드바, 연도 버튼, 행 클릭 드릴다운은 그대로 둔다. 차트는 표 위의 추가 표현이다.
 
+### 5-1. 구현(P2b, 2026-09-24)
+웹 통계 상단 `#statsOverview` 는 모바일 통계 요약과 같은 네 카드(총 신고 / 답변 완료(비율·수용·일부) / 처리 중(보완요청 별도) / 평균 처리기간(완료 신고 표본 수))와
+월별 신고(신고일)·답변(답변일) 막대 차트를 보인다. 값은 `get_stats_overview` 를 표와 같은 필터로 한 번 불러 `tojson` 으로 내린다(브라우저 계산 없음).
+수용률 카드는 모바일에 없어 만들지 않았다(분모 결정 불필요). 빈 달은 0 으로 채운다. 테스트: `tools/web-tests/specs/stats-top.spec.ts`(카드 값 = `/api/v1/stats/overview`).
+
 ## 6. 모바일 overview 와의 정렬
 모바일 세션이 `feature/stats-overview-api` 브랜치(미커밋)에서 `/api/v1/stats/overview` 와 공통 헬퍼
 (`_load_stats_frames` / `_apply_stats_row_filters` / `_apply_stats_law_filter` / `get_stats_overview`)를 만들고 있다.

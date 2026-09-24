@@ -68,3 +68,26 @@ test('column panel is collapsed by default and hiding a column updates the count
   await page.locator('#statsColumnsSelectAll').click();
   await expect(page.locator('#statsColumnCount')).toHaveText('(13/13)');
 });
+
+test('summary cards match the mobile overview API for each category', async ({ page, request }) => {
+  const fs = await import('fs');
+  const path = await import('path');
+  const { fixtureDataDir } = await import('../playwright.config');
+  const key = fs.readFileSync(path.join(fixtureDataDir, 'fixture-api-key.txt'), 'utf-8').trim();
+  const api = (await (await request.get('/api/v1/stats/overview', { headers: { 'X-API-Key': key } })).json()).data;
+
+  await login(page);
+  await page.goto('/stats');
+  await ready(page);
+  for (const cat of ['traffic', 'parking', 'other']) {
+    await page.locator(`.stats-cat-btn[data-cat="${cat}"]`).click();
+    const s = api[cat];
+    const box = page.locator('#statsOverview');
+    await expect(box.locator('[data-v="total"]')).toHaveText(`${s.total}건`);
+    await expect(box.locator('[data-v="completed"]')).toHaveText(`${s.completed}건`);
+    await expect(box.locator('[data-v="processing"]')).toHaveText(`${s.processing}건`);
+    await expect(box.locator('[data-v="avg"]')).toHaveText(s.avg_days == null ? '—' : `${s.avg_days.toFixed(1)}일`);
+    const bars = await box.locator('rect.sr-bar-reported').count();
+    expect(bars).toBeGreaterThanOrEqual(s.monthly_reported.length);
+  }
+});
