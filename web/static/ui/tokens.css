@@ -1,0 +1,65 @@
+/* 나만의 안전신문고 웹UI 디자인 토큰 (docs/design/ui-renewal-spec.md).
+   시각 정본: docs/design/reference/01-pc-light.png(화이트), 02-pc-dark.png(네이비·블루 다크). */
+:root {
+    --sr-font: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+
+    /* 화이트 */
+    --sr-bg: #eef3f9;
+    --sr-surface: #ffffff;
+    --sr-surface-2: #f5f8fc;
+    --sr-surface-3: #e9f0f9;
+    --sr-border: #dbe3ee;
+    --sr-text: #15213b;
+    --sr-text-muted: #5a6a85;
+    --sr-primary: #1f6feb;
+    --sr-primary-soft: #e3edfd;
+    --sr-accent: #0ea5e9;
+    --sr-shadow: 0 1px 2px rgba(21, 33, 59, 0.06), 0 4px 16px rgba(21, 33, 59, 0.06);
+    --sr-focus: 0 0 0 3px rgba(31, 111, 235, 0.35);
+
+    --sr-sidebar-bg: #ffffff;
+    --sr-sidebar-text: #2b3a55;
+    --sr-sidebar-muted: #7a879c;
+    --sr-sidebar-hover: #eef3fb;
+    --sr-sidebar-active-bg: #e3edfd;
+    --sr-sidebar-active-text: #1f6feb;
+    --sr-sidebar-border: #e3e9f2;
+
+    /* 상태 색(두 테마 공통 의미) */
+    --sr-status-accept: #16a34a;
+    --sr-status-partial: #d97706;
+    --sr-status-reject: #dc2626;
+    --sr-status-processing: #2563eb;
+    --sr-status-supplement: #fd7e14;
+    --sr-status-withdraw: #8b95a7;
+    --sr-status-fine: #db2777;
+
+    --sr-radius: 12px;
+    --sr-radius-sm: 8px;
+}
+
+[data-bs-theme="dark"] {
+    /* 네이비·블루 다크 */
+    --sr-bg: #060e22;
+    --sr-surface: #0c1a36;
+    --sr-surface-2: #10224a;
+    --sr-surface-3: #152b5c;
+    --sr-border: #1f3767;
+    --sr-text: #e5edfb;
+    --sr-text-muted: #93a6c9;
+    --sr-primary: #3b82f6;
+    --sr-primary-soft: rgba(59, 130, 246, 0.18);
+    --sr-accent: #22d3ee;
+    --sr-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
+    --sr-focus: 0 0 0 3px rgba(96, 165, 250, 0.45);
+
+    --sr-sidebar-bg: #081330;
+    --sr-sidebar-text: #c9d6ef;
+    --sr-sidebar-muted: #7f93ba;
+    --sr-sidebar-hover: #10224a;
+    --sr-sidebar-active-bg: #173a78;
+    --sr-sidebar-active-text: #ffffff;
+    --sr-sidebar-border: #13264f;
+
+    --sr-status-withdraw: #7c879b;
+}

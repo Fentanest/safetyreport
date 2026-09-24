@@ -18,14 +18,14 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Flatpickr (날짜 입력 한국어 표시) -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    {% include "components/theme_head.html" %}
     
     <style>
-        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f8f9fa; }
-        .sidebar { background-color: #343a40; min-height: 100vh; color: white; padding-top: 20px;}
-        .sidebar a { color: white; font-weight: bold; text-decoration: none; display: block; padding: 10px 20px;}
-        .sidebar a:hover, .sidebar a.active { color: white; background-color: #495057; border-left: 3px solid #0d6efd;}
+        /* 색은 web/static/ui/tokens.css·theme.css 가 정한다. 여기는 배치만. */
+        .sidebar { min-height: 100vh; padding-top: 20px;}
+        .sidebar a { text-decoration: none; display: block; }
         .main-content { padding: 20px; }
-        .card-custom { box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); border-radius: 0.5rem; border: none; margin-bottom: 20px;}
+        .card-custom { margin-bottom: 20px; }
         .floating-search-btn {
             position: fixed;
             right: 20px;
@@ -94,7 +94,7 @@
 <div class="container-fluid">
     <div class="row">
         <!-- 모바일 사이드바 토글 버튼 -->
-        <button class="btn btn-dark btn-sidebar-toggle" id="btnSidebarToggle" aria-label="메뉴">
+        <button class="btn btn-primary btn-sidebar-toggle" id="btnSidebarToggle" aria-label="메뉴">
             <i class="fas fa-bars"></i>
         </button>
         <!-- 모바일 사이드바 오버레이 -->
@@ -104,10 +104,10 @@
         <nav class="col-md-2 d-md-block sidebar" id="mainSidebar">
             <div class="sidebar-sticky">
                 <div class="text-center mb-2">
-                    <img src="/static/logo.png?v={{ request.state.app_version }}" alt="Logo" style="width: 80px; height: auto; border-radius: 10px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
+                    <img src="/static/logo.png?v={{ request.state.app_version }}" alt="나만의 안전신문고 로고" class="sr-brand-logo">
                 </div>
-                <h5 class="text-center mb-0 text-white fw-bold">나만의<br>안전신문고</h5>
-                <div class="text-center text-white fw-bold" style="font-size: 0.8rem;">프로젝트 버전: v{{ request.state.app_version }}</div>
+                <h5 class="text-center mb-0 fw-bold sr-brand-title">나만의<br>안전신문고</h5>
+                <div class="text-center fw-bold sr-brand-version" style="font-size: 0.8rem;">프로젝트 버전: v{{ request.state.app_version }}</div>
                 <div class="text-center mb-4" id="sidebarVersionStatus" style="font-size: 0.72rem; min-height: 1.2em;"></div>
                 <a href="/" class="{% if request.url.path == '/' %}active{% endif %}"><i class="fas fa-tachometer-alt fa-fw me-2"></i>대시보드</a>
                 <a href="/crawl" class="{% if request.url.path.startswith('/crawl') %}active{% endif %}"><i class="fas fa-spider fa-fw me-2"></i>크롤링 제어</a>
@@ -115,7 +115,7 @@
                 <a href="/watchlist" class="{% if request.url.path.startswith('/watchlist') %}active{% endif %}"><i class="fas fa-eye fa-fw text-danger me-2"></i>감시 목록 관리</a>
                 <a href="/duplicates/manage" class="{% if request.url.path.startswith('/duplicates/manage') %}active{% endif %}"><i class="fas fa-object-group fa-fw me-2"></i>중복 신고 관리</a>
                 
-                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-white fw-bold">
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 fw-bold">
                   <span>데이터 조회</span>
                 </h6>
                 <a href="/data/all" class="{% if request.url.path == '/data/all' %}active{% endif %}"><i class="fas fa-list fa-fw me-2"></i>전체 신고 내역</a>
@@ -126,14 +126,14 @@
                 <a href="/stats" class="{% if request.url.path == '/stats' %}active{% endif %}"><i class="fas fa-chart-pie fa-fw me-2"></i>처리 부서 통계</a>
                 <a href="/stats/map" class="{% if request.url.path.startswith('/stats/map') %}active{% endif %}"><i class="fas fa-map-location-dot fa-fw me-2"></i>신고 지도</a>
                 
-                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-white fw-bold">
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 fw-bold">
                   <span>설정</span>
                 </h6>
                 <a href="/settings" class="{% if request.url.path == '/settings' %}active{% endif %}"><i class="fas fa-cog fa-fw me-2"></i>앱 설정</a>
                 <a href="/devices" class="{% if request.url.path.startswith('/devices') %}active{% endif %}"><i class="fas fa-mobile-alt fa-fw me-2"></i>기기 연동</a>
                 <a href="/settings/admin" class="{% if request.url.path.startswith('/settings/admin') %}active{% endif %}"><i class="fas fa-user-shield fa-fw me-2"></i>관리자 계정 변경</a>
 
-                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-white fw-bold">
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 fw-bold">
                   <span>기타</span>
                 </h6>
                 <a href="/file-browser" class="{% if request.url.path.startswith('/file-browser') %}active{% endif %}"><i class="fas fa-folder-open fa-fw me-2"></i>파일 브라우저</a>
@@ -141,6 +141,11 @@
                 <a href="/backup" class="{% if request.url.path.startswith('/backup') %}active{% endif %}"><i class="fas fa-save fa-fw me-2"></i>데이터 백업/복원</a>
                 <a href="https://github.com/Fentanest/safetyreport" target="_blank"><i class="fab fa-github fa-fw me-2"></i>깃허브 저장소</a>
                 <a href="https://hb.worklazy.net/mysafetyreport/" target="_blank"><i class="fas fa-blog fa-fw me-2"></i>제작자 블로그</a>
+                <div class="sr-theme-switch" role="group" aria-label="화면 테마">
+                    <button type="button" data-sr-theme="system" aria-pressed="false" title="기기 설정 따르기"><i class="fas fa-circle-half-stroke"></i> 시스템</button>
+                    <button type="button" data-sr-theme="light" aria-pressed="false"><i class="fas fa-sun"></i> 라이트</button>
+                    <button type="button" data-sr-theme="dark" aria-pressed="false"><i class="fas fa-moon"></i> 다크</button>
+                </div>
                 <a href="/logout" onclick="return confirm('로그아웃 하시겠습니까?');" style="margin-top: auto;"><i class="fas fa-sign-out-alt fa-fw me-2"></i>로그아웃</a>
             </div>
         </nav>
@@ -167,15 +172,15 @@
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (d.status === 'up_to_date') {
-                    el.innerHTML = '<span style="color:#6ee7a0;">&#10003; 최신 버전</span>';
+                    el.innerHTML = '<span class="text-success">&#10003; 최신 버전</span>';
                 } else if (d.status === 'outdated') {
-                    el.innerHTML = '<span style="color:#ffc107;">&#9650; 최신: v' + d.latest + '</span>';
+                    el.innerHTML = '<span class="text-warning">&#9650; 최신: v' + d.latest + '</span>';
                 } else {
-                    el.innerHTML = '<span style="color:#6c757d;">버전 확인 불가</span>';
+                    el.innerHTML = '<span class="text-body-secondary">버전 확인 불가</span>';
                 }
             })
             .catch(function() {
-                el.innerHTML = '<span style="color:#6c757d;">버전 확인 불가</span>';
+                el.innerHTML = '<span class="text-body-secondary">버전 확인 불가</span>';
             });
     }
     checkVersion();
@@ -183,6 +188,7 @@
 })();
 </script>
 
+<script src="/static/ui/theme.js?v={{ request.state.app_version }}"></script>
 <!-- jQuery -->
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
 <!-- Bootstrap 5 JS -->
