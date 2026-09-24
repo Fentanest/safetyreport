@@ -111,6 +111,10 @@ by_law (법규별, 같은 필드 + law)
 - 스레드에서 돌기 때문에 크롤링 시작·큐 적재·중지는 `crawl_control._launch_lock` 으로 한 줄로 세운다(실행 중 확인 → 로그 회전 → 프로세스 시작이 끊기지 않게).
 - 스레드풀 토큰은 미디어 스트림(`iter_stream`)과 같이 쓴다(anyio 기본 40).
 
+## 2026-09-25 중복군 응답 필드 추가 (W3)
+- `duplicate_group_service.get_duplicate_groups()`(웹 관리 화면, `/api/v1/duplicates/groups`) 그룹마다 `user_decided`(판단 표에 행이 있음), `decided_at`(epoch ms), `decided_at_text`("YYYY-MM-DD HH:MM") 추가. 기존 필드는 그대로.
+- 판단 표는 그룹별 **마지막** 사용자 판단만 보관한다. 여러 번의 변경 이력은 저장하지 않는다(필요하면 서버·앱 계약에 이력 표를 새로 넣어야 함).
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 199-307 -->

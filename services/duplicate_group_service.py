@@ -432,6 +432,11 @@ def get_duplicate_groups(engine, *, status: str | None = None) -> list[dict]:
         group_ids = [group["group_id"] for group in groups]
         members = _load_member_rows(conn, group_ids)
         inventory = _load_inventory_lookup(conn)
+        decision = models.duplicate_decision_table
+        decided = {
+            row.group_id: row.updated_at
+            for row in conn.execute(select(decision.c.group_id, decision.c.updated_at).where(decision.c.group_id.in_(group_ids)))
+        }
 
     members_by_group: dict[str, list[dict]] = {}
     for member in members:
@@ -451,10 +456,15 @@ def get_duplicate_groups(engine, *, status: str | None = None) -> list[dict]:
             reverse=True,
         )
         representative = next((item for item in group_members if int(item.get("is_representative") or 0) == 1), None)
+        decided_at = decided.get(group["group_id"])
         payload.append({
             **group,
             "members": group_members,
             "representative": representative or {},
+            # 사용자가 판단을 저장한 그룹(판단 표에 행이 있음)과 그 마지막 시각. 판단 표는 마지막 판단만 보관한다(변경 이력 없음).
+            "user_decided": decided_at is not None,
+            "decided_at": decided_at,
+            "decided_at_text": datetime.fromtimestamp(decided_at / 1000).strftime("%Y-%m-%d %H:%M") if decided_at else "",
         })
 
     payload.sort(

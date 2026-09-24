@@ -57,6 +57,16 @@ class DuplicateDecisionTests(unittest.TestCase):
         with self.engine.connect() as conn:
             self.assertEqual(conn.execute(select(models.duplicate_decision_table.c.status)).scalar(), "review_required")
 
+    def test_groups_report_whether_the_user_decided_and_when(self):
+        """관리 화면용: 판단 표에 행이 있으면 사용자 판단과 그 시각(판단 표는 마지막 판단만 보관)."""
+        before = dgs.get_duplicate_groups(self.engine)[0]
+        self.assertFalse(before["user_decided"])
+        self.assertEqual(before["decided_at_text"], "")
+        self.decide()
+        after = dgs.get_duplicate_groups(self.engine)[0]
+        self.assertTrue(after["user_decided"])
+        self.assertRegex(after["decided_at_text"], r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
+
     def test_member_first_grouped_time_is_kept(self):
         with self.engine.connect() as conn:
             before = {r.report_id: r.created_at for r in conn.execute(select(models.duplicate_member_table))}
