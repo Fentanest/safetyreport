@@ -164,7 +164,7 @@ def _normalize_processing_layers(engine):
                 update(detail_table)
                 .where(detail_table.c.보완_미응답 == 'Y')
                 .where(~detail_table.c.ID.in_(final_status_ids))
-                .where(detail_table.c.처리상태 != '보완요청')
+                .where(func.coalesce(detail_table.c.처리상태, '') != '보완요청')
                 .values(처리상태='보완요청', 종결여부='N')
             )
             updated_total += result.rowcount or 0
@@ -172,7 +172,7 @@ def _normalize_processing_layers(engine):
             result = conn.execute(
                 update(detail_table)
                 .where(~detail_table.c.ID.in_(final_status_ids))
-                .where(detail_table.c.보완_미응답 != 'Y')
+                .where(func.coalesce(detail_table.c.보완_미응답, '') != 'Y')  # NULL 행도 포함(S-20)
                 .where(
                     or_(
                         detail_table.c.처리상태.is_(None),
@@ -389,9 +389,9 @@ def _get_new_and_incomplete_ids(conn):
     )
 
     incomplete_queries = [
-        select(detail_traffic_table.c.ID).where(detail_traffic_table.c.종결여부 != 'Y'),
-        select(detail_parking_table.c.ID).where(detail_parking_table.c.종결여부 != 'Y'),
-        select(detail_other_table.c.ID).where(detail_other_table.c.종결여부 != 'Y'),
+        # 종결여부 NULL(모름)도 미종결로 본다. `!= 'Y'` 만 쓰면 NULL 행이 영영 빠진다(S-19).
+        select(t.c.ID).where(func.coalesce(t.c.종결여부, '') != 'Y')
+        for t in (detail_traffic_table, detail_parking_table, detail_other_table)
     ]
 
     df_new = pd.read_sql_query(query_new, conn)
@@ -410,10 +410,11 @@ def get_pending_detail_ids(engine, force=False):
         if force:
             df = _get_title_ids_for_scan(conn, message="전체 신고 건을 다시 스캔합니다.")
         else:
-            row_count_t = conn.execute(select(func.count()).select_from(detail_traffic_table)).scalar()
-            row_count_o = conn.execute(select(func.count()).select_from(detail_other_table)).scalar()
-            
-            if row_count_t + row_count_o == 0:
+            detail_rows = sum(
+                conn.execute(select(func.count()).select_from(t)).scalar()
+                for t in (detail_traffic_table, detail_parking_table, detail_other_table)
+            )
+            if detail_rows == 0:  # 주정차 표도 센다(S-19)
                 df = _get_title_ids_for_scan(conn, message="detail 테이블 비어 있어 전체 스캔 시작")
             else:
                 df = _get_new_and_incomplete_ids(conn)
@@ -474,9 +475,12 @@ def title_to_sql(dataframes, engine, conn=None):
             batch = records[i:i + BATCH_SIZE]
             insert_stmt = insert(title_table).values(batch)
             # 만족도조사여부: 새 값이 비어있으면 기존 값을 유지 (재크롤링 시 덮어쓰기 방지)
+            # 새 값이 비었으면 유지, '참여 완료' → 다른 값으로 되돌리기는 금지(결정 D-3, S-26).
+            # 확정 미참여 재분류는 상세 저장(만족도 조회 결과)만 할 수 있다.
             poll_update = sa_case(
-                (insert_stmt.excluded.만족도조사여부 != '', insert_stmt.excluded.만족도조사여부),
-                else_=title_table.c.만족도조사여부
+                (func.coalesce(insert_stmt.excluded.만족도조사여부, '') == '', title_table.c.만족도조사여부),
+                (title_table.c.만족도조사여부 == '참여 완료', title_table.c.만족도조사여부),
+                else_=insert_stmt.excluded.만족도조사여부
             )
             update_dict = {
                 '상태': insert_stmt.excluded.상태,

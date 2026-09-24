@@ -75,24 +75,27 @@ class ServerKnownDefectTests(_SeededDb):
             conn.execute(update(models.detail_traffic_table).where(models.detail_traffic_table.c.ID == "90000002").values(벌점=None))
         self.assertEqual(self.crawl("90000002", **fields), [{"id": "90000002", "change_type": "변경"}])
 
-    def test_S19_currently_null_closed_flag_is_never_recrawled(self):
-        """S-19(R2): 종결여부 NULL 인 신고는 재크롤링 대상에서 빠진다(`!= 'Y'` 가 NULL 을 거름)."""
+    def test_S19_null_closed_flag_is_recrawled(self):
+        """S-19(R2a 고침): 종결여부 NULL(모름) 인 신고도 재크롤링 대상이다."""
         with self.engine.connect() as conn:
             open_id = conn.execute(select(models.detail_traffic_table.c.ID).where(models.detail_traffic_table.c.종결여부 == "N")).scalars().first()
         self.assertIsNotNone(open_id)
         self.assertIn(open_id, database.get_pending_detail_ids(self.engine))
         with self.engine.begin() as conn:
             conn.execute(update(models.detail_traffic_table).where(models.detail_traffic_table.c.ID == open_id).values(종결여부=None))
-        self.assertNotIn(open_id, database.get_pending_detail_ids(self.engine))
+        self.assertIn(open_id, database.get_pending_detail_ids(self.engine))
 
-    def test_S26_currently_list_save_downgrades_poll_status(self):
-        """S-26(R2, 결정 D-3): 목록 저장이 '참여 완료' 를 '참여 가능' 으로 되돌린다(상세 저장은 막음). Gemini G9 재현과 같음."""
+    def test_S26_list_save_keeps_completed_poll_status(self):
+        """S-26(R2a 고침, 결정 D-3): 목록 저장은 '참여 완료' 를 되돌리지 않는다(확정 미참여 재분류는 상세 저장만)."""
         with self.engine.begin() as conn:
             conn.execute(update(models.title_table).where(models.title_table.c.ID == "90000001").values(만족도조사여부="참여 완료"))
         title = self.merge_row(models.title_table, "90000001")
         frame = pd.DataFrame([{k: title[k] for k in ("ID", "상태", "신고번호", "신고명", "신고일")} | {"만족도조사여부": "참여 가능"}])
         database.title_to_sql([frame], self.engine)
-        self.assertEqual(self.merge_row(models.title_table, "90000001")["만족도조사여부"], "참여 가능")
+        self.assertEqual(self.merge_row(models.title_table, "90000001")["만족도조사여부"], "참여 완료")
+        frame2 = frame.assign(만족도조사여부="")  # 빈 값도 기존 유지
+        database.title_to_sql([frame2], self.engine)
+        self.assertEqual(self.merge_row(models.title_table, "90000001")["만족도조사여부"], "참여 완료")
 
     def test_S17_change_payload_sends_empty_text_for_null(self):
         """S-17(R1c 고침): 알림 payload 가 NULL 을 "None" 글자로 보내지 않는다(표시용이라 '' — Kotlin optString 이 null 을 "null" 로 바꿈)."""
