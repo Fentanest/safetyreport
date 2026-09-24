@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import desc, select, update
+from sqlalchemy import desc, select
 
 from core.database import models
 
@@ -73,25 +73,21 @@ def get_record(engine, category: str, record_id: str) -> dict | None:
 
 
 def update_record(engine, category: str, record_id: str, values: dict) -> bool:
+    """편집값은 사용자 수정값 표(mysafety_report_override)에 저장한다(결정 D-1, 저장 계층 재설계 R2).
+    사이트 원본(detail)은 건드리지 않아 재크롤링이 편집을 되돌리지 않는다(S-1). 보낸 필드만 반영한다(S-2).
+    화면용 표는 같은 트랜잭션에서 다시 만든다."""
+    from core.storage import reports_repo
+
     tables = get_category_tables(category)
     if not tables:
         return False
-    merge_tbl, detail_tbl = tables
-    detail_values = {field: values.get(field, "") for field in _DETAIL_FIELDS}
+    _merge_tbl, detail_tbl = tables
+    provided = {field: values[field] for field in _DETAIL_FIELDS if field in values}
 
     with engine.begin() as conn:
-        detail_exists = conn.execute(
-            select(detail_tbl.c.ID).where(detail_tbl.c.ID == record_id)
-        ).first()
-        merge_exists = conn.execute(
-            select(merge_tbl.c.ID).where(merge_tbl.c.ID == record_id)
-        ).first()
-        if not detail_exists or not merge_exists:
+        site = conn.execute(select(detail_tbl).where(detail_tbl.c.ID == record_id)).mappings().first()
+        if site is None:
             return False
-        conn.execute(
-            update(detail_tbl).where(detail_tbl.c.ID == record_id).values(**detail_values)
-        )
-        conn.execute(
-            update(merge_tbl).where(merge_tbl.c.ID == record_id).values(**detail_values)
-        )
+        reports_repo.set_overrides(conn, record_id, provided, dict(site))
+        reports_repo.refresh_merge_rows(conn, [record_id])
     return True

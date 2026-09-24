@@ -40,8 +40,8 @@ class _SeededDb(unittest.TestCase):
 
 
 class ServerKnownDefectTests(_SeededDb):
-    def test_S1_currently_recrawl_reverts_editor_change(self):
-        """S-1(R2): 편집기로 고친 처리내용이 재크롤링의 사이트 원본으로 되돌아간다. 결정 D-1 이후엔 수정값이 남아야 한다."""
+    def test_S1_editor_change_survives_recrawl(self):
+        """S-1(R2c 고침, 결정 D-1): 편집기로 고친 처리내용은 수정값 표에 남아 재크롤링 뒤에도 화면에 보인다. 원본은 원본대로."""
         from services import db_editor_service
 
         before = self.merge_row(models.merge_traffic_table, "90000001")
@@ -52,18 +52,26 @@ class ServerKnownDefectTests(_SeededDb):
 
         self.crawl("90000001", 처리상태=before["처리상태"], 처리내용=before["처리내용"], 위반장소=before["위반장소"], 종결여부=before["종결여부"])
         database.merge_final(self.engine)
-        self.assertEqual(self.merge_row(models.merge_traffic_table, "90000001")["처리내용"], before["처리내용"])
+        self.assertEqual(self.merge_row(models.merge_traffic_table, "90000001")["처리내용"], "내가 고친 처리내용")
+        self.assertEqual(self.detail_row(models.detail_traffic_table, "90000001")["처리내용"], before["처리내용"])
+        with self.engine.connect() as conn:  # 다른 필드는 원본과 같아 수정값을 만들지 않는다
+            overrides = conn.execute(select(models.report_override_table.c.column_name)).scalars().all()
+        self.assertEqual(overrides, ["처리내용"])
 
-    def test_S2_currently_partial_editor_update_blanks_other_fields(self):
-        """S-2(R2): 일부 필드만 보낸 편집이 나머지 상세 필드를 ''로 지운다."""
+    def test_S2_partial_editor_update_touches_only_sent_fields(self):
+        """S-2(R2c 고침): 일부 필드만 보낸 편집은 그 필드만 바꾼다."""
         from services import db_editor_service
 
         before = self.merge_row(models.merge_traffic_table, "90000001")
         self.assertTrue(before["처리기관"])
         db_editor_service.update_record(self.engine, "traffic", "90000001", {"처리내용": "일부만 수정"})
-        after = self.detail_row(models.detail_traffic_table, "90000001")
+        after = self.merge_row(models.merge_traffic_table, "90000001")
         self.assertEqual(after["처리내용"], "일부만 수정")
-        self.assertEqual(after["처리기관"], "")
+        self.assertEqual(after["처리기관"], before["처리기관"])
+        # 원본과 같은 값으로 다시 고치면 수정값이 사라진다(되돌리기)
+        db_editor_service.update_record(self.engine, "traffic", "90000001", {"처리내용": before["처리내용"]})
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(select(models.report_override_table)).fetchall(), [])
 
     def test_S5_null_vs_empty_is_not_a_change(self):
         """S-5(R2b 고침): 내용이 같으면 DB 의 NULL 과 새 값 '' 를 같게 본다(가짜 변경 알림·synced_at 오염 없음)."""

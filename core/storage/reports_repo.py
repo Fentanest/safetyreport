@@ -266,6 +266,21 @@ def refresh_merge_rows(conn, ids=None) -> None:
     _apply_watch_flags(conn, ids)
 
 
+def set_overrides(conn, record_id: str, provided: dict, site: dict) -> None:
+    """사용자 편집값을 수정값 표에 쓴다(결정 D-1). 보낸 열만 다루고(S-2), 사이트 원본과 같아지면 수정값을 지운다(되돌리기).
+    화면용 표의 "6개월 초과" 가림 글자는 수정값으로 받지 않는다(S-3)."""
+    table = models.report_override_table
+    now_ms = _now_ms()
+    for column, value in provided.items():
+        if column not in OVERRIDABLE_COLUMNS:
+            continue
+        if column in ATTACHMENT_COLUMNS and value == EXPIRED_ATTACHMENT:
+            continue
+        conn.execute(delete(table).where(table.c.ID == record_id).where(table.c.column_name == column))
+        if comparable(value) != comparable(site.get(column)):
+            conn.execute(table.insert().values(ID=record_id, column_name=column, value=value, updated_at=now_ms))
+
+
 def _apply_overrides(conn, ids) -> None:
     table = models.report_override_table
     query = select(table.c.ID, table.c.column_name, table.c.value)
@@ -275,8 +290,23 @@ def _apply_overrides(conn, ids) -> None:
         if column not in OVERRIDABLE_COLUMNS:
             logger.LoggerFactory.logbot.warning(f"[override] 허용되지 않은 열 무시: {record_id}.{column}")
             continue
+        values = {column: value}
+        if column == "위반장소":
+            values.update(_geo_for_overridden_address(conn, value))
         for merge in MERGE_TABLES.values():
-            conn.execute(update(merge).where(merge.c.ID == record_id).values({column: value}))
+            conn.execute(update(merge).where(merge.c.ID == record_id).values(values))
+
+
+def _geo_for_overridden_address(conn, address) -> dict:
+    """고친 주소의 좌표는 지오코딩 캐시에서만 찾는다(네트워크 없음). 없으면 대기 상태로 둔다."""
+    from services import geocode_service
+
+    normalized = geocode_service.normalize_address(address)
+    cache = models.geocode_cache_table
+    row = conn.execute(select(cache).where(cache.c["주소정규화"] == normalized)).mappings().first() if normalized else None
+    if row is None:
+        return {"주소정규화": normalized, "행정구역": None, "위도": None, "경도": None, "지오코딩상태": "pending" if normalized else ""}
+    return {"주소정규화": normalized, "행정구역": row["행정구역"], "위도": row["위도"], "경도": row["경도"], "지오코딩상태": row["상태"]}
 
 
 def _apply_attachment_expiry(conn, ids) -> None:
