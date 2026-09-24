@@ -170,3 +170,34 @@ geocode_cache_table = Table('mysafety_geocode_cache', metadata,
                             Column('source', String, nullable=False, default='kakao'),
                             Column('error_message', String),
                             Column('updated_at', Integer))
+
+# ── 저장 계층 재설계 R1 (docs/plans/storage-refactor-plan.md §3-5·3-6). 계약: contracts/storage-contract.json ──
+# 사용자 수정값: 사이트 원본(detail) 위에 덮어 보여 준다. 재크롤링이 지우지 않는다(결정 D-1). 쓰기는 R2 부터.
+report_override_table = Table('mysafety_report_override', metadata,
+                              Column('ID', String, primary_key=True),
+                              Column('column_name', String, primary_key=True),
+                              Column('value', String),
+                              Column('updated_at', Integer, nullable=False))
+
+# 중복군 사용자 판단: 그룹 재생성(멤버 재계산)과 분리해 보존한다(결정 D-6). group_id = 본문 sha256. 쓰기는 R2 부터.
+duplicate_decision_table = Table('mysafety_duplicate_decision', metadata,
+                                 Column('group_id', String, primary_key=True),
+                                 Column('status', String, nullable=False),
+                                 Column('representative_mode', String, nullable=False),
+                                 Column('representative_id', String),
+                                 Column('apply_globally', Integer, nullable=False),
+                                 Column('note', String),
+                                 Column('updated_at', Integer, nullable=False))
+
+# 변경 기록 + 기기별 읽은 위치(결정 D-5). 기기 식별자가 없는 구앱은 device_id='legacy' 한 줄을 함께 쓴다. 쓰기는 R5 부터.
+change_log_table = Table('mysafety_change_log', metadata,
+                         Column('seq', Integer, primary_key=True, autoincrement=True),
+                         Column('created_at', Integer, nullable=False),
+                         Column('kind', String, nullable=False),
+                         Column('report_id', String),
+                         Column('payload', String, nullable=False))
+
+change_cursor_table = Table('mysafety_change_cursor', metadata,
+                            Column('device_id', String, primary_key=True),
+                            Column('last_seq', Integer, nullable=False),
+                            Column('updated_at', Integer, nullable=False))

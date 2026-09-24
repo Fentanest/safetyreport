@@ -1,5 +1,5 @@
 {
- "contract_version": 1,
+ "contract_version": 2,
  "updated": "2026-09-24",
  "description": "서버·모바일 저장 계약(PROJECT_RULES §3-1). 두 레포의 같은 경로 contracts/storage-contract.json 에 바이트 동일하게 둔다(scripts/dev/db_roundtrip_check.py 가 sha256 비교). R0 판은 현재 스키마를 그대로 적은 것이고, NULL·기본값 정렬은 R1 에서 한다.",
  "null_rule": "NULL = 모름/아직 안 해 봄. '' = 비어 있음이 확인됨. 정규화는 파서 출력 한 곳에서만 하고 저장·변환·API 는 값을 바꾸지 않는다.",
@@ -12,9 +12,9 @@
   "legacy": "옛 열. 새 코드는 쓰지 않는다."
  },
  "schema_version": {
-  "server": null,
-  "mobile": 11,
-  "note": "서버는 아직 번호 없는 upgrade_schema(R1 에서 PRAGMA user_version 도입)."
+  "server": 1,
+  "mobile": 12,
+  "note": "서버는 PRAGMA user_version(core/database/database.py SCHEMA_VERSION), 모바일은 openDatabase version."
  },
  "entities": [
   {
@@ -965,6 +965,198 @@
     {
      "name": "created_at",
      "type": "text",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false
+    }
+   ]
+  },
+  {
+   "entity": "report_override",
+   "server_table": "mysafety_report_override",
+   "mobile_table": "report_override",
+   "note": "사용자 수정값(결정 D-1). 화면용 값 = 사이트 원본 위에 이 값을 덮은 것. 재크롤링이 지우지 않는다. value NULL = 빈 값으로 고침이 아니라 '' 로 저장(NULL 은 쓰지 않음).",
+   "columns": [
+    {
+     "name": "ID",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "pk": true
+    },
+    {
+     "name": "column_name",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "pk": true,
+     "note": "report 엔터티의 site 열 이름만 허용"
+    },
+    {
+     "name": "value",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "updated_at",
+     "type": "integer",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "note": "epoch ms"
+    }
+   ]
+  },
+  {
+   "entity": "duplicate_decision",
+   "server_table": "mysafety_duplicate_decision",
+   "mobile_table": "duplicate_decision",
+   "note": "중복군 사용자 판단(결정 D-6). group_id = 본문 sha256. 그룹 재생성은 멤버만 다시 계산하고 이 표는 보존한다.",
+   "columns": [
+    {
+     "name": "group_id",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "pk": true
+    },
+    {
+     "name": "status",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "representative_mode",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "representative_id",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "apply_globally",
+     "type": "integer",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "note",
+     "type": "text",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "updated_at",
+     "type": "integer",
+     "owner": "user",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "note": "epoch ms"
+    }
+   ]
+  },
+  {
+   "entity": "change_log",
+   "server_table": "mysafety_change_log",
+   "mobile_table": null,
+   "note": "변경 기록(결정 D-5). 서버 전용.",
+   "columns": [
+    {
+     "name": "seq",
+     "type": "integer",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false,
+     "pk": true
+    },
+    {
+     "name": "created_at",
+     "type": "integer",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false
+    },
+    {
+     "name": "kind",
+     "type": "text",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false
+    },
+    {
+     "name": "report_id",
+     "type": "text",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false
+    },
+    {
+     "name": "payload",
+     "type": "text",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false
+    }
+   ]
+  },
+  {
+   "entity": "change_cursor",
+   "server_table": "mysafety_change_cursor",
+   "mobile_table": null,
+   "note": "기기별 읽은 위치. 식별자 없는 구앱은 device_id='legacy'.",
+   "columns": [
+    {
+     "name": "device_id",
+     "type": "text",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false,
+     "pk": true
+    },
+    {
+     "name": "last_seq",
+     "type": "integer",
+     "owner": "server_only",
+     "server": true,
+     "mobile": false,
+     "exchange": false
+    },
+    {
+     "name": "updated_at",
+     "type": "integer",
      "owner": "server_only",
      "server": true,
      "mobile": false,

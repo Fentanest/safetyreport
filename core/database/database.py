@@ -264,6 +264,7 @@ def migrate_by_entry_value(engine):
 
 
 def upgrade_schema(engine):
+    _refuse_newer_schema(engine)
     inspector = inspect(engine)
     with engine.connect() as connection:
         try:
@@ -309,6 +310,44 @@ def upgrade_schema(engine):
     if normalized_rows:
         merge_final(engine)
     _refresh_duplicate_groups(engine)
+    _apply_versioned_migrations(engine)
+
+
+# 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다.
+# 위의 열 추가식 upgrade 는 그대로 두고, 이후 데이터 이동이 필요한 변경은 번호 붙은 단계로 쌓는다(저장 계층 재설계 R1).
+SCHEMA_VERSION = 1
+
+
+def _migration_1_storage_tables(conn):
+    """R1: 수정값·중복 판단·변경 기록 표. 표 생성은 위 metadata 경로가 하므로 여기서는 확인만 한다."""
+    names = {row[0] for row in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'"))}
+    missing = {"mysafety_report_override", "mysafety_duplicate_decision", "mysafety_change_log", "mysafety_change_cursor"} - names
+    if missing:
+        raise RuntimeError(f"스키마 버전 1 표 누락: {sorted(missing)}")
+
+
+_VERSIONED_MIGRATIONS = {1: _migration_1_storage_tables}
+
+
+def get_schema_version(engine) -> int:
+    with engine.connect() as conn:
+        return int(conn.execute(text("PRAGMA user_version")).scalar() or 0)
+
+
+def _refuse_newer_schema(engine):
+    current = get_schema_version(engine)
+    if current > SCHEMA_VERSION:
+        # 더 새 서버가 만든 DB. 모르는 구조를 건드리지 않도록 upgrade 전에 멈춘다.
+        raise RuntimeError(f"DB 스키마 버전 {current} 은 이 서버({SCHEMA_VERSION})보다 새 버전입니다. 서버를 업데이트하세요.")
+
+
+def _apply_versioned_migrations(engine):
+    current = get_schema_version(engine)
+    for version in range(current + 1, SCHEMA_VERSION + 1):
+        with engine.begin() as conn:
+            _VERSIONED_MIGRATIONS[version](conn)
+            conn.execute(text(f"PRAGMA user_version = {version}"))
+        logger.LoggerFactory.logbot.info(f"[schema] DB 스키마 버전 {version} 적용")
 
 def _get_title_ids_for_scan(conn, *, message: str):
     logger.LoggerFactory.logbot.info(message)

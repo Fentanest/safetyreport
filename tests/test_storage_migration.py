@@ -83,6 +83,23 @@ class ServerMigrationTests(unittest.TestCase):
         for key in ("위도", "경도", "사진_첫촬영", "사진_끝촬영", "사진_촬영수"):
             self.assertIsNone(detail[key], key)
 
+    def test_upgrade_sets_schema_version_from_contract(self):
+        self.assertEqual(database.get_schema_version(self.engine), 0)
+        database.upgrade_schema(self.engine)
+        self.assertEqual(database.get_schema_version(self.engine), CONTRACT["schema_version"]["server"])
+        self.assertEqual(database.SCHEMA_VERSION, CONTRACT["schema_version"]["server"])
+        database.upgrade_schema(self.engine)  # 두 번 돌려도 같다
+        self.assertEqual(database.get_schema_version(self.engine), database.SCHEMA_VERSION)
+
+    def test_newer_database_is_refused(self):
+        con = sqlite3.connect(self.path)
+        con.execute(f"PRAGMA user_version = {database.SCHEMA_VERSION + 1}")
+        con.commit()
+        con.close()
+        with self.assertRaises(RuntimeError):
+            database.upgrade_schema(self.engine)
+        self.assertNotIn("주소정규화", self._columns("mysafetydetail_traffic"))  # 거부 전에 아무것도 바꾸지 않음
+
 
 if __name__ == "__main__":
     unittest.main()
