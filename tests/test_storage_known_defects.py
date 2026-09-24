@@ -162,6 +162,34 @@ class ServerKnownDefectTests(_SeededDb):
         self.assertEqual((detail_after["위반장소"], detail_after["위도"]), (detail_before["위반장소"], detail_before["위도"]))
         self.assertEqual(geocode_service.count_pending_reports(self.engine), pending_before)
 
+    def test_S8_closed_parking_photo_times_are_retried(self):
+        """S-8(R6 고침): 종결돼 다시 크롤링되지 않는 주정차 신고도 촬영 시각을 다시 시도한다(6개월 이내, 건수 제한)."""
+        from datetime import datetime, timedelta
+        from unittest import mock
+        from services import photo_capture_time
+
+        detail, title = models.detail_parking_table, models.title_table
+        with self.engine.connect() as conn:
+            ids = conn.execute(select(detail.c.ID).order_by(detail.c.ID)).scalars().all()[:2]
+        self.assertEqual(len(ids), 2, "fixture 에 주정차 신고 2건 이상 필요")
+        recent, old = ids
+        today = datetime.now()
+        with self.engine.begin() as conn:
+            for rid, reported in ((recent, today - timedelta(days=10)), (old, today - timedelta(days=400))):
+                conn.execute(update(detail).where(detail.c.ID == rid).values(
+                    종결여부="Y", 첨부사진=f"https://x/{rid}.jpg", 사진_첫촬영=None, 사진_끝촬영=None, 사진_촬영수=None))
+                conn.execute(update(title).where(title.c.ID == rid).values(신고일=reported.strftime("%Y-%m-%d")))
+
+        with mock.patch.object(photo_capture_time, "fetch_capture_time", return_value="2026-09-14 08:01:02") as fetch:
+            self.assertEqual(photo_capture_time.backfill_missing(self.engine), 1)
+        fetch.assert_called_once_with(f"https://x/{recent}.jpg")
+        self.assertEqual(self.merge_row(models.merge_parking_table, recent)["사진_촬영수"], 1)
+        self.assertEqual(self.detail_row(detail, recent)["사진_첫촬영"], "2026-09-14 08:01:02")
+        self.assertIsNone(self.detail_row(detail, old)["사진_촬영수"])  # 6개월 지난 첨부는 시도 안 함
+
+        with mock.patch.object(photo_capture_time, "fetch_capture_time", side_effect=OSError("down")):
+            self.assertEqual(photo_capture_time.backfill_missing(self.engine), 0)  # 이미 채운 건 다시 안 함, 오류는 넘어감
+
     def test_S34_watchlist_remove_accepts_ids(self):
         """S-34(R6 고침): 감시목록 제거도 추가처럼 ID 를 신고번호로 바꿔 지운다. 신고가 없는 신고번호도 그대로 지운다."""
         from unittest import mock

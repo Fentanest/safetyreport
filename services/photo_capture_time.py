@@ -125,3 +125,39 @@ def collect(attached_photos, fetch=None) -> dict | None:
 
 def is_parking_report(category, entry_value) -> bool:
     return str(category or "") == "parking" or "불법주정차신고" in str(entry_value or "")
+
+
+def backfill_missing(engine, *, limit: int = 30) -> int:
+    """촬영 시각을 아직 못 읽은 주정차 신고를 다시 시도한다(S-8). 반환: 채운 건수.
+
+    종결된 신고는 다시 크롤링되지 않으므로 한 번 실패하면 영영 비어 있었다. 첨부 URL 은 약 6개월 뒤 만료되므로
+    신고일이 6개월 이내인 것만, 크롤링 한 번에 [limit] 건까지. 네트워크는 트랜잭션 밖에서 한다.
+    """
+    from sqlalchemy import select, update
+
+    from core.database import models
+    from core.storage import reports_repo
+
+    detail, title = models.detail_parking_table, models.title_table
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(detail.c.ID, detail.c["첨부사진"])
+            .select_from(detail.join(title, title.c.ID == detail.c.ID))
+            .where(
+                detail.c["사진_촬영수"].is_(None),
+                detail.c["첨부사진"].like("http%"),
+                title.c["신고일"] >= reports_repo._attachment_cutoff(),
+            )
+            .order_by(detail.c.ID.desc())
+            .limit(limit)
+        ).all()
+    filled = 0
+    for record_id, photos in rows:
+        collected = collect(photos)  # 네트워크 오류는 None → 다음 크롤링에서 다시
+        if collected is None:
+            continue
+        with engine.begin() as conn:
+            conn.execute(update(detail).where(detail.c.ID == record_id, detail.c["사진_촬영수"].is_(None)).values(**collected))
+            reports_repo.refresh_merge_rows(conn, [record_id])
+        filled += 1
+    return filled

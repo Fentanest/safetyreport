@@ -290,6 +290,14 @@ def _save_details_as_they_arrive(engine, detail_stream):
 
 
 def _process_and_save_results(engine, changed_item_ids):
+    try:  # 종결돼 다시 안 받는 주정차 신고의 사진 촬영 시각 재시도(S-8). 실패해도 크롤링 결과 저장은 계속.
+        from services import photo_capture_time
+
+        filled = photo_capture_time.backfill_missing(engine)
+        if filled:
+            logger.LoggerFactory.logbot.info(f"[photo] 촬영 시각 재시도로 {filled}건 채움")
+    except Exception as exc:
+        logger.LoggerFactory.logbot.warning(f"[photo] 촬영 시각 재시도 실패: {exc}")
     logger.LoggerFactory.logbot.info("최종 데이터 병합 및 저장 시작")
     duplicate_refresh = database.merge_final(engine=engine, track_duplicate_changes=True) or {}  # 6개월 첨부 가림도 여기서 적용
     duplicate_changes = list(duplicate_refresh.get("changes") or [])
