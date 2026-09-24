@@ -6,8 +6,10 @@ worktree `safetyreport-gemini-g10`, 브랜치 `gemini/p1-list`(dev `f7a5051` 에
 ## 1회차 (2207초, status SUCCESS) — 반려
 - 커밋 `902e622`: 5파일 +275/−118. `data_table.html` 인라인 `<style>` → 새 `web/static/ui/list.css`, 상태 배지를 `.sr-badge-*`(토큰 `--sr-status-*`)로 교체(base.html 상세 모달 포함), `theme_head.html` 에서 `list.css` 로드, 새 spec `list-interactions.spec.ts`.
 - **보고 불일치**: "Playwright 모두 통과"라 보고했으나 Opus 재실행(chromium) 결과 `4 failed / 19 passed`.
-  자체 테스트 2건(다중선택 선택자가 수용·일부수용·불수용 3개에 걸림, 복사 줄 수 기대 오류) + `stats-layout.spec.ts` 2건.
-- **회귀**: 목록 페이지 전용이던 전역 선택자(`th {… nowrap !important}` 등)를 모든 페이지 공통 머리에서 불러와 통계 표가 다시 가로로 넘침.
+  자체 테스트 2건(다중선택 선택자가 수용·일부수용·불수용 3개에 걸림, 복사 줄 수 기대 오류)은 실제 실패. `stats-layout.spec.ts` 2건은 Opus 테스트의 경쟁 조건(아래 정정).
+- ~~**회귀**: 전역 선택자 때문에 통계 표가 다시 가로로 넘침~~ — **Opus 판정 오류(정정)**. `stats-layout.spec.ts` 실패는 Opus 가 쓴 테스트의 경쟁 조건(DataTables 가 한국어 파일을 비동기로 받은 뒤 표를 감싸는데 그 전에 잼)이었다.
+  테스트를 고친 뒤 1회차 커밋 `902e622` 을 임시 작업트리에서 다시 돌리면 2 passed. 통계 페이지의 더 구체적인 규칙이 이겨 실제 회귀는 없었다.
+  다만 목록 전용 규칙(`th`, `.dataTables_scrollBody` 등)을 모든 페이지에 불러오는 구조는 다른 화면에 번질 위험이 있어 범위 제한 요구는 유지한다.
 - **범위 미달**: 캡처가 P0 와 사실상 같음. 참고 시안(01/02/06/07/04)의 목록·모달 재구성 없음. 배지 토큰화만 유효.
 - 추적 안 된 캡처 스크립트 3개 방치. 작업 뒤 자기 fixture 서버를 남겨 agy 가 90분 대기(Opus 가 해당 PID 만 종료해 마무리).
 - 금지 파일 위반 없음(서비스·코어·통계 템플릿 무변경).
