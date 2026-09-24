@@ -436,15 +436,14 @@ document.addEventListener('click', function(e) {
     function statusBadge(s) {
         s = normalizeDisplayValue(s);
         if (!s) return '';
-        var cls = 'bg-secondary';
-        if (s === '수용') cls = 'bg-success';
-        else if (s === '일부수용') cls = 'bg-warning text-dark';
-        else if (s === '불수용' || s === '기타') cls = 'bg-danger';
-        else if (s === '처리중' || s === '진행' || s === '진행중' || s === '검토중') cls = 'bg-primary';
-        else if (s === '보완요청') cls = 'text-white';
-        else if (s === '취하') cls = 'bg-secondary';
-        var style = s === '보완요청' ? ' style="background-color:#fd7e14;"' : '';
-        return '<span class="badge ' + cls + '"' + style + '>' + esc(s) + '</span>';
+        var cls = 'sr-badge-default';
+        if (s === '수용') cls = 'sr-badge-accept';
+        else if (s === '일부수용') cls = 'sr-badge-partial';
+        else if (s === '불수용' || s === '기타') cls = 'sr-badge-reject';
+        else if (s === '처리중' || s === '진행' || s === '진행중' || s === '검토중') cls = 'sr-badge-processing';
+        else if (s === '보완요청') cls = 'sr-badge-supplement';
+        else if (s === '취하') cls = 'sr-badge-withdraw';
+        return '<span class="sr-badge ' + cls + '">' + esc(s) + '</span>';
     }
 
     function field(icon, label, value) {
@@ -568,8 +567,8 @@ document.addEventListener('click', function(e) {
         }
 
         var statusBadge = isOpen
-            ? '<span class="badge bg-danger ms-1">미응답</span>'
-            : '<span class="badge bg-secondary ms-1">응답 완료</span>';
+            ? '<span class="sr-badge sr-badge-reject ms-1">미응답</span>'
+            : '<span class="sr-badge sr-badge-withdraw ms-1">응답 완료</span>';
 
         var html = '';
         html += '<div class="fw-bold small mb-2">마지막 보완 요청' + statusBadge + '</div>';
@@ -785,7 +784,7 @@ document.addEventListener('click', function(e) {
           <div class="bg-light rounded p-2 border" style="font-size:.83rem;line-height:1.7;white-space:pre-wrap" id="rdProcessContentText"></div>
         </div>
         <div id="rdSupplements" class="mb-3" style="display:none">
-          <div class="fw-bold text-muted small mb-2">보완 요청 <span id="rdSupplementsBadge" class="badge text-white" style="background-color:#fd7e14;font-size:.7rem"></span></div>
+          <div class="fw-bold text-muted small mb-2">보완 요청 <span id="rdSupplementsBadge" class="sr-badge sr-badge-supplement" style="font-size:.7rem"></span></div>
           <div id="rdSupplementsBody" class="border rounded p-2"></div>
         </div>
         <div id="rdMedia" class="mb-3" style="display:none">
