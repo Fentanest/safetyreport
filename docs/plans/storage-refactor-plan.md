@@ -288,6 +288,17 @@ G9-3 의견 반영: 사용자 소유 데이터의 **표 구조**는 쓰기 경�
 | 남은 것 | Kotlin 쪽 읽고-쓰기 경합(서비스가 쓰는 순간 앱이 쓰면 한쪽 유실 가능 — 창이 짧아짐), 중복 판단 이력 화면(판단 표는 있음, 화면은 R6 뒤), S-8·S-4 | |
 | 검증 | 서버 unittest 92, Playwright 24(chromium·firefox), 모바일 flutter test 135 통과. 합성 왕복 차이 0 | |
 
+## 5-6. R6 진행 기록 (2026-09-24)
+| 묶음 | 내용 | 결함 |
+|---|---|---|
+| 서버 라우터 | await 없는 라우터 73개를 `def`(스레드풀)로, 본문을 읽는 라우터는 복원·편집·중복 판단·감시목록·압축·크롤링 시작을 `run_in_threadpool` 로. 크롤링 시작·큐 적재·중지는 `crawl_control._launch_lock` 으로 한 줄로(스케줄러와 웹 요청이 겹쳐도 로그 회전·큐 손실 없음) | S-29 |
+| 서버 정리 | 감시목록 제거가 ID 도 받음(신고가 없는 신고번호도 지움), 안 쓰는 함수 7개 삭제(파일 방식 `get_and_clear_crawl_changes`, `clear_old_attachments`, `get_cNo` 등), 오래 안 온 기기 읽은 위치 자동 정리. `deatil_to_sql` 는 이미 없음. `scripts/debug/save.py` 는 **죽은 코드가 아님**(텔레그램 봇 "엑셀 저장" 버튼이 실행) — 유지 | S-34 |
+| 시각 형식 | 저장된 값은 바꾸지 않고 필드별 형식·뜻을 `docs/architecture/data-contracts.md` 에 고정. 새 기계용 시각은 epoch 밀리초 | S-32 |
+| 앱 | 동기화 중지는 요청 플래그(루프가 빠져나갈 때까지 `isRunning` 유지 → 겹쳐 시작 안 됨, 중지된 동기화는 정리·last_sync 생략), DB 닫기는 동기화·자동 동기화·지오코딩이 다음 확인 지점에서 멈출 때까지 기다림, 그 사이 백업·복원·서버 DB 가져오기는 거절(`DbBusyException`), 모드 전환 백업은 기다린 뒤 진행, 서버 DB 가져오기 500행 배치, 안 읽던 prefs 사본 삭제 | M-19·21·25·27 |
+| 덤 | Safari(webkit)에서 1280px 담당자 통계 표가 16px 넘치던 것 — 머리글 `/`·`·` 뒤 줄바꿈 지점 추가. 이전 Playwright 기록(24건)은 webkit 을 빼고 돌린 것이었음 | |
+| 남은 것 | S-8(종결된 주정차 사진 시각 재시도), S-4(고친 주소가 캐시에 없을 때 좌표), Kotlin 쪽 prefs 읽고-쓰기 경합, 중복 판단 이력 화면, 저장 계층 전체 Gemini 교차 검토 | |
+| 검증 | 서버 unittest 94, Playwright 36(chromium·firefox·webkit), 모바일 flutter test 138 통과, 합성 왕복 차이 0 | |
+
 ## 6. 다음 순서
 1. ~~Gemini 교차 검토~~ 완료(G9 3회차, `docs/reviews/2026-09-24-gemini-g9-storage-review.md`).
 2. ~~사용자 결정 D-1~D-8~~ 확정.
