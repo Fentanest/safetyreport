@@ -13,7 +13,7 @@
  },
  "schema_version": {
   "server": 4,
-  "mobile": 12,
+  "mobile": 13,
   "note": "서버는 PRAGMA user_version(core/database/database.py SCHEMA_VERSION), 모바일은 openDatabase version."
  },
  "entities": [
