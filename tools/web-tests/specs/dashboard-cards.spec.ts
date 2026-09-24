@@ -98,3 +98,14 @@ for (const theme of ['light', 'dark']) {
     });
   }
 }
+
+test('dashboard shows the last crawl time and cards work from the keyboard', async ({ page }) => {
+  await page.goto('/login');
+  await page.locator('#username').fill('fixture-admin');
+  await page.locator('#password').fill('fixture-pass-1234');
+  await Promise.all([page.waitForURL('**/'), page.getByRole('button', { name: '로그인' }).click()]);
+  await expect(page.locator('.dashboard-last-sync')).toContainText('2026-09-23 09:00:00');
+  const total = page.locator('.dashboard-card[role="link"]').first();
+  await total.focus();
+  await Promise.all([page.waitForURL('**/data/all'), page.keyboard.press('Enter')]);
+});

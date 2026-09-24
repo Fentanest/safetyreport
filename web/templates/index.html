@@ -7,8 +7,9 @@
 {% block content %}
 <div class="row">
     <div class="col-xl-9">
-        <div class="d-flex align-items-center mb-3">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
             <h4 class="fw-bold mb-0" style="color: var(--sr-text)"><i class="fas fa-chart-line me-2" style="color: var(--sr-primary)"></i> 안전신문고 처리 상태</h4>
+            <span class="dashboard-last-sync"><i class="fas fa-clock me-1"></i>최근 크롤링: <strong>{{ last_crawl_time }}</strong></span>
         </div>
 
         <div class="dashboard-grid stat-cards-grid">
@@ -174,7 +175,7 @@
                         <tbody id="watchlistBody">
                             {% for item in watchlist %}
                             <tr>
-                                <td><a href="#" class="report-detail-link" style="color: var(--sr-primary); font-weight: 600;" data-report='{{ item | tojson }}'>{{ item.신고번호 }}</a></td>
+                                <td><a href="#" class="report-detail-link text-nowrap" style="color: var(--sr-primary); font-weight: 600;" data-report='{{ item | tojson }}'>{{ item.신고번호 }}</a></td>
                                 <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{ item.신고명 }}</td>
                                 <td>{{ item.신고일 }}</td>
                                 <td>{{ item.답변일 }}</td>
@@ -232,7 +233,7 @@
                         <tbody id="recentAnswersBody">
                             {% for item in recent_answers %}
                             <tr>
-                                <td><a href="#" class="report-detail-link" style="color: var(--sr-primary); font-weight: 600;" data-report='{{ item | tojson }}'>{{ item.신고번호 }}</a></td>
+                                <td><a href="#" class="report-detail-link text-nowrap" style="color: var(--sr-primary); font-weight: 600;" data-report='{{ item | tojson }}'>{{ item.신고번호 }}</a></td>
                                 <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{ item.신고명 }}</td>
                                 <td>{{ item.신고일 }}</td>
                                 <td>{{ item.답변일 }}</td>
@@ -273,6 +274,14 @@
 
 {% block extra_js %}
 <script>
+// 카드는 누르면 목록으로 가는 링크다 — 키보드(Tab·Enter·Space)로도 쓸 수 있게 한다.
+document.querySelectorAll('.dashboard-card[onclick]').forEach(function (card) {
+    card.setAttribute('role', 'link');
+    card.setAttribute('tabindex', '0');
+    card.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+    });
+});
     function animateProgressBars() {
         setTimeout(function () {
             $('.progress-bar').each(function () {

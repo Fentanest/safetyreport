@@ -214,3 +214,8 @@
     border-bottom: 1px solid var(--sr-border);
     vertical-align: middle;
 }
+
+/* Opus 통합: 마지막 크롤링 시각, 카드 키보드 포커스 */
+.dashboard-last-sync { color: var(--sr-text-muted); font-size: 0.9rem; }
+.dashboard-last-sync strong { color: var(--sr-text); font-variant-numeric: tabular-nums; }
+.dashboard-card[role="link"]:focus-visible { outline: 3px solid var(--sr-focus); outline-offset: 2px; }
