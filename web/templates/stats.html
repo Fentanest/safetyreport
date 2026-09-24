@@ -2,6 +2,23 @@
 
 {% block extra_css %}
 <style>
+    /* 건수 + 비율 한 칸 (좌우 스크롤 방지) */
+    .sr-metric { white-space: nowrap; line-height: 1.15; }
+    .sr-metric .sr-metric-n { display: block; }
+    .sr-metric .sr-metric-pct { display: block; font-size: 0.78em; color: var(--sr-text-muted); font-weight: 400; }
+    .stats-pane table.dataTable th { white-space: normal; word-break: keep-all; vertical-align: middle; }
+    .stats-pane table.dataTable { font-size: 0.9rem; }
+    .sr-law-filter #statsLawSidebar { max-height: 7.5rem; overflow-y: auto; }
+    .stats-pane table.dataTable td { vertical-align: middle; }
+    .stats-pane table.dataTable td:first-child { white-space: normal; word-break: keep-all; min-width: 8rem; }
+    .stats-pane table.dataTable th, .stats-pane table.dataTable td { padding-left: 0.4rem; padding-right: 0.4rem; }
+    /* 정렬 화살표 자리(기본 26px)를 줄인다 */
+    .stats-pane table.dataTable thead > tr > th.sorting,
+    .stats-pane table.dataTable thead > tr > th.sorting_asc,
+    .stats-pane table.dataTable thead > tr > th.sorting_desc { padding-right: 0.95rem; }
+    .stats-pane table.dataTable thead > tr > th.sorting:before, .stats-pane table.dataTable thead > tr > th.sorting:after,
+    .stats-pane table.dataTable thead > tr > th.sorting_asc:before, .stats-pane table.dataTable thead > tr > th.sorting_asc:after,
+    .stats-pane table.dataTable thead > tr > th.sorting_desc:before, .stats-pane table.dataTable thead > tr > th.sorting_desc:after { right: 3px; }
     .stats-column-controls {
         margin-bottom: 1rem;
         padding: 1rem 1.1rem;
@@ -55,7 +72,7 @@
 
 {% block content %}
 <div class="row g-3 align-items-start">
-<div class="col-xl-10 col-12">
+<div class="col-12">
 <div class="card card-custom">
     <div class="card-header bg-white fw-bold">
         기관별 / 담당자별 처리 통계
@@ -217,6 +234,13 @@
             </div>
         </div>
 
+        <!-- 위반법규 필터: 표 폭 확보를 위해 오른쪽 세로 패널에서 표 위 가로 줄로 옮겼다(id 유지). -->
+        <div class="sr-law-filter mb-3">
+            <div class="small fw-bold mb-1"><i class="fas fa-gavel me-1 text-info"></i>위반법규</div>
+            <div id="statsLawSidebar" class="d-flex flex-wrap gap-1">
+                <!-- JS로 채워짐 -->
+            </div>
+        </div>
         <div class="stats-column-controls">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                 <div>
@@ -237,26 +261,20 @@
 
             {% macro fine_amt(val) %}{{ "{:,}원".format(val) if val > 0 else '-' }}{% endmacro %}
 
-            {% macro rating_display(val, count) %}{% if val is not none %}<span class="text-warning">★</span> {{ '%.2f' % val }} <small class="text-muted">({{ count }})</small>{% else %}-{% endif %}{% endmacro %}
+            {% macro rating_display(val, count) %}{% if val is not none %}<span class="sr-metric-n"><span class="text-warning">★</span> {{ '%.2f' % val }}</span><span class="sr-metric-pct">{{ count }}명</span>{% else %}-{% endif %}{% endmacro %}
 
             {% macro metric_cells(r) %}
                     <td data-order="{{ r.total_fine_amount }}" class="text-center text-success fw-bold small">{{ fine_amt(r.total_fine_amount) }}</td>
-                    <td data-order="{{ r.estimated_fine_amount or 0 }}" data-count="{{ r.estimated_fine_count or 0 }}" class="text-center text-secondary small">{% if r.estimated_fine_count %}{{ "{:,}".format(r.estimated_fine_amount) }}원 <span class="text-muted">({{ r.estimated_fine_count }}건)</span>{% else %}-{% endif %}</td>
-                    <td data-order="{{ r.fines }}" class="text-center"><span class="text-danger fw-bold">{{ r.fines }}</span></td>
-                    <td class="text-center text-muted">{{ r.fines_pct }}%</td>
-                    <td data-order="{{ r.warnings }}" class="text-center">{{ r.warnings }}</td>
-                    <td class="text-center text-muted">{{ r.warnings_pct }}%</td>
-                    <td data-order="{{ r.rejects }}" class="text-center">{{ r.rejects }}</td>
-                    <td class="text-center text-muted">{{ r.rejects_pct }}%</td>
-                    <td data-order="{{ r.in_progress or 0 }}" class="text-center">{{ r.in_progress or 0 }}</td>
-                    <td class="text-center text-muted">{{ r.in_progress_pct or 0 }}%</td>
-                    <td data-order="{{ r.disposition_unknown or 0 }}" class="text-center">{{ r.disposition_unknown or 0 }}</td>
-                    <td class="text-center text-muted">{{ r.disposition_unknown_pct or 0 }}%</td>
-                    <td data-order="{{ r.no_penalty or 0 }}" class="text-center">{{ r.no_penalty or 0 }}</td>
-                    <td class="text-center text-muted">{{ r.no_penalty_pct or 0 }}%</td>
-                    <td data-order="{{ r.unclassified or 0 }}" class="text-center">{{ r.unclassified or 0 }}</td>
-                    <td class="text-center text-muted">{{ r.unclassified_pct or 0 }}%</td>
-                    <td data-order="{{ r.avg_rating if r.avg_rating is not none else -1 }}" data-count="{{ r.rating_count or 0 }}" class="text-center fw-bold">{{ rating_display(r.avg_rating, r.rating_count) }}</td>
+                    <td data-order="{{ r.estimated_fine_amount or 0 }}" data-count="{{ r.estimated_fine_count or 0 }}" class="text-center text-secondary small sr-metric">{% if r.estimated_fine_count %}<span class="sr-metric-n">{{ "{:,}".format(r.estimated_fine_amount) }}원</span><span class="sr-metric-pct">{{ r.estimated_fine_count }}건</span>{% else %}-{% endif %}</td>
+                    {# 건수와 비율을 한 칸에(건수 아래 작은 비율). 정렬은 건수(data-order) 기준. #}
+                    <td data-order="{{ r.fines }}" class="text-center sr-metric"><span class="sr-metric-n text-danger fw-bold">{{ r.fines }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.fines_pct or 0) }}%</span></td>
+                    <td data-order="{{ r.warnings }}" class="text-center sr-metric"><span class="sr-metric-n">{{ r.warnings }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.warnings_pct or 0) }}%</span></td>
+                    <td data-order="{{ r.rejects }}" class="text-center sr-metric"><span class="sr-metric-n">{{ r.rejects }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.rejects_pct or 0) }}%</span></td>
+                    <td data-order="{{ (r.in_progress or 0) }}" class="text-center sr-metric"><span class="sr-metric-n">{{ (r.in_progress or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.in_progress_pct or 0) }}%</span></td>
+                    <td data-order="{{ (r.disposition_unknown or 0) }}" class="text-center sr-metric"><span class="sr-metric-n">{{ (r.disposition_unknown or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.disposition_unknown_pct or 0) }}%</span></td>
+                    <td data-order="{{ (r.no_penalty or 0) }}" class="text-center sr-metric"><span class="sr-metric-n">{{ (r.no_penalty or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.no_penalty_pct or 0) }}%</span></td>
+                    <td data-order="{{ (r.unclassified or 0) }}" class="text-center sr-metric"><span class="sr-metric-n">{{ (r.unclassified or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.unclassified_pct or 0) }}%</span></td>
+                    <td data-order="{{ r.avg_rating if r.avg_rating is not none else -1 }}" data-count="{{ r.rating_count or 0 }}" class="text-center fw-bold sr-metric">{{ rating_display(r.avg_rating, r.rating_count) }}</td>
             {% endmacro %}
             {% macro agency_rows(records, base_url, law_filter='') %}
                 {% for r in records %}
@@ -289,11 +307,11 @@
                 </tr>
                 {% endfor %}
             {% endmacro %}
-            {% set agency_thead %}<tr><th>처리기관</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">확정 과태료</th><th class="text-center">추정 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th><th>처리중</th><th>비율</th><th>처분 미확인</th><th>비율</th><th>처분 대상 아님</th><th>비율</th><th>기타·미분류</th><th>비율</th><th class="text-center">★</th></tr>{% endset %}
-            {% set person_thead %}<tr><th>처리기관</th><th class="text-center">담당자</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">확정 과태료</th><th class="text-center">추정 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th><th>처리중</th><th>비율</th><th>처분 미확인</th><th>비율</th><th>처분 대상 아님</th><th>비율</th><th>기타·미분류</th><th>비율</th><th class="text-center">★</th></tr>{% endset %}
-            {% set law_thead %}<tr><th>위반법규</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">확정 과태료</th><th class="text-center">추정 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th><th>처리중</th><th>비율</th><th>처분 미확인</th><th>비율</th><th>처분 대상 아님</th><th>비율</th><th>기타·미분류</th><th>비율</th><th class="text-center">★</th></tr>{% endset %}
-            {% set agency_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center text-secondary"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td></tr>{% endset %}
-            {% set person_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td></td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center text-secondary"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td></tr>{% endset %}
+            {% set agency_thead %}<tr><th>처리기관</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">확정 과태료</th><th class="text-center">추정 과태료</th><th class="text-center">과태료</th><th class="text-center">경고장/범칙금</th><th class="text-center">불수용/기타</th><th class="text-center">처리중</th><th class="text-center">처분 미확인</th><th class="text-center">처분 대상 아님</th><th class="text-center">기타·미분류</th><th class="text-center">★</th></tr>{% endset %}
+            {% set person_thead %}<tr><th>처리기관</th><th class="text-center">담당자</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">확정 과태료</th><th class="text-center">추정 과태료</th><th class="text-center">과태료</th><th class="text-center">경고장/범칙금</th><th class="text-center">불수용/기타</th><th class="text-center">처리중</th><th class="text-center">처분 미확인</th><th class="text-center">처분 대상 아님</th><th class="text-center">기타·미분류</th><th class="text-center">★</th></tr>{% endset %}
+            {% set law_thead %}<tr><th>위반법규</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">확정 과태료</th><th class="text-center">추정 과태료</th><th class="text-center">과태료</th><th class="text-center">경고장/범칙금</th><th class="text-center">불수용/기타</th><th class="text-center">처리중</th><th class="text-center">처분 미확인</th><th class="text-center">처분 대상 아님</th><th class="text-center">기타·미분류</th><th class="text-center">★</th></tr>{% endset %}
+            {% set agency_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center text-secondary sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td></tr>{% endset %}
+            {% set person_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td></td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center text-secondary sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td></tr>{% endset %}
 
             {% set lf = f.law or '' %}
 
@@ -451,19 +469,9 @@
         </div>
     </div>
 </div>
-</div><!-- col-xl-9 -->
+</div><!-- col-12 -->
 
 <!-- 위반법규 사이드바 -->
-<div class="col-xl-2 col-12">
-    <div class="card sticky-top" style="top:1rem;">
-        <div class="card-header py-2 fw-bold small">
-            <i class="fas fa-gavel me-1 text-info"></i>위반법규
-        </div>
-        <div class="card-body p-2" id="statsLawSidebar" style="max-height:calc(100vh - 8rem);overflow-y:auto;">
-            <!-- JS로 채워짐 -->
-        </div>
-    </div>
-</div>
 </div><!-- row -->
 {% endblock %}
 
@@ -501,20 +509,20 @@
                 foot(cfg.total).html('<b>' + sums.total + '</b>건');
                 foot(cfg.avg).text(wBase > 0 ? (wDays / wBase).toFixed(1) + '일' : '-');
                 foot(cfg.fine).text(sums.fine > 0 ? sums.fine.toLocaleString() + '원' : '-');
-                foot(cfg.est).text(sums.estCount > 0 ? sums.est.toLocaleString() + '원 (' + sums.estCount + '건)' : '-');
+                foot(cfg.est).html(sums.estCount > 0 ? '<span class="sr-metric-n">' + sums.est.toLocaleString() + '원</span><span class="sr-metric-pct">' + sums.estCount + '건</span>' : '-');
                 COUNT_KEYS.forEach(function (k) {
-                    foot(cfg[k]).html(k === 'fines' ? '<span class="text-danger fw-bold">' + sums[k] + '</span>' : String(sums[k]));
-                    foot(cfg[k] + 1).text(pct(sums[k]));
+                    var n = k === 'fines' ? '<span class="sr-metric-n text-danger fw-bold">' + sums[k] + '</span>' : '<span class="sr-metric-n">' + sums[k] + '</span>';
+                    foot(cfg[k]).html(n + '<span class="sr-metric-pct">' + pct(sums[k]) + '</span>');
                 });
                 foot(cfg.rating).html(wRatingBase > 0
-                    ? '<span class="text-warning">★</span> ' + (wRating / wRatingBase).toFixed(2) + ' <small class="text-muted">(' + wRatingBase + ')</small>'
+                    ? '<span class="sr-metric-n"><span class="text-warning">★</span> ' + (wRating / wRatingBase).toFixed(2) + '</span><span class="sr-metric-pct">' + wRatingBase + '명</span>'
                     : '-');
             };
         }
 
         function columnMap(lead) {
-            return { total: lead, avg: lead + 1, fine: lead + 2, est: lead + 3, fines: lead + 4, warn: lead + 6, rejects: lead + 8,
-                     inProgress: lead + 10, dispositionUnknown: lead + 12, noPenalty: lead + 14, unclassified: lead + 16, rating: lead + 18 };
+            return { total: lead, avg: lead + 1, fine: lead + 2, est: lead + 3, fines: lead + 4, warn: lead + 5, rejects: lead + 6,
+                     inProgress: lead + 7, dispositionUnknown: lead + 8, noPenalty: lead + 9, unclassified: lead + 10, rating: lead + 11 };
         }
         var agencyCb = makeDrawCallback(columnMap(1));
         var personCb = makeDrawCallback(columnMap(2));
@@ -523,13 +531,15 @@
             "order": [[1, "desc"]],
             "pageLength": 50,
             "language": { "url": "https://cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" },
-            "drawCallback": agencyCb
+            "drawCallback": agencyCb,
+            "autoWidth": false
         };
         var dtOptionsPerson = {
             "order": [[2, "desc"]],
             "pageLength": 50,
             "language": { "url": "https://cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" },
-            "drawCallback": personCb
+            "drawCallback": personCb,
+            "autoWidth": false
         };
 
         // Initialize all DataTables
@@ -677,7 +687,7 @@
             });
 
             function mkBtn(label, isActive, colorClass, onClick) {
-                return $('<button type="button" class="btn btn-sm w-100 text-start mb-1"></button>')
+                return $('<button type="button" class="btn btn-sm"></button>')
                     .addClass(isActive ? colorClass : 'btn-outline-secondary')
                     .text(label)
                     .on('click', onClick);

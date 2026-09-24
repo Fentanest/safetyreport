@@ -22,12 +22,13 @@
 | stats.html | `#statsYearGroup .stats-year-btn[data-year]`, `#statsCatGroup .stats-cat-btn[data-cat]`, `#statsTypeGroup .stats-type-btn[data-type]` | 739-810 |
 | stats.html | `.stats-pane#<cat>-<type>`(18개), 표 id `statsTable<Cat><Type>` | showPane, DataTable init |
 | stats.html | `#statsColumnCheckboxes`, `#statsColumnScope`, `#statsColumnsSelectAll`, `.stats-column-checkbox[data-column-key]` | 572-657, 778-794 |
-| stats.html | `#statsLawSidebar` | renderLawButtons (684-733) |
+| stats.html | `#statsLawSidebar` (2026-09-24 오른쪽 세로 패널 → 표 위 가로 줄로 이동, id 유지) | renderLawButtons |
 | index.html | `#sunwi*` (Prev/Next Parent/Child Category, Items, Content, UpdatedAtLabel), `.progress-bar[data-width]` | initSunwiWidget, animateProgressBars |
 
 ## 2. 텍스트가 계약인 곳
 - data_table 헤더 `th` 텍스트 = CSV 열 이름(1024, 1046) = 더블클릭 모달 제목(1255). 헤더 문구를 바꾸면 내보낸 파일 열 이름이 바뀐다.
 - stats 헤더 텍스트 = sessionStorage `stats_column_visibility` 키(`getColumnLabel`, `★`→`별점`, `비율`→`<앞 열> 비율`). 바꾸면 저장된 열 설정이 끊긴다.
+  2026-09-24 표 폭 조정으로 `비율` 열을 건수 칸에 합쳤다(13열). 예전 `… 비율` 키는 남아 있어도 무시된다. 합계 행 칸 수 = 머리글 칸 수(`tools/web-tests/specs/stats-layout.spec.ts`).
 - sessionStorage 키: `stats_cat`, `stats_type`, `stats_column_visibility`. localStorage 사용 없음(테마 저장 키를 새로 만들 때 충돌 없음).
 
 ## 3. JS 가 클래스 이름으로 색을 바꾸는 곳 (CSS 만 바꾸면 되돌아감)
