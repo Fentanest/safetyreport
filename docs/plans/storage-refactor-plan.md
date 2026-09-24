@@ -232,6 +232,16 @@ G9-3 의견 반영: 사용자 소유 데이터의 **표 구조**는 쓰기 경�
 
 **확정(2026-09-24 사용자):** D-1~D-8 모두 (a). D-8 은 로컬 임시 폴더에서만 변환하고 행 수·해시만 비교, 외부 전송 없음이라는 조건부 승인이다.
 
+## 5-1. R0 진행 기록 (2026-09-24)
+| 항목 | 결과 |
+|---|---|
+| 저장 계약 파일 | `contracts/storage-contract.json` 두 레포 바이트 동일(왕복 검사가 sha256 비교). 서버 `tests/test_storage_contract.py` 4건, 모바일 `test/storage/storage_contract_test.dart` 3건 통과 |
+| 알려진 결함 고정 | 서버 `tests/test_storage_known_defects.py`(S-1·2·5·17·19·26), 모바일 `test/storage/known_defects_test.dart`(M-1·2/3·12·24) — 모두 현재 잘못된 동작이 재현됨. 고치면 실패하므로 그때 기대값을 뒤집는다 |
+| 구버전 서버 DB | `tests/fixtures/db/server-2026-05-16.schema.sql`(2026-05-16 운영 DB 의 구조만) + `tests/test_storage_migration.py` — 업그레이드 뒤 계약 일치·값 보존 |
+| 운영 사본 왕복(D-8) | `db_roundtrip_check.py --server-db … --summary-only`: 3,063건, 표별 행 수 전부 일치, 값 차이 49건 = 감시목록 표현 하나(merge·title 의 `감시목록` 열 24+24, sync_meta `watchlist` 키 1). S-15·S-16·M-8 이 실제 데이터에서 확인됨 → R1 |
+| 운영 사본 업그레이드(D-8) | `scripts/dev/migration_rehearsal.py`(5월 사본 2,792건): 행 손실 0, 원본 표 값 변화 0, 새 열 8개. merge 첨부 3열 1,626건 변화 = "6개월 초과" 가림이 merge 재생성으로 되살아남(S-31 실데이터 확인). 중복 멤버 created_at 18건 초기화(S-34 확인) |
+| 임시 파일 | 모바일 왕복 하네스가 임시 DB 를 남기던 것을 고침(운영 사본 리허설 뒤 /tmp 잔여 0 확인) |
+
 ## 6. 다음 순서
 1. ~~Gemini 교차 검토~~ 완료(G9 3회차, `docs/reviews/2026-09-24-gemini-g9-storage-review.md`).
 2. ~~사용자 결정 D-1~D-8~~ 확정.
