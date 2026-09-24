@@ -1,4 +1,4 @@
-"""저장 계층의 알려진 결함을 '현재 동작'으로 고정한다 (저장 계층 재설계 R0, docs/plans/storage-refactor-plan.md §2).
+"""저장 계층의 알려진 결함을 '현재 동작'으로 고정한다(고친 것은 이름에서 currently_ 를 떼고 올바른 동작을 확인) (저장 계층 재설계 R0, docs/plans/storage-refactor-plan.md §2).
 
 각 테스트는 지금의 잘못된 동작을 그대로 확인한다. 해당 단계(R1·R2 …)에서 결함을 고치면 이 테스트가 실패한다 —
 그때 기대값을 올바른 동작으로 뒤집고 테스트 이름의 `currently_` 를 떼어 회귀 테스트로 바꾼다.
@@ -94,8 +94,8 @@ class ServerKnownDefectTests(_SeededDb):
         database.title_to_sql([frame], self.engine)
         self.assertEqual(self.merge_row(models.title_table, "90000001")["만족도조사여부"], "참여 가능")
 
-    def test_S17_currently_change_payload_sends_none_string(self):
-        """S-17(R1): 알림 payload 가 NULL 을 문자열 "None" 으로 보낸다."""
+    def test_S17_change_payload_sends_empty_text_for_null(self):
+        """S-17(R1c 고침): 알림 payload 가 NULL 을 "None" 글자로 보내지 않는다(표시용이라 '' — Kotlin optString 이 null 을 "null" 로 바꿈)."""
         import settings.settings as app_settings
         from services import crawl_state_store
 
@@ -104,21 +104,24 @@ class ServerKnownDefectTests(_SeededDb):
         crawl_state_store.save_crawl_changes(self.engine, [{"id": "90000001", "change_type": "변경"}])
         payload = json.loads((Path(app_settings.datapath) / "crawl_changes.json").read_text(encoding="utf-8"))
         item = next(p for p in payload if p.get("신고번호") == self.merge_row(models.merge_traffic_table, "90000001")["신고번호"])
-        self.assertEqual(item["담당자"], "None")
+        self.assertEqual(item["담당자"], "")
         crawl_state_store.clear_crawl_changes()
 
-    def test_S35_currently_api_records_turn_null_into_empty_and_int_into_float(self):
-        """S-35(R1): API 조회 경로는 NULL→'' , 정수 열(별점·synced_at)에 NULL 이 섞이면 실수로 보낸다. DB 파일 경로는 원형 그대로라 채널마다 값이 다르다."""
+    def test_S35_api_channel_keeps_null_and_integers(self):
+        """S-35(R1c 고침): 모바일 API 채널(exact_values)은 NULL 을 None, 정수 열을 정수로 보낸다. 웹 화면 경로는 예전처럼 ''."""
         from services import report_query_service
 
         with self.engine.begin() as conn:
             conn.execute(update(models.merge_traffic_table).where(models.merge_traffic_table.c.ID == "90000001").values(담당자=None, 별점=None))
             conn.execute(update(models.merge_traffic_table).where(models.merge_traffic_table.c.ID == "90000002").values(별점=3))
-        records = {r["ID"]: r for r in report_query_service.get_traffic_records(self.engine)}
-        self.assertEqual(records["90000001"]["담당자"], "")
-        self.assertEqual(records["90000001"]["별점"], "")
-        self.assertIsInstance(records["90000002"]["별점"], float)
-
+        api = {r["ID"]: r for r in report_query_service.get_traffic_records(self.engine, exact_values=True)}
+        self.assertIsNone(api["90000001"]["담당자"])
+        self.assertIsNone(api["90000001"]["별점"])
+        self.assertEqual(api["90000002"]["별점"], 3)
+        self.assertIs(type(api["90000002"]["별점"]), int)
+        json.dumps(list(api.values()), ensure_ascii=False)  # FastAPI 가 직렬화할 수 있는 값만
+        web = {r["ID"]: r for r in report_query_service.get_traffic_records(self.engine)}
+        self.assertEqual(web["90000001"]["담당자"], "")
 
 if __name__ == "__main__":
     unittest.main()

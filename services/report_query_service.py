@@ -19,13 +19,23 @@ def _get_watch_ids(conn):
     return set(df_watch["신고번호"].tolist()) if "신고번호" in df_watch.columns else set()
 
 
-def _apply_record_defaults(df, *, watch_ids: set, category: str = ""):
+_INTEGER_COLUMNS = [c.name for c in database.merge_traffic_table.columns if type(c.type).__name__ == "Integer"]
+
+
+def _apply_record_defaults(df, *, watch_ids: set, category: str = "", exact_values: bool = False):
+    """exact_values=True(모바일 API 채널): NULL 은 None, 정수 열은 정수로 — DB 파일 교환과 같은 값(S-35).
+    False(웹 화면 표시): 예전처럼 NULL 을 '' 로 채운다(템플릿 JS 가 문자열을 가정)."""
     if df.empty:
         return df
     if category:
         df["category"] = category
     df["감시목록"] = df["신고번호"].apply(lambda value: "Y" if value in watch_ids else "N")
-    return df.fillna("")
+    if not exact_values:
+        return df.fillna("")
+    for column in _INTEGER_COLUMNS:
+        if column in df.columns:
+            df[column] = pd.to_numeric(df[column], errors="coerce").astype("Int64")
+    return df.astype(object).where(df.notna(), None)
 
 
 def _filter_withdraw(df):
@@ -100,7 +110,7 @@ def _build_records_query(table_obj, filters=None):
     return query
 
 
-def _get_records_from_table(engine, table_obj, filters=None, category: str = "", mode: str = "raw"):
+def _get_records_from_table(engine, table_obj, filters=None, category: str = "", mode: str = "raw", exact_values: bool = False):
     try:
         with engine.connect() as conn:
             df = pd.read_sql_query(_build_records_query(table_obj, filters), conn)
@@ -132,21 +142,21 @@ def _get_records_from_table(engine, table_obj, filters=None, category: str = "",
                     rating_series = pd.to_numeric(df["별점"], errors="coerce")
                     df = df[rating_series == wanted]
 
-    df = _apply_record_defaults(df, watch_ids=watch_ids, category=category)
+    df = _apply_record_defaults(df, watch_ids=watch_ids, category=category, exact_values=exact_values)
     records = df.to_dict(orient="records") if not df.empty else []
     return _project_records(engine, records, mode=mode)
 
 
-def get_traffic_records(engine, filters=None, mode: str = "raw"):
-    return _get_records_from_table(engine, database.merge_traffic_table, filters, category="traffic", mode=mode)
+def get_traffic_records(engine, filters=None, mode: str = "raw", exact_values: bool = False):
+    return _get_records_from_table(engine, database.merge_traffic_table, filters, category="traffic", mode=mode, exact_values=exact_values)
 
 
-def get_parking_records(engine, filters=None, mode: str = "raw"):
-    return _get_records_from_table(engine, database.merge_parking_table, filters, category="parking", mode=mode)
+def get_parking_records(engine, filters=None, mode: str = "raw", exact_values: bool = False):
+    return _get_records_from_table(engine, database.merge_parking_table, filters, category="parking", mode=mode, exact_values=exact_values)
 
 
-def get_other_records(engine, filters=None, mode: str = "raw"):
-    return _get_records_from_table(engine, database.merge_other_table, filters, category="other", mode=mode)
+def get_other_records(engine, filters=None, mode: str = "raw", exact_values: bool = False):
+    return _get_records_from_table(engine, database.merge_other_table, filters, category="other", mode=mode, exact_values=exact_values)
 
 
 def get_all_records(engine, filters=None, mode: str = "raw"):

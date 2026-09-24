@@ -39,6 +39,12 @@ def _take_json(path: str, default):
     return payload
 
 
+def _display_text(value) -> str:
+    """알림 표시용 문자열. NULL 은 '' (예전엔 str(None) = "None" 이 그대로 나갔다 — S-17).
+    Kotlin optString 은 JSON null 을 "null" 글자로 바꾸므로 여기서는 null 대신 '' 를 보낸다(교환 데이터가 아니라 표시용)."""
+    return "" if value is None else str(value)
+
+
 def save_crawl_changes(engine, changed_item_ids, duplicate_changes=None):
     duplicate_changes = list(duplicate_changes or [])
     if not changed_item_ids and not duplicate_changes:
@@ -80,7 +86,7 @@ def save_crawl_changes(engine, changed_item_ids, duplicate_changes=None):
         record_id = record.get("ID", "")
         supplement_count = int(record.get("보완횟수") or 0)
         supplement_open = (record.get("보완_미응답") or "N") == "Y"
-        is_supplement_status = str(record.get("처리상태", "")) == "보완요청"
+        is_supplement_status = _display_text(record.get("처리상태")) == "보완요청"
         change_reason = "supplement" if (supplement_open or is_supplement_status) else "report"
         changes.append({
             "notification_kind": "report",
@@ -89,25 +95,25 @@ def save_crawl_changes(engine, changed_item_ids, duplicate_changes=None):
             "change_reason": change_reason,
             "supplement_open": supplement_open,
             "supplement_count": supplement_count,
-            "신고번호": str(record.get("신고번호", "")),
-            "신고명": str(record.get("신고명", "")),
-            "신고일": str(record.get("신고일", "")),
-            "처리기관": str(record.get("처리기관", "")),
-            "담당자": str(record.get("담당자", "")),
-            "처리상태": str(record.get("처리상태", "")),
-            "범칙금_과태료": str(record.get("범칙금_과태료", "")),
-            "벌점": str(record.get("벌점", "")),
-            "답변일": str(record.get("답변일", "")),
-            "차량번호": str(record.get("차량번호", "")),
-            "위반법규": str(record.get("위반법규", "")),
-            "위반장소": str(record.get("위반장소", "")),
-            "발생일자": str(record.get("발생일자", "")),
-            "발생시각": str(record.get("발생시각", "")),
-            "신고내용": str(record.get("신고내용", "")),
-            "처리내용": str(record.get("처리내용", "")),
-            "첨부사진": str(record.get("첨부사진", "")),
-            "첨부파일": str(record.get("첨부파일", "")),
-            "지도": str(record.get("지도", "")),
+            "신고번호": _display_text(record.get("신고번호")),
+            "신고명": _display_text(record.get("신고명")),
+            "신고일": _display_text(record.get("신고일")),
+            "처리기관": _display_text(record.get("처리기관")),
+            "담당자": _display_text(record.get("담당자")),
+            "처리상태": _display_text(record.get("처리상태")),
+            "범칙금_과태료": _display_text(record.get("범칙금_과태료")),
+            "벌점": _display_text(record.get("벌점")),
+            "답변일": _display_text(record.get("답변일")),
+            "차량번호": _display_text(record.get("차량번호")),
+            "위반법규": _display_text(record.get("위반법규")),
+            "위반장소": _display_text(record.get("위반장소")),
+            "발생일자": _display_text(record.get("발생일자")),
+            "발생시각": _display_text(record.get("발생시각")),
+            "신고내용": _display_text(record.get("신고내용")),
+            "처리내용": _display_text(record.get("처리내용")),
+            "첨부사진": _display_text(record.get("첨부사진")),
+            "첨부파일": _display_text(record.get("첨부파일")),
+            "지도": _display_text(record.get("지도")),
             "synced_at": record.get("synced_at"),
             "보완횟수": supplement_count,
             "보완_미응답": record.get("보완_미응답") or "N",

@@ -51,11 +51,11 @@ async def get_reports(category: str, dedupe: str | None = None, _: str = Depends
     try:
         dedupe_mode = normalize_dedupe_mode(dedupe)
         if category == "traffic":
-            records = data_service.get_traffic_records(engine, mode=dedupe_mode)
+            records = data_service.get_traffic_records(engine, mode=dedupe_mode, exact_values=True)
         elif category == "parking":
-            records = data_service.get_parking_records(engine, mode=dedupe_mode)
+            records = data_service.get_parking_records(engine, mode=dedupe_mode, exact_values=True)
         elif category == "other":
-            records = data_service.get_other_records(engine, mode=dedupe_mode)
+            records = data_service.get_other_records(engine, mode=dedupe_mode, exact_values=True)
         elif category == "duplicates":
             records = data_service.get_duplicate_records(engine, mode=dedupe_mode)
         else:
