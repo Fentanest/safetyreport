@@ -1,0 +1,216 @@
+/* Dashboard CSS (Tokens only) */
+.dashboard-grid {
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: 1fr;
+    margin-bottom: 1.5rem;
+}
+
+@media (min-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (min-width: 992px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+.dashboard-card {
+    background-color: var(--sr-surface);
+    border: 1px solid var(--sr-border);
+    border-radius: var(--sr-radius);
+    box-shadow: var(--sr-shadow);
+    padding: 1.25rem;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.dashboard-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.dashboard-card-title {
+    color: var(--sr-text-muted);
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.dashboard-card-value {
+    color: var(--sr-text);
+    font-size: 1.85rem;
+    font-weight: 800;
+}
+
+/* Status Cards */
+.status-card-total { border-bottom: 4px solid var(--sr-primary); }
+.status-card-total .dashboard-card-value { color: var(--sr-primary); }
+
+.status-card-processing { border-bottom: 4px solid var(--sr-status-processing); }
+.status-card-processing .dashboard-card-value { color: var(--sr-status-processing); }
+
+.status-card-supplement { border-bottom: 4px solid var(--sr-status-supplement); }
+.status-card-supplement .dashboard-card-value { color: var(--sr-status-supplement); }
+
+.status-card-withdraw { border-bottom: 4px solid var(--sr-status-withdraw); }
+.status-card-withdraw .dashboard-card-value { color: var(--sr-status-withdraw); }
+
+.status-card-accept { border-bottom: 4px solid var(--sr-status-accept); }
+.status-card-accept .dashboard-card-value { color: var(--sr-status-accept); }
+
+.status-card-partial { border-bottom: 4px solid var(--sr-status-partial); }
+.status-card-partial .dashboard-card-value { color: var(--sr-status-partial); }
+
+.status-card-reject { border-bottom: 4px solid var(--sr-status-reject); }
+.status-card-reject .dashboard-card-value { color: var(--sr-status-reject); }
+
+.status-card-fine { border-bottom: 4px solid var(--sr-status-fine); }
+.status-card-fine .dashboard-card-value { color: var(--sr-status-fine); }
+
+.status-card-penalty { border-bottom: 4px solid var(--sr-status-withdraw); }
+.status-card-penalty .dashboard-card-value { color: var(--sr-status-withdraw); }
+
+/* Sunwi panel overrides using tokens */
+.sunwi-card {
+    background-color: var(--sr-surface);
+    border: 1px solid var(--sr-border);
+    border-radius: var(--sr-radius);
+    box-shadow: var(--sr-shadow);
+    height: 100%;
+}
+.sunwi-card .card-body {
+    display: flex;
+    flex-direction: column;
+}
+.sunwi-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.sunwi-nav .btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    flex: 0 0 auto;
+    border: 1px solid var(--sr-border);
+    background-color: var(--sr-surface);
+    color: var(--sr-text);
+}
+.sunwi-nav .btn:hover {
+    background-color: var(--sr-surface-2);
+}
+.sunwi-nav-stack {
+    flex: 1;
+    text-align: center;
+    line-height: 1.3;
+}
+.sunwi-nav-label {
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--sr-text-muted);
+    text-transform: uppercase;
+}
+.sunwi-category-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--sr-text);
+}
+.sunwi-subcategory-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--sr-primary);
+}
+.sunwi-items {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+.sunwi-item-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    border: 1px solid var(--sr-border);
+    border-radius: var(--sr-radius);
+    padding: 14px 16px;
+    background-color: var(--sr-surface-2);
+    margin-bottom: 0.5rem;
+}
+.sunwi-rank-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 52px;
+    height: 28px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #ffffff;
+}
+.sunwi-rank-badge.rank-1 { background-color: var(--sr-primary); }
+.sunwi-rank-badge.rank-2 { background-color: var(--sr-status-accept); }
+.sunwi-rank-badge.rank-3 { background-color: var(--sr-status-partial); }
+.sunwi-rank-badge.rank-4 { background-color: var(--sr-status-withdraw); }
+.sunwi-rank-badge.rank-5 { background-color: var(--sr-status-reject); }
+
+.sunwi-region {
+    font-weight: 700;
+    line-height: 1.45;
+    color: var(--sr-text);
+    min-height: 0;
+}
+.sunwi-item-main {
+    flex: 1;
+    min-width: 0;
+}
+.sunwi-count-wrap {
+    text-align: right;
+    flex: 0 0 auto;
+}
+.sunwi-count {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: var(--sr-primary);
+}
+.sunwi-subtext {
+    font-size: 0.82rem;
+    color: var(--sr-text-muted);
+}
+
+.table-card {
+    background-color: var(--sr-surface);
+    border: 1px solid var(--sr-border);
+    border-radius: var(--sr-radius);
+    box-shadow: var(--sr-shadow);
+}
+.table-card-header {
+    background-color: var(--sr-surface);
+    border-bottom: 1px solid var(--sr-border);
+    padding: 1rem 1.25rem;
+    font-weight: 700;
+    color: var(--sr-text);
+    border-top-left-radius: var(--sr-radius);
+    border-top-right-radius: var(--sr-radius);
+}
+.table-custom {
+    color: var(--sr-text);
+}
+.table-custom th {
+    background-color: var(--sr-surface-3);
+    color: var(--sr-text-muted);
+    font-weight: 700;
+    border-bottom: 1px solid var(--sr-border);
+}
+.table-custom td {
+    border-bottom: 1px solid var(--sr-border);
+    vertical-align: middle;
+}
