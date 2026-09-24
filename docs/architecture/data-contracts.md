@@ -78,6 +78,17 @@ by_law (법규별, 같은 필드 + law)
 - **변경 알림 payload**(`crawl_changes.json`): NULL 은 '' (표시용).
 - 새 표: `mysafety_report_override`(사용자 수정값), `mysafety_duplicate_decision`(중복 판단), `mysafety_change_log`·`mysafety_change_cursor`(변경 기록) — 쓰기는 R2·R5 부터.
 
+## 2026-09-24 저장 계층 재설계 R2 — 서버 저장 규칙
+
+- 크롤링 저장은 `core/storage/reports_repo.save_crawled`(기존 `database.detail_to_sql` 은 튜플 → `CrawledDetail` 어댑터). 신고 1건 = 트랜잭션 1개, 네트워크는 트랜잭션 전.
+- **merge(화면용 표) = title + detail(사이트 원본) + `mysafety_report_override`(사용자 수정값) + 감시목록(계산) + 6개월 지난 첨부 "6개월 초과"**. 전체(`merge_final`)와 1건(`refresh_merge_rows`)이 같은 규칙.
+  detail 은 사이트 원본만 담는다 — 편집기(`db_editor_service.update_record`)는 수정값 표에 쓰고 detail 을 건드리지 않는다.
+- 교환은 원본으로: 모바일 가져오기는 title+detail 을 읽고(merge 아님) 수정값은 표로 따로 옮긴다.
+- 변경 판정(synced_at·변경 알림): 상세 사이트 열 + category + entry_value + 본문, NULL 과 '' 는 같음. 지오코딩·사진 열은 제외(모바일 `_syncedAtTrackedKeys` 와 같음).
+- 중복 판단: `mysafety_duplicate_decision` 이 원천(개별·일괄 저장이 기록). 그룹 재생성은 판단 표 → 기존 그룹 → 자동 기본값 순.
+- 별점 일괄 제출·이미 참여 확인은 점수도 기록(`sync_rating_status(score=, cause=)`).
+- `upgrade_schema(engine, maintenance=False)`: 크롤링 서브프로세스용 가벼운 확인(표·열·버전). 스키마 버전 4(인덱스).
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 199-307 -->
