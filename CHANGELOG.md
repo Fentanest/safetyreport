@@ -10,6 +10,16 @@
 
 ## 2026-09-24 (dev, 미배포)
 
+### 저장 계층 재설계 R0·R1: 안전망, 교환 변환, 교체 방식 복원
+
+상태: 완료(dev). main·VERSION·릴리즈 없음. 계획·결정: `docs/plans/storage-refactor-plan.md`(D-1~D-8 전부 a).
+
+- R0: 저장 계약 파일, 알려진 결함을 현재 동작으로 고정한 테스트, 구버전 DB 견본(2026-05 서버 구조) 업그레이드 테스트, 운영 사본 리허설 스크립트(`db_roundtrip_check.py --server-db --summary-only`, `migration_rehearsal.py` — 개수만 출력, 임시 폴더만 사용).
+- R1: 서버 스키마 버전(v2), 새 표 4개, 모바일→서버 변환을 `core/storage/exchange.py` 로 새로 작성(NULL 유지·감시목록 한 원천·서버 전용 데이터 보존), 복원은 사본 검사 후 원자적 교체(크롤링·지도 변환 중 409),
+  API 채널 NULL/정수 보존, 알림 payload "None" 제거.
+- 운영 사본 왕복: R0 때 감시목록 표현 차이 49건 → R1 뒤 0건.
+- 테스트: unittest 70 통과.
+
 ### 통계 표 좌우 스크롤 제거, 로고·아이콘 교체, 다크 테마 잔여 결함
 
 상태: 완료(dev, push). main·VERSION·릴리즈 없음.

@@ -67,6 +67,17 @@ by_law (법규별, 같은 필드 + law)
   지오코딩 캐시 `error_message` NULL→'', 주소정규화·행정구역·지오코딩상태 NULL→''/재계산, `synced_at` NULL→가져온 시각으로 바꾼다. 저장 로직 리팩터링 때 NULL 보존으로 정리한다.
 - 변환 코드(서버 `db_backup.py`, 모바일 `local_db_service.dart` import/export)나 공통 컬럼을 바꾸면 이 검사를 돌린다.
 
+## 2026-09-24 저장 계층 재설계 R1 — 교환·복원·스키마 버전
+
+- **저장 계약** `contracts/storage-contract.json`(모바일 레포 같은 경로에 바이트 동일). 모델·표가 어긋나면 `tests/test_storage_contract.py` 가 실패한다.
+- **스키마 버전**: 서버 `PRAGMA user_version` = `core/database/database.py SCHEMA_VERSION`(현재 2). 더 새 버전 DB 는 upgrade 전에 거부. 모바일은 `LocalDbService.dbVersion`(현재 12).
+- **감시목록**: 원천은 `mysafety_watchlist` 하나. title·merge 의 `감시목록` 열은 `database.refresh_watch_flags` 가 계산(merge_final·감시목록 변경 때). 서버 sync_meta 에는 'watchlist' 키를 두지 않는다(모바일은 sync_meta 'watchlist' 가 원천이라 교환 때 변환).
+- **복원**(`services/db_backup.py` → `core/storage/exchange.py`): 사본에 적용 → 무결성 검사 → 백업(`data/backups/`) → 원자적 교체. 크롤링·지도 좌표 변환 중에는 409.
+  모바일 DB 로 복원해도 관리자·API 키·변경 기록은 유지되고 지오코딩 캐시는 합쳐진다. 구버전 앱 DB 에 수정값·중복 판단 표가 없으면 서버 것을 유지.
+- **API 값**: `/api/v1/reports/{traffic,parking,other}` 는 NULL 을 null, 정수 열(별점·synced_at·보완횟수·사진_촬영수)을 정수로 보낸다. 웹 화면 조회는 기존처럼 ''.
+- **변경 알림 payload**(`crawl_changes.json`): NULL 은 '' (표시용).
+- 새 표: `mysafety_report_override`(사용자 수정값), `mysafety_duplicate_decision`(중복 판단), `mysafety_change_log`·`mysafety_change_cursor`(변경 기록) — 쓰기는 R2·R5 부터.
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 199-307 -->

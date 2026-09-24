@@ -1,6 +1,6 @@
 # 저장 계층 전면 재설계 계획 (서버 + 모바일)
 
-작성 2026-09-24, Opus. 상태: **결정 확정(2026-09-24, D-1~D-8 전부 권장안 (a)), R0 완료 — R1 대기**.
+작성 2026-09-24, Opus. 상태: **결정 확정(2026-09-24, D-1~D-8 전부 권장안 (a)), R0·R1 완료 — R2 대기**.
 자매 문서: 모바일 레포 `docs/plans/storage-refactor-plan.md`(이 문서를 가리킨다).
 
 ## 0. 범위와 근거
@@ -243,6 +243,17 @@ G9-3 의견 반영: 사용자 소유 데이터의 **표 구조**는 쓰기 경�
 | 왕복 시나리오 | 합성 S0 에 별점·사유, 중복 수동 판단(not_duplicate·manual·대표건·메모), 감시목록을 넣어 서버→모바일→서버 모두 보존 확인(차이 0) |
 | 구버전 모바일 DB | `test/storage/migration_test.dart` — v9·v10 → v11 계약 일치·값 보존 |
 | 임시 파일 | 모바일 왕복 하네스가 임시 DB 를 남기던 것을 고침(운영 사본 리허설 뒤 /tmp 잔여 0 확인) |
+
+## 5-2. R1 진행 기록 (2026-09-24)
+| 항목 | 결과 |
+|---|---|
+| R1a 구조 | 서버 `PRAGMA user_version`(`database.SCHEMA_VERSION`) 도입, 더 새 DB 는 upgrade 전에 거부. 새 표 `mysafety_report_override`·`mysafety_duplicate_decision`·`mysafety_change_log`·`mysafety_change_cursor`(쓰기는 R2·R5). 모바일 v12: `report_override`·`duplicate_decision`, 버전 상수 하나(`LocalDbService.dbVersion`), 열 추가는 `addColumnIfMissing`(이미 있음만 건너뛰고 다른 오류는 올림, M-15·M-26). 계약 v2 |
+| R1b 교환 | 서버 `core/storage/exchange.py`: 모바일→서버 변환이 값을 바꾸지 않음(NULL 유지), 감시목록 원천 = `mysafety_watchlist`(title·merge `감시목록` 은 `refresh_watch_flags` 로 계산, 서버 sync_meta 에 사본 없음 — 스키마 v2 에서 삭제, sync_meta.value NULL 허용), 서버 전용(관리자·API 키·변경 기록) 유지, 지오코딩 캐시는 합침(S-13), 수정값·중복 판단 표 교환. 모바일 가져오기: NULL 유지(M-9), 숫자 열 형 맞춤(M-10), 감시목록 Y/N 전부 계산·키 항상 기록(M-8), 읽기 오류 삼키지 않음(M-28), 새 표 복사 |
+| R1c 전송 | 모바일 API `/api/v1/reports/*` 는 `exact_values=True`: NULL→null, 정수 열은 정수(S-35). 웹 화면 경로는 예전처럼 ''. 변경 알림 payload 의 NULL 은 "None" 대신 ''(표시용, Kotlin optString 이 null 을 "null" 로 바꾸므로 — S-17) |
+| R1d 복원 | 서버: 업로드/현재 DB 사본에 적용 → `PRAGMA integrity_check` → 백업 → 엔진 연결 정리 → `os.replace`. 크롤링·지도 변환 중이면 409(`RestoreRefused`). 실패해도 현재 DB 그대로(S-28). 모바일 앱 백업 복원: 종류·버전 확인 → 임시 사본 마이그레이션·무결성 검사 → `.bak` 롤백 교체(M-11) |
+| 해소로 기록 | S-21(열 추가 시 기존 행 NULL) — 새 NULL 규칙("모름")에서는 올바른 동작. 가짜 변경은 S-5(R2)에서 해결 |
+| 검증 | 합성 왕복 차이 0(새 표·NULL 값·사용자 판단 포함, 새 표가 실제로 채워졌는지도 검사). 운영 사본 왕복 차이 0(R0 의 감시목록 49건 해소). 서버 unittest 70, 모바일 flutter test 129 통과. 테스트가 /tmp 에 남기던 임시 DB 폴더 정리(잔여 0) |
+| 결함 테스트 전환 | S-17·S-35 는 `currently_` 를 떼고 올바른 동작을 확인하는 회귀 테스트로 바꿈 |
 
 ## 6. 다음 순서
 1. ~~Gemini 교차 검토~~ 완료(G9 3회차, `docs/reviews/2026-09-24-gemini-g9-storage-review.md`).
