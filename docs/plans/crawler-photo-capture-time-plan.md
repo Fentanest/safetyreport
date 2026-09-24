@@ -19,10 +19,10 @@
 | 다운로드 | 스트리밍 GET 으로 앞 128KB 까지만 읽고 연결을 끊는다(EXIF 는 첫 64KB 안). 사진 수만큼(보통 2~4장) 요청, 타임아웃·`core/utils/retry` 재시도, 실패는 크롤링을 멈추지 않고 NULL |
 | EXIF 해석 | 표준 라이브러리만 쓰는 작은 TIFF/EXIF 파서(`DateTimeOriginal` 0x9003, 없으면 `DateTime` 0x0132). Pillow 를 제품 의존성에 추가하지 않는다(PyInstaller 크기) |
 | 저장 | detail/merge 새 컬럼: `사진_첫촬영`, `사진_끝촬영`(ISO `YYYY-MM-DD HH:MM:SS`), `사진_촬영수`(INTEGER). `upgrade_schema()` ALTER, `_merge_for_table` select 추가 |
-| 외부 계약 | `db_backup` 서버↔모바일 변환 왕복 보존, `/api/v1/reports/*` 응답에 필드 추가(하위호환). **모바일 저장소 sqflite 스키마 변경 필요 → 모바일 세션과 조율** |
+| 외부 계약 | **최우선(PROJECT_RULES §3-1)**: 서버·모바일 스키마, `db_backup` 양방향 변환, 모바일 가져오기/내보내기, API 필드를 같은 작업 단위로 변경하고 양방향 왕복 테스트로 전 컬럼 일치 확인. 모바일 레포도 함께 수정(사용자 지시) |
 | fixture | `block_if_fixture("photo capture fetch")` — 테스트에서는 합성 EXIF 바이트로 파서만 검증 |
 | 과거 데이터 | 아직 만료되지 않은 주정차 신고에 한해 1회 백필 명령(`scripts/`), 요청 간 지연. 만료분은 NULL 유지 |
-| 통계 사용 | 사진 간격 ≥ 2시간 → 별표6 괄호 금액. 밤샘주차: 사업용 화물 번호판 + 촬영 시각이 0~4시 안에서 1시간 이상 → 과징금 최저 5만(statistics-spec §4-1) |
+| 통계 사용 | 맨 앞·맨 뒤 사진 촬영 간격 ≥ 2시간 → 별표6 괄호 금액. 밤샘주차: 사업용 화물 번호판 + 촬영 시각이 0~4시 안에서 1시간 이상 → 과징금 최저 5만(statistics-spec §4-1) |
 
 ## 테스트
 - EXIF 파서: 합성 JPEG 바이트(빅/리틀 엔디언, EXIF 없음, 잘린 파일) 단위 테스트.
