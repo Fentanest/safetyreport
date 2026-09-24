@@ -72,6 +72,23 @@ def get_record(engine, category: str, record_id: str) -> dict | None:
     return dict(row._mapping)
 
 
+def get_edit_state(engine, category: str, record_id: str) -> dict:
+    """편집 화면용: 어떤 필드를 사용자가 고쳤는지와 사이트 원본 값(결정 D-1, 저장 계층 재설계 R4).
+    반환: {"overrides": {열: {"value", "updated_at"}}, "site_values": {열: 원본}} — 고친 열만."""
+    tables = get_category_tables(category)
+    if not tables:
+        return {"overrides": {}, "site_values": {}}
+    _merge_tbl, detail_tbl = tables
+    override = models.report_override_table
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(override.c.column_name, override.c.value, override.c.updated_at).where(override.c.ID == record_id)
+        ).all()
+        site = conn.execute(select(detail_tbl).where(detail_tbl.c.ID == record_id)).mappings().first() or {}
+    overrides = {r.column_name: {"value": r.value, "updated_at": r.updated_at} for r in rows if r.column_name in _DETAIL_FIELDS}
+    return {"overrides": overrides, "site_values": {c: site.get(c) for c in overrides}}
+
+
 def update_record(engine, category: str, record_id: str, values: dict) -> bool:
     """편집값은 사용자 수정값 표(mysafety_report_override)에 저장한다(결정 D-1, 저장 계층 재설계 R2).
     사이트 원본(detail)은 건드리지 않아 재크롤링이 편집을 되돌리지 않는다(S-1). 보낸 필드만 반영한다(S-2).

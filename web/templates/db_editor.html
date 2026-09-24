@@ -58,10 +58,9 @@
 {% endblock %}
 
 {% block content %}
-<div class="alert alert-danger py-2 mb-2" role="alert">
-  <i class="fas fa-exclamation-triangle me-1"></i>
-  <strong>주의:</strong> 이 페이지는 DB를 직접 수정합니다. 잘못된 수정은 데이터 불일치 또는 크롤링 오작동을 유발할 수 있습니다.
-  종결여부가 N일 경우 다음 크롤링 시 덮어쓰기 될 수 있습니다.
+<div class="alert alert-info py-2 mb-2" role="alert">
+  <i class="fas fa-circle-info me-1"></i>
+  <strong>안내:</strong> 여기서 고친 값은 안전신문고 원본과 따로 저장되어 다시 크롤링해도 유지됩니다. 원본은 지우지 않습니다.
 </div>
 
 <ul class="nav nav-tabs category-tabs mb-3" id="categoryTab">

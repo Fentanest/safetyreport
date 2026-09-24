@@ -35,6 +35,7 @@ async def db_editor_form(request: Request, category: str, record_id: str):
         "title_fields": schema["title_fields"],
         "detail_fields": schema["detail_fields"],
         "fine_info_example": schema["fine_info_example"],
+        **db_editor_service.get_edit_state(engine, category, record_id),
     })
 
 

@@ -20,9 +20,9 @@ input.form-control { font-size: 0.82rem; }
 {% endblock %}
 
 {% block content %}
-<div class="alert alert-danger py-2 mb-3" role="alert">
-  <i class="fas fa-exclamation-triangle me-1"></i>
-  <strong>주의:</strong> DB를 직접 수정합니다. 잘못된 수정은 데이터 불일치를 유발할 수 있습니다.
+<div class="alert alert-info py-2 mb-3" role="alert">
+  <i class="fas fa-circle-info me-1"></i>
+  <strong>안내:</strong> 고친 값은 안전신문고 원본과 따로 저장되어 다시 크롤링해도 유지됩니다. 원본은 각 필드의 "원본으로 되돌리기"로 언제든 되돌릴 수 있습니다.
 </div>
 
 <div class="mb-3">
@@ -32,86 +32,116 @@ input.form-control { font-size: 0.82rem; }
   <span class="ms-3 id-badge">ID: {{ record.ID }} | 신고번호: {{ record.신고번호 or '-' }} | 신고일: {{ record.신고일 or '-' }}</span>
 </div>
 
+{% macro ov(field) -%}
+  {%- if overrides is defined and field in overrides -%}
+    <span class="badge text-bg-warning ms-1 align-middle" title="사용자가 고친 값 — 다시 크롤링해도 유지됩니다">수정됨</span>
+  {%- endif -%}
+{%- endmacro %}
+{% macro site(field) -%}
+  {%- if overrides is defined and field in overrides -%}
+    <div class="form-text sr-site-original">원본(안전신문고): <span class="text-break">{{ site_values.get(field) or '(비어 있음)' }}</span>
+      <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline sr-revert" data-target="{{ field }}" data-site="{{ site_values.get(field) or '' }}">원본으로 되돌리기</button>
+    </div>
+  {%- endif -%}
+{%- endmacro %}
 <form method="post" action="/db-editor/{{ category }}/{{ record.ID }}">
-  <!-- mysafetydetail 필드만 표시 (mysafety 필드는 크롤링 시 upsert되므로 편집 제외) -->
-  <div class="field-group-title"><i class="fas fa-file-alt me-1"></i>신고 상세 (mysafetydetail)</div>
+  <!-- 상세 필드만 편집. 고친 값은 사용자 수정값으로 따로 저장되어 다시 크롤링해도 유지된다(원본은 그대로). -->
+  <div class="field-group-title"><i class="fas fa-file-alt me-1"></i>신고 상세</div>
+  <p class="small text-muted mb-2">고친 필드에는 <span class="badge text-bg-warning">수정됨</span> 이 붙고 안전신문고 원본 값을 함께 보여 줍니다. 원본과 같은 값으로 저장하면 수정 표시가 사라집니다.</p>
   <div class="row g-3">
     <div class="col-md-3">
-      <label class="form-label">처리상태</label>
+      <label class="form-label">처리상태{{ ov('처리상태') }}</label>
       <select name="처리상태" class="form-select form-select-sm">
         {% for opt in ['', '처리중', '보완요청', '수용', '일부수용', '불수용', '기타', '답변완료', '취하', '이송'] %}
           <option value="{{ opt }}" {% if record.처리상태 == opt %}selected{% endif %}>{{ opt or '(없음)' }}</option>
         {% endfor %}
       </select>
+      {{ site('처리상태') }}
     </div>
     <div class="col-md-3">
-      <label class="form-label">차량번호</label>
+      <label class="form-label">차량번호{{ ov('차량번호') }}</label>
       <input type="text" name="차량번호" class="form-control" value="{{ record.차량번호 or '' }}">
+      {{ site('차량번호') }}
     </div>
     <div class="col-md-4">
-      <label class="form-label">위반법규</label>
+      <label class="form-label">위반법규{{ ov('위반법규') }}</label>
       <input type="text" name="위반법규" class="form-control" value="{{ record.위반법규 or '' }}">
+      {{ site('위반법규') }}
     </div>
     <div class="col-md-2">
-      <label class="form-label">범칙금_과태료</label>
+      <label class="form-label">범칙금_과태료{{ ov('범칙금_과태료') }}</label>
       <input type="text" name="범칙금_과태료" class="form-control" value="{{ record['범칙금_과태료'] or '' }}">
+      {{ site('범칙금_과태료') }}
       <div class="form-text">{{ fine_info_example }}</div>
     </div>
     <div class="col-md-2">
-      <label class="form-label">벌점</label>
+      <label class="form-label">벌점{{ ov('벌점') }}</label>
       <input type="text" name="벌점" class="form-control" value="{{ record.벌점 or '' }}">
+      {{ site('벌점') }}
     </div>
     <div class="col-md-4">
-      <label class="form-label">처리기관</label>
+      <label class="form-label">처리기관{{ ov('처리기관') }}</label>
       <input type="text" name="처리기관" class="form-control" value="{{ record.처리기관 or '' }}">
+      {{ site('처리기관') }}
     </div>
     <div class="col-md-3">
-      <label class="form-label">담당자</label>
+      <label class="form-label">담당자{{ ov('담당자') }}</label>
       <input type="text" name="담당자" class="form-control" value="{{ record.담당자 or '' }}">
+      {{ site('담당자') }}
     </div>
     <div class="col-md-3">
-      <label class="form-label">답변일</label>
+      <label class="form-label">답변일{{ ov('답변일') }}</label>
       <input type="date" name="답변일" class="form-control" value="{{ record.답변일 or '' }}">
+      {{ site('답변일') }}
     </div>
     <div class="col-md-3">
-      <label class="form-label">발생일자</label>
+      <label class="form-label">발생일자{{ ov('발생일자') }}</label>
       <input type="date" name="발생일자" class="form-control" value="{{ record.발생일자 or '' }}">
+      {{ site('발생일자') }}
     </div>
     <div class="col-md-2">
-      <label class="form-label">발생시각</label>
+      <label class="form-label">발생시각{{ ov('발생시각') }}</label>
       <input type="text" name="발생시각" class="form-control" placeholder="예: 14:30" value="{{ record.발생시각 or '' }}">
+      {{ site('발생시각') }}
     </div>
     <div class="col-md-5">
-      <label class="form-label">위반장소</label>
+      <label class="form-label">위반장소{{ ov('위반장소') }}</label>
       <input type="text" name="위반장소" class="form-control" value="{{ record.위반장소 or '' }}">
+      {{ site('위반장소') }}
     </div>
     <div class="col-md-2">
-      <label class="form-label">종결여부</label>
+      <label class="form-label">종결여부{{ ov('종결여부') }}</label>
       <select name="종결여부" class="form-select form-select-sm">
         {% for opt in ['', 'Y', 'N'] %}
           <option value="{{ opt }}" {% if record.종결여부 == opt %}selected{% endif %}>{{ opt or '(없음)' }}</option>
         {% endfor %}
       </select>
+      {{ site('종결여부') }}
     </div>
     <div class="col-12">
-      <label class="form-label">신고내용</label>
+      <label class="form-label">신고내용{{ ov('신고내용') }}</label>
       <textarea name="신고내용" class="form-control" rows="4">{{ record.신고내용 or '' }}</textarea>
+      {{ site('신고내용') }}
     </div>
     <div class="col-12">
-      <label class="form-label">처리내용</label>
+      <label class="form-label">처리내용{{ ov('처리내용') }}</label>
       <textarea name="처리내용" class="form-control" rows="4">{{ record.처리내용 or '' }}</textarea>
+      {{ site('처리내용') }}
     </div>
     <div class="col-12">
-      <label class="form-label">지도 URL</label>
+      <label class="form-label">지도 URL{{ ov('지도') }}</label>
       <input type="text" name="지도" class="form-control" value="{{ record.지도 or '' }}">
+      {{ site('지도') }}
     </div>
     <div class="col-12">
-      <label class="form-label">첨부사진 (줄바꿈으로 구분)</label>
+      <label class="form-label">첨부사진 (줄바꿈으로 구분){{ ov('첨부사진') }}</label>
       <textarea name="첨부사진" class="form-control" rows="3">{{ record.첨부사진 or '' }}</textarea>
+      {{ site('첨부사진') }}
     </div>
     <div class="col-12">
-      <label class="form-label">첨부파일 (줄바꿈으로 구분)</label>
+      <label class="form-label">첨부파일 (줄바꿈으로 구분){{ ov('첨부파일') }}</label>
       <textarea name="첨부파일" class="form-control" rows="3">{{ record.첨부파일 or '' }}</textarea>
+      {{ site('첨부파일') }}
     </div>
   </div>
 
@@ -122,4 +152,13 @@ input.form-control { font-size: 0.82rem; }
     <a href="/db-editor?category={{ category }}" class="btn btn-outline-secondary">취소</a>
   </div>
 </form>
+<script>
+  // 원본으로 되돌리기: 입력칸에 원본 값을 넣는다. 저장하면 원본과 같아져 수정값이 지워진다.
+  document.querySelectorAll('.sr-revert').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var el = document.querySelector('[name="' + btn.dataset.target + '"]');
+      if (el) { el.value = btn.dataset.site; el.dispatchEvent(new Event('change')); }
+    });
+  });
+</script>
 {% endblock %}

@@ -278,6 +278,8 @@ async def get_editor_record(category: str, record_id: str, _: str = Depends(_req
         "data": {
             "record": record,
             **db_editor_service.get_editor_schema(),
+            # 추가 필드(구앱은 무시): 사용자가 고친 필드와 사이트 원본 값(저장 계층 재설계 R4)
+            **db_editor_service.get_edit_state(engine, category, record_id),
         },
     }
 
