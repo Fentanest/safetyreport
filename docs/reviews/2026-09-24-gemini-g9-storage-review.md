@@ -23,5 +23,11 @@ worktree: 서버 `safetyreport-gemini-g9`(5b519c4), 모바일 `safetyreport-mobi
 - Opus 측 위임 조사: 서버 결함 35건, 모바일 30건. 표본 12건을 Opus 가 코드 줄로 확인(계획서 §0).
 - Gemini 고유 기여: S-26(재현), G-1, S-7 최초 지적. 나머지 Gemini 결함은 Opus 측 목록에 포함됨.
 
-## 3회차
-통합 계획 초안 교차 검토(role: review) — 결과는 아래에 추가한다.
+## 3회차 (2376초, status SUCCESS, 규칙 위반 없음)
+통합 계획 초안 교차 검토(role: review). 사후 검사: 두 worktree 추적 파일 변경 0, 새 파일은 `.agent-runs/g9/` 안뿐.
+- 고위험 10건(S-1·5·7·12·18·23, M-1·3·12·18) 모두 코드 인용과 함께 확인. M-18 은 "완전 소실"로 적었으나 그룹 ID 유지 시 이어받음 — Opus 보정.
+- 새 결함 M-31: Kotlin `WsService.kt:406` 등이 Flutter 와 같은 prefs 키에 직접 씀 — Opus 확인(`WsService.kt:274,337,406`, `NotificationService.kt:148`).
+- 누락 조사: `bot.py`·`export_service.py` 쓰기 없음(동의). `scripts/debug/save.py` 를 "읽기 전용"으로 봤으나 실제로는 존재하지 않는 `items` 모듈을 부르는 죽은 스크립트, `merge.py` 는 `merge_final` 을 쓴다 — 보정.
+- 반박 수용: (1) 구앱은 기기 식별자가 없어 기기별 위치를 못 씀 → legacy 공용 위치 추가 (2) 계약 바이트 일치는 운영 중 어긋남 → 짝 브랜치에서만 강제, 운영은 schema_version·기능 목록 (3) override 표가 모든 조회에 JOIN 을 강요 → merge 를 "수정값 반영 최종값"으로 정의해 조회 코드 무변경 (4) 데이터 모델을 쓰기 경로보다 먼저 → R1 에서 새 표 스키마 확정으로 순서 변경.
+- 반박 기각: "중복군이 시간/거리 반경(50m)으로 묶여 ID 단위 갱신이 무겁다" — 중복군은 raw_content sha256 완전 일치(`duplicate_group_service.py:93`). 다만 저장 시 해당 해시 그룹만 재계산하도록 계획에 명시.
+- 버전 혼재 표는 칸마다 과장·누락이 있어 Opus 가 보정(계획서 §4-1). 특히 "신앱 DB → 구서버 복원"은 Gemini 표에 없었고 실제 제약이 있다.
