@@ -1,6 +1,6 @@
 # 웹UI 첫 시범 구현 계획
 
-작성 2026-09-24. 상태: **제안(사용자 승인 대기)**. 승인 전에는 템플릿·CSS 를 바꾸지 않는다.
+작성 2026-09-24. 상태: **승인됨. P0 완료(`69a5a57`, BL-1 `f566e5e`)**, P1·P2 대기(사용자가 P0 렌더 검토 후 확장).
 근거 문서: [../design/ui-renewal-spec.md](../design/ui-renewal-spec.md), [../design/pilot-dom-contracts.md](../design/pilot-dom-contracts.md),
 [../design/statistics-spec.md](../design/statistics-spec.md), [../testing/web-ui-test-plan.md](../testing/web-ui-test-plan.md).
 

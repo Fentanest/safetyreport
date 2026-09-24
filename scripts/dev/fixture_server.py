@@ -136,6 +136,7 @@ def seed(data_dir: Path) -> dict:
 def seed_engine(engine) -> dict:
     """합성 신고 24건 + 관리자 + API 키를 engine 에 넣는다. 테스트에서도 재사용한다."""
     from core.database import database, models
+    from services.geocode_service import build_pending_geo_payload
 
     database.upgrade_schema(engine)
 
@@ -162,6 +163,8 @@ def seed_engine(engine) -> dict:
                 위반법규=law, 범칙금_과태료=fine, 벌점="", 처리기관=agency, 담당자=person, 답변일=answered,
                 발생일자=reported[:10], 발생시각=reported[11:16], 위반장소=place,
                 종결여부="Y" if closed else "N", 신고내용=body,
+                # 크롤러(detail_to_sql → geocode_service.prepare_geo_payload)처럼 주소 정규화 컬럼을 채운다. NULL 로 두면 실제 DB 와 달라진다.
+                **{k: v for k, v in build_pending_geo_payload(place).items() if k in ("주소정규화", "행정구역", "지오코딩상태")},
                 처리내용=f"(fixture) {status} 처리 결과 안내" if answered else "",
                 지도="", 첨부사진="/static/logo.png" if index % 5 == 0 else "", 첨부파일="",
                 보완횟수=1 if status == "보완요청" else 0,
@@ -177,6 +180,8 @@ def seed_engine(engine) -> dict:
             conn.execute(models.watchlist_table.insert().values(신고번호=rnum))
         conn.execute(models.sync_meta_table.insert().values(key="last_sync", value="2026-09-23T09:00:00"))
 
+    # 크롤러처럼 synced_at 을 채운다(서버 기동 시 backfill 규칙: 답변일 우선, 없으면 신고일, 그날 23:59:59.999).
+    database.backfill_synced_at(engine)
     database.merge_final(engine)
     if not database.has_admin_user(engine):
         database.create_admin_user(engine, ADMIN_USER, ADMIN_PASSWORD)

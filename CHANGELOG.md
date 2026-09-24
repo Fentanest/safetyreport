@@ -10,6 +10,20 @@
 
 ## 2026-09-24 (dev, 미배포)
 
+### 통계 분리·추정 과태료, 주정차 사진 촬영 시각, 시범 P0 테마, DB 왕복 검사
+
+상태: 완료(dev). main push·VERSION·릴리즈 없음.
+
+- 통계(`8a209cf`): 처리일은 날짜 차(12/30→1/2 = 3일). 기존 `unconfirmed` 는 유지하고 `disposition_unknown`(처분 미확인)·`no_penalty`(처분 대상 아님, 시설물 등)·`unclassified`(기타·미분류)로 나눠 추가.
+  금액 없는 과태료는 `services/fine_estimate.py`(법령 최저 기준액, 번호판 차종, 사진 촬영 시각으로 2시간·밤샘주차 판정)로 추정해 `estimated_fine_amount/count` 로 따로 내보낸다. 확정 금액과 합치지 않는다.
+  웹 통계 표는 확정/추정/처분 미확인/처분 대상 아님/기타·미분류 열을 나누고, 상단 배너는 필터를 반영한 확정 금액과 추정 금액을 따로 표시. 모바일과 공유하는 검사 벡터 `tests/fixtures/fine_estimate_vectors.json`.
+- 주정차 사진 촬영 시각(`a540499`): detail/merge 에 `사진_첫촬영`·`사진_끝촬영`·`사진_촬영수`. 주정차 신고만 첨부 사진 앞 128KB 의 EXIF 를 읽는다(실제 사진으로 확인). 모바일 복원 시 세 컬럼 이동.
+- BL-1(`f566e5e`): DataTables 한국어 파일을 https 로 — http 접속 콘솔 오류 30→0.
+- 시범 P0(`69a5a57`): 공통 셸 light/dark/system 테마(기본 system, 첫 paint 전 적용), Pretendard 1.3.9, 토큰 `web/static/ui/`. DOM id 변화 없음. Playwright chromium·firefox 18 통과.
+- DB 왕복 검사: `scripts/dev/db_roundtrip_check.py` — 서버→모바일→서버, 모바일→서버→모바일 모두 차이 0. 일부러 5종 손상(0→NULL, NULL→'', ''→NULL, 행 삭제, 실수 정밀도)을 넣으면 5건 모두 잡는다.
+  fixture 서버 데이터가 실제 크롤러처럼 주소정규화 컬럼과 `synced_at` 을 채우도록 수정. 알려진 NULL→'' 정규화는 `docs/architecture/data-contracts.md`.
+- 테스트: unittest 50/50.
+
 ### 웹UI 리뉴얼 착수 전 정비: 문서 체계 · 테스트 실행 경로 · 기준선
 
 상태: 완료(문서·도구·검증 기반). UI 변경 없음. main push·VERSION·릴리즈 없음.

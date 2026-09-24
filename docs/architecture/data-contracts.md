@@ -55,6 +55,18 @@ by_law (법규별, 같은 필드 + law)
 - API: `/api/v1/reports/*` 는 테이블 전체 컬럼을 내보내므로 세 필드가 추가된다. 대시보드 `recent_answers`/`watchlist` 레코드에도 포함.
 - 추정 과태료(`services/fine_estimate.py`)는 이 컬럼과 번호판·신고 메뉴로 계산하며 DB 에 저장하지 않는다(statistics-spec §4-2).
 
+## 2026-09-24 서버↔모바일 DB 왕복 검사 (PROJECT_RULES §3-1)
+
+- `scripts/dev/db_roundtrip_check.py --mobile-repo <모바일 작업트리>` — 실제 변환 코드를 이어서 돌린다.
+  A: 서버 S0 → 모바일 `importFromServerDb`(Dart, `test/tool/db_roundtrip_harness_test.dart`) → M1 → 서버 `restore_from_mobile_db` → S2, S0 == S2.
+  B: M1 → S2 → 모바일 M3, M1 == M3. NULL/''·정수/실수 타입까지 원시 값으로 비교, 차이 1건이라도 있으면 종료코드 1.
+- 서버 쪽은 `SAFETYREPORT_DATA_DIR` 임시 폴더 + fixture 모드 서브프로세스, 모바일 쪽은 sqflite FFI. 운영 DB·외부 요청 없음.
+- S0 은 fixture 24건에 크롤러와 같은 값(주소정규화 3컬럼, `synced_at` 백필)과 까다로운 값(사진 시각·`사진_촬영수=0`, NULL 벌점, 빈 별점사유, 줄바꿈·따옴표, 실수 좌표, 지오코딩 캐시 ok/not_found)을 넣는다.
+- 허용 차이는 하나: `mysafety_sync_meta.map_backfill_state`(서버 지도 백필 런타임 상태, 복원 직후 서버가 새로 쓰고 모바일은 의도적으로 버림).
+- 알려진 정규화(실제 크롤러 출력에는 나타나지 않아 현재 데이터 손실은 없음, 운영 사본 NULL 0건 확인): 모바일 가져오기와 서버 복원이
+  지오코딩 캐시 `error_message` NULL→'', 주소정규화·행정구역·지오코딩상태 NULL→''/재계산, `synced_at` NULL→가져온 시각으로 바꾼다. 저장 로직 리팩터링 때 NULL 보존으로 정리한다.
+- 변환 코드(서버 `db_backup.py`, 모바일 `local_db_service.dart` import/export)나 공통 컬럼을 바꾸면 이 검사를 돌린다.
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 199-307 -->
