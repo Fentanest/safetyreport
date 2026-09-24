@@ -11,11 +11,6 @@
 {% block extra_css %}
 <style>
 /* 중복 신고 관리 — 시범 화면(통계 세그먼트, 목록 작업 바·배지) 톤 */
-.sr-seg { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; padding: 0.25rem; border-radius: calc(var(--sr-radius-sm) + 0.25rem);
-          background: var(--sr-surface-2); border: 1px solid var(--sr-border); }
-.sr-seg .btn { border: 0; border-radius: var(--sr-radius-sm); color: var(--sr-text); background: transparent; font-weight: 500; }
-.sr-seg .btn:hover { background: var(--sr-surface-3); }
-.sr-seg .btn.active { background: var(--sr-surface); color: var(--sr-primary); box-shadow: var(--sr-shadow); font-weight: 700; }
 .sr-dup-count { display: inline-block; min-width: 1.6em; margin-left: 0.25rem; padding: 0 0.4em; border-radius: 999px;
                 background: var(--sr-surface-3); font-size: 0.8em; font-variant-numeric: tabular-nums; }
 .sr-dup-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; padding: 0.7rem 1rem;
@@ -93,8 +88,8 @@
 </form>
 
 {% if not groups %}
-<div class="text-center text-muted py-5 border rounded" style="border-color: var(--sr-border) !important;">
-    <i class="fas fa-layer-group fa-2x mb-2" style="color: var(--sr-border);"></i>
+<div class="sr-empty-panel">
+    <i class="fas fa-layer-group fa-2x mb-2"></i>
     <div>현재 조건에 맞는 중복 신고 그룹이 없습니다.</div>
 </div>
 {% else %}

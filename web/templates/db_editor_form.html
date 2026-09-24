@@ -6,8 +6,8 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #6c757d;
-  border-bottom: 1px solid #dee2e6;
+  color: var(--sr-text-muted);
+  border-bottom: 1px solid var(--sr-border);
   padding-bottom: 4px;
   margin-bottom: 12px;
   margin-top: 20px;
@@ -15,7 +15,7 @@
 .form-label { font-size: 0.82rem; font-weight: 600; margin-bottom: 2px; }
 textarea.form-control { font-size: 0.82rem; }
 input.form-control { font-size: 0.82rem; }
-.id-badge { font-size: 0.75rem; color: #adb5bd; }
+.id-badge { font-size: 0.75rem; color: var(--sr-text-muted); }
 </style>
 {% endblock %}
 
@@ -34,7 +34,7 @@ input.form-control { font-size: 0.82rem; }
 
 {% macro ov(field) -%}
   {%- if overrides is defined and field in overrides -%}
-    <span class="badge text-bg-warning ms-1 align-middle" title="사용자가 고친 값 — 다시 크롤링해도 유지됩니다">수정됨</span>
+    <span class="sr-badge sr-badge-supplement ms-1 align-middle" title="사용자가 고친 값 — 다시 크롤링해도 유지됩니다">수정됨</span>
   {%- endif -%}
 {%- endmacro %}
 {% macro site(field) -%}
@@ -47,7 +47,7 @@ input.form-control { font-size: 0.82rem; }
 <form method="post" action="/db-editor/{{ category }}/{{ record.ID }}">
   <!-- 상세 필드만 편집. 고친 값은 사용자 수정값으로 따로 저장되어 다시 크롤링해도 유지된다(원본은 그대로). -->
   <div class="field-group-title"><i class="fas fa-file-alt me-1"></i>신고 상세</div>
-  <p class="small text-muted mb-2">고친 필드에는 <span class="badge text-bg-warning">수정됨</span> 이 붙고 안전신문고 원본 값을 함께 보여 줍니다. 원본과 같은 값으로 저장하면 수정 표시가 사라집니다.</p>
+  <p class="small text-muted mb-2">고친 필드에는 <span class="sr-badge sr-badge-supplement">수정됨</span> 이 붙고 안전신문고 원본 값을 함께 보여 줍니다. 원본과 같은 값으로 저장하면 수정 표시가 사라집니다.</p>
   <div class="row g-3">
     <div class="col-md-3">
       <label class="form-label">처리상태{{ ov('처리상태') }}</label>

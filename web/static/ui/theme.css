@@ -113,3 +113,12 @@ table.dataTable tbody tr { background-color: var(--sr-surface); }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+/* 세그먼트 탭(여러 화면 공통 — 통계 연도·분류, 중복 상태, 데이터 수정 분류). 선택은 .active 또는 aria-current. */
+.sr-seg { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; padding: 0.25rem; border-radius: calc(var(--sr-radius-sm) + 0.25rem);
+          background: var(--sr-surface-2); border: 1px solid var(--sr-border); }
+.sr-seg .btn { border: 0; border-radius: var(--sr-radius-sm); color: var(--sr-text); background: transparent; font-weight: 500; }
+.sr-seg .btn:hover { background: var(--sr-surface-3); }
+.sr-seg .btn.active { background: var(--sr-surface); color: var(--sr-seg-accent, var(--sr-primary)); box-shadow: var(--sr-shadow); font-weight: 700; }
+/* 빈 목록 안내(여러 화면 공통) */
+.sr-empty-panel { text-align: center; color: var(--sr-text-muted); padding: 3rem 1rem; border: 1px dashed var(--sr-border); border-radius: var(--sr-radius); }

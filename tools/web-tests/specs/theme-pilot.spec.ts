@@ -30,7 +30,11 @@ for (const theme of ['light', 'dark'] as const) {
       await page.goto(url);
       await expect(page.locator('html')).toHaveAttribute('data-bs-theme', theme);
       await expect(page.locator('.sr-theme-switch button[data-sr-theme="' + theme + '"]')).toHaveAttribute('aria-pressed', 'true');
-      if (name === 'data-all') await expect(page.locator('table tbody tr').first()).toBeVisible();
+      if (name === 'data-all') {
+        // DataTables 는 한국어 파일(CDN)을 받은 뒤 표를 그린다 — 네트워크가 느리면 5초를 넘길 수 있다.
+        await expect(page.locator('.dataTables_wrapper')).toHaveCount(1, { timeout: 15_000 });
+        await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 15_000 });
+      }
       if (name === 'dashboard') {
         await page.waitForFunction(() => Array.from(document.querySelectorAll('.progress-bar[data-width]'))
           .every((el) => parseFloat((el as HTMLElement).style.width) === parseFloat(el.getAttribute('data-width') || '')));

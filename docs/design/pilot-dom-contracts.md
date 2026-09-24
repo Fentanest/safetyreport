@@ -60,3 +60,7 @@
 - KeyTable/AutoFill/Select 확장은 base 에서 전역 로드되지만 이 4개 템플릿에서는 켜지 않는다(다른 템플릿 확인 전 제거 금지).
 - DataTables `language.url` 이 프로토콜 상대 경로라 http 접속에서 한국어 파일이 CORS 로 실패(baseline BL-1).
 - stats 드릴다운 URL 비인코딩·`__없음__` 전달(statistics-spec D-STAT-8), footer 합계 고정 인덱스(D-STAT-7).
+
+## 8. 공통 컴포넌트 (2026-09-25)
+- `web/static/ui/theme.css`: `.sr-seg`(세그먼트 탭, 선택 `.active`/`aria-current`, 강조색 `--sr-seg-accent`), `.sr-empty-panel`(빈 목록 안내). 배지는 `web/static/ui/badges.css` 의 `.sr-badge .sr-badge-{accept|partial|reject|processing|supplement|withdraw|fine|default}`.
+- `web/templates/db_editor.html` 의 분류 탭은 `nav#categoryTab.sr-seg` 안 링크(예전 `ul.nav-tabs`).
