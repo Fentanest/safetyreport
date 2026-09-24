@@ -250,6 +250,8 @@
                     <td class="text-center text-muted">{{ r.rejects_pct }}%</td>
                     <td data-order="{{ r.unconfirmed }}" class="text-center">{{ r.unconfirmed }}</td>
                     <td class="text-center text-muted">{{ r.unconfirmed_pct }}%</td>
+                    <td data-order="{{ r.in_progress or 0 }}" class="text-center">{{ r.in_progress or 0 }}</td>
+                    <td class="text-center text-muted">{{ r.in_progress_pct or 0 }}%</td>
                     <td data-order="{{ r.avg_rating if r.avg_rating is not none else -1 }}" data-count="{{ r.rating_count or 0 }}" class="text-center fw-bold">{{ rating_display(r.avg_rating, r.rating_count) }}</td>
                 </tr>
                 {% endfor %}
@@ -270,6 +272,8 @@
                     <td class="text-center text-muted">{{ r.rejects_pct }}%</td>
                     <td data-order="{{ r.unconfirmed }}" class="text-center">{{ r.unconfirmed }}</td>
                     <td class="text-center text-muted">{{ r.unconfirmed_pct }}%</td>
+                    <td data-order="{{ r.in_progress or 0 }}" class="text-center">{{ r.in_progress or 0 }}</td>
+                    <td class="text-center text-muted">{{ r.in_progress_pct or 0 }}%</td>
                     <td data-order="{{ r.avg_rating if r.avg_rating is not none else -1 }}" data-count="{{ r.rating_count or 0 }}" class="text-center fw-bold">{{ rating_display(r.avg_rating, r.rating_count) }}</td>
                 </tr>
                 {% endfor %}
@@ -289,15 +293,17 @@
                     <td class="text-center text-muted">{{ r.rejects_pct }}%</td>
                     <td data-order="{{ r.unconfirmed }}" class="text-center">{{ r.unconfirmed }}</td>
                     <td class="text-center text-muted">{{ r.unconfirmed_pct }}%</td>
+                    <td data-order="{{ r.in_progress or 0 }}" class="text-center">{{ r.in_progress or 0 }}</td>
+                    <td class="text-center text-muted">{{ r.in_progress_pct or 0 }}%</td>
                     <td data-order="{{ r.avg_rating if r.avg_rating is not none else -1 }}" data-count="{{ r.rating_count or 0 }}" class="text-center fw-bold">{{ rating_display(r.avg_rating, r.rating_count) }}</td>
                 </tr>
                 {% endfor %}
             {% endmacro %}
-            {% set agency_thead %}<tr><th>처리기관</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th><th>미확인</th><th>비율</th><th class="text-center">★</th></tr>{% endset %}
-            {% set person_thead %}<tr><th>처리기관</th><th class="text-center">담당자</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th><th>미확인</th><th>비율</th><th class="text-center">★</th></tr>{% endset %}
-            {% set law_thead %}<tr><th>위반법규</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th><th>미확인</th><th>비율</th><th class="text-center">★</th></tr>{% endset %}
-            {% set agency_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td></tr>{% endset %}
-            {% set person_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td></td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td></tr>{% endset %}
+            {% set agency_thead %}<tr><th>처리기관</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th><th>미확인</th><th>비율</th><th>처리중</th><th>비율</th><th class="text-center">★</th></tr>{% endset %}
+            {% set person_thead %}<tr><th>처리기관</th><th class="text-center">담당자</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th><th>미확인</th><th>비율</th><th>처리중</th><th>비율</th><th class="text-center">★</th></tr>{% endset %}
+            {% set law_thead %}<tr><th>위반법규</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">총 과태료</th><th>과태료</th><th>비율</th><th>경고장/범칙금</th><th>비율</th><th>불수용/기타</th><th>비율</th><th>미확인</th><th>비율</th><th>처리중</th><th>비율</th><th class="text-center">★</th></tr>{% endset %}
+            {% set agency_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td></tr>{% endset %}
+            {% set person_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td></td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td><td class="text-center text-muted"></td><td class="text-center"></td></tr>{% endset %}
 
             {% set lf = f.law or '' %}
 
@@ -475,11 +481,11 @@
 <script>
     $(document).ready(function () {
         // 합계 행 계산 콜백 생성기
-        // cfg: { total, avg, fine, fines, warn, rejects, unconfirmed, rating } — 컬럼 인덱스 (0-based)
+        // cfg: { total, avg, fine, fines, warn, rejects, unconfirmed, inProgress, rating } — 컬럼 인덱스 (0-based)
         function makeDrawCallback(cfg) {
             return function () {
                 var api = this.api();
-                var sumTotal = 0, sumFine = 0, sumFines = 0, sumWarn = 0, sumRejects = 0, sumUnconfirmed = 0;
+                var sumTotal = 0, sumFine = 0, sumFines = 0, sumWarn = 0, sumRejects = 0, sumUnconfirmed = 0, sumInProgress = 0;
                 var wDays = 0, wBase = 0;
                 var wRating = 0, wRatingBase = 0;
 
@@ -498,6 +504,7 @@
                     sumWarn    += warn;
                     sumRejects += rejects;
                     sumUnconfirmed += unconfirmed;
+                    sumInProgress += parseInt($(cells[cfg.inProgress]).attr('data-order')) || 0;
                     if (!isNaN(avgD) && avgD >= 0) { wDays += avgD * total; wBase += total; }
                     if (cfg.rating !== undefined) {
                         var rAvg   = parseFloat($(cells[cfg.rating]).attr('data-order'));
@@ -515,6 +522,7 @@
                 var wp  = sumTotal > 0 ? (sumWarn    / sumTotal * 100).toFixed(1) + '%' : '-';
                 var rp  = sumTotal > 0 ? (sumRejects / sumTotal * 100).toFixed(1) + '%' : '-';
                 var up  = sumTotal > 0 ? (sumUnconfirmed / sumTotal * 100).toFixed(1) + '%' : '-';
+                var ip  = sumTotal > 0 ? (sumInProgress / sumTotal * 100).toFixed(1) + '%' : '-';
                 var ratingStr = wRatingBase > 0
                     ? '<span class="text-warning">★</span> ' + (wRating / wRatingBase).toFixed(2) + ' <small class="text-muted">(' + wRatingBase + ')</small>'
                     : '-';
@@ -531,14 +539,16 @@
                 $ft.eq(cfg.rejects + 1).text(rp);
                 $ft.eq(cfg.unconfirmed).text(sumUnconfirmed);
                 $ft.eq(cfg.unconfirmed + 1).text(up);
+                $ft.eq(cfg.inProgress).text(sumInProgress);
+                $ft.eq(cfg.inProgress + 1).text(ip);
                 if (cfg.rating !== undefined) {
                     $ft.eq(cfg.rating).html(ratingStr);
                 }
             };
         }
 
-        var agencyCb = makeDrawCallback({ total:1, avg:2, fine:3, fines:4, warn:6, rejects:8, unconfirmed:10, rating:12 });
-        var personCb = makeDrawCallback({ total:2, avg:3, fine:4, fines:5, warn:7, rejects:9, unconfirmed:11, rating:13 });
+        var agencyCb = makeDrawCallback({ total:1, avg:2, fine:3, fines:4, warn:6, rejects:8, unconfirmed:10, inProgress:12, rating:14 });
+        var personCb = makeDrawCallback({ total:2, avg:3, fine:4, fines:5, warn:7, rejects:9, unconfirmed:11, inProgress:13, rating:15 });
 
         var dtOptionsAgency = {
             "order": [[1, "desc"]],

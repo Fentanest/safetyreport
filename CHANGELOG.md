@@ -37,6 +37,61 @@
 "미확인" 정의 이중화(D-STAT-2), 처리일 정의가 모바일 overview 와 다름(D-STAT-3) 등 — `docs/testing/baseline-2026-09-24.md`, `docs/design/statistics-spec.md`.
 
 다음: `docs/plans/web-ui-pilot-plan.md`(공통 셸·테마 → 목록/상세 모달 → 통계 상단), 사용자 결정 6건 대기.
+## 2026-09-24 (버전 변경 없음, 브랜치 `feature/stats-overview-api`)
+
+### 기관/담당자 통계 행 규칙 정리(모바일 S-10), 과태료 금액·반올림 모바일과 일치
+
+상태: 완료 (사용자 결정 2026-09-24), 배포 안 함
+
+배경:
+- 기관표 제외 규칙이 "담당자 없음 + 처리중/취하" 라서, 처리기관을 붙이거나 이송으로 담당자가 생기면 같은 처리중 신고가 표에 들어갔다 빠졌다 한다. 모바일 Standalone 과도 규칙이 달랐다.
+
+변경 (`services/report_stats_service.py`):
+- 행 조립을 `_build_stats_tables(df)` 로 분리. 기관표 = 처리기관 있는 신고, 담당자표 = 처리기관+담당자 있는 신고(`미지정`·빈 값 제외). 처리기관 NULL 을 '알수없음'으로 묶던 처리 제거, 기관·담당자 앞뒤 공백 제거
+- 행에 `in_progress` / `in_progress_pct` 추가(완료도 취하도 아닌 상태: 처리중·진행·검토중·보완요청·이송·빈 값). 이 건은 `unconfirmed` 에서 뺀다
+- 행 `avg_days` 와 `/stats/overview` `avg_days` 를 완료 신고만으로 계산
+- `_extract_fine_amount`: `과태료: 40.000원` 처럼 점을 천 단위 구분자로 쓴 값도 읽음(이전엔 0원·금액 미확인). 모바일 `extractFineAmount` 와 같은 규칙
+- 통계 행·요약 반올림을 `_round_half_up` 으로(Python `round()` 는 23.25→23.2, 모바일은 23.3). Dart `toStringAsFixed` 와 51,479 케이스 대조 일치
+- 웹 통계 표(`web/templates/stats.html`) 에 `처리중`·비율 컬럼과 합계 추가
+
+검증:
+- `tests/test_report_stats_service.py` 8개 통과(행 규칙·요약 평균·금액·반올림 추가, 모바일 `test/services/stats_tables_test.dart` 와 같은 입력·기대값)
+- 5월 로컬 DB 사본으로 변경 전/후 비교: 취하 숨기기(기본) 켬 → 기관·담당자·법규 표 변경 0행. 끔 → 담당자 없는 취하 5건이 기관표에 들어가고 취하가 평균 처리일에서 빠짐. 현재 데이터의 처리중은 처리기관이 없어 `in_progress` 0
+- 같은 사본을 모바일 Standalone 에 import 해 기관·담당자 표 16개 필드와 요약 평균 처리일을 대조: 전부 일치(수정 전엔 교통 표에서 평균 처리일 끝자리·과태료 금액이 달랐다)
+- 웹 `/stats` 렌더: 헤더·본문·합계 15칸 일치 확인(TestClient)
+
+### `/stats` 행 `fine_amount_unknown` 추가, 위반법규 필터 완전 일치
+
+상태: 완료 (모바일 통계 결정 S-05·S-09)
+
+변경:
+- `services/report_stats_service.py`
+  - 기관/담당자/법규 행에 `fine_amount_unknown`(과태료인데 금액을 읽지 못한 건수, 0원과 구분) 추가
+  - `_apply_stats_law_filter`: 부분 일치(`contains`) → 앞뒤 공백 무시 완전 일치. "도로교통법" 선택 시 "도로교통법 제32조" 가 섞이던 문제 해소(웹 통계에도 적용)
+
+검증: `tests/test_report_stats_service.py` 에 금액 미확인·법규 완전 일치 테스트 추가, 전체 테스트 통과
+
+### 모바일 통계 요약 API `GET /api/v1/stats/overview` 추가
+
+상태: 구현·단위 테스트 완료 / 커밋·배포 안 함
+
+배경:
+- 모바일 UI 리뉴얼에서 통계 화면에 요약 카드(총 신고·답변 완료·처리 중·평균 처리기간)와 월별 추이를 넣기로 함(사용자 결정: Client 모드 데이터는 서버가 계산해 API 로 제공)
+- 기존 `/stats` 의 `avg_days` 는 기관·담당자 단위 평균만 있고 표본 수가 없어 전체 평균을 정확히 합칠 수 없었음
+
+변경:
+- `services/report_stats_service.py`
+  - `get_agency_stats` 의 DB 로딩·projection 을 `_load_stats_frames`, 행 필터를 `_apply_stats_row_filters`, 법규 필터를 `_apply_stats_law_filter` 로 분리(동작 동일)
+  - `get_stats_overview` / `_summarize_overview_frame` 추가: 카테고리별·전체 요약, 평균 처리일 원자료 직접 계산 + `avg_days_count`, 월별 신고(신고일)·월별 답변(답변일)
+- `web/routers/api_route.py`: `GET /api/v1/stats/overview?year=&law=&dedupe=` (API 키 인증, `/stats` 와 같은 파라미터 해석)
+- `services/data_service.py`: `get_stats_overview` 재노출
+- 기존 `/stats` 응답과 웹 화면은 변경 없음
+
+검증:
+- refactor 전후 `get_agency_stats` 출력 JSON 비교: DB 스냅샷 복사본에서 필터 4종 × raw/canonical = 8개 조합 모두 동일
+- `tests/test_report_stats_service.py` 에 요약 정의 테스트 2개 추가(모바일 `test/services/stats_overview_test.dart` 와 같은 입력·기대값) → 3 tests OK
+- 기존 테스트 4개 파일 OK
+- 주의: `.gitignore` 의 `test_*` 규칙 때문에 `tests/test_report_stats_service.py` 는 git 에 추적되지 않는다(다른 두 테스트 파일은 추적 중)
 
 ## 2026-08-16 (2.5.3)
 

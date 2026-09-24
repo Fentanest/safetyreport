@@ -14,6 +14,37 @@
 | get_dashboard_stats() / get_agency_stats() 키 | 현재 코드는 목록 외에 `withdrawGraphCount`, `dedupe_mode`(대시보드), `avg_days`, `total_fine_amount`, `unconfirmed(_pct)`, `avg_rating`, `rating_count`, `by_law`, `available_laws`, `has_empty_law`, `dedupe_mode`(기관 통계)를 반환한다(`services/report_stats_service.py:440-470, 603-705`). | 추가 — 기존 키는 유지 |
 | 모바일 API 표 | `/summary 의 취하 필드 규칙` 목록이 표 중간에 끼어 뒤쪽 행(`/app/config` 이하)이 표로 렌더되지 않는다. 내용은 유효. | 형식만 문제 |
 
+## 2026-09-24 통계 계약 갱신 (모바일 세션 `feature/stats-overview-api` 병합분)
+
+이 절은 해당 브랜치가 옛 루트 `CLAUDE.md` 에 추가한 내용을 옮긴 것이다(원문 그대로). 위 "이관 원문"의 `get_agency_stats()` 키 목록보다 이 절이 최신이다.
+결정 번호 S-xx 는 모바일 레포 `docs/design/statistics-spec.md` 의 결정표를 가리킨다.
+
+**get_agency_stats() → traffic/parking/other 각각:**
+```
+by_agency / by_person / police_by_agency / police_by_person / other_by_agency / other_by_person
+  └ agency  person  total  avg_days  total_fine_amount  fine_amount_unknown
+    fines  fines_pct  warnings  warnings_pct  rejects  rejects_pct  unconfirmed  unconfirmed_pct
+    in_progress  in_progress_pct  avg_rating  rating_count
+by_law (법규별, 같은 필드 + law)
+```
+행 규칙(2026-09-24, 모바일 S-10 — `_build_stats_tables`, 모바일 `LocalDbService.buildStatsCategory` 와 같은 정의):
+- 표에 넣을지는 처리상태가 아니라 값으로 정한다. 기관표 = 처리기관(trim)이 있는 신고, 담당자표 = 처리기관과 담당자가 모두 있는 신고(`''`·`미지정` 제외). 처리기관이 없으면 어느 표에도 넣지 않는다('알수없음' 행 없음).
+- 배정된 처리중 신고도 들어간다. `in_progress` = 완료(수용·일부수용·불수용·기타·답변완료)도 취하도 아닌 상태, `unconfirmed` 에서 뺀다. 대시보드용 `_disposition_counts` 는 그대로다.
+- `avg_days` 는 완료 신고만(이송 답변일이 붙은 처리중·취하 제외). `/stats/overview` 의 `avg_days` 도 같다.
+- 표시용 반올림은 `_round_half_up`(x.x5 올림, 모바일 Dart `toStringAsFixed` 와 동일). Python `round()` 를 쓰지 않는다.
+
+### 모바일 API 응답 필드 (/api/v1)
+공통 래퍼: `status` `data` `count`
+
+**crawl/done:** `done` `timestamp` `changed_count`
+**crawl/config:** `crawl_type` `crawl_mode` `max_empty_pages`
+**stats:** `traffic` / `parking` / `other` / `available_years` / `traffic_total_fine`
+**stats/overview** (2026-09-24, 모바일 통계 요약용): `all` / `traffic` / `parking` / `other` 각각
+`total completed accept partial reject supplement processing withdraw avg_days avg_days_count reversed_date_count undated_report_count monthly_reported[{month,count}] monthly_answered[{month,count}]`
++ `available_years` `year_basis`(='답변일') `exclude_withdraw` `dedupe_mode`.
+`get_agency_stats` 와 같은 행(로딩·대표건·행 필터·취하 제외·법규)을 쓴다 — 공통 헬퍼 `_load_stats_frames` / `_apply_stats_row_filters` / `_apply_stats_law_filter`.
+평균 처리일은 기관 평균을 합치지 않고 원자료에서 직접 계산(완료 상태 + 두 날짜 유효 + 차이 ≥ 0), 표본 수 함께 제공. 모바일 Standalone `LocalDbService.summarizeOverviewRows` 와 같은 정의 — 한쪽을 바꾸면 양쪽 테스트를 함께 고친다.
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 199-307 -->
