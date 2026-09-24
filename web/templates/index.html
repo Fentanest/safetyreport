@@ -1,231 +1,82 @@
 {% extends "base.html" %}
 
 {% block extra_css %}
-<style>
-    .sunwi-card {
-        position: sticky;
-        top: 20px;
-        height: 100%;
-        width: 100%;
-    }
-    .sunwi-card .card-body {
-        display: flex;
-        flex-direction: column;
-    }
-    .sunwi-nav {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-    }
-    .sunwi-nav .btn {
-        width: 36px;
-        height: 36px;
-        border-radius: 999px;
-        flex: 0 0 auto;
-    }
-    .sunwi-nav-stack {
-        flex: 1;
-        text-align: center;
-        line-height: 1.3;
-    }
-    .sunwi-nav-label {
-        font-size: 0.76rem;
-        font-weight: 700;
-        letter-spacing: 0.02em;
-        color: #6c757d;
-        text-transform: uppercase;
-    }
-    .sunwi-category-title {
-        font-size: 1rem;
-        font-weight: 700;
-        color: #212529;
-    }
-    .sunwi-subcategory-title {
-        font-size: 0.95rem;
-        font-weight: 700;
-        color: #0d6efd;
-    }
-    .sunwi-items {
-        flex: 1 1 auto;
-        min-height: 0;
-    }
-    .sunwi-item-card {
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        border: 1px solid #e9ecef;
-        border-radius: 16px;
-        padding: 14px 16px;
-        background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
-    }
-    .sunwi-rank-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-width: 52px;
-        height: 28px;
-        border-radius: 999px;
-        font-weight: 700;
-        font-size: 0.85rem;
-        color: #fff;
-        background: #0d6efd;
-    }
-    .sunwi-rank-badge.rank-1 {
-        background: #0d6efd;
-    }
-    .sunwi-rank-badge.rank-2 {
-        background: #198754;
-    }
-    .sunwi-rank-badge.rank-3 {
-        background: #fd7e14;
-    }
-    .sunwi-rank-badge.rank-4 {
-        background: #6f42c1;
-    }
-    .sunwi-rank-badge.rank-5 {
-        background: #dc3545;
-    }
-    .sunwi-region {
-        font-weight: 700;
-        line-height: 1.45;
-        color: #212529;
-        min-height: 0;
-    }
-    .sunwi-item-main {
-        flex: 1;
-        min-width: 0;
-    }
-    .sunwi-count-wrap {
-        text-align: right;
-        flex: 0 0 auto;
-    }
-    .sunwi-count {
-        font-size: 1.35rem;
-        font-weight: 800;
-        color: #0d6efd;
-    }
-    .sunwi-subtext {
-        font-size: 0.82rem;
-        color: #6c757d;
-    }
-    @media (max-width: 1199.98px) {
-        .sunwi-card {
-            position: static;
-        }
-    }
-</style>
+<link rel="stylesheet" href="/static/ui/dashboard.css?v={{ request.state.app_version }}">
 {% endblock %}
 
 {% block content %}
-<div class="row mb-3">
-    <div class="col-12 d-flex justify-content-end">
-        <span class="text-muted"><i class="fas fa-clock me-1"></i>최근 크롤링: <strong>{{ last_crawl_time }}</strong></span>
-    </div>
-</div>
-
-<div class="row g-4 align-items-stretch">
+<div class="row">
     <div class="col-xl-9">
-        <div class="row mb-1 mt-2">
-            <div class="col-12">
-                <h4 class="fw-bold mb-3 text-dark"><i class="fas fa-chart-pie me-2 text-primary"></i> 내 안전신문고 처리 상태</h4>
-            </div>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+            <h4 class="fw-bold mb-0" style="color: var(--sr-text)"><i class="fas fa-chart-line me-2" style="color: var(--sr-primary)"></i> 안전신문고 처리 상태</h4>
+            <span class="dashboard-last-sync"><i class="fas fa-clock me-1"></i>최근 크롤링: <strong>{{ last_crawl_time }}</strong></span>
         </div>
 
-        <div class="row mb-1">
-            <div class="col-md-6 col-lg mb-3">
-                <div class="card card-custom bg-primary text-white h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/all'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold">총 신고</h6>
-                        <h3 class="card-text fw-bold">{{ total }}</h3>
-                    </div>
-                </div>
+        <div class="dashboard-grid stat-cards-grid">
+            <div class="dashboard-card status-card-total" onclick="window.location.href='/data/all'">
+                <div class="dashboard-card-title">총 신고</div>
+                <div class="dashboard-card-value">{{ total }}</div>
             </div>
-            <div class="col-md-6 col-lg mb-3">
-                <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #fd7e14; cursor: pointer;" onclick="window.location.href='/data/all?status=보완요청'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold">보완 요청</h6>
-                        <h3 class="card-text fw-bold">{{ supplementCount }}</h3>
-                    </div>
-                </div>
+            <div class="dashboard-card status-card-supplement" onclick="window.location.href='/data/all?status=보완요청'">
+                <div class="dashboard-card-title">보완 요청</div>
+                <div class="dashboard-card-value">{{ supplementCount }}</div>
             </div>
-            <div class="col-md-6 col-lg mb-3">
-                <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #6c757d; cursor: pointer;" onclick="window.location.href='/data/all?status=처리중'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold">처리 중</h6>
-                        <h3 class="card-text fw-bold">{{ processingCount }}</h3>
-                    </div>
-                </div>
+            <div class="dashboard-card status-card-processing" onclick="window.location.href='/data/all?status=처리중'">
+                <div class="dashboard-card-title">처리 중</div>
+                <div class="dashboard-card-value">{{ processingCount }}</div>
             </div>
-            <div class="col-md-6 col-lg mb-3">
-                <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #0dcaf0; cursor: pointer;" onclick="window.location.href='/data/all?status=완료'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold">답변 완료</h6>
-                        <h3 class="card-text fw-bold">{{ completedCount }}</h3>
-                    </div>
-                </div>
+            <div class="dashboard-card" style="border-bottom: 4px solid var(--sr-status-accept);" onclick="window.location.href='/data/all?status=완료'">
+                <div class="dashboard-card-title">답변 완료</div>
+                <div class="dashboard-card-value" style="color: var(--sr-status-accept);">{{ completedCount }}</div>
             </div>
-            <div class="col-md-6 col-lg mb-3">
-                <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #adb5bd; cursor: pointer;" onclick="window.location.href='/data/all?status=취하'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold">취하</h6>
-                        <h3 class="card-text fw-bold">{{ withdrawCount }}</h3>
-                    </div>
-                </div>
+            {% if exclude_withdraw %}
+            <div class="dashboard-card status-card-withdraw" style="opacity: 0.5;">
+                <div class="dashboard-card-title">취하 (제외됨)</div>
+                <div class="dashboard-card-value">-</div>
             </div>
-        </div>
-
-        <div class="row mb-3">
-            <div class="col-md-4 mb-3">
-                <div class="card card-custom bg-success text-white h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/all?status=수용'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold">수용</h6>
-                        <h3 class="card-text fw-bold">{{ acceptCount }}</h3>
-                    </div>
-                </div>
+            {% else %}
+            <div class="dashboard-card status-card-withdraw" onclick="window.location.href='/data/all?status=취하'">
+                <div class="dashboard-card-title">취하</div>
+                <div class="dashboard-card-value">{{ withdrawCount }}</div>
             </div>
-            <div class="col-md-4 mb-3">
-                <div class="card card-custom bg-warning text-dark h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/all?status=일부수용'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold">일부수용</h6>
-                        <h3 class="card-text fw-bold">{{ partialCount }}</h3>
-                    </div>
-                </div>
+            {% endif %}
+            <div class="dashboard-card status-card-accept" onclick="window.location.href='/data/all?status=수용'">
+                <div class="dashboard-card-title">수용</div>
+                <div class="dashboard-card-value">{{ acceptCount }}</div>
             </div>
-            <div class="col-md-4 mb-3">
-                <div class="card card-custom bg-danger text-white h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/all?status=불수용'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold">불수용/기타</h6>
-                        <h3 class="card-text fw-bold">{{ rejectCount }}</h3>
-                    </div>
-                </div>
+            <div class="dashboard-card status-card-partial" onclick="window.location.href='/data/all?status=일부수용'">
+                <div class="dashboard-card-title">일부수용</div>
+                <div class="dashboard-card-value">{{ partialCount }}</div>
+            </div>
+            <div class="dashboard-card status-card-reject" onclick="window.location.href='/data/all?status=불수용'">
+                <div class="dashboard-card-title">불수용/기타</div>
+                <div class="dashboard-card-value">{{ rejectCount }}</div>
             </div>
         </div>
 
         <div class="row mb-4">
             <div class="col-12">
-                <h6 class="fw-bold mb-2 text-secondary"><i class="fas fa-sliders-h me-1"></i> 안전신문고 처리상태</h6>
-                <div class="progress shadow-sm mb-3" style="height: 35px; border-radius: 17px; font-size: 1.05em; font-weight: bold;">
-                    <div class="progress-bar bg-success progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ accept_pct }}%">
+                <h6 class="fw-bold mb-2 mt-4" style="color: var(--sr-text-muted)"><i class="fas fa-sliders-h me-1"></i> 안전신문고 처리상태 비율</h6>
+                <div class="progress shadow-sm mb-3" style="height: 35px; border-radius: var(--sr-radius); font-size: 1.05em; font-weight: bold; background-color: var(--sr-surface-3);">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-accept); width: 0%; transition: width 1.5s ease" data-width="{{ accept_pct }}%">
                         {{ accept_pct }}%
                     </div>
-                    <div class="progress-bar bg-warning text-dark progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ partial_pct }}%">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-partial); color: #ffffff; width: 0%; transition: width 1.5s ease" data-width="{{ partial_pct }}%">
                         {{ partial_pct }}%
                     </div>
-                    <div class="progress-bar bg-danger progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ reject_pct }}%">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-reject); width: 0%; transition: width 1.5s ease" data-width="{{ reject_pct }}%">
                         {{ reject_pct }}%
                     </div>
-                    <div class="progress-bar bg-light text-dark progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ processing_pct }}%">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-processing); width: 0%; transition: width 1.5s ease" data-width="{{ processing_pct }}%">
                         {{ processing_pct }}%
                     </div>
                     {% if supplementCount > 0 %}
-                    <div class="progress-bar progress-bar-striped progress-bar-animated text-white" role="progressbar" style="background-color: #fd7e14; width: 0%; transition: width 1.5s ease" data-width="{{ supplement_pct }}%">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-supplement); color: #ffffff; width: 0%; transition: width 1.5s ease" data-width="{{ supplement_pct }}%">
                         {{ supplement_pct }}%
                     </div>
                     {% endif %}
                     {% if not exclude_withdraw and withdrawCount > 0 %}
-                    <div class="progress-bar bg-secondary text-white progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ withdraw_pct }}%">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-withdraw); color: #ffffff; width: 0%; transition: width 1.5s ease" data-width="{{ withdraw_pct }}%">
                         {{ withdraw_pct }}%
                     </div>
                     {% endif %}
@@ -233,63 +84,47 @@
             </div>
         </div>
 
-        <hr class="my-4 text-muted border-2">
+        <hr class="my-4" style="border-color: var(--sr-border); border-width: 2px;">
 
         <div class="row mb-1">
             <div class="col-12">
-                <h4 class="fw-bold mb-3 text-dark"><i class="fas fa-car-crash me-2 text-danger"></i> 교통위반 처분 상태</h4>
+                <h4 class="fw-bold mb-3" style="color: var(--sr-text)"><i class="fas fa-car-crash me-2" style="color: var(--sr-status-fine)"></i> 교통위반 처분 상태</h4>
             </div>
         </div>
 
-        <div class="row mb-3">
-            <div class="col-md-6 col-lg-3 mb-3">
-                <div class="card card-custom text-white h-100 shadow-sm border-0" style="background-color: #e83e8c; cursor: pointer;" onclick="window.location.href='/data/traffic?fine=과태료'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold">과태료 부과</h6>
-                        <h3 class="card-text fw-bold">{{ tFineCount }}</h3>
-                    </div>
-                </div>
+        <div class="dashboard-grid stat-cards-grid">
+            <div class="dashboard-card status-card-fine" onclick="window.location.href='/data/traffic?fine=과태료'">
+                <div class="dashboard-card-title">과태료 부과</div>
+                <div class="dashboard-card-value">{{ tFineCount }}</div>
             </div>
-            <div class="col-md-6 col-lg-3 mb-3">
-                <div class="card card-custom bg-secondary text-white h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/traffic?fine=경고'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold">경고장/범칙금 발부</h6>
-                        <h3 class="card-text fw-bold">{{ tPenaltyCount }}</h3>
-                    </div>
-                </div>
+            <div class="dashboard-card status-card-penalty" onclick="window.location.href='/data/traffic?fine=경고'">
+                <div class="dashboard-card-title">경고장/범칙금 발부</div>
+                <div class="dashboard-card-value">{{ tPenaltyCount }}</div>
             </div>
-            <div class="col-md-6 col-lg-3 mb-3">
-                <div class="card card-custom bg-danger text-white h-100 shadow-sm border-0" style="cursor: pointer;" onclick="window.location.href='/data/traffic?status=불수용'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold">불수용/기타</h6>
-                        <h3 class="card-text fw-bold">{{ tRejectCount }}</h3>
-                    </div>
-                </div>
+            <div class="dashboard-card status-card-reject" onclick="window.location.href='/data/traffic?status=불수용'">
+                <div class="dashboard-card-title">불수용/기타</div>
+                <div class="dashboard-card-value">{{ tRejectCount }}</div>
             </div>
-            <div class="col-md-6 col-lg-3 mb-3">
-                <div class="card card-custom bg-light text-dark h-100 shadow-sm border-1 border-secondary" style="cursor: pointer;" onclick="window.location.href='/data/traffic?fine=미확인'">
-                    <div class="card-body text-center">
-                        <h6 class="card-title fw-bold text-secondary">미확인</h6>
-                        <h3 class="card-text fw-bold">{{ tUnconfirmedCount }}</h3>
-                    </div>
-                </div>
+            <div class="dashboard-card" style="border-bottom: 4px solid var(--sr-border);" onclick="window.location.href='/data/traffic?fine=미확인'">
+                <div class="dashboard-card-title">미확인</div>
+                <div class="dashboard-card-value">{{ tUnconfirmedCount }}</div>
             </div>
         </div>
 
         <div class="row mb-4">
             <div class="col-12">
-                <h6 class="fw-bold mb-2 text-secondary"><i class="fas fa-balance-scale me-1"></i> 교통위반 실제 처분율</h6>
-                <div class="progress shadow-sm mb-3" style="height: 35px; border-radius: 17px; font-size: 1.05em; font-weight: bold;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: #e83e8c; width: 0%; transition: width 1.5s ease" data-width="{{ tfine_pct }}%">
+                <h6 class="fw-bold mb-2 mt-4" style="color: var(--sr-text-muted)"><i class="fas fa-balance-scale me-1"></i> 교통위반 실제 처분율</h6>
+                <div class="progress shadow-sm mb-3" style="height: 35px; border-radius: var(--sr-radius); font-size: 1.05em; font-weight: bold; background-color: var(--sr-surface-3);">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-fine); width: 0%; transition: width 1.5s ease" data-width="{{ tfine_pct }}%">
                         {{ tfine_pct }}%
                     </div>
-                    <div class="progress-bar bg-secondary progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ tpenalty_pct }}%">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-withdraw); width: 0%; transition: width 1.5s ease" data-width="{{ tpenalty_pct }}%">
                         {{ tpenalty_pct }}%
                     </div>
-                    <div class="progress-bar bg-danger progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ treject_pct }}%">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-reject); width: 0%; transition: width 1.5s ease" data-width="{{ treject_pct }}%">
                         {{ treject_pct }}%
                     </div>
-                    <div class="progress-bar bg-light text-muted progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%; transition: width 1.5s ease" data-width="{{ tunconfirmed_pct }}%">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-border); color: var(--sr-text-muted); width: 0%; transition: width 1.5s ease" data-width="{{ tunconfirmed_pct }}%">
                         {{ tunconfirmed_pct }}%
                     </div>
                 </div>
@@ -298,12 +133,12 @@
     </div>
 
     <div class="col-xl-3 d-flex">
-        <div class="card card-custom sunwi-card">
-            <div class="card-header bg-white border-0 pb-0">
+        <div class="sunwi-card w-100">
+            <div class="card-header border-0 pb-0" style="background-color: var(--sr-surface); border-top-left-radius: var(--sr-radius); border-top-right-radius: var(--sr-radius);">
                 <div>
                     <div>
-                        <h5 class="fw-bold mb-1 text-dark"><i class="fas fa-map-marked-alt me-2 text-info"></i>안전신문고 안전신고 통계</h5>
-                        <div class="small text-muted" id="sunwiUpdatedAtLabel">
+                        <h5 class="fw-bold mb-1" style="color: var(--sr-text)"><i class="fas fa-map-marked-alt me-2" style="color: var(--sr-accent)"></i>안전신문고 안전신고 통계</h5>
+                        <div class="small" style="color: var(--sr-text-muted)" id="sunwiUpdatedAtLabel">
                             {% if sunwi.updated_at %}
                             전일기준 · 수집시간 {{ sunwi.updated_at }}
                             {% else %}
@@ -318,114 +153,119 @@
     </div>
 </div>
 
-<div class="row mt-4">
-    <div class="col-md-6">
-        <div class="card card-custom">
-            <div class="card-header bg-white fw-bold">Watchlist (감시 목록)</div>
-            <div class="card-body">
-                <table class="table table-hover table-sm text-center mb-0 align-middle" style="font-size: 0.9rem; table-layout: fixed; width: 100%;">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="width: 13%;">신고번호</th>
-                            <th style="width: 18%;">신고명</th>
-                            <th style="width: 10%;">신고일</th>
-                            <th style="width: 10%;">답변일</th>
-                            <th style="width: 22%;">처리기관</th>
-                            <th style="width: 10%;">담당자</th>
-                            <th style="width: 7%;">상태</th>
-                            <th style="width: 10%;">과태료</th>
-                        </tr>
-                    </thead>
-                    <tbody id="watchlistBody">
-                        {% for item in watchlist %}
-                        <tr>
-                            <td><a href="#" class="report-detail-link" data-report='{{ item | tojson }}'>{{ item.신고번호 }}</a></td>
-                            <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{ item.신고명 }}</td>
-                            <td>{{ item.신고일 }}</td>
-                            <td>{{ item.답변일 }}</td>
-                            <td>{{ item.처리기관 }}</td>
-                            <td>{{ item.담당자 }}</td>
-                            <td>
-                                {% if item.결과 == '수용' %}
-                                <span class="badge bg-success">{{ item.결과 }}</span>
-                                {% elif item.결과 in ['불수용', '기타'] %}
-                                <span class="badge bg-danger">{{ item.결과 }}</span>
-                                {% elif item.결과 == '취하' %}
-                                <span class="badge bg-secondary text-white">{{ item.결과 }}</span>
-                                {% elif item.결과 == '일부수용' %}
-                                <span class="badge bg-warning text-dark">{{ item.결과 }}</span>
-                                {% elif item.결과 in ['처리중', '진행', '진행중', '검토중'] %}
-                                <span class="badge bg-primary">{{ item.결과 }}</span>
-                                {% elif item.결과 == '보완요청' %}
-                                <span class="badge text-white" style="background-color: #fd7e14;">{{ item.결과 }}</span>
-                                {% else %}
-                                <span class="badge bg-light text-dark border">{{ item.결과 }}</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-danger fw-bold">{{ item.범칙금_과태료 }}</td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="8" class="text-center text-muted py-4">감시 중인 항목이 없습니다.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+<div class="row mt-4 dashboard-grid" style="grid-template-columns: minmax(0, 1fr); margin-bottom: 0;">
+    <div class="col-12 w-100">
+        <div class="table-card h-100 w-100 mb-4">
+            <div class="table-card-header">Watchlist (감시 목록)</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm text-center mb-0 align-middle table-custom" style="font-size: 0.9rem; table-layout: fixed; width: 100%;">
+                        <thead>
+                            <tr>
+                                <th style="width: 13%;">신고번호</th>
+                                <th style="width: 18%;">신고명</th>
+                                <th style="width: 10%;">신고일</th>
+                                <th style="width: 10%;">답변일</th>
+                                <th style="width: 22%;">처리기관</th>
+                                <th style="width: 10%;">담당자</th>
+                                <th style="width: 7%;">상태</th>
+                                <th style="width: 10%;">과태료</th>
+                            </tr>
+                        </thead>
+                        <tbody id="watchlistBody">
+                            {% for item in watchlist %}
+                            <tr>
+                                <td><a href="#" class="report-detail-link text-nowrap" style="color: var(--sr-primary); font-weight: 600;" data-report='{{ item | tojson }}'>{{ item.신고번호 }}</a></td>
+                                <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{ item.신고명 }}</td>
+                                <td>{{ item.신고일 }}</td>
+                                <td>{{ item.답변일 }}</td>
+                                <td>{{ item.처리기관 }}</td>
+                                <td>{{ item.담당자 }}</td>
+                                <td>
+                                    {% if item.결과 == '수용' %}
+                                    <span class="badge" style="background-color: var(--sr-status-accept);">{{ item.결과 }}</span>
+                                    {% elif item.결과 in ['불수용', '기타'] %}
+                                    <span class="badge" style="background-color: var(--sr-status-reject);">{{ item.결과 }}</span>
+                                    {% elif item.결과 == '취하' %}
+                                    <span class="badge" style="background-color: var(--sr-status-withdraw);">{{ item.결과 }}</span>
+                                    {% elif item.결과 == '일부수용' %}
+                                    <span class="badge" style="background-color: var(--sr-status-partial); color: #ffffff;">{{ item.결과 }}</span>
+                                    {% elif item.결과 in ['처리중', '진행', '진행중', '검토중'] %}
+                                    <span class="badge" style="background-color: var(--sr-status-processing);">{{ item.결과 }}</span>
+                                    {% elif item.결과 == '보완요청' %}
+                                    <span class="badge" style="background-color: var(--sr-status-supplement); color: #ffffff;">{{ item.결과 }}</span>
+                                    {% else %}
+                                    <span class="badge" style="background-color: var(--sr-surface-3); color: var(--sr-text); border: 1px solid var(--sr-border);">{{ item.결과 }}</span>
+                                    {% endif %}
+                                </td>
+                                <td style="color: var(--sr-status-fine); font-weight: bold;">{{ item.범칙금_과태료 }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="8" class="text-center py-4" style="color: var(--sr-text-muted)">감시 중인 항목이 없습니다.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
-    <div class="col-md-6">
-        <div class="card card-custom">
-            <div class="card-header bg-white fw-bold">최근 3일 내 답변 완료된 건</div>
-            <div class="card-body">
-                <table class="table table-hover table-sm text-center mb-0 align-middle" style="font-size: 0.9rem; table-layout: fixed; width: 100%;">
-                    <thead class="table-light">
-                        <tr>
-                            <th style="width: 13%;">신고번호</th>
-                            <th style="width: 18%;">신고명</th>
-                            <th style="width: 10%;">신고일</th>
-                            <th style="width: 10%;">답변일</th>
-                            <th style="width: 22%;">처리기관</th>
-                            <th style="width: 10%;">담당자</th>
-                            <th style="width: 7%;">상태</th>
-                            <th style="width: 10%;">과태료</th>
-                        </tr>
-                    </thead>
-                    <tbody id="recentAnswersBody">
-                        {% for item in recent_answers %}
-                        <tr>
-                            <td><a href="#" class="report-detail-link" data-report='{{ item | tojson }}'>{{ item.신고번호 }}</a></td>
-                            <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{ item.신고명 }}</td>
-                            <td>{{ item.신고일 }}</td>
-                            <td>{{ item.답변일 }}</td>
-                            <td>{{ item.처리기관 }}</td>
-                            <td>{{ item.담당자 }}</td>
-                            <td>
-                                {% if item.결과 == '수용' %}
-                                <span class="badge bg-success">{{ item.결과 }}</span>
-                                {% elif item.결과 in ['불수용', '기타'] %}
-                                <span class="badge bg-danger">{{ item.결과 }}</span>
-                                {% elif item.결과 == '취하' %}
-                                <span class="badge bg-secondary text-white">{{ item.결과 }}</span>
-                                {% elif item.결과 == '일부수용' %}
-                                <span class="badge bg-warning text-dark">{{ item.결과 }}</span>
-                                {% elif item.결과 in ['처리중', '진행', '진행중', '검토중'] %}
-                                <span class="badge bg-primary">{{ item.결과 }}</span>
-                                {% elif item.결과 == '보완요청' %}
-                                <span class="badge text-white" style="background-color: #fd7e14;">{{ item.결과 }}</span>
-                                {% else %}
-                                <span class="badge bg-light text-dark border">{{ item.결과 }}</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-danger fw-bold">{{ item.범칙금_과태료 }}</td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="8" class="text-center text-muted py-4">최근 완료된 데이터가 없습니다.</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+    
+    <div class="col-12 w-100 mt-4">
+        <div class="table-card h-100 w-100">
+            <div class="table-card-header">최근 3일 내 답변 완료된 건</div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-sm text-center mb-0 align-middle table-custom" style="font-size: 0.9rem; table-layout: fixed; width: 100%;">
+                        <thead>
+                            <tr>
+                                <th style="width: 13%;">신고번호</th>
+                                <th style="width: 18%;">신고명</th>
+                                <th style="width: 10%;">신고일</th>
+                                <th style="width: 10%;">답변일</th>
+                                <th style="width: 22%;">처리기관</th>
+                                <th style="width: 10%;">담당자</th>
+                                <th style="width: 7%;">상태</th>
+                                <th style="width: 10%;">과태료</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentAnswersBody">
+                            {% for item in recent_answers %}
+                            <tr>
+                                <td><a href="#" class="report-detail-link text-nowrap" style="color: var(--sr-primary); font-weight: 600;" data-report='{{ item | tojson }}'>{{ item.신고번호 }}</a></td>
+                                <td class="text-start text-truncate" style="max-width: 150px;" title="{{ item.신고명 }}">{{ item.신고명 }}</td>
+                                <td>{{ item.신고일 }}</td>
+                                <td>{{ item.답변일 }}</td>
+                                <td>{{ item.처리기관 }}</td>
+                                <td>{{ item.담당자 }}</td>
+                                <td>
+                                    {% if item.결과 == '수용' %}
+                                    <span class="badge" style="background-color: var(--sr-status-accept);">{{ item.결과 }}</span>
+                                    {% elif item.결과 in ['불수용', '기타'] %}
+                                    <span class="badge" style="background-color: var(--sr-status-reject);">{{ item.결과 }}</span>
+                                    {% elif item.결과 == '취하' %}
+                                    <span class="badge" style="background-color: var(--sr-status-withdraw);">{{ item.결과 }}</span>
+                                    {% elif item.결과 == '일부수용' %}
+                                    <span class="badge" style="background-color: var(--sr-status-partial); color: #ffffff;">{{ item.결과 }}</span>
+                                    {% elif item.결과 in ['처리중', '진행', '진행중', '검토중'] %}
+                                    <span class="badge" style="background-color: var(--sr-status-processing);">{{ item.결과 }}</span>
+                                    {% elif item.결과 == '보완요청' %}
+                                    <span class="badge" style="background-color: var(--sr-status-supplement); color: #ffffff;">{{ item.결과 }}</span>
+                                    {% else %}
+                                    <span class="badge" style="background-color: var(--sr-surface-3); color: var(--sr-text); border: 1px solid var(--sr-border);">{{ item.결과 }}</span>
+                                    {% endif %}
+                                </td>
+                                <td style="color: var(--sr-status-fine); font-weight: bold;">{{ item.범칙금_과태료 }}</td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="8" class="text-center py-4" style="color: var(--sr-text-muted)">최근 완료된 데이터가 없습니다.</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -434,6 +274,14 @@
 
 {% block extra_js %}
 <script>
+// 카드는 누르면 목록으로 가는 링크다 — 키보드(Tab·Enter·Space)로도 쓸 수 있게 한다.
+document.querySelectorAll('.dashboard-card[onclick]').forEach(function (card) {
+    card.setAttribute('role', 'link');
+    card.setAttribute('tabindex', '0');
+    card.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); card.click(); }
+    });
+});
     function animateProgressBars() {
         setTimeout(function () {
             $('.progress-bar').each(function () {
