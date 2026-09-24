@@ -201,8 +201,9 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
             _insert(conn, models.geocode_cache_table, [{c: row.get(c) for c in cache_cols} for row in snapshot.geocode_cache])
 
         # 사용자 소유 새 표: 앱에 표가 있으면 앱 것이 원천, 없으면(구앱) 서버 것 유지.
+        # 중복 판단은 앱이 아직 기록하지 않는 동안(모바일 R3 전) 빈 표가 오므로, 비어 있으면 서버 판단을 지우지 않는다.
         for rows, table in ((snapshot.report_override, models.report_override_table),
-                            (snapshot.duplicate_decision, models.duplicate_decision_table)):
+                            (snapshot.duplicate_decision or None, models.duplicate_decision_table)):
             if rows is not None:
                 conn.execute(table.delete())
                 _insert(conn, table, [{c: row.get(c) for c in _columns(table)} for row in rows])

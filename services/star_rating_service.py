@@ -70,7 +70,12 @@ def run_batch_rating(ids, score=5):
                     if data["result"].get("STSFDG_SCORE", 0) != 0:
                         log.warning(f"  - 스킵: [{report_id}] 이미 만족도 조사에 참여하셨습니다.")
                         try:
-                            database.sync_rating_status(engine, report_id)
+                            site_score = data["result"].get("STSFDG_SCORE")
+                            database.sync_rating_status(
+                                engine, report_id,
+                                score=int(site_score) if str(site_score).strip().isdigit() else None,
+                                cause=data["result"].get("STSFDG_CAUSE"),
+                            )
                         except Exception as db_e:
                             log.error(f"[{report_id}] DB 갱신 실패: {db_e}")
                         skip_count += 1
@@ -92,7 +97,7 @@ def run_batch_rating(ids, score=5):
                 if post_res.status_code == 200:
                     log.info(f"  - [{report_id}] {score}점 별점 부여 성공 (API)")
                     try:
-                        database.sync_rating_status(engine, report_id)
+                        database.sync_rating_status(engine, report_id, score=score, cause="")
                     except Exception as db_e:
                         log.error(f"[{report_id}] DB 갱신 실패: {db_e}")
                     success_count += 1

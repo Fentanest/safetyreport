@@ -112,6 +112,15 @@ class ReportsRepoTests(unittest.TestCase):
         self.assertEqual({c["id"] for c in changed}, {"90000001", "90000002"})
         self.assertEqual(self.row(models.merge_traffic_table, "90000002")["처리내용"], "스트림 90000002")
 
+    def test_rating_submission_stores_score_and_updates_merge(self):
+        """S-25: 일괄 별점 제출이 점수까지 기록하고 화면용 표에도 바로 보인다."""
+        number = self.row(models.title_table, "90000004")["신고번호"]
+        database.sync_rating_status(self.engine, number, score=4, cause="")
+        merged = self.row(models.merge_traffic_table, "90000004")
+        self.assertEqual((merged["만족도조사여부"], merged["별점"], merged["별점사유"]), ("참여 완료", 4, ""))
+        database.sync_rating_status(self.engine, number)  # 점수 없이 부르면 점수는 그대로
+        self.assertEqual(self.row(models.title_table, "90000004")["별점"], 4)
+
 
 if __name__ == "__main__":
     unittest.main()

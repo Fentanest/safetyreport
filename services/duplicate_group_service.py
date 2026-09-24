@@ -254,11 +254,16 @@ def refresh_duplicate_groups(engine, *, track_changes: bool = False) -> dict[str
             row.group_id: dict(row._mapping)
             for row in conn.execute(select(models.duplicate_group_table)).fetchall()
         }
+        # 사용자 판단(판단 표)이 기존 그룹 행보다 우선한다 — 그룹이 사라졌다 다시 생겨도, 초기화 크롤링 뒤에도 유지(결정 D-6).
+        for decision in conn.execute(select(models.duplicate_decision_table)).mappings():
+            merged = dict(existing_groups.get(decision["group_id"], {}))
+            merged.update({k: decision[k] for k in ("status", "representative_mode", "representative_id", "note")})
+            existing_groups[decision["group_id"]] = merged
         existing_members_by_group: dict[str, set[str]] = {}
-        if track_changes and existing_groups:
-            existing_member_rows = conn.execute(select(models.duplicate_member_table)).fetchall()
-            for row in existing_member_rows:
-                existing_members_by_group.setdefault(row.group_id, set()).add(_text(row.report_id))
+        member_created_at: dict[tuple[str, str], int] = {}
+        for row in conn.execute(select(models.duplicate_member_table)).fetchall():
+            existing_members_by_group.setdefault(row.group_id, set()).add(_text(row.report_id))
+            member_created_at[(row.group_id, _text(row.report_id))] = row.created_at
 
         current_ts = _now_ms()
         group_records = []
@@ -332,7 +337,7 @@ def refresh_duplicate_groups(engine, *, track_changes: bool = False) -> dict[str
                         "priority_score": len(ranked_records) - rank + 1,
                         "raw_match": 1,
                         "field_match": 1 if _field_fingerprint(record) == majority_field_fingerprint else 0,
-                        "created_at": current_ts,
+                        "created_at": member_created_at.get((group_id, _text(record.get("ID")))) or current_ts,  # S-34: 처음 묶인 시각 유지
                         "updated_at": current_ts,
                     })
                     member_payload = dict(record)
@@ -510,6 +515,23 @@ def _resolve_representative_choice(
     return _text(recommended.get("ID"))
 
 
+_DECISION_FIELDS = ("status", "representative_mode", "representative_id", "apply_globally", "note", "updated_at")
+
+
+def _record_decisions(conn, group_ids) -> None:
+    """사용자 판단을 판단 표(mysafety_duplicate_decision)에 남긴다. 그룹 재생성·초기화 크롤링에도 보존된다(결정 D-6)."""
+    ids = [gid for gid in group_ids if gid]
+    if not ids:
+        return
+    group, decision = models.duplicate_group_table, models.duplicate_decision_table
+    rows = conn.execute(select(group.c.group_id, *[group.c[f] for f in _DECISION_FIELDS]).where(group.c.group_id.in_(ids))).mappings().all()
+    for row in rows:
+        conn.execute(decision.delete().where(decision.c.group_id == row["group_id"]))
+        values = dict(row)
+        values["updated_at"] = values.get("updated_at") or _now_ms()
+        conn.execute(decision.insert().values(**values))
+
+
 def update_duplicate_group(
     engine,
     group_id: str,
@@ -591,7 +613,7 @@ def update_duplicate_group(
                 .where(models.duplicate_member_table.c.report_id == updates["representative_id"])
                 .values(is_representative=1, updated_at=updates["updated_at"])
             )
-
+        _record_decisions(conn, [group_id])
     return True
 
 
@@ -623,6 +645,7 @@ def bulk_update_duplicate_status(
             .where(models.duplicate_group_table.c.group_id.in_(normalized_ids))
             .values(**updates)
         )
+        _record_decisions(conn, normalized_ids)
         return int(result.rowcount or 0)
 
 

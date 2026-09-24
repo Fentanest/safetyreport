@@ -315,7 +315,7 @@ def upgrade_schema(engine):
 
 # 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다.
 # 위의 열 추가식 upgrade 는 그대로 두고, 이후 데이터 이동이 필요한 변경은 번호 붙은 단계로 쌓는다(저장 계층 재설계 R1).
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _migration_1_storage_tables(conn):
@@ -336,7 +336,17 @@ def _migration_2_sync_meta_and_watch_flags(conn):
     refresh_watch_flags(conn)
 
 
-_VERSIONED_MIGRATIONS = {1: _migration_1_storage_tables, 2: _migration_2_sync_meta_and_watch_flags}
+def _migration_3_duplicate_decisions(conn):
+    """R2c: 기존 중복군 행의 사용자 판단(상태·대표건 모드·대표건·메모)을 판단 표로 옮긴다. 이후 재생성은 판단 표를 우선한다."""
+    conn.execute(text(
+        "INSERT OR IGNORE INTO mysafety_duplicate_decision "
+        "(group_id, status, representative_mode, representative_id, apply_globally, note, updated_at) "
+        "SELECT group_id, status, representative_mode, representative_id, apply_globally, note, "
+        "COALESCE(updated_at, created_at, 0) FROM mysafety_duplicate_group"
+    ))
+
+
+_VERSIONED_MIGRATIONS = {1: _migration_1_storage_tables, 2: _migration_2_sync_meta_and_watch_flags, 3: _migration_3_duplicate_decisions}
 
 
 def refresh_watch_flags(conn, report_numbers=None):
@@ -650,11 +660,21 @@ def update_admin_user(engine, old_username: str, new_username: str, new_password
         )
 
 
-def sync_rating_status(engine, report_id, status_str="참여 완료"):
-    tables = [title_table, merge_traffic_table, merge_parking_table, merge_other_table]
+def sync_rating_status(engine, report_id, status_str="참여 완료", *, score=None, cause=None):
+    """별점 제출·확인 결과를 목록(title)에 기록하고 그 신고의 화면용 표를 다시 만든다(S-25, 결정 D-2).
+    report_id 는 신고번호. score/cause 가 주어질 때만 별점·별점사유를 바꾼다(모바일 updateReportRatingByNumber 와 같음)."""
+    from core.storage import reports_repo
+
+    values = {"만족도조사여부": status_str}
+    if score is not None:
+        values["별점"] = int(score)
+    if cause is not None:
+        values["별점사유"] = cause
     with engine.begin() as conn:
-        for t in tables:
-            conn.execute(update(t).where(t.c.신고번호 == report_id).values(만족도조사여부=status_str))
+        conn.execute(update(title_table).where(title_table.c.신고번호 == report_id).values(**values))
+        ids = conn.execute(select(title_table.c.ID).where(title_table.c.신고번호 == report_id)).scalars().all()
+        if ids:
+            reports_repo.refresh_merge_rows(conn, ids)
 
 
 # ── API Key CRUD ──────────────────────────────────────────────────────────────

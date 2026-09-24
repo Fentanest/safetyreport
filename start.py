@@ -80,10 +80,11 @@ def _prepare_database(engine, reset=False):
         logger.LoggerFactory.logbot.info(
             "--reset에서도 mysafety_geocode_cache는 유지합니다. 재크롤링 시 같은 주소는 캐시 좌표를 재사용합니다."
         )
-        database.metadata.drop_all(engine, tables=data_tables)
-        # sync_meta 는 통째로 drop 하지 않고 watchlist 키만 보존한 채 비운다.
+        # 한 트랜잭션으로 지운다(중간에 멈춰 반쯤 지워진 DB 가 남지 않게 — S-27).
+        # 사용자 데이터(수정값·중복 판단·감시목록)와 지오코딩 캐시는 신고 ID 로 다시 이어지므로 보존한다(결정 D-6).
         # last_sync 는 reset 의미상 같이 지운다 — 다음 크롤링이 다시 채워준다.
         with engine.begin() as conn:
+            database.metadata.drop_all(conn, tables=data_tables)
             conn.execute(
                 database.sync_meta_table.delete().where(
                     database.sync_meta_table.c.key != "watchlist"

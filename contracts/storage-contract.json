@@ -12,7 +12,7 @@
   "legacy": "옛 열. 새 코드는 쓰지 않는다."
  },
  "schema_version": {
-  "server": 2,
+  "server": 3,
   "mobile": 12,
   "note": "서버는 PRAGMA user_version(core/database/database.py SCHEMA_VERSION), 모바일은 openDatabase version."
  },
