@@ -12,7 +12,7 @@ import os
 import signal
 
 from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route, devices_route
-from web.routers import auth_route, api_route, ws_route, db_editor_route, backup_route
+from web.routers import auth_route, api_route, ws_route, db_editor_route, backup_route, maintenance_route
 from web.routers import duplicate_route, media_route
 import subprocess
 import sys
@@ -115,6 +115,13 @@ async def lifespan(app: FastAPI):
             geocode_service.ensure_map_backfill_started(engine, batch_size=120)
         except Exception as exc:
             logger.LoggerFactory.logbot.warning(f"[geocode] 서버 시작 시 자동 백필 시작 실패: {exc}")
+    if not skip_in_fixture("startup photo capture backfill"):
+        try:
+            # 업데이트 뒤 한 번 훑기: 아직 못 읽은 주정차 사진 촬영 시각(추정 과태료용). 진행은 화면 하단 표시줄에 보인다.
+            from services import maintenance_service
+            maintenance_service.start_photo_backfill(engine)
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f"[maintenance] 사진 촬영 시각 한 번 훑기 시작 실패: {exc}")
     if not skip_in_fixture("startup scheduler"):
         scheduler.init_scheduler()
     sunwi_service.start_background_refresh()
@@ -209,6 +216,7 @@ app.include_router(file_browser_route.router)
 app.include_router(db_editor_route.router)
 app.include_router(devices_route.router)
 app.include_router(backup_route.router)
+app.include_router(maintenance_route.router)
 app.include_router(api_route.router)
 app.include_router(ws_route.router)
 

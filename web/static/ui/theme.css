@@ -126,3 +126,31 @@ table.dataTable tbody tr { background-color: var(--sr-surface); }
 .card-header .sr-accent-icon { color: var(--sr-primary); }
 /* 긴 설정 폼: 저장 버튼이 화면 아래에 붙어 따라온다 */
 .sr-sticky-save { position: sticky; bottom: 0.75rem; z-index: 5; }
+
+/* 업데이트 뒤 한 번 훑기 작업 진행 — 화면 아래 한 줄 박스(로그 한 줄처럼) */
+.sr-job-bar {
+    position: fixed; left: 1rem; bottom: 1rem; z-index: 1040; max-width: min(640px, calc(100vw - 2rem));
+    display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0.9rem 0.45rem 0.65rem;
+    background: var(--sr-surface); color: var(--sr-text); border: 1px solid var(--sr-border); border-radius: 999px;
+    box-shadow: var(--sr-shadow); font-size: 0.82rem; font-variant-numeric: tabular-nums;
+}
+@media (min-width: 768px) { .sr-job-bar { left: calc(16.66667% + 1rem); } } /* 사이드바 오른쪽 본문 위 */
+.sr-job-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.sr-job-bar.is-paused .sr-job-text { color: var(--sr-text-muted); }
+.sr-job-bar.is-done .sr-busy { animation: none; background: var(--sr-status-accept);
+    -webkit-mask: none; mask: none; box-shadow: none; }
+/* 비스타풍 대기 표시: 옅은 원형 링 위를 밝은 호가 돈다(테마 강조색). */
+.sr-busy {
+    flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%;
+    background: conic-gradient(from 0deg, transparent 0 18%, color-mix(in srgb, var(--sr-primary) 25%, transparent) 40%,
+                var(--sr-primary) 78%, #fff 88%, var(--sr-primary) 94%, transparent 100%),
+                radial-gradient(circle, transparent 55%, color-mix(in srgb, var(--sr-primary) 18%, transparent) 56%);
+    -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+            mask: radial-gradient(farthest-side, transparent calc(100% - 4px), #000 calc(100% - 4px));
+    box-shadow: 0 0 6px color-mix(in srgb, var(--sr-primary) 45%, transparent);
+    animation: sr-busy-spin 1s linear infinite;
+}
+.sr-job-bar.is-paused .sr-busy { animation-duration: 3s; opacity: 0.6; }
+@keyframes sr-busy-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sr-busy { animation-duration: 4s; } }
+@media (max-width: 575px) { .sr-job-bar { left: 0.5rem; right: 0.5rem; bottom: 0.5rem; max-width: none; } }

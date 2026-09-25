@@ -161,6 +161,56 @@
     </div>
 </div>
 
+<!-- 업데이트 뒤 한 번 훑기 작업 진행(사진 촬영 시각·지도 좌표). 작업이 있을 때만 보인다. services/maintenance_service.py -->
+<div class="sr-job-bar" id="srJobBar" role="status" aria-live="polite" hidden>
+    <span class="sr-busy" aria-hidden="true"></span>
+    <span class="sr-job-text" id="srJobText"></span>
+</div>
+<script>
+(function () {
+    var bar = document.getElementById('srJobBar');
+    var text = document.getElementById('srJobText');
+    if (!bar || !document.getElementById('mainSidebar')) return; // 로그인 전 화면에서는 부르지 않는다
+    var wasActive = false, timer = null;
+    function line(job) {
+        var parts = [job.label];
+        if (job.total) parts.push(job.done + '/' + job.total);
+        if (job.current) parts.push(job.current);
+        if (job.message) parts.push(job.message);
+        return parts.join(' · ');
+    }
+    function schedule(ms) { clearTimeout(timer); timer = setTimeout(poll, ms); }
+    function poll() {
+        fetch('/maintenance/status', { headers: { 'Accept': 'application/json' } })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+                if (!data) { schedule(60000); return; }
+                if (data.active) {
+                    var running = data.jobs.filter(function (j) { return j.state === 'running' || j.state === 'paused'; });
+                    text.textContent = running.map(line).join('   |   ');
+                    bar.classList.toggle('is-paused', running.every(function (j) { return j.state === 'paused'; }));
+                    bar.classList.remove('is-done');
+                    bar.hidden = false;
+                    wasActive = true;
+                    schedule(2000);
+                } else if (wasActive) {
+                    var done = data.jobs.filter(function (j) { return j.state === 'completed'; });
+                    text.textContent = done.length ? done.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); }).join('   |   ') : '작업 완료';
+                    bar.classList.add('is-done');
+                    wasActive = false;
+                    setTimeout(function () { bar.hidden = true; }, 6000);
+                    schedule(30000);
+                } else {
+                    bar.hidden = true;
+                    schedule(30000);
+                }
+            })
+            .catch(function () { schedule(60000); });
+    }
+    poll();
+})();
+</script>
+
 <!-- 최신 버전 상태 표시 -->
 <script>
 (function() {

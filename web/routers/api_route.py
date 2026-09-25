@@ -153,6 +153,14 @@ def get_stats_map_missing(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.get("/maintenance/status")
+def get_maintenance_status(_: str = Depends(_require_api_key)):
+    """업데이트 뒤 한 번 훑기 작업(사진 촬영 시각·지도 좌표) 진행 — Client 앱 하단 표시줄용."""
+    from services import maintenance_service
+
+    return {"status": "success", "data": maintenance_service.status(engine)}
+
+
 @router.get("/stats/map/progress")
 def get_stats_map_progress(_: str = Depends(_require_api_key)):
     try:

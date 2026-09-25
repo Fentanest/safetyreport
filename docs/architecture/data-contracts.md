@@ -122,6 +122,13 @@ by_law (법규별, 같은 필드 + law)
 - 복원 경로(`core/storage/exchange.restore`)의 임시 사본 업그레이드는 백업하지 않는다(복원 자체가 교체 전 `data_before_restore_*.db` 를 남김).
 - 되돌리기: 서버를 멈추고 `data/data.db`(와 `-wal`/`-shm`)를 백업 파일로 바꾼 뒤 **이전 버전 서버**로 띄운다(새 서버로 띄우면 다시 올린다).
 
+## 2026-09-25 업데이트 뒤 한 번 훑기 작업 (서버)
+- `services/maintenance_service.py`: 서버 기동 때(스키마 업그레이드 뒤) 신고일 6개월 이내 주정차 신고 중 `사진_촬영수` NULL 인 것의 첨부 사진 EXIF 촬영 시각을 채운다.
+  한 건마다 0.4초 간격, 크롤링 중에는 기다렸다 이어 감. 진행은 메모리에만(재기동하면 남은 대상부터 다시 셈). 네트워크 오류 건은 다음 기동·크롤링 끝 재시도(`photo_capture_time.backfill_missing`, 30건)에서 다시.
+- 추정 과태료·처분 분류는 통계를 볼 때 저장된 값으로 계산하므로 훑을 필요가 없다.
+- 진행 표시: 모든 화면 하단 `#srJobBar`(base.html, 작업 있을 때만), `GET /maintenance/status`(웹), `GET /api/v1/maintenance/status`(Client 앱). 지도 좌표 채우기(geocode 백필) 진행도 같이 보인다.
+  응답: `{active, jobs:[{key,label,state(running|paused|completed),total,done,current,message}]}`.
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 199-307 -->
