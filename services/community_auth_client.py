@@ -1,6 +1,6 @@
 """safeauth 중계 + Supabase Auth(GoTrue) HTTP 클라이언트 (프로토콜 1).
 
-정본: safetyreport-community-map `docs/safeauth/protocol.md`, `server/safeauth/protocol.ts`·`relay.ts`.
+정본: safetyreport-community-auth `docs/protocol.md`, `server/protocol.ts`·`relay.ts`.
 - 비밀값(verifier, device_secret, delivery_key, auth_code, 토큰)은 요청 본문·헤더로만 보내고 URL·로그에 넣지 않는다.
 - 리다이렉트를 따르지 않는다. 타임아웃 10초.
 - 예외는 원문 응답을 담지 않는다(오류 코드와 HTTP 상태만).

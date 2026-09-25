@@ -6,7 +6,7 @@
 
 실행(스택이 떠 있을 때만):
   SAFEAUTH_STACK_URL=http://127.0.0.1:54400 \
-  SAFEAUTH_STACK_ENV=<safetyreport-community-map>/.safeauth-stack/stack.env \
+  SAFEAUTH_STACK_ENV=<safetyreport-community-auth>/.safeauth-stack/stack.env \
   SAFETYREPORT_DATA_DIR=$(mktemp -d) .venv/bin/python -m unittest tests.test_community_auth_live
 공개(anon) 키는 SAFEAUTH_ANON_KEY 또는 SAFEAUTH_STACK_ENV 파일의 SAFEAUTH_ANON_KEY 를 실행 중에만 읽는다(저장소·출력에 남기지 않음).
 """

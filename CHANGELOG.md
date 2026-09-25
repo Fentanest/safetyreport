@@ -16,7 +16,7 @@
   비교코드·1회용 연결 링크(새 탭, `noopener noreferrer`, 복사 시 공유 금지 안내) → 중앙 페이지에서 카카오 로그인 → 이 서버가 결과를 받아 계정 이름을 보여 주고
   관리자가 "이 계정으로 연결"을 눌러야 확정. 다른 계정이면 교체 경고, 취소해도 기존 연결 유지. 연결됨/다시 로그인 필요/설정되지 않음/읽기 실패 상태와 연결 해제.
   업로드는 없다 — "업로드: 꺼짐 — 별도 동의 필요" 로만 표시.
-- 서버: `services/community_auth_service.py`(+`_client`, `_store`). 프로토콜 1(community-map `docs/safeauth/protocol.md`)대로 PKCE verifier 는 이 서버만 갖고,
+- 서버: `services/community_auth_service.py`(+`_client`, `_store`). 프로토콜 1(safetyreport-community-auth `docs/protocol.md`)대로 PKCE verifier 는 이 서버만 갖고,
   중계 poll(5초±20%, 만료까지만, 429 `Retry-After` 준수)·코드 교환(한 번만)·`complete`·refresh(회전 원자 저장, 동시 호출 1회)·`logout?scope=local` 을 한다.
   토큰·대기값은 `data/auth/community_session.enc`(별도 키 `.community_key`, 0600, 원자적 교체, 파일 락)에만 — data.db·config.ini·백업·로그·URL 에 없음.
 - 로컬 API: 관리자 `/settings/community/*`(세션 + CSRF 토큰·JSON·Origin 확인 — 저장소 첫 CSRF 확인, `core/utils/csrf.py`),

@@ -1,7 +1,7 @@
 # 커뮤니티 계정 연결 (safeauth.worklazy.net) — PC/Docker 서버 쪽
 
 2026-09-25 추가. 커뮤니티 지도에서 쓸 카카오 계정(Supabase Auth)을 **이 서버에** 연결한다. 안전신문고 로그인과 별개다.
-중계·중앙 페이지·프로토콜 정본은 `safetyreport-community-map` 저장소의 `docs/safeauth/protocol.md`
+중계·중앙 페이지·프로토콜 정본은 `safetyreport-community-auth` 저장소의 `docs/protocol.md`
 (`server/safeauth/protocol.ts`, `relay.ts`)다. 이 문서는 그 프로토콜 1을 이 서버에서 어떻게 구현했는지만 적는다.
 
 ## 흐름
