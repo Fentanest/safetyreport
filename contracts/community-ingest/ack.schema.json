@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safemap.worklazy.net/contracts/community-ingest/ack-v1.json",
+  "title": "community-ingest 응답 v1",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocol",
+        "request_id",
+        "results"
+      ],
+      "properties": {
+        "protocol": {
+          "const": 1
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "dataset_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "event_id",
+              "status",
+              "durable"
+            ],
+            "properties": {
+              "event_id": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "accepted",
+                  "duplicate",
+                  "no_change",
+                  "stale_ignored",
+                  "quarantined",
+                  "rejected",
+                  "conflict"
+                ]
+              },
+              "durable": {
+                "type": "boolean"
+              },
+              "receipt_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "original_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "projection_status": {
+                "enum": [
+                  "published",
+                  "removed",
+                  "held",
+                  "not_public",
+                  "not_applicable"
+                ]
+              },
+              "error": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "additionalProperties": false,
+                "required": [
+                  "code",
+                  "retryable"
+                ],
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "retryable": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "error"
+      ],
+      "properties": {
+        "error": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message",
+            "request_id",
+            "retryable"
+          ],
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "retry_after_seconds": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    }
+  ]
+}

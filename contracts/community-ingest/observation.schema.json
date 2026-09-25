@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safemap.worklazy.net/contracts/community-ingest/observation-v1.json",
+  "title": "observation-v1 공유 payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "address",
+    "agency_name",
+    "amount",
+    "category",
+    "completed_date",
+    "disposition",
+    "location",
+    "manager_name",
+    "report_date",
+    "status",
+    "status_raw",
+    "vehicle_raw"
+  ],
+  "properties": {
+    "address": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "agency_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "manager_name": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "vehicle_raw": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "status_raw": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "amount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "confirmed_won",
+        "kind",
+        "penalty_points"
+      ],
+      "properties": {
+        "confirmed_won": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100000000
+        },
+        "kind": {
+          "enum": [
+            "fine",
+            "penalty",
+            "combined",
+            "unknown"
+          ]
+        },
+        "penalty_points": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000
+        }
+      }
+    },
+    "category": {
+      "enum": [
+        "traffic",
+        "parking",
+        "other"
+      ]
+    },
+    "completed_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "report_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "disposition": {
+      "enum": [
+        "fine",
+        "warning",
+        "penalty",
+        "none",
+        "unknown"
+      ]
+    },
+    "status": {
+      "enum": [
+        "accepted",
+        "partial",
+        "rejected",
+        "completed_unknown",
+        "withdrawn",
+        "transferred",
+        "processing",
+        "supplement",
+        "other"
+      ]
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lat",
+        "lng",
+        "source"
+      ],
+      "properties": {
+        "lat": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^-?\\d{1,3}\\.\\d{1,17}$"
+        },
+        "lng": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^-?\\d{1,3}\\.\\d{1,17}$"
+        },
+        "source": {
+          "enum": [
+            "geocode",
+            "none"
+          ]
+        }
+      }
+    }
+  }
+}

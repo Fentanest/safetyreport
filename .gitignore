@@ -36,6 +36,8 @@ test_*
 !/tests/test_*.py
 !/tests/fixtures/*.json
 !/contracts/*.json
+!/contracts/community-ingest/**/*.json
+!/contracts/community-ingest/**/*.md
 !/tools/web-tests/package.json
 !/tools/web-tests/package-lock.json
 !/tools/web-tests/tsconfig.json

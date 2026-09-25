@@ -1,0 +1,47 @@
+{
+  "cases": [
+    {
+      "name": "sorted_nested",
+      "value": {
+        "b": 1,
+        "a": {
+          "d": null,
+          "c": "x"
+        }
+      },
+      "canonical_json": "{\"a\":{\"c\":\"x\",\"d\":null},\"b\":1}",
+      "sha256": "91beb0ebef8660ca4191b5b379012c3e6241633ef01775c53aa997a4b522a9d2"
+    },
+    {
+      "name": "korean_utf8_unescaped",
+      "value": {
+        "k": "서울 중구"
+      },
+      "canonical_json": "{\"k\":\"서울 중구\"}",
+      "sha256": "66635fcdfba1a06be6eabddc11bc28bbc042bf148e72ba3673eb4f040cc036f1"
+    },
+    {
+      "name": "escapes_quote_and_backslash",
+      "value": {
+        "k": "a\"b\\c"
+      },
+      "canonical_json": "{\"k\":\"a\\\"b\\\\c\"}",
+      "sha256": "c29d69a896d23e0cd79ce2f2adcb1446aa698be3e82521a4729947cef539f11a"
+    },
+    {
+      "name": "negative_and_zero",
+      "value": {
+        "n": -5,
+        "z": 0
+      },
+      "canonical_json": "{\"n\":-5,\"z\":0}",
+      "sha256": "c9f13a25c6ea085a333bfd99c8f64a412911cef788bb23b1e1a1a466ed18fdf6"
+    },
+    {
+      "name": "empty_object",
+      "value": {},
+      "canonical_json": "{}",
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    }
+  ]
+}

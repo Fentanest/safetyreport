@@ -1,0 +1,347 @@
+{
+  "contract": "gate-v1",
+  "app_required_policy_version": "2026-09-26.1",
+  "ttl_seconds": 600,
+  "cases": [
+    {
+      "name": "all_ok",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-26.1"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 10,
+      "invalidated": false,
+      "expect": "ok"
+    },
+    {
+      "name": "config_missing_fails_closed",
+      "config": "missing",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-26.1"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 10,
+      "invalidated": false,
+      "expect": "config_invalid"
+    },
+    {
+      "name": "secret_in_public_config",
+      "config": "secret_detected",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-26.1"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 10,
+      "invalidated": false,
+      "expect": "config_invalid"
+    },
+    {
+      "name": "no_session",
+      "config": "ok",
+      "session": "none",
+      "status": null,
+      "age_seconds": null,
+      "invalidated": false,
+      "expect": "kakao_required"
+    },
+    {
+      "name": "reauth",
+      "config": "ok",
+      "session": "reauth_required",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-26.1"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 10,
+      "invalidated": false,
+      "expect": "kakao_reauth_required"
+    },
+    {
+      "name": "no_status_yet",
+      "config": "ok",
+      "session": "valid",
+      "status": null,
+      "age_seconds": null,
+      "invalidated": false,
+      "expect": "verification_required"
+    },
+    {
+      "name": "cache_expired",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-26.1"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 601,
+      "invalidated": false,
+      "expect": "verification_required"
+    },
+    {
+      "name": "cache_at_ttl_still_ok",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-26.1"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 600,
+      "invalidated": false,
+      "expect": "ok"
+    },
+    {
+      "name": "invalidated_after_revoke",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-26.1"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 5,
+      "invalidated": true,
+      "expect": "verification_required"
+    },
+    {
+      "name": "server_says_no_kakao",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": false
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-26.1"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 5,
+      "invalidated": false,
+      "expect": "kakao_required"
+    },
+    {
+      "name": "suspended",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "suspended"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-26.1"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 5,
+      "invalidated": false,
+      "expect": "suspended"
+    },
+    {
+      "name": "no_consent",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "none",
+          "policy_version": null
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 5,
+      "invalidated": false,
+      "expect": "consent_required"
+    },
+    {
+      "name": "revoked_consent",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "revoked",
+          "policy_version": null
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 5,
+      "invalidated": false,
+      "expect": "consent_required"
+    },
+    {
+      "name": "outdated_policy",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "outdated",
+          "policy_version": "2026-01-01.1"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 5,
+      "invalidated": false,
+      "expect": "consent_required"
+    },
+    {
+      "name": "app_knows_newer_policy",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-26.0"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 5,
+      "invalidated": false,
+      "expect": "consent_required"
+    },
+    {
+      "name": "first_time_contributor_none_ok",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "none"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-26.1"
+        },
+        "policy": {
+          "required_version": "2026-09-26.1"
+        }
+      },
+      "age_seconds": 5,
+      "invalidated": false,
+      "expect": "ok"
+    }
+  ]
+}
