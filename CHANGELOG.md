@@ -8,6 +8,32 @@
 
 ---
 
+## 2026-09-26 (dev, 미배포)
+
+### PC 1회 초기화 크롤링·증분 선정·스케줄러 분리 (T3b)
+
+- `services/community_rebuild.py`(신규): 범위 키 `(REQUIRED_VERSION, local_dataset_id, source_account_namespace)` 의
+  `rebuild_jobs`·`rebuild_items` 상태기계(`required → … → running → validating → committing → completed[_with_gaps]`,
+  `paused`/`failed` 는 같은 run 재개). 사전 백업(sqlite backup API + integrity_check, 실패면 개인 DB 무변경),
+  manifest 전 페이지 갱신 실패면 `prerequisites_required` 로 크롤 미시작, staging→`report_latest` upsert 병합 cutover.
+  게이트(T3a)·업로더(T4)는 함수 안 import + 부재 시 통과(가짜 모듈로 검증).
+- `start.py --rebuild <run_id>`: 전 페이지 성공 때만 목록 ID 전부 등록 + `list_complete=1`(부분 실패·로그인 실패는 `failed`),
+  상세는 미완료 items 만(checkpoint), 결과별 item 갱신(5xx retryable 최대 5회·404 permanent + 당시 라벨 보존·401 paused(auth)),
+  `CaptureStoreUnavailable` 이면 중단. 목록 진행 보고(`crawltitle_api progress`)·상세 결과 통지(`crawldetail_api status_sink`) 추가.
+- `crawl_control.start_rebuild(run_id)`(`--force --rebuild`, `--reset` 없음). 일반 `start_crawl`·`enqueue_*` 는
+  초기화 필요·진행 중이면 `COMMUNITY_REBUILD_REQUIRED`, 게이트 미충족이면 `COMMUNITY_ONBOARDING_REQUIRED`.
+  `crawl_manager.run_after_crawl` 이 `--rebuild` 명령에 `on_crawl_finished` 훅 한 줄.
+- 증분 선정: 기존 후보 ∪ `vectors/list_refetch.json` 규칙(13건, override 무시) — `database.should_refetch_list_item`.
+- `scheduler.update_jobs()` 는 크롤 job 만 교체하고 커뮤니티 job 은 유지(disabled 포함) + 끝에서
+  `register_community_jobs` 재확인. `exchange.restore()` 는 `_swap_in` 직전에 `rotate_dataset(f"restore_{kind}")`.
+- 라우터 `web/routers/community_rebuild_route.py`(신규): 관리자 `/settings/community/rebuild/*`,
+  모바일 `/api/v1/community/rebuild/*` (관리 키 + 사용자 토큰, no-store). `main.py` 등록은 T3a.
+- 문서 `docs/architecture/community-rebuild.md`. 금지 파일(main.py·게이트·capture·uploader·schedule·reports_repo·
+  community_route·community_store·contracts·requirements) 미변경 — 필요 없음이라 `REQUESTS.md` 없음.
+- 테스트: `test_community_rebuild`(29: G01·G02·G03·G05·G06·G07·G11·G12·G13·G14·cutover·accept_gaps·router),
+  `test_community_selection`(5: 벡터 13건·override A07·통합),
+  `test_community_scheduler_split`(6: S-08·교체·rotate). 전체 243 passed(skip 3, 기존과 동일).
+
 ## 2026-09-25 (dev, 미배포)
 
 ### 커뮤니티 계정 연결 (safeauth.worklazy.net)
