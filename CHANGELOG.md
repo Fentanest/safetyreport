@@ -8,6 +8,24 @@
 
 ---
 
+## 2026-09-26 (dev, 미배포)
+
+### 커뮤니티 공유 업로드 — PC 데이터 경로 (T4)
+
+- 공식 상세 응답 순간의 값으로 공유 DTO 를 확정해 `community.db` 에 불변 저장하고(source journal + outbox),
+  그 사본만으로 실시간·수동·자정(00:00 KST) 업로드를 `community-ingest` 로 보내는 PC 쪽 데이터 경로 전체를 구현.
+  신규: `services/community_capture.py`(관측 확정·event 결정·journal/outbox 기록),
+  `services/community_ingest_client.py`(envelope 전송·ACK 검증),
+  `services/community_uploader.py`(`request_upload` 단일 진입·drain·ACK 적용·manifest 교체·reshare),
+  `services/community_schedule.py`(KST 자정 스케줄·job 등록),
+  `web/routers/community_upload_route.py`(관리자 `/community/upload/*` + API 키 `/api/v1/community/upload/*`).
+  수정: `core/storage/reports_repo.py`(capture 호출 1곳·실패 시 개인 저장 건너뜀·연속 3회 중단),
+  `web/templates/report_map.html`(지도 위 "커뮤니티 공유" 패널), `web/routers/stats.py`(패널 POST 용 CSRF 토큰 1줄 — T3 확인 필요).
+- 계약(`contracts/community-ingest/`, 21개) 벡터 전부 통과: observations 32 case·event_decisions 10종·canonical-json·schedule.
+  테스트 신규 84건(`test_community_contract_vectors/capture/uploader/schedule`), 전체 `unittest discover` 287건 OK(skip 3).
+  상세: `docs/architecture/community-upload.md`, T3 요청사항 `.agent-runs/T4/REQUESTS.md`, 결과 `.agent-runs/T4/RESULT.md`.
+  미구현: 시작 시 `personal_save_state` pending 정리(표시용 reconcilation), `main.py` 라우터 등록·게이트·초기화 job(T3 소유).
+
 ## 2026-09-25 (dev, 미배포)
 
 ### 커뮤니티 계정 연결 (safeauth.worklazy.net)
