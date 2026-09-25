@@ -18,6 +18,21 @@ from core.crawler.detail_pipeline import build_detail_result
 _DETAIL_URL = "https://www.safetyreport.go.kr/api/v1/portal/mypage/mysafereport"
 
 
+def classify_fetch_error(error: str | None) -> str:
+    """상세 조회 실패 분류: ok 이외는 retryable | permanent | auth 중 하나.
+
+    - 네트워크·5xx·타임아웃·JSON 파싱 → retryable
+    - 접근 거절·삭제된 원본(404/410/403) → permanent
+    - 로그인 실패·토큰 만료(401/419) → auth
+    """
+    text = str(error or "")
+    if "HTTP 401" in text or "HTTP 419" in text or "unauthorized" in text.lower():
+        return "auth"
+    if "HTTP 404" in text or "HTTP 410" in text or "HTTP 403" in text:
+        return "permanent"
+    return "retryable"
+
+
 def _fetch_detail(session, c_no):
     url = f"{_DETAIL_URL}/{c_no}"
     payload, session = get_authorized_json(session, url, timeout=20)
@@ -37,7 +52,13 @@ def _fetch_detail_via_browser(driver, c_no):
     return driver.execute_async_script(script, str(c_no))
 
 
-def crawl_details(driver=None, report_ids=None, browser_fallback: bool = False):
+def crawl_details(driver=None, report_ids=None, browser_fallback: bool = False, status_sink=None):
+    """성공한 상세만 yield 한다(기존 동작 유지).
+
+    status_sink dict 를 주면 시도한 모든 ID 의 결과를 기록한다:
+    status_sink[report_id] = (outcome, note). outcome 은 ok | retryable | permanent | auth.
+    초기화 크롤(start.py --rebuild)이 item 상태 갱신에 쓴다.
+    """
     if report_ids is None:
         report_ids = []
 
@@ -58,11 +79,18 @@ def crawl_details(driver=None, report_ids=None, browser_fallback: bool = False):
     for link in report_ids:
         logger.LoggerFactory.logbot.debug(f"[API] Fetching details for ID: {link}")
 
-        data = fetch_detail(link)
+        try:
+            data = fetch_detail(link)
+        except Exception as exc:
+            logger.LoggerFactory.logbot.error(f"Error fetching JSON API for {link}: {exc}")
+            if status_sink is not None:
+                status_sink[link] = ("retryable", f"network: {exc}")
+            continue
         if "error" in data or "result" not in data:
-            logger.LoggerFactory.logbot.error(
-                f"Error fetching JSON API for {link}: {data.get('error', 'No result key')}"
-            )
+            note = str(data.get("error", "No result key"))
+            logger.LoggerFactory.logbot.error(f"Error fetching JSON API for {link}: {note}")
+            if status_sink is not None:
+                status_sink[link] = (classify_fetch_error(note), note)
             continue
 
         try:
@@ -76,8 +104,12 @@ def crawl_details(driver=None, report_ids=None, browser_fallback: bool = False):
                 satisfaction_client=satisfaction_client,
                 satisfaction_fetcher=satisfaction_fetcher.fetch_score_via_api,
             )
+            if status_sink is not None:
+                status_sink[link] = ("ok", "")
             sleep(0.3)
 
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"Error processing link {link} via API: {e}")
+            if status_sink is not None:
+                status_sink[link] = ("retryable", f"parse: {e}")
             continue

@@ -346,6 +346,9 @@ def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
             raise ValueError(f"알 수 없는 DB 종류: {kind}")
         _integrity_check(staged)
         backup = _backup_live(dst)
+        # 개인 DB 교체 직전 community.db 데이터셋 선회전(보수적 — 교체 실패해도 되돌리지 않음, S-20).
+        from services.community_store import CommunityStore
+        CommunityStore.open().rotate_dataset(f"restore_{kind}")
         _swap_in(staged, dst)
     finally:
         for path in (staged, staged + "-wal", staged + "-shm"):

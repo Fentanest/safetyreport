@@ -12,6 +12,25 @@ def run_crawler():
         logger.LoggerFactory.logbot.warning("스케줄러: 이미 크롤링 실행 중. 건너뜁니다.")
         return
 
+    # 커뮤니티 게이트·초기화 확인(T3b): 미충족이면 시작하지 않는다(T3a 모듈이 없으면 검사 생략).
+    try:
+        from services import community_gate as _gate
+
+        fresh = _gate.require_fresh(max_age=60.0) if hasattr(_gate, "require_fresh") else None
+        if fresh is not None and not fresh.get("can_enter"):
+            logger.LoggerFactory.logbot.warning("스케줄러: 커뮤니티 게이트 미충족. 건너뜁니다.")
+            return
+    except Exception:
+        pass
+    try:
+        from services import community_rebuild as _rebuild
+
+        if _rebuild.required() or _rebuild.blocking_state() is not None:
+            logger.LoggerFactory.logbot.warning("스케줄러: 초기화 크롤 필요·진행 중. 건너뜁니다.")
+            return
+    except Exception:
+        pass
+
     logger.LoggerFactory.logbot.info("스케줄러에 의해 크롤러가 시작됩니다.")
     try:
         crawl_control.start_crawl(
@@ -25,21 +44,47 @@ def run_crawler():
         logger.LoggerFactory.logbot.error(f"스케줄러 크롤링 시작 실패: {exc}")
 
 
+import re as _re
+
+_CRAWL_JOB_INTERVAL_ID = "crawl_job_interval"
+_CRON_JOB_PATTERN = _re.compile(r"^cron_\d{2}_\d{2}$")
+
+
+def is_crawl_job_id(job_id: str) -> bool:
+    """크롤 스케줄러가 소유한 job id. 커뮤니티 job 은 여기서 지우지 않는다(S-08)."""
+    return job_id == _CRAWL_JOB_INTERVAL_ID or bool(_CRON_JOB_PATTERN.match(str(job_id or "")))
+
+
+def _register_community_jobs():
+    try:
+        from services import community_schedule as _schedule
+    except ImportError:
+        logger.LoggerFactory.logbot.debug("스케줄러: community_schedule 없음 — 커뮤니티 job 등록 생략.")
+        return
+    try:
+        _schedule.register_community_jobs(scheduler)
+    except Exception as exc:
+        logger.LoggerFactory.logbot.warning(f"스케줄러: 커뮤니티 job 등록 실패: {exc}")
+
+
 def update_jobs():
     from apscheduler.triggers.cron import CronTrigger
-    
-    # 기존 모든 작업 제거 (guaranteed clean slate)
-    scheduler.remove_all_jobs()
-    logger.LoggerFactory.logbot.info("스케줄러: 모든 기존 작업을 제거하고 설정을 초기화했습니다.")
-    
+
+    # 크롤 job 만 제거·재생성한다. 커뮤니티 job(community-midnight-upload 등)은 유지(S-08).
+    for job in list(scheduler.get_jobs()):
+        if is_crawl_job_id(job.id):
+            scheduler.remove_job(job.id)
+    logger.LoggerFactory.logbot.info("스케줄러: 크롤 작업을 제거하고 설정을 초기화했습니다(커뮤니티 작업 유지).")
+
     # 설정 파일 직접 다시 읽기
     import configparser
     config = configparser.ConfigParser()
     config.read(app_settings.config_path)
-    
+
     enabled = config.getboolean('SCHEDULER', 'enabled', fallback=False)
     if not enabled:
-        logger.LoggerFactory.logbot.info("스케줄러가 비활성화되어 모든 작업을 제거했습니다.")
+        logger.LoggerFactory.logbot.info("스케줄러가 비활성화되어 크롤 작업을 제거했습니다(커뮤니티 작업 유지).")
+        _register_community_jobs()
         return
         
     mode = config.get('SCHEDULER', 'mode', fallback='interval')
@@ -107,11 +152,15 @@ def update_jobs():
             except Exception as e:
                 logger.LoggerFactory.logbot.error(f"시간 파싱 실패 ({t}): {e}")
 
+    # 커뮤니티 job 존재를 끝에서 재확인(멱등 등록).
+    _register_community_jobs()
+
     # 최종 등록된 작업 목록 확인 로그
     final_jobs = scheduler.get_jobs()
     logger.LoggerFactory.logbot.info(f"현재 활성화된 스케줄러 작업 수: {len(final_jobs)}개")
     for j in final_jobs:
-        logger.LoggerFactory.logbot.info(f" - 작업ID: {j.id}, 다음 실행예정: {j.next_run_time} (시스템 시각 기준)")
+        # 미기동 스케줄러의 job 에는 next_run_time 속성이 없다(실행 예약 전).
+        logger.LoggerFactory.logbot.info(f" - 작업ID: {j.id}, 다음 실행예정: {getattr(j, 'next_run_time', None)} (시스템 시각 기준)")
 
 def init_scheduler():
     if not scheduler.running:
