@@ -51,7 +51,7 @@ by_law (법규별, 같은 필드 + law)
 - 의미: NULL = 아직 시도 안 함(또는 네트워크 오류로 다음 크롤링에 재시도), `사진_촬영수 = 0` = 받았지만 EXIF 촬영 시각 없음.
 - 채우는 곳(세 군데, 모두 `services/photo_capture_time.py`): 크롤링 상세 저장 때 `core/storage/reports_repo._prefetch_derived`(주정차 신고만, 트랜잭션 밖에서 사진 앞 128KB 스트리밍), 크롤링 끝 `start._process_and_save_results` 의 `backfill_missing`(종결돼 다시 안 받는 신고 재시도, 한 번에 30건), 서버 기동 때 `maintenance_service.start_photo_backfill`(남은 대상 전체 한 번 훑기).
   값은 재크롤링에서 이어받고, 변경 감지(`synced_at`, 변경 알림)에 포함하지 않는다.
-- 판독 규칙은 모바일 Standalone(`lib/services/photo_capture_time.dart`, 2026-09-25)과 같다. 공용 합성 JPEG 벡터 `contracts/exif-vectors.json`(두 레포 바이트 동일, `scripts/dev/db_roundtrip_check.py` 가 sha 비교)로 `tests/test_parser_vectors.py` ExifVectorTests 와 모바일 `test/services/photo_capture_time_test.dart` 가 같은 결과를 확인한다.
+- 모바일 Standalone 도 같은 세 시점(상세 저장 때 `MaintenanceService.prefetchForSave`, 동기화 끝 `backfillMissing(limit: 30)`, 앱 열 때 `startPhotoBackfill`)과 같은 6개월 기준일(말일 보정)로 채운다 — 한쪽을 바꾸면 다른 쪽도 같이 고친다. 판독 규칙도 같다(`lib/services/photo_capture_time.dart`, 2026-09-25). 공용 합성 JPEG 벡터 `contracts/exif-vectors.json`(두 레포 바이트 동일, `scripts/dev/db_roundtrip_check.py` 가 sha 비교)로 `tests/test_parser_vectors.py` ExifVectorTests 와 모바일 `test/services/photo_capture_time_test.dart` 가 같은 결과를 확인한다.
 - 서버↔모바일 변환: `db_backup.restore_from_mobile_db` 가 세 컬럼을 옮긴다. 모바일 `reports` 테이블과 서버 DB 가져오기 쪽도 같은 세 컬럼을 가져야 한다(PROJECT_RULES §3-1).
 - API: `/api/v1/reports/*` 는 테이블 전체 컬럼을 내보내므로 세 필드가 추가된다. 대시보드 `recent_answers`/`watchlist` 레코드에도 포함.
 - 추정 과태료(`services/fine_estimate.py`)는 이 컬럼과 번호판·신고 메뉴로 계산하며 DB 에 저장하지 않는다(statistics-spec §4-2).
