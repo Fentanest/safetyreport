@@ -38,5 +38,18 @@ class ParserVectorTests(unittest.TestCase):
                     self.assertEqual(got[key], want, f"{case['name']} · {key}")
 
 
+
+EXIF = json.loads((Path(__file__).resolve().parents[1] / "contracts" / "exif-vectors.json").read_text(encoding="utf-8"))
+
+
+class ExifVectorTests(unittest.TestCase):
+    def test_every_vector(self):
+        from services import photo_capture_time
+
+        for case in EXIF["cases"]:
+            with self.subTest(case=case["name"]):
+                self.assertEqual(photo_capture_time.parse_exif_datetime(bytes.fromhex(case["hex"])), case["expect"])
+
+
 if __name__ == "__main__":
     unittest.main()

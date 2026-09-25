@@ -23,6 +23,7 @@
 - 새 버전으로 기동하면 아직 못 읽은 주정차 사진 촬영 시각(신고일 6개월 이내)을 백그라운드로 한 번 채운다(추정 과태료용). 한 건씩 간격을 두고 크롤링 중엔 기다림.
 - 모든 화면 아래에 작업이 있을 때만 한 줄 박스: 비스타풍 원형 대기 표시 + `주정차 사진 촬영 시각 읽기 · 132/480 · SPP-…` 처럼 로그 한 줄. 지도 좌표 채우기도 함께 표시, 끝나면 "완료"를 잠깐 보이고 사라짐.
 - Client 앱용 `GET /api/v1/maintenance/status`. 테스트: `tests/test_maintenance_service.py`, `tools/web-tests/specs/job-bar.spec.ts`.
+- 모바일 Standalone 도 같은 작업을 기기에서 하고(모바일 레포 2026-09-25), EXIF 판독 규칙은 공용 합성 벡터 `contracts/exif-vectors.json` 으로 양쪽을 테스트한다(서버 ExifVectorTests, 왕복 검사 sha 비교에 추가).
 
 ### 업데이트 전 자동 DB 백업(서버)
 
