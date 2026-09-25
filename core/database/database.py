@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import select, func, exists, update, text, inspect, bindparam, or_
 from sqlalchemy.dialects.sqlite import insert
 from core.utils import logger
+import os
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import re
@@ -263,10 +264,13 @@ def migrate_by_entry_value(engine):
         logger.LoggerFactory.logbot.debug("[migrate] entry_value 기반 재분류: 이동할 항목 없음.")
 
 
-def upgrade_schema(engine, *, maintenance: bool = True):
+def upgrade_schema(engine, *, maintenance: bool = True, backup_dir: str | None = None):
     """표·열 추가와 번호 붙은 마이그레이션은 항상, 무거운 정리 작업(entry_value 재분류·synced_at 백필·상태 정규화·중복군 재계산)은
-    maintenance=True 일 때만(서버 시작·복원). 크롤링 서브프로세스는 maintenance=False 로 가볍게 부른다(S-22)."""
+    maintenance=True 일 때만(서버 시작·복원). 크롤링 서브프로세스는 maintenance=False 로 가볍게 부른다(S-22).
+    backup_dir 을 주면, DB 스키마 버전이 코드보다 낮을 때 무엇이든 바꾸기 전에 그 폴더로 DB 를 복사해 둔다(업데이트 직후 첫 기동)."""
     _refuse_newer_schema(engine)
+    if backup_dir:
+        backup_before_upgrade(engine, backup_dir)
     inspector = inspect(engine)
     with engine.connect() as connection:
         try:
@@ -396,6 +400,47 @@ def _refuse_newer_schema(engine):
     if current > SCHEMA_VERSION:
         # 더 새 서버가 만든 DB. 모르는 구조를 건드리지 않도록 upgrade 전에 멈춘다.
         raise RuntimeError(f"DB 스키마 버전 {current} 은 이 서버({SCHEMA_VERSION})보다 새 버전입니다. 서버를 업데이트하세요.")
+
+
+PRE_UPGRADE_BACKUP_PREFIX = "before_schema_v"
+PRE_UPGRADE_BACKUP_KEEP = 5
+
+
+def backup_before_upgrade(engine, backup_dir: str) -> str | None:
+    """스키마를 올리기 전 DB 사본. 반환: 만든 파일 경로(할 일이 없으면 None).
+
+    파일 DB 이고, 표가 이미 있고(새로 만드는 빈 DB 가 아님), 버전이 코드보다 낮을 때만 만든다.
+    SQLite backup API 로 복사하므로 WAL 에만 있던 내용도 들어간다. 이 접두어 파일은 최근 PRE_UPGRADE_BACKUP_KEEP 개만 남긴다.
+    """
+    import sqlite3
+
+    db_path = engine.url.database
+    if not db_path or db_path == ":memory:" or not os.path.exists(db_path):
+        return None
+    current = get_schema_version(engine)
+    if current >= SCHEMA_VERSION:
+        return None
+    with engine.connect() as conn:
+        has_tables = conn.execute(text("SELECT count(*) FROM sqlite_master WHERE type='table'")).scalar()
+    if not has_tables:
+        return None
+    os.makedirs(backup_dir, exist_ok=True)
+    target = os.path.join(backup_dir, f"{PRE_UPGRADE_BACKUP_PREFIX}{current}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+    source = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    dest = sqlite3.connect(target)
+    try:
+        source.backup(dest)
+    finally:
+        dest.close()
+        source.close()
+    logger.LoggerFactory.logbot.info(f"[schema] 버전 {current} → {SCHEMA_VERSION} 올리기 전 DB 백업: {target}")
+    old = sorted(f for f in os.listdir(backup_dir) if f.startswith(PRE_UPGRADE_BACKUP_PREFIX) and f.endswith(".db"))
+    for name in old[:-PRE_UPGRADE_BACKUP_KEEP]:
+        try:
+            os.remove(os.path.join(backup_dir, name))
+        except OSError:
+            pass
+    return target
 
 
 def _apply_versioned_migrations(engine):

@@ -55,6 +55,42 @@ class ServerMigrationTests(unittest.TestCase):
         finally:
             con.close()
 
+    def test_old_db_is_backed_up_before_upgrade_and_only_once(self):
+        """업데이트 직후 첫 기동: 스키마를 올리기 전 DB 사본(옛 버전 그대로)을 남기고, 다음 기동부터는 만들지 않는다."""
+        backups = Path(self._dir.name) / "backups"
+        database.upgrade_schema(self.engine, backup_dir=str(backups))
+        files = sorted(backups.glob("before_schema_v0_*.db"))
+        self.assertEqual(len(files), 1)
+        con = sqlite3.connect(files[0])
+        try:
+            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 0)  # 바꾸기 전 그대로
+            self.assertEqual(con.execute("SELECT 신고번호 FROM mysafety").fetchall(), [("SPP-2605-7000001",)])
+            self.assertEqual(con.execute("SELECT count(*) FROM sqlite_master WHERE name = 'mysafety_report_override'").fetchone()[0], 0)
+        finally:
+            con.close()
+        self.assertEqual(database.get_schema_version(self.engine), database.SCHEMA_VERSION)
+        database.upgrade_schema(self.engine, backup_dir=str(backups))
+        self.assertEqual(len(list(backups.glob("before_schema_v*.db"))), 1)
+
+    def test_pre_upgrade_backups_keep_only_the_latest(self):
+        backups = Path(self._dir.name) / "backups"
+        backups.mkdir()
+        for i in range(7):
+            (backups / f"before_schema_v0_2026010{i}_000000.db").write_bytes(b"")
+        (backups / "data_before_restore_20260101_000000.db").write_bytes(b"")  # 다른 백업은 건드리지 않는다
+        database.upgrade_schema(self.engine, backup_dir=str(backups))
+        kept = sorted(p.name for p in backups.glob("before_schema_v*.db"))
+        self.assertEqual(len(kept), database.PRE_UPGRADE_BACKUP_KEEP)
+        self.assertNotIn("before_schema_v0_20260100_000000.db", kept)
+        self.assertTrue((backups / "data_before_restore_20260101_000000.db").exists())
+
+    def test_new_empty_db_is_not_backed_up(self):
+        backups = Path(self._dir.name) / "backups"
+        engine = create_engine(f"sqlite:///{Path(self._dir.name) / 'new.db'}")
+        database.upgrade_schema(engine, backup_dir=str(backups))
+        self.assertFalse(backups.exists() and any(backups.iterdir()))
+        engine.dispose()
+
     def test_fixture_is_really_old(self):
         self.assertNotIn("주소정규화", self._columns("mysafetydetail_traffic"))
         self.assertEqual(self._columns("mysafety_geocode_cache"), [])

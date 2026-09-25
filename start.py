@@ -92,7 +92,7 @@ def _prepare_database(engine, reset=False):
             )
             conn.exec_driver_sql("DROP TABLE IF EXISTS mysafety_supplement_history")
     # 크롤링 서브프로세스: 표·열·버전만 확인하고 무거운 정리는 서버 시작 때 한다(S-22). reset 직후엔 비어 있어 정리할 것도 없다.
-    database.upgrade_schema(engine, maintenance=False)
+    database.upgrade_schema(engine, maintenance=False, backup_dir=os.path.join(settings.datapath, "backups"))
 
 def _resolve_report_number(conn, item):
     """큐 신고번호 → 내부 ID. 정확 일치 → 'SPP-' 를 붙인 정확 일치 → 부분 일치가 딱 1건일 때만(S-24).

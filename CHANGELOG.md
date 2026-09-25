@@ -10,6 +10,11 @@
 
 ## 2026-09-25 (dev, 미배포)
 
+### 업데이트 전 자동 DB 백업(서버)
+
+- 새 버전으로 처음 기동할 때 DB 스키마를 올리기 전에 `data/backups/before_schema_v<옛 버전>_<시각>.db` 를 남긴다(최근 5개 유지). 새로 만드는 빈 DB·이미 최신인 DB 는 건너뜀.
+- 되돌리는 방법은 `docs/architecture/data-contracts.md`. 테스트 3건(`tests/test_storage_migration.py`).
+
 ### 웹 리뉴얼 확산 W1: 크롤링 제어 · 자동 별점 · 감시 목록 (Gemini G14 + Opus 통합)
 
 - 로그인 모드·크롤링 범위를 세그먼트로, 로그 콘솔을 두 테마 공통 토큰 색으로, 감시 목록·별점 대상 표를 목록 화면 톤으로. 요청 주소·폼 이름·WebSocket 은 그대로.

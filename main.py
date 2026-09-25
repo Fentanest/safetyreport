@@ -106,7 +106,8 @@ async def lifespan(app: FastAPI):
 
     from services.ws_manager import ws_manager as _ws_manager
     _ws_manager.set_main_loop(asyncio.get_event_loop())
-    database.upgrade_schema(engine)
+    # 업데이트 직후 첫 기동이면 스키마를 올리기 전에 data/backups/ 에 DB 사본을 남긴다.
+    database.upgrade_schema(engine, backup_dir=os.path.join(settings.datapath, "backups"))
     from core.utils.runtime_mode import skip_in_fixture
     if not skip_in_fixture("startup geocode backfill"):
         try:

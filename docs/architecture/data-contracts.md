@@ -115,6 +115,13 @@ by_law (법규별, 같은 필드 + law)
 - `duplicate_group_service.get_duplicate_groups()`(웹 관리 화면, `/api/v1/duplicates/groups`) 그룹마다 `user_decided`(판단 표에 행이 있음), `decided_at`(epoch ms), `decided_at_text`("YYYY-MM-DD HH:MM") 추가. 기존 필드는 그대로.
 - 판단 표는 그룹별 **마지막** 사용자 판단만 보관한다. 여러 번의 변경 이력은 저장하지 않는다(필요하면 서버·앱 계약에 이력 표를 새로 넣어야 함).
 
+## 2026-09-25 업데이트 때 DB 처리 (서버)
+- 서버 기동(`main.py`)·크롤러(`start.py`)가 `upgrade_schema(..., backup_dir=data/backups)` 를 부른다. DB 의 `PRAGMA user_version` 이 코드(`SCHEMA_VERSION`)보다 낮으면,
+  표·열 추가를 포함해 **무엇이든 바꾸기 전에** `data/backups/before_schema_v<옛 버전>_<시각>.db` 로 SQLite backup API 복사(WAL 포함). 이 접두어 파일은 최근 5개만 남긴다.
+- 그 뒤 단계별 마이그레이션(v1~)은 단계마다 트랜잭션 — 실패하면 그 단계는 되돌아가고 버전도 오르지 않는다. 코드보다 새 버전 DB 는 거부.
+- 복원 경로(`core/storage/exchange.restore`)의 임시 사본 업그레이드는 백업하지 않는다(복원 자체가 교체 전 `data_before_restore_*.db` 를 남김).
+- 되돌리기: 서버를 멈추고 `data/data.db`(와 `-wal`/`-shm`)를 백업 파일로 바꾼 뒤 **이전 버전 서버**로 띄운다(새 서버로 띄우면 다시 올린다).
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 199-307 -->
