@@ -173,6 +173,8 @@ session_max_age / log_level / TZ / trusted_proxies
               session_max_age / log_level / TZ / trusted_proxies
 [Crawler]     crawl_type
 [GOOGLESHEET] sheet_key
+[COMMUNITY]   enabled / supabase_url / publishable_key / site_url / device_label / api_key_managers / upload_enabled
+              (2026-09-25, 상세 docs/architecture/community-account.md)
 ```
 
 ### DB 컬럼명
@@ -331,6 +333,15 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 | `use_representative_records` | `SETTINGS` | 대표건 기준 canonical 집계를 전역 기본값으로 사용 | `True` |
 | `auto_export_excel` | `SETTINGS` | 크롤링 후 엑셀 자동 저장 | `True` |
 | `auto_export_sheet` | `SETTINGS` | 크롤링 후 구글 시트 자동 업로드 | `True` |
+| `enabled` | `COMMUNITY` | 커뮤니티 계정 연결 켜기 (env `SAFETYREPORT_COMMUNITY_ENABLED` 우선) | `false` |
+| `supabase_url` | `COMMUNITY` | Supabase 프로젝트 https origin, 공개값 (env `SAFETYREPORT_COMMUNITY_SUPABASE_URL`) | 빈 값 |
+| `publishable_key` | `COMMUNITY` | 공개(publishable/anon) 키. `sb_secret_`·service_role 거부 (env `SAFETYREPORT_COMMUNITY_PUBLISHABLE_KEY`) | 빈 값 |
+| `site_url` | `COMMUNITY` | 중앙 연결 페이지 (env `SAFETYREPORT_COMMUNITY_SITE_URL`) | `https://worklazy.net/safeauth/` |
+| `device_label` | `COMMUNITY` | 중앙 페이지에 보일 서버 이름 | 빈 값("이 PC"/"Docker 서버") |
+| `api_key_managers` | `COMMUNITY` | 커뮤니티 계정 관리를 허용한 API 키의 SHA-256 목록(쉼표) | 빈 값 |
+| `upload_enabled` | `COMMUNITY` | 업로드 허용(아직 업로더 없음, 화면에서 안 바꿈) | `false` |
+
+커뮤니티 세션·토큰·PKCE 대기값은 config.ini·data.db 가 아니라 `data/auth/community_session.enc`(키 `data/auth/.community_key`)에만 있다 — 백업·모바일 DB 변환 대상 아님.
 
 ---
 
@@ -429,7 +440,9 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 - `/summary` 의 취하 필드 규칙
   - `exclude_withdraw=True` 이면 그래프/모바일 카드 기준 `withdrawCount=0`, `withdraw_pct=0`
   - 실제 원본 취하 건수는 `withdrawRawCount` 로 별도 전달
-| GET | `/app/config` | 앱 설정 (`exclude_withdraw`, `normalize_police`, `use_representative_records` 등). `capabilities`(기능 목록, 예 `rating_cause`)·`rating_cause_max` — 앱이 서버 기능을 알아본다(2026-09-25) |
+| GET | `/app/config` | 앱 설정 (`exclude_withdraw`, `normalize_police`, `use_representative_records` 등). `capabilities`(기능 목록: `rating_cause`, `community_account`)·`rating_cause_max` — 앱이 서버 기능을 알아본다(2026-09-25) |
+| GET | `/community-auth/status` | 서버의 커뮤니티 계정 상태 DTO(`{"data": …}`). 모든 키 가능, 관리 권한 없는 키는 `can_manage=false`·연결 링크 없음 (2026-09-25) |
+| POST | `/community-auth/start` · `/confirm` · `/cancel` · `/disconnect` | 커뮤니티 계정 연결 관리. `[COMMUNITY] api_key_managers` 에 허용된 키만(아니면 403 `permission_required`). 본문·오류 코드는 `community-account.md` |
 | POST | `/settings` | 필터 설정 저장 (`normalize_police`, `exclude_withdraw`, `use_representative_records`) |
 | GET | `/files?path=` | 서버 파일 브라우저 (logs/results 한정) |
 | GET | `/files/download?path=&api_key=` | 파일 다운로드 (헤더 또는 쿼리 파라미터 인증) |

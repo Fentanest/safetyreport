@@ -10,6 +10,27 @@
 
 ## 2026-09-25 (dev, 미배포)
 
+### 커뮤니티 계정 연결 (worklazy.net/safeauth)
+
+- 설정 화면에 "4. 커뮤니티 계정" 카드(메인 설정 폼 밖, 안전신문고 로그인과 별개). 카카오 계정(Supabase Auth)을 이 서버에 연결한다:
+  비교코드·1회용 연결 링크(새 탭, `noopener noreferrer`, 복사 시 공유 금지 안내) → 중앙 페이지에서 카카오 로그인 → 이 서버가 결과를 받아 계정 이름을 보여 주고
+  관리자가 "이 계정으로 연결"을 눌러야 확정. 다른 계정이면 교체 경고, 취소해도 기존 연결 유지. 연결됨/다시 로그인 필요/설정되지 않음/읽기 실패 상태와 연결 해제.
+  업로드는 없다 — "업로드: 꺼짐 — 별도 동의 필요" 로만 표시.
+- 서버: `services/community_auth_service.py`(+`_client`, `_store`). 프로토콜 1(community-map `docs/safeauth/protocol.md`)대로 PKCE verifier 는 이 서버만 갖고,
+  중계 poll(5초±20%, 만료까지만, 429 `Retry-After` 준수)·코드 교환(한 번만)·`complete`·refresh(회전 원자 저장, 동시 호출 1회)·`logout?scope=local` 을 한다.
+  토큰·대기값은 `data/auth/community_session.enc`(별도 키 `.community_key`, 0600, 원자적 교체, 파일 락)에만 — data.db·config.ini·백업·로그·URL 에 없음.
+- 로컬 API: 관리자 `/settings/community/*`(세션 + CSRF 토큰·JSON·Origin 확인 — 저장소 첫 CSRF 확인, `core/utils/csrf.py`),
+  모바일 `/api/v1/community-auth/*`(API 키, 관리 동작은 설정 화면에서 허용한 키만 — 기본 거부). `/api/v1/app/config` `capabilities` 에 `community_account` 추가(하위 호환).
+- 설정 `[COMMUNITY]`(기본 꺼짐) + Docker 용 환경변수 `SAFETYREPORT_COMMUNITY_{ENABLED,SUPABASE_URL,PUBLISHABLE_KEY,SITE_URL}`. 공개값만 받고 `sb_secret_`·service_role 키는 거부.
+  fixture 모드에서는 `127.0.0.1` 스택에만 연결. 부팅 때는 만료 전 대기 요청의 poll 만 재개.
+- 문서 `docs/architecture/community-account.md`, `data-contracts.md` 설정·API 표.
+- 테스트: `tests/test_community_auth.py` 51건(가짜 중계+GoTrue HTTP 서버·앱 전체 TestClient: 저장소 암호화/0600/원자 교체/손상, RFC 7636 벡터, 교환 1회·응답 유실 재시도,
+  확정·취소·교체·해제의 `scope=local`, refresh 회전·동시성·철회·일시 오류, CSRF/Origin/권한, DTO·설정 화면·백업·로그·app/config 비밀값 없음) 통과.
+  전체 `unittest discover` 196건 OK(skip 3 = 선택 실행 라이브 테스트). 로컬 Supabase 스택(실제 GoTrue v2.197.0 + 실제 중계 + 가짜 카카오)
+  `tests/test_community_auth_live.py` 3건 PASS(전체 흐름·refresh·해제 후 refresh 400, 두 설치 동시 연결 교차 없음, 다른 계정 거부 시 기존 유지).
+  fixture 서버 + 실제 중앙 페이지 + Chromium 으로 연결/교체 경고/거부/해제·다크·390px 확인, 서버 재시작 뒤 대기 요청 poll 재개·연결 유지 확인.
+  **실제 카카오·호스팅 Supabase E2E 는 하지 않음.**
+
 ### 서버↔모바일 DB·로직 동등성 검수 (G17)
 
 - 6Sol·Gemini 교차 검수 + Opus 팩트체크, 새 도구 `scripts/dev/logic_parity_check.py`(같은 데이터로 양쪽 통계·대시보드 계산 비교, 48조합). 기록 `docs/reviews/2026-09-25-g17-db-parity-audit.md`.

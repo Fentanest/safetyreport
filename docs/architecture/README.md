@@ -10,6 +10,7 @@
 | [data-contracts.md](data-contracts.md) | 설정 키, DB 테이블/컬럼, 서비스 반환 키, category 전파, 모바일 API, WebSocket, 완료 마커 파일, 크롬 확장 | 데이터·API·집계를 건드리기 전 (모바일/크롬 확장 소비자 계약) |
 | [crawling-and-processing.md](crawling-and-processing.md) | start.py 파이프라인, 파서 규칙, 카테고리 분류, 첨부 URL, 별점 API, extractor | 크롤러·파서 작업 전 |
 | [web-ui.md](web-ui.md) | 대시보드 카드 URL, 사이드바/세션/프록시, 통계 탭·상세검색·agencyExact, 첨부 미디어 | 웹UI 작업 전 (리뉴얼 계약은 `docs/design/` 도 함께) |
+| [community-account.md](community-account.md) | 커뮤니티 계정(카카오 via Supabase) 기기 연결: 흐름, 설정 `[COMMUNITY]`, 암호화 저장·락, 권한·CSRF, 로컬 API, 세션 공급 | 커뮤니티 계정·향후 업로더 작업 전 (2026-09-25 신설) |
 | [legacy-claude-reference.md](legacy-claude-reference.md) | 원문 보관 | 이관 누락이 의심될 때 대조 |
 
 ## 절별 대응표 (원문 줄 → 새 위치)
