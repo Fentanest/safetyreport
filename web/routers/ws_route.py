@@ -2,7 +2,7 @@
 WebSocket 이벤트 엔드포인트
 
 모바일 앱이 ws://<host>/ws/events?api_key=<key> 로 연결합니다.
-- API Key 쿼리 파라미터로 인증 (세션 불필요)
+- API Key 쿼리 파라미터로 인증 (세션 불필요) + 커뮤니티 필수 게이트(미충족·상실 시 4403)
 - 30초마다 ping 전송으로 연결 유지
 - 클라이언트에서 "pong" 수신 시 타임아웃 리셋
 """
@@ -12,6 +12,7 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from core.database import database
 from core.database.engine import get_engine
+from core.utils import ws_auth
 from services.ws_manager import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,9 @@ async def ws_events(
     engine = get_engine()
     if not api_key or not database.validate_api_key(engine, api_key):
         await websocket.close(code=4001, reason="Unauthorized")
+        return
+    if not await ws_auth.gate_ok():  # 서버 커뮤니티 필수 설정 전에는 이벤트를 보내지 않는다(4403)
+        await ws_auth.reject_gate(websocket)
         return
 
     client_id = str(uuid.uuid4())

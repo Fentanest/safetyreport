@@ -100,5 +100,18 @@ class WsManager:
     def connected_count(self) -> int:
         return len(self._connections)
 
+    async def close_all(self, code: int, reason: str = "") -> None:
+        """커뮤니티 게이트를 잃으면 모든 이벤트 연결을 닫는다(4403)."""
+        for cid, ws in list(self._connections.items()):
+            try:
+                await ws.close(code=code, reason=reason)
+            except Exception:
+                pass
+            self.disconnect(cid)
+
+    def close_all_from_thread(self, code: int, reason: str = "") -> None:
+        if self._main_loop and self._main_loop.is_running():
+            asyncio.run_coroutine_threadsafe(self.close_all(code, reason), self._main_loop)
+
 
 ws_manager = WsManager()

@@ -154,6 +154,11 @@
             <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
                 <h1 class="h2">{{ title }}</h1>
             </div>
+            <!-- 커뮤니티 초기화 크롤링 안내(필요·진행 중일 때만). 크롤 시작만 막히고 다른 화면은 그대로 쓴다. -->
+            <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 small" id="srRebuildBanner" role="status" hidden>
+                <i class="fas fa-rotate"></i><span id="srRebuildText">커뮤니티 공유를 위한 초기화 크롤링이 필요합니다. 끝날 때까지 일반 수집이 잠시 막힙니다.</span>
+                <a class="btn btn-sm btn-outline-dark ms-auto" href="/onboarding/rebuild">초기화 크롤링 화면</a>
+            </div>
             
             {% block content %}
             {% endblock %}
@@ -237,6 +242,24 @@
 })();
 </script>
 
+<script>
+(function () {
+    'use strict';
+    var banner = document.getElementById('srRebuildBanner');
+    if (!banner || window.location.pathname.indexOf('/onboarding/') === 0) return;
+    var ACTIVE = { preparing_backup: 1, running: 1, validating: 1, committing: 1, paused: 1, awaiting_confirmation: 1 };
+    fetch('/settings/community/rebuild', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (res) {
+            var d = res && res.data;
+            if (!d) return;
+            if (ACTIVE[d.state]) {
+                document.getElementById('srRebuildText').textContent = '초기화 크롤링이 진행 중입니다(' + d.state + '). 끝날 때까지 일반 수집이 잠시 막힙니다.';
+            }
+            banner.hidden = !(d.required || ACTIVE[d.state]);
+        }).catch(function () {});
+})();
+</script>
 <script src="/static/ui/theme.js?v={{ request.state.app_version }}"></script>
 <!-- jQuery -->
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>

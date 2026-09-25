@@ -60,7 +60,10 @@ class FixtureBlocksSideEffectsTest(unittest.TestCase):
 
     def test_star_rating_thread_not_started(self):
         from services import rating_service
+        from services import community_gate
+        # 게이트는 통과한 상태로 두고(tests/test_community_gate.py 가 따로 검증) fixture 차단만 본다.
         with mock.patch.object(rating_service, "resolve_rating_targets", return_value=["SPP-TEST-1"]), \
+                mock.patch.object(community_gate, "require_fresh", return_value={"state": "ok", "can_enter": True}), \
                 mock.patch.object(rating_service.threading, "Thread") as thread:
             with self.assertRaises(ExternalSideEffectBlocked):
                 rating_service.start_batch_rating(None, ["SPP-TEST-1"], score=5)

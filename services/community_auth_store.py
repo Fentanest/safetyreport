@@ -3,6 +3,8 @@
 - 파일: <datapath>/auth/community_session.enc (Fernet 암호문, JSON 한 덩어리)
 - 키:   <datapath>/auth/.community_key (설치별 Fernet 키, 0600). 설정 암호화 키(.config_key)와 따로 둔다.
 - 설치 ID: <datapath>/auth/community_installation_id (중계의 설치별 대기 요청 상한용, 비밀 아님)
+- writer 연결: <datapath>/auth/community_writer.enc (같은 키로 암호화한 업로드 연결 id·비밀·epoch). 로그아웃해도 지우지 않는다 —
+  같은 사용자가 다시 로그인하면 같은 연결을 rebind 한다(다른 사용자면 게이트가 새로 등록한다).
 - 락:   threading.RLock(프로세스 안) + <datapath>/auth/.community.lock 파일 락(프로세스 사이)
 
 data.db 에는 아무것도 쓰지 않는다(백업·모바일 DB 변환 대상이 아니게 하려는 의도). 읽지 못하는 파일(키 없음·손상)은
@@ -27,6 +29,8 @@ SESSION_FILE = "community_session.enc"
 KEY_FILE = ".community_key"
 LOCK_FILE = ".community.lock"
 INSTALL_FILE = "community_installation_id"
+WRITER_FILE = "community_writer.enc"
+WRITER_FIELDS = ("connection_id", "connection_secret", "writer_epoch", "dataset_key", "user_id", "takeover")
 STORE_VERSION = 1
 
 
@@ -134,6 +138,7 @@ class CommunitySessionStore:
         self.session_path = os.path.join(self.auth_dir, SESSION_FILE)
         self.key_path = os.path.join(self.auth_dir, KEY_FILE)
         self.install_path = os.path.join(self.auth_dir, INSTALL_FILE)
+        self.writer_path = os.path.join(self.auth_dir, WRITER_FILE)
         self._rlock = threading.RLock()
         self._file_lock = _FileLock(os.path.join(self.auth_dir, LOCK_FILE))
         self._depth = 0
@@ -258,6 +263,42 @@ class CommunitySessionStore:
             _chmod_600(target)
             _log.warning("[community] 읽을 수 없는 커뮤니티 세션 파일을 %s 로 옮겼습니다.", os.path.basename(target))
             return target
+
+    # ── writer 연결 ───────────────────────────────────────────────────────
+    def load_writer(self) -> dict | None:
+        """저장된 writer 연결(dict) 또는 None. 읽을 수 없으면 StoreUnreadable(세션 파일과 같은 규칙)."""
+        from cryptography.fernet import InvalidToken
+
+        with self.locked():
+            try:
+                with open(self.writer_path, "rb") as fh:
+                    blob = fh.read()
+            except FileNotFoundError:
+                return None
+            fernet = self._fernet(create=False)
+            if fernet is None:
+                raise StoreUnreadable("key_missing")
+            try:
+                data = json.loads(fernet.decrypt(blob).decode("utf-8"))
+            except InvalidToken as exc:
+                raise StoreUnreadable("decrypt_failed") from exc
+            except (ValueError, UnicodeDecodeError) as exc:
+                raise StoreUnreadable("corrupt") from exc
+            if not isinstance(data, dict) or data.get("version") != STORE_VERSION:
+                raise StoreUnreadable("unknown_format")
+            return {k: data.get(k) for k in WRITER_FIELDS}
+
+    def save_writer(self, writer: dict | None) -> None:
+        with self.locked():
+            if not writer:
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(self.writer_path)
+                    _fsync_dir(self.auth_dir)
+                return
+            payload = {"version": STORE_VERSION, **{k: writer.get(k) for k in WRITER_FIELDS}}
+            fernet = self._fernet(create=True)
+            blob = fernet.encrypt(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+            atomic_write(self.writer_path, blob)
 
     # ── 설치 ID ───────────────────────────────────────────────────────────
     def installation_id(self) -> str:
