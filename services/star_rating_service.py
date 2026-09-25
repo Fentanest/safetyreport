@@ -84,6 +84,7 @@ def run_batch_rating(ids, score=5, cause=""):
             pass
 
     def save_site_values(report_id, result):
+        # 저장 실패는 예외로 올린다 — 성공으로 세지 않고 재시도(모바일 Standalone 과 같음)
         try:
             database.sync_rating_status(
                 engine, report_id,
@@ -91,17 +92,17 @@ def run_batch_rating(ids, score=5, cause=""):
                 cause=result.get("STSFDG_CAUSE"),
             )
         except Exception as db_e:
-            log.error(f"[{report_id}] DB 갱신 실패: {db_e}")
+            raise RuntimeError(f"DB 갱신 실패: {db_e}") from db_e
 
     def confirm_success(report_id, result):
         site_score = _site_score(result)
+        save_site_values(report_id, result)
         log.info(f"  - [{report_id}] {site_score}점 별점 부여 성공 (API)")
         if site_score != score:
             log.warning(f"  - 경고: [{report_id}] 사이트 점수({site_score}점)가 보낸 점수({score}점)와 다릅니다.")
         site_cause = rating_eligibility.normalize_cause(result.get("STSFDG_CAUSE"))
         if cause and site_cause != cause:
             log.warning(f"  - 경고: [{report_id}] 사이트에 저장된 사유가 보낸 사유와 다릅니다(사이트가 사유를 받지 않았거나 바꿈).")
-        save_site_values(report_id, result)
 
     for idx, report_id in enumerate(ids_to_process, 1):
         log.info(f"[{idx}/{total}] {report_id} 처리 중...")
@@ -126,13 +127,17 @@ def run_batch_rating(ids, score=5, cause=""):
                         confirm_success(report_id, result)
                         success_count += 1
                     else:
-                        log.warning(f"  - 스킵: [{report_id}] 이미 만족도 조사에 참여하셨습니다.")
                         save_site_values(report_id, result)
+                        log.warning(f"  - 스킵: [{report_id}] 이미 만족도 조사에 참여하셨습니다.")
                         skip_count += 1
                     success = True
                     break
 
-                # 2. 별점 제출
+                if posted:
+                    # 이미 제출했는데 아직 안 보인다 — 다시 제출하지 않고 확인만 되풀이한다(중복 제출 방지)
+                    raise requests.exceptions.RequestException("제출 후 사이트에서 점수를 확인하지 못했습니다")
+
+                # 2. 별점 제출 (한 신고에 한 번만)
                 post_url = "https://www.safetyreport.go.kr/api/v1/portal/statistics/satisfactionstatistics"
                 payload = {
                     "STTEMNT_NO": report_id,

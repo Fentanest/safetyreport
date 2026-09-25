@@ -1,5 +1,5 @@
 {
- "description": "별점(만족도 조사) 대상 판정과 공통 사유 규칙. 서버 services/rating_eligibility(ineligible_reason, normalize_cause, cause_error)와 모바일 RatingService(ineligibleReason, normalizeCause, causeError)가 같은 결과를 내야 한다. reason=null 이면 대상. cause_cases: input 을 repeat 번 이어 붙인 값을 정리하면 normalized(또는 길이 normalized_length, 코드포인트 수)가 되고, 상한(1000) 초과면 too_long=true. 두 레포에 바이트까지 같게 둔다.",
+ "description": "별점(만족도 조사) 대상 판정과 공통 사유 규칙. 서버 services/rating_eligibility(ineligible_reason, normalize_cause, cause_error)와 모바일 RatingService(ineligibleReason, normalizeCause, causeError)가 같은 결과를 내야 한다. reason=null 이면 대상. cause_cases: input 을 repeat 번 이어 붙인 값을 정리하면 normalized(또는 길이 normalized_length, 코드포인트 수)가 되고, 상한(1000) 초과면 too_long=true. 두 레포에 바이트까지 같게 둔다. popup_cases: 만족도 팝업 HTML 에서 사유 추출(서버 satisfaction_fetcher._extract_cause_from_page_html, 모바일 StandaloneApiService 추출) — 엔터티 해독 → 태그 제거 → 앞뒤 공백 제거 순서.",
  "eligibility_cases": [
   {
    "poll_status": "참여 가능",
@@ -178,6 +178,40 @@
    "repeat": 1000,
    "normalized_length": 1999,
    "too_long": true
+  }
+ ],
+ "popup_cases": [
+  {
+   "html": "<textarea id=\"STSFDG_CAUSE\" readonly>감사합니다</textarea>",
+   "cause": "감사합니다"
+  },
+  {
+   "html": "<textarea name='STSFDG_CAUSE'>  빠른 &amp; 친절한 처리 </textarea>",
+   "cause": "빠른 & 친절한 처리"
+  },
+  {
+   "html": "<textarea id=\"STSFDG_CAUSE\">&lt;b&gt;굵게&lt;/b&gt; 표시</textarea>",
+   "cause": "굵게 표시"
+  },
+  {
+   "html": "<textarea id=\"STSFDG_CAUSE\">&#44048;&#xC0AC; &quot;좋음&quot; &#39;네&#39; &apos;예&apos;</textarea>",
+   "cause": "감사 \"좋음\" '네' '예'"
+  },
+  {
+   "html": "<textarea id=\"STSFDG_CAUSE\">&nbsp;앞뒤&nbsp;공백&nbsp;</textarea>",
+   "cause": "앞뒤 공백"
+  },
+  {
+   "html": "<input id=\"STSFDG_CAUSE\" value=\"값 속성\">",
+   "cause": "값 속성"
+  },
+  {
+   "html": "<textarea id=\"STSFDG_CAUSE\">   </textarea>",
+   "cause": ""
+  },
+  {
+   "html": "<div>사유 칸 없음</div>",
+   "cause": ""
   }
  ]
 }

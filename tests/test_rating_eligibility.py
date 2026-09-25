@@ -38,6 +38,15 @@ class CauseVectorTests(unittest.TestCase):
                 self.assertEqual(rating_eligibility.cause_error(raw) is not None, case["too_long"])
 
 
+class PopupCauseVectorTests(unittest.TestCase):
+    def test_shared_popup_vectors(self):
+        from services.satisfaction_fetcher import _extract_cause_from_page_html
+
+        for case in VECTORS["popup_cases"]:
+            with self.subTest(html=case["html"][:40]):
+                self.assertEqual(_extract_cause_from_page_html(case["html"]), case["cause"])
+
+
 class BatchPreSkipTests(unittest.TestCase):
     """run_batch_rating 이 신고번호로 병합 행을 찾아 사전 스킵하고, 모바일이 읽는 `스킵: [SPP-…] 사유` 줄을 남긴다."""
 
@@ -129,7 +138,7 @@ class SubmitFlowTests(unittest.TestCase):
         self.assertFalse(any("스킵: [SPP-9]" in m for m in logged))
 
     def test_never_confirmed_is_a_failure_not_a_success(self):
-        logged, _, synced = self.run_batch([
+        logged, session, synced = self.run_batch([
             _Resp(result={"STSFDG_SCORE": 0}),
             _Resp(result={"STSFDG_SCORE": 0}),
             _Resp(result={"STSFDG_SCORE": 0}),
@@ -137,6 +146,7 @@ class SubmitFlowTests(unittest.TestCase):
         ])
         self.assertFalse(any("별점 부여 성공" in m for m in logged))
         self.assertTrue(any(m.startswith("  - 최종 실패: [SPP-9] 오류 발생:") for m in logged))
+        self.assertEqual(session.post.call_count, 1)  # 재시도에서 다시 제출하지 않는다(중복 제출 방지)
         self.assertEqual(synced, [])
         self.assertTrue(any("성공: 0, 스킵: 0, 실패: 1" in m for m in logged))
 
@@ -157,6 +167,36 @@ class SubmitFlowTests(unittest.TestCase):
         ])
         self.assertEqual(synced[-1], {"score": 4, "cause": "감사합니다"})
         self.assertFalse(any("사유와 다릅니다" in m for m in logged))
+
+    def test_db_failure_is_not_counted_as_success(self):
+        from services import star_rating_service
+
+        logged = []
+        fake_log = mock.Mock()
+        for level in ("info", "warning", "error"):
+            getattr(fake_log, level).side_effect = lambda m: logged.append(m)
+        session = mock.Mock()
+        session.headers = {}
+        session.get.side_effect = [_Resp()] + [_Resp(result={"STSFDG_SCORE": 0}), _Resp(result={"STSFDG_SCORE": 4, "STSFDG_CAUSE": "x"})] + [_Resp(result={"STSFDG_SCORE": 4, "STSFDG_CAUSE": "x"})] * 4
+        session.post.return_value = _Resp(200)
+        with mock.patch.object(star_rating_service, "get_engine"), \
+             mock.patch.object(star_rating_service.database, "get_merged_records_by_report_numbers", return_value=[]), \
+             mock.patch.object(star_rating_service.database, "sync_rating_status", side_effect=RuntimeError("disk full")), \
+             mock.patch.object(star_rating_service.logger.LoggerFactory, "star_log", fake_log), \
+             mock.patch.object(star_rating_service.requests, "Session", return_value=session), \
+             mock.patch.object(star_rating_service.settings, "max_retry_attemps", 1), \
+             mock.patch.object(star_rating_service.settings, "retry_interval", 0), \
+             mock.patch.object(star_rating_service.settings, "phone_number", "01000000000"), \
+             mock.patch.object(star_rating_service.time, "sleep"):
+            star_rating_service.run_batch_rating(["SPP-9"], score=4, cause="x")
+        self.assertFalse(any("별점 부여 성공" in m for m in logged))
+        self.assertTrue(any("최종 실패: [SPP-9]" in m and "DB 갱신 실패" in m for m in logged))
+        self.assertEqual(session.post.call_count, 1)
+
+    def test_missing_site_record_fails_without_submitting(self):
+        logged, session, _ = self.run_batch([_Resp(result=None)])
+        session.post.assert_not_called()
+        self.assertIn("  - 실패: [SPP-9] 대상 신고건이 없거나 폰 번호가 맞지 않습니다.", logged)
 
     def test_already_rated_on_site_is_skipped_with_site_values(self):
         logged, session, synced = self.run_batch([_Resp(result={"STSFDG_SCORE": 5, "STSFDG_CAUSE": "예전 사유"})])

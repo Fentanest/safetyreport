@@ -10,6 +10,14 @@
 
 ## 2026-09-25 (dev, 미배포)
 
+### 별점 제출 검수(6Sol) 반영 — 중복 제출 방지·저장 실패·대상 없음·사유 해독 통일
+
+- 제출은 한 신고에 한 번만: 제출 뒤 사이트에 점수가 아직 안 보이면 다시 제출하지 않고 확인만 되풀이한다(끝까지 안 보이면 실패). 서버·모바일 같음. 모바일은 제출 POST 의 내부 재시도도 없앴다(응답만 끊긴 경우 중복 제출이 됐다).
+- DB 저장이 실패하면 성공으로 세지 않고 재시도한다(예전엔 성공 로그를 남기고 저장 실패를 삼켰다).
+- 사이트가 이 신고·번호를 모르면(`result` 비어 있음) 제출하지 않고 실패 — 모바일도 서버처럼(예전 앱은 제출을 시도).
+- 만족도 팝업 사유의 HTML 엔터티 해독을 서버와 같은 순서·범위로(모바일은 일부만 해독했다). 공용 벡터 `popup_cases` 추가.
+- 검수 기록 `docs/reviews/2026-09-25-g16-implementation-review.md`.
+
 ### 레거시(Selenium HTML) 크롤링 제거 (G16 W4)
 
 - 삭제: `core/crawler/crawltitle.py`·`crawldetail.py`, `services/supplement_parser.py`, `parser.parse_details` 와 HTML 전용 헬퍼, 별점 Selenium 백업 주석 코드. `scripts/debug/extractor.py` 는 API 전용 덤프 도구로 축소.
