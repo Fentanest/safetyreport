@@ -689,7 +689,13 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
         df = _apply_stats_law_filter(df, filters)
 
         if df.empty:
-            return empty_payload
+            # 법규 필터로 이 카테고리가 비어도 법규 선택지는 유지한다(모바일 computeStats 와 같음, 2026-09-25 동등성 검사)
+            return _sanitize_jsonable({
+                **empty_payload,
+                **_estimated_fine_totals(df),
+                "available_laws": available_laws,
+                "has_empty_law": has_empty_law,
+            })
 
         if app_settings.normalize_police and "처리기관" in df.columns:
             df["처리기관"] = df["처리기관"].apply(database.normalize_police_agency)

@@ -64,6 +64,15 @@ by_law (법규별, 같은 필드 + law)
 - 서버 쪽은 `SAFETYREPORT_DATA_DIR` 임시 폴더 + fixture 모드 서브프로세스, 모바일 쪽은 sqflite FFI. 운영 DB·외부 요청 없음.
 - S0 은 fixture 24건에 크롤러와 같은 값(주소정규화 3컬럼, `synced_at` 백필)과 까다로운 값(사진 시각·`사진_촬영수=0`, NULL 벌점, 빈 별점사유, 줄바꿈·따옴표, 실수 좌표, 지오코딩 캐시 ok/not_found)을 넣는다.
 - 허용 차이는 하나: `mysafety_sync_meta.map_backfill_state`(서버 지도 백필 런타임 상태, 복원 직후 서버가 새로 쓰고 모바일은 의도적으로 버림).
+
+## 2026-09-25 서버↔모바일 계산 동등성 검사
+
+- `scripts/dev/logic_parity_check.py --mobile-repo <모바일 작업트리> [--server-db <사본> --summary-only]` — 같은 DB(S0 → 모바일 가져오기 M1)로
+  서버 `get_dashboard_stats`/`get_agency_stats`/`get_stats_overview` 와 모바일 `computeSummary`/`computeStats`/`computeStatsOverview`
+  (`test/tool/logic_parity_harness_test.dart`)를 각각 계산해 비교한다. 조합: 취하 제외 × 대표건(raw/canonical) × 경찰 기관명 정규화 + 필터(최근 연도, 첫 법규, 연도+법규, 법규 없음) = 48.
+- 한쪽에만 있는 키(서버 `by_law`·`traffic_total_fine`·`estimate_rule_version`·`dedupe_mode` 등 모바일 화면이 쓰지 않는 필드)는 따로 세고 실패로 치지 않는다.
+- 첫 실행에서 찾은 차이: 통계 법규 선택지(`available_laws`) 범위가 달랐다(모바일은 필터 없이 전체, 서버는 연도·취하 제외 적용 후) · 법규 필터로 카테고리가 비면 서버가 선택지를 비웠다. 둘 다 맞췄다 → fixture·운영 사본(3,063건) 모두 48조합 차이 0.
+- 변경 판정 열 목록은 계약 `change_tracked`(서버 `CHANGE_TRACKED_COLUMNS`, 모바일 `_syncedAtTrackedKeys`)로 묶었다.
 - 알려진 정규화(실제 크롤러 출력에는 나타나지 않아 현재 데이터 손실은 없음, 운영 사본 NULL 0건 확인): 모바일 가져오기와 서버 복원이
   지오코딩 캐시 `error_message` NULL→'', 주소정규화·행정구역·지오코딩상태 NULL→''/재계산, `synced_at` NULL→가져온 시각으로 바꾼다. 저장 로직 리팩터링 때 NULL 보존으로 정리한다.
 - 변환 코드(서버 `db_backup.py`, 모바일 `local_db_service.dart` import/export)나 공통 컬럼을 바꾸면 이 검사를 돌린다.

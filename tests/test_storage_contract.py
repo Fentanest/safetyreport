@@ -47,6 +47,11 @@ class StorageContractServerTests(unittest.TestCase):
                 covered.add(entity["server_table"])
         self.assertEqual(set(models.metadata.tables), covered)
 
+    def test_change_tracked_columns_match_contract(self):
+        from core.storage import reports_repo
+
+        self.assertEqual(list(reports_repo.CHANGE_TRACKED_COLUMNS), CONTRACT["change_tracked"]["columns"])
+
     def test_owners_are_declared(self):
         owners = set(CONTRACT["owners"])
         for entity in CONTRACT["entities"]:

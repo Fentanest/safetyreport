@@ -1,6 +1,6 @@
 {
  "contract_version": 2,
- "updated": "2026-09-24",
+ "updated": "2026-09-25",
  "description": "서버·모바일 저장 계약(PROJECT_RULES §3-1). 두 레포의 같은 경로 contracts/storage-contract.json 에 바이트 동일하게 둔다(scripts/dev/db_roundtrip_check.py 가 sha256 비교). R0 판은 현재 스키마를 그대로 적은 것이고, NULL·기본값 정렬은 R1 에서 한다.",
  "null_rule": "NULL = 모름/아직 안 해 봄. '' = 비어 있음이 확인됨. 정규화는 파서 출력 한 곳에서만 하고 저장·변환·API 는 값을 바꾸지 않는다.",
  "owners": {
@@ -13,8 +13,38 @@
  },
  "schema_version": {
   "server": 4,
-  "mobile": 14,
+  "mobile": 15,
   "note": "서버는 PRAGMA user_version(core/database/database.py SCHEMA_VERSION), 모바일은 openDatabase version."
+ },
+ "change_tracked": {
+  "columns": [
+   "처리상태",
+   "차량번호",
+   "위반법규",
+   "범칙금_과태료",
+   "벌점",
+   "처리기관",
+   "담당자",
+   "답변일",
+   "발생일자",
+   "발생시각",
+   "위반장소",
+   "종결여부",
+   "신고내용",
+   "처리내용",
+   "지도",
+   "첨부사진",
+   "첨부파일",
+   "보완횟수",
+   "보완_미응답",
+   "보완_요청자",
+   "보완_요청일시",
+   "보완_완료일시",
+   "보완_요청_내용",
+   "보완_신고자_의견"
+  ],
+  "also": "category 가 바뀌거나, 이전 값이 있는 entry_value·본문 원문(raw_content)·원문 종류(raw_type)가 바뀌면 변경이다.",
+  "note": "상세 저장 때 이 열 중 하나라도 바뀌면(NULL 과 '' 는 같게) synced_at 을 갱신하고 변경 알림을 남긴다. 서버 core/storage/reports_repo.CHANGE_TRACKED_COLUMNS, 모바일 LocalDbService._syncedAtTrackedKeys 가 이 목록과 같아야 한다(양쪽 테스트)."
  },
  "entities": [
   {

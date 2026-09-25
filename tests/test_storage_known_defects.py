@@ -106,6 +106,18 @@ class ServerKnownDefectTests(_SeededDb):
         database.title_to_sql([frame2], self.engine)
         self.assertEqual(self.merge_row(models.title_table, "90000001")["만족도조사여부"], "참여 완료")
 
+    def test_list_upsert_keeps_identity_when_list_value_is_empty(self):
+        """2026-09-25 동등성 검수: 목록의 빈 식별 값(상태·신고번호·신고명·신고일)은 기존 값을 덮지 않는다(모바일 updateTitlesFromList 와 같음)."""
+        before = self.merge_row(models.title_table, "90000001")
+        frame = pd.DataFrame([{"ID": "90000001", "상태": "", "신고번호": "", "신고명": "", "신고일": "", "만족도조사여부": ""}])
+        database.title_to_sql([frame], self.engine)
+        after = self.merge_row(models.title_table, "90000001")
+        for col in ("상태", "신고번호", "신고명", "신고일"):
+            self.assertEqual(after[col], before[col], col)
+        frame2 = frame.assign(신고명="새 신고명")
+        database.title_to_sql([frame2], self.engine)
+        self.assertEqual(self.merge_row(models.title_table, "90000001")["신고명"], "새 신고명")
+
     def test_S17_change_payload_sends_empty_text_for_null(self):
         """S-17(R1c 고침): 알림 payload 가 NULL 을 "None" 글자로 보내지 않는다(표시용이라 '' — Kotlin optString 이 null 을 "null" 로 바꿈)."""
         import settings.settings as app_settings

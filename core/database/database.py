@@ -557,11 +557,19 @@ def title_to_sql(dataframes, engine, conn=None):
                 (title_table.c.만족도조사여부 == '참여 완료', title_table.c.만족도조사여부),
                 else_=insert_stmt.excluded.만족도조사여부
             )
+            # 식별 정보(상태·신고번호·신고명·신고일)는 빈 값으로 덮지 않는다 — 상세 저장(reports_repo)·모바일
+            # updateTitlesFromList 와 같은 규칙(2026-09-25 동등성 검수).
+            def keep_if_empty(column):
+                return sa_case(
+                    (func.coalesce(getattr(insert_stmt.excluded, column), '') == '', getattr(title_table.c, column)),
+                    else_=getattr(insert_stmt.excluded, column),
+                )
+
             update_dict = {
-                '상태': insert_stmt.excluded.상태,
-                '신고번호': insert_stmt.excluded.신고번호,
-                '신고명': insert_stmt.excluded.신고명,
-                '신고일': insert_stmt.excluded.신고일,
+                '상태': keep_if_empty('상태'),
+                '신고번호': keep_if_empty('신고번호'),
+                '신고명': keep_if_empty('신고명'),
+                '신고일': keep_if_empty('신고일'),
                 '만족도조사여부': poll_update,
             }
             upsert_query = insert_stmt.on_conflict_do_update(
