@@ -28,7 +28,7 @@ from services import community_auth_service as cas
 from services.community_auth_store import random_b64url
 
 STACK = os.environ.get("SAFEAUTH_STACK_URL", "").rstrip("/")
-SITE_URL = os.environ.get("SAFEAUTH_SITE_URL", "http://127.0.0.1:8480/safeauth/")
+SITE_URL = os.environ.get("SAFEAUTH_SITE_URL", "http://127.0.0.1:8480/")
 KAKAO_URL = os.environ.get("SAFEAUTH_KAKAO_URL", "http://127.0.0.1:54410").rstrip("/")
 
 
@@ -56,7 +56,7 @@ def _wait(predicate, timeout, interval=0.25):
 
 
 class Browser:
-    """중앙 페이지(worklazy.net/safeauth) 역할. 원래 기기의 비밀값은 모른다."""
+    """중앙 페이지(safeauth.worklazy.net) 역할. 원래 기기의 비밀값은 모른다."""
 
     def __init__(self, anon: str):
         self.anon = anon
@@ -87,7 +87,7 @@ class Browser:
                               allow_redirects=False, timeout=10)
         step3 = self.http.get(step2.headers["Location"], allow_redirects=False, timeout=10)
         landed = urlsplit(step3.headers["Location"])
-        assert landed.path.endswith("/safeauth/callback.html"), landed.path
+        assert landed.path == urlsplit(SITE_URL).path + "callback.html", landed.path
         codes = parse_qs(landed.query).get("code")
         assert codes and len(codes) == 1, "callback 에 code 1개"
         status, published = self.relay("publish", {"request_id": self.request_id, "browser_secret": self.secret,

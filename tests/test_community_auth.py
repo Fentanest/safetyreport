@@ -24,7 +24,7 @@ from services import community_auth_client as cac
 from services import community_auth_service as cas
 from services.community_auth_store import CommunitySessionStore, StoreUnreadable
 
-SITE_URL = "http://127.0.0.1:8480/safeauth/"
+SITE_URL = "http://127.0.0.1:8480/"
 USER_A = {"id": "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0", "email": None,
           "user_metadata": {"name": "로컬A", "nickname": "로컬A"}}
 USER_B = {"id": "9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d", "email": "b-user@example.invalid",
@@ -755,7 +755,7 @@ class ServiceFlowTests(CommunityTestBase):
             self.assertEqual(self.service.start()["state"], "pending")
 
     def test_invalid_relay_bootstrap_url_is_rejected(self):
-        self.cfg = cas.CommunityConfig(**{**self.cfg.__dict__, "site_url": "https://worklazy.net/safeauth/"})
+        self.cfg = cas.CommunityConfig(**{**self.cfg.__dict__, "site_url": "https://safeauth.worklazy.net/"})
         with self.assertRaises(cas.CommunityAuthError) as ctx:
             self.service.start()
         self.assertEqual(ctx.exception.code, "relay_rejected")

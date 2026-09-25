@@ -31,7 +31,7 @@ from services.community_auth_store import CommunitySessionStore, StoreUnreadable
 _log = logging.getLogger("safetyreport.core.community_auth")
 
 SECTION = "COMMUNITY"
-DEFAULT_SITE_URL = "https://worklazy.net/safeauth/"
+DEFAULT_SITE_URL = "https://safeauth.worklazy.net/"
 ENV_ENABLED = "SAFETYREPORT_COMMUNITY_ENABLED"
 ENV_SUPABASE_URL = "SAFETYREPORT_COMMUNITY_SUPABASE_URL"
 ENV_PUBLISHABLE_KEY = "SAFETYREPORT_COMMUNITY_PUBLISHABLE_KEY"

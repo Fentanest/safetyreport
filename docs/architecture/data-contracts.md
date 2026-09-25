@@ -336,7 +336,7 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 | `enabled` | `COMMUNITY` | 커뮤니티 계정 연결 켜기 (env `SAFETYREPORT_COMMUNITY_ENABLED` 우선) | `false` |
 | `supabase_url` | `COMMUNITY` | Supabase 프로젝트 https origin, 공개값 (env `SAFETYREPORT_COMMUNITY_SUPABASE_URL`) | 빈 값 |
 | `publishable_key` | `COMMUNITY` | 공개(publishable/anon) 키. `sb_secret_`·service_role 거부 (env `SAFETYREPORT_COMMUNITY_PUBLISHABLE_KEY`) | 빈 값 |
-| `site_url` | `COMMUNITY` | 중앙 연결 페이지 (env `SAFETYREPORT_COMMUNITY_SITE_URL`) | `https://worklazy.net/safeauth/` |
+| `site_url` | `COMMUNITY` | 중앙 연결 페이지 (env `SAFETYREPORT_COMMUNITY_SITE_URL`) | `https://safeauth.worklazy.net/` |
 | `device_label` | `COMMUNITY` | 중앙 페이지에 보일 서버 이름 | 빈 값("이 PC"/"Docker 서버") |
 | `api_key_managers` | `COMMUNITY` | 커뮤니티 계정 관리를 허용한 API 키의 SHA-256 목록(쉼표) | 빈 값 |
 | `upload_enabled` | `COMMUNITY` | 업로드 허용(아직 업로더 없음, 화면에서 안 바꿈) | `false` |

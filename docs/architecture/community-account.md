@@ -1,4 +1,4 @@
-# 커뮤니티 계정 연결 (worklazy.net/safeauth) — PC/Docker 서버 쪽
+# 커뮤니티 계정 연결 (safeauth.worklazy.net) — PC/Docker 서버 쪽
 
 2026-09-25 추가. 커뮤니티 지도에서 쓸 카카오 계정(Supabase Auth)을 **이 서버에** 연결한다. 안전신문고 로그인과 별개다.
 중계·중앙 페이지·프로토콜 정본은 `safetyreport-community-map` 저장소의 `docs/safeauth/protocol.md`
@@ -9,7 +9,7 @@
 ```
 관리자 화면/모바일 Client ──POST start──▶ 이 서버: verifier·device_secret·delivery_key 생성 → 암호화 저장
                                           └─▶ 중계 requests (code_challenge 만 전송) → 비교코드 + 1회용 연결 링크
-사람: 연결 링크를 브라우저로 열기 → 중앙 페이지(worklazy.net/safeauth)에서 비교코드 확인 → 카카오 로그인
+사람: 연결 링크를 브라우저로 열기 → 중앙 페이지(safeauth.worklazy.net)에서 비교코드 확인 → 카카오 로그인
 이 서버 poll 스레드(5초±20%, 만료까지만) ──poll──▶ 중계 → status=code → /auth/v1/token?grant_type=pkce 한 번만 교환
                                           └─▶ /auth/v1/user 로 계정 확인 → 후보 세션 암호화 저장 → "계정 확인 필요"
 관리자/허가된 Client ──POST confirm──▶ 후보 → 현재 세션으로 원자 교체(저장 완료 후) → 중계 complete(Bearer 새 access)
@@ -40,7 +40,7 @@
 | `enabled` | `false` | `SAFETYREPORT_COMMUNITY_ENABLED` | 기능 켜기 |
 | `supabase_url` | 빈 값 | `SAFETYREPORT_COMMUNITY_SUPABASE_URL` | https origin 만(경로 없음). http 는 `127.0.0.1` 만(로컬 검증 스택) |
 | `publishable_key` | 빈 값 | `SAFETYREPORT_COMMUNITY_PUBLISHABLE_KEY` | `sb_publishable_…` 또는 role=anon JWT 만. `sb_secret_`·service_role 거부 |
-| `site_url` | `https://worklazy.net/safeauth/` | `SAFETYREPORT_COMMUNITY_SITE_URL` | 중계가 준 연결 링크가 이 주소 + `#r=…&t=…` 형식인지 검사 |
+| `site_url` | `https://safeauth.worklazy.net/` | `SAFETYREPORT_COMMUNITY_SITE_URL` | 중계가 준 연결 링크가 이 주소 + `#r=…&t=…` 형식인지 검사 |
 | `device_label` | 빈 값 → "이 PC" / "Docker 서버"(`/.dockerenv`) | — | 중앙 페이지에 보이는 이름. 프로토콜 규칙(1~40자, `<>"'\`\\`·제어문자·URL 스킴 금지) |
 | `api_key_managers` | 빈 값 | — | 관리 허용 API 키들의 SHA-256 hex, 쉼표 구분. 원문 키는 저장하지 않음 |
 | `upload_enabled` | `false` | — | 화면에서 바꾸지 않는다. 업로더가 생기면 별도 동의 화면에서 다룬다 |
