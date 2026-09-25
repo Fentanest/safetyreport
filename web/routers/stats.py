@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request
 from core.database.engine import get_engine
+from core.utils import csrf
 from services import data_service, geocode_service
 from core.utils.templating import templates
 from web.routers.filters import default_dedupe_mode, normalize_dedupe_mode, normalize_map_category
@@ -129,6 +130,8 @@ def view_report_map(
         "available_years": meta.get("available_years", []),
         "selected_category": meta.get("selected_category", selected_category),
         "dedupe_mode": meta.get("dedupe_mode", dedupe_mode),
+        # T4 커뮤니티 공유 패널의 POST(upload/run·reshare)용 CSRF 토큰 (그 밖 변경 없음)
+        "csrf_token": csrf.get_or_create_token(request),
     })
 
 
