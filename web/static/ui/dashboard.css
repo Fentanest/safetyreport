@@ -156,7 +156,7 @@
     font-size: 0.85rem;
     color: #ffffff;
 }
-.sunwi-rank-badge.rank-1 { background-color: var(--sr-primary); }
+.sunwi-rank-badge.rank-1 { background-color: var(--sr-primary-fill); }
 .sunwi-rank-badge.rank-2 { background-color: var(--sr-status-accept); }
 .sunwi-rank-badge.rank-3 { background-color: var(--sr-status-partial); }
 .sunwi-rank-badge.rank-4 { background-color: var(--sr-status-withdraw); }

@@ -1,0 +1,12 @@
+{
+ "description": "다크 모드 B안(딥 다크, 2026-09-25) 공용 팔레트. 서버 web/static/ui/tokens.css 의 [data-bs-theme=\"dark\"] 와 모바일 SrColors.dark·AppTheme 이 같은 값을 써야 한다. 두 레포에 바이트까지 같게 둔다. 대응표 docs/design/dark-palette.md.",
+ "bg": "#0b0b0c",
+ "surface": "#131314",
+ "surface_2": "#1b1b1c",
+ "surface_3": "#232324",
+ "border": "#2d2d2f",
+ "text": "#f3f3f4",
+ "text_muted": "#9ea0a4",
+ "primary_fill": "#2563eb",
+ "primary_text": "#60a5fa"
+}

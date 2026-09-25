@@ -10,14 +10,14 @@
     --bs-border-color: var(--sr-border);
     --bs-tertiary-bg: var(--sr-surface-2);
     --bs-secondary-bg: var(--sr-surface-3);
-    --bs-primary: var(--sr-primary);
+    --bs-primary: var(--sr-primary-fill);
     --bs-link-color: var(--sr-primary);
     --bs-link-hover-color: var(--sr-accent);
     --bs-card-bg: var(--sr-surface);
 }
 [data-bs-theme="dark"] {
-    --bs-link-color: #7fb0ff;
-    --bs-link-color-rgb: 127, 176, 255;
+    --bs-link-color: var(--sr-primary);
+    --bs-link-color-rgb: 96, 165, 250;
     --bs-emphasis-color: #ffffff;
 }
 
@@ -66,7 +66,7 @@ img.sr-logo-dark { display: none !important; }
 .modal-content, .offcanvas, .dropdown-menu { background-color: var(--sr-surface); color: var(--sr-text); border-color: var(--sr-border); }
 .form-control, .form-select { background-color: var(--sr-surface); color: var(--sr-text); border-color: var(--sr-border); }
 .form-control:focus, .form-select:focus { box-shadow: var(--sr-focus); border-color: var(--sr-primary); }
-.btn-primary { --bs-btn-bg: var(--sr-primary); --bs-btn-border-color: var(--sr-primary); }
+.btn-primary { --bs-btn-bg: var(--sr-primary-fill); --bs-btn-border-color: var(--sr-primary-fill); --bs-btn-color: #fff; --bs-btn-hover-color: #fff; --bs-btn-active-color: #fff; }
 .table { --bs-table-bg: transparent; --bs-table-color: var(--sr-text); --bs-table-border-color: var(--sr-border); }
 
 /* 다크에서 하드코딩된 밝은 유틸리티 보정 (템플릿·JS 문자열 안의 클래스 포함) */

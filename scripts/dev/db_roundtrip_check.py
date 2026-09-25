@@ -235,7 +235,7 @@ def main() -> int:
         # 저장 계약은 두 레포에 바이트 동일해야 한다(저장 계층 재설계 R0).
         import hashlib
         # 두 레포가 바이트까지 같아야 하는 계약 파일(저장 계약, 파서 기대값, EXIF 판독 기대값, 별점 대상 판정)
-        for name in ("storage-contract.json", "parser-vectors.json", "exif-vectors.json", "rating-eligibility-vectors.json"):
+        for name in ("storage-contract.json", "parser-vectors.json", "exif-vectors.json", "rating-eligibility-vectors.json", "dark-palette.json"):
             contract_paths = [REPO_ROOT / "contracts" / name, args.mobile_repo.resolve() / "contracts" / name]
             digests = [hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None for p in contract_paths]
             if digests[0] is None or digests[0] != digests[1]:

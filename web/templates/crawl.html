@@ -51,7 +51,7 @@
                     </div>
 
                     <div class="d-flex gap-2 mt-4 pt-3" style="border-top: 1px solid var(--sr-border);">
-                        <button type="submit" class="btn flex-grow-1 text-white" id="btnStart" style="background-color: var(--sr-primary); border: none;" {% if is_running %}disabled{% endif %}>
+                        <button type="submit" class="btn flex-grow-1 text-white" id="btnStart" style="background-color: var(--sr-primary-fill); border: none;" {% if is_running %}disabled{% endif %}>
                             <i class="fas fa-play me-1"></i> 크롤링 시작
                         </button>
                         <button type="button" class="btn flex-grow-1 text-white" id="btnKill" style="background-color: var(--sr-status-reject); border: none;" {% if not is_running %}disabled{% endif %}>
