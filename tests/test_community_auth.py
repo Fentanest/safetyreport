@@ -55,6 +55,7 @@ class FakeSupabase:
         self.refresh_delay = 0.0
         self.complete_fail: list[int] = []        # 순서대로 돌려줄 HTTP 상태(빈 목록이면 성공)
         self.expires_in = 3600
+        self.account_handler = None                # (action, body, access_token) -> (status, body): community-account 흉내
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -140,6 +141,10 @@ class FakeSupabase:
                 path, query = parts.path, parse_qs(parts.query)
                 if path.startswith("/functions/v1/community-auth-relay/"):
                     return self._relay(path.rsplit("/", 1)[1], body)
+                if path.startswith("/functions/v1/community-account/") and fake.account_handler:
+                    status, payload = fake.account_handler(path.rsplit("/", 1)[1], body,
+                                                           self.headers.get("Authorization", "")[7:])
+                    return self._send(status, payload)
                 if path == "/auth/v1/token" and query.get("grant_type") == ["pkce"]:
                     return self._pkce(body)
                 if path == "/auth/v1/token" and query.get("grant_type") == ["refresh_token"]:
@@ -427,8 +432,36 @@ class HelperTests(unittest.TestCase):
                                                          cas.ENV_SUPABASE_URL: "https://abc.supabase.co",
                                                          cas.ENV_PUBLISHABLE_KEY: "sb_publishable_abcdefghijklmnop"})
         self.assertTrue(cfg.enabled and cfg.configured)
+        self.assertFalse(cfg.disabled_ignored)
         self.assertEqual(cfg.env_locked, frozenset({"enabled", "supabase_url", "publishable_key"}))
         self.assertEqual(cfg.site_url, cas.DEFAULT_SITE_URL)
+
+    def test_config_mandatory_aliases_and_bundled(self):
+        # 2026-09-26 필수화: enabled=false 는 무시(경고 표시만), COMMUNITY_* 별칭, 번들 공개값이 가장 낮은 우선순위.
+        cfg = cas.build_config({"enabled": "false", "supabase_url": "https://abc.supabase.co",
+                                "publishable_key": "sb_publishable_abcdefghijklmnop"}, env={})
+        self.assertTrue(cfg.enabled and cfg.configured)
+        self.assertTrue(cfg.disabled_ignored)
+        cfg = cas.build_config({}, env={"COMMUNITY_SUPABASE_URL": "https://abc.supabase.co",
+                                        "COMMUNITY_PUBLISHABLE_KEY": "sb_publishable_abcdefghijklmnop"})
+        self.assertTrue(cfg.configured)
+        self.assertEqual(cfg.env_locked, frozenset({"supabase_url", "publishable_key"}))
+        cfg = cas.build_config({}, env={"COMMUNITY_SUPABASE_URL": "https://abc.supabase.co",
+                                        cas.ENV_SUPABASE_URL: "https://other.supabase.co",
+                                        "COMMUNITY_PUBLISHABLE_KEY": "sb_publishable_abcdefghijklmnop"})
+        self.assertIn("config_conflict", cfg.problems)
+        self.assertFalse(cfg.configured)
+        same = "https://abc.supabase.co"
+        cfg = cas.build_config({}, env={"COMMUNITY_SUPABASE_URL": same, cas.ENV_SUPABASE_URL: same,
+                                        "COMMUNITY_PUBLISHABLE_KEY": "sb_publishable_abcdefghijklmnop"})
+        self.assertTrue(cfg.configured, "같은 값이면 충돌이 아니다")
+        bundled = {"supabase_url": "https://bundled.supabase.co", "publishable_key": "sb_publishable_bundledkey123456"}
+        cfg = cas.build_config({}, env={}, bundled=bundled)
+        self.assertEqual((cfg.supabase_url, cfg.publishable_key), (bundled["supabase_url"], bundled["publishable_key"]))
+        cfg = cas.build_config({"supabase_url": "https://ini.supabase.co"}, env={}, bundled=bundled)
+        self.assertEqual(cfg.supabase_url, "https://ini.supabase.co")
+        cfg = cas.build_config({}, env={}, bundled={"publishable_key": "sb_secret_abcdefghijklmnop"})
+        self.assertIn("publishable_key", cfg.problems, "번들 값도 비밀 키면 거부")
 
 
 # ── 서비스 흐름 (가짜 Supabase) ─────────────────────────────────────────────────
@@ -707,11 +740,18 @@ class ServiceFlowTests(CommunityTestBase):
         self.assertNotIn(SITE_URL, json.dumps(dto))
 
     def test_upload_gate(self):
+        # 2026-09-26: [COMMUNITY] upload_enabled 폐기 — 업로드 허용 = 연결 + 필수 게이트(중앙 동의) 판정.
         self.assertFalse(self.service.is_upload_allowed())
         self.connect(USER_A)
-        self.assertFalse(self.service.is_upload_allowed(), "upload_enabled 기본값은 꺼짐")
-        self.cfg = cas.CommunityConfig(**{**self.cfg.__dict__, "upload_enabled": True})
+        self.assertFalse(self.service.is_upload_allowed(), "게이트 판정이 없으면 업로드하지 않는다")
+        self.service.upload_allowed_provider = lambda: False
+        self.assertFalse(self.service.is_upload_allowed())
+        self.assertFalse(self.service.status(can_manage=True)["upload_enabled"])
+        self.service.upload_allowed_provider = lambda: True
         self.assertTrue(self.service.is_upload_allowed())
+        self.assertTrue(self.service.status(can_manage=True)["upload_enabled"])
+        self.service.disconnect()
+        self.assertFalse(self.service.is_upload_allowed(), "연결이 없으면 게이트와 무관하게 거부")
 
     def test_unreadable_store_surfaces_state_and_disconnect_quarantines(self):
         self.connect(USER_A)
@@ -726,19 +766,20 @@ class ServiceFlowTests(CommunityTestBase):
         self.assertTrue(any(n.startswith("community_session.enc.unreadable-") for n in os.listdir(self.service.store.auth_dir)))
         self.assertEqual(self.service.status(can_manage=True)["state"], "disconnected")
 
-    def test_disabled_and_unconfigured(self):
+    def test_disabled_flag_ignored_and_unconfigured(self):
+        # 2026-09-26: 커뮤니티 계정은 필수 — enabled=False 여도 'disabled' 상태로 막지 않는다.
         self.cfg = cas.CommunityConfig(enabled=False, supabase_url=self.fake.url,
                                        publishable_key="sb_publishable_testkey1234567890", site_url=SITE_URL)
-        self.assertEqual(self.service.status(can_manage=True)["state"], "disabled")
-        with self.assertRaises(cas.CommunityAuthError) as ctx:
-            self.service.start()
-        self.assertEqual((ctx.exception.code, ctx.exception.status), ("community_disabled", 503))
+        self.assertEqual(self.service.status(can_manage=True)["state"], "disconnected")
         self.cfg = cas.CommunityConfig(enabled=True, site_url=SITE_URL)
         self.assertEqual(self.service.status(can_manage=True)["state"], "unconfigured")
         with self.assertRaises(cas.CommunityAuthError) as ctx:
             self.service.start()
         self.assertEqual(ctx.exception.code, "community_unconfigured")
         self.assertEqual(self.fake.calls, [])
+        self.cfg = cas.CommunityConfig(enabled=False, supabase_url=self.fake.url,
+                                       publishable_key="sb_publishable_testkey1234567890", site_url=SITE_URL)
+        self.assertEqual(self.service.start()["state"], "pending", "enabled=False 여도 연결을 시작할 수 있다")
 
     def test_fixture_mode_blocks_non_loopback(self):
         self.cfg = cas.CommunityConfig(enabled=True, supabase_url="https://abc.supabase.co",
@@ -1011,10 +1052,6 @@ class LocalApiTests(CommunityTestBase):
         self.assertEqual(r.json()["data"]["state"], "disconnected")
 
     def test_mobile_errors(self):
-        self.cfg = cas.CommunityConfig(**{**self.cfg.__dict__, "enabled": False})
-        r = self.api("POST", "start", self.manager_key)
-        self.assertEqual((r.status_code, r.json()["code"]), (503, "community_disabled"))
-        self.cfg = cas.CommunityConfig(**{**self.cfg.__dict__, "enabled": True})
         self.fake.close()
         r = self.api("POST", "start", self.manager_key)
         self.assertEqual((r.status_code, r.json()["code"]), (502, "relay_unavailable"))

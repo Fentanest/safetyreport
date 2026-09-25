@@ -54,6 +54,10 @@ def start_batch_rating(engine, report_numbers, score: int, cause: str = ""):
         raise RuntimeError(
             "현재 크롤링 프로세스가 진행 중입니다. 충돌 방지를 위해 크롤링 종료 후 실행해주세요."
         )
+    from services import community_gate  # 새 작업은 60초 이내 게이트 재검증(필수 설정 전·철회 뒤 시작 금지)
+
+    if not community_gate.require_fresh()["can_enter"]:
+        raise RuntimeError(community_gate.BLOCK_MESSAGES[community_gate.ONBOARDING_REQUIRED])
 
     block_if_fixture("star rating batch")
     prepare_current_rating_log()

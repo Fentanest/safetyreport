@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>초기화 크롤링 - 나만의 안전신문고</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ request.state.app_version }}-icon2">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    {% include "components/theme_head.html" %}
+    <style>.onboarding-wrap { max-width: 760px; }</style>
+</head>
+<body class="sr-auth-body">
+<main class="container onboarding-wrap py-4 py-md-5" id="rbRoot" data-csrf="{{ csrf_token }}" data-next="{{ next }}">
+    <h1 class="h4 fw-bold mb-1">초기화 크롤링 (1회)</h1>
+    <p class="text-muted small">커뮤니티 공유를 위해 지금까지의 내 신고를 안전신문고에서 한 번 다시 읽어 공유용 사본을 만듭니다.</p>
+
+    <div class="card card-custom mb-3">
+        <div class="card-body small">
+            <ul class="mb-2 ps-3">
+                <li><strong>내 신고 데이터는 지우지 않습니다.</strong> 시작 전에 개인 DB 백업을 <code>data/backups/</code> 에 만들고, 이미 있는 신고는 새 값으로만 갱신합니다.</li>
+                <li>종결된 신고를 포함해 목록 전체의 상세를 다시 읽습니다. 신고 수에 따라 오래 걸릴 수 있고, 중간에 멈추거나 프로그램을 다시 켜도 이어서 진행합니다.</li>
+                <li>한 번 끝나면 다시 실행하지 않습니다. 개인 DB 를 복원하거나 안전신문고 계정을 바꾸면 다시 필요할 수 있습니다.</li>
+                <li>진행 중에는 일반 수집(수동·예약)만 잠시 막히고, 다른 화면은 그대로 쓸 수 있습니다.</li>
+            </ul>
+        </div>
+    </div>
+
+    <div id="rbAlert" class="alert alert-warning small d-none" role="status" aria-live="polite"></div>
+
+    <div class="card card-custom mb-3">
+        <div class="card-body">
+            <div class="d-flex align-items-center gap-2 mb-2">
+                <span class="fw-bold">상태</span>
+                <span class="badge text-bg-secondary" id="rbState">확인 중</span>
+            </div>
+            <dl class="row small mb-0" id="rbDetails">
+                <dt class="col-sm-4">진행</dt><dd class="col-sm-8" id="rbCounts">-</dd>
+                <dt class="col-sm-4">백업</dt><dd class="col-sm-8" id="rbBackup">-</dd>
+                <dt class="col-sm-4">마지막 오류</dt><dd class="col-sm-8" id="rbError">-</dd>
+            </dl>
+        </div>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2">
+        <button type="button" class="btn btn-primary d-none" id="rbStartBtn">백업하고 초기화 크롤링 시작</button>
+        <button type="button" class="btn btn-outline-primary d-none" id="rbResumeBtn">이어서 진행</button>
+        <button type="button" class="btn btn-outline-secondary d-none" id="rbPauseBtn">일시 중지</button>
+        <button type="button" class="btn btn-outline-warning d-none" id="rbAcceptBtn">읽지 못한 신고를 빼고 완료</button>
+        <a class="btn btn-outline-secondary ms-auto" href="{{ next }}" id="rbLaterLink">나중에 하기</a>
+    </div>
+</main>
+<script>
+(function () {
+    'use strict';
+    var root = document.getElementById('rbRoot');
+    var csrfToken = root.getAttribute('data-csrf') || '';
+    var $ = function (id) { return document.getElementById(id); };
+    var busy = false, timer = null, last = null;
+    var LABEL = {
+        required: ['필요', 'text-bg-warning'], prerequisites_required: ['준비 필요', 'text-bg-warning'],
+        awaiting_confirmation: ['확인 대기', 'text-bg-info'], preparing_backup: ['백업 중', 'text-bg-info'],
+        running: ['진행 중', 'text-bg-info'], paused: ['일시 중지', 'text-bg-secondary'], validating: ['확인 중', 'text-bg-info'],
+        committing: ['마무리 중', 'text-bg-info'], completed: ['완료', 'text-bg-success'],
+        completed_with_gaps: ['완료(일부 제외)', 'text-bg-success'], failed: ['실패', 'text-bg-danger'], abandoned: ['중단됨', 'text-bg-secondary']
+    };
+    var REASON = { official_account_missing: '먼저 설정 화면에서 안전신문고 계정을 저장해 주세요.', gate: '카카오 인증·공유 동의 확인이 필요합니다.',
+                   manifest_unavailable: '커뮤니티 서버에서 이미 공유한 목록을 받지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.' };
+    function show(id, on) { $(id).classList.toggle('d-none', !on); }
+    function alertBox(msg, kind) {
+        var box = $('rbAlert');
+        if (!msg) { box.classList.add('d-none'); return; }
+        box.className = 'alert small alert-' + (kind || 'warning'); box.textContent = msg;
+    }
+    function request(method, path, body) {
+        var opts = { method: method, credentials: 'same-origin', headers: { 'Accept': 'application/json' } };
+        if (method === 'POST') {
+            opts.headers['Content-Type'] = 'application/json'; opts.headers['X-CSRF-Token'] = csrfToken;
+            opts.body = JSON.stringify(body || {});
+        }
+        return fetch('/settings/community/rebuild' + path, opts).then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (data) {
+                if (r.status === 401) { window.location.href = '/login?next=/onboarding/rebuild'; throw new Error('login'); }
+                if (!r.ok && !(r.status === 409 && data.data)) { var e = new Error(data.detail || ('요청 실패 (' + r.status + ')')); throw e; }
+                return data;
+            });
+        });
+    }
+    function render(s) {
+        last = s || {};
+        var lab = LABEL[last.state] || [last.state || '알 수 없음', 'text-bg-secondary'];
+        $('rbState').textContent = lab[0]; $('rbState').className = 'badge ' + lab[1];
+        var c = last.counts || {};
+        var parts = [];
+        ['fetched', 'pending', 'failed_retryable', 'failed_permanent'].forEach(function (k) {
+            if (typeof c[k] === 'number') parts.push({ fetched: '읽음', pending: '남음', failed_retryable: '재시도', failed_permanent: '읽지 못함' }[k] + ' ' + c[k]);
+        });
+        $('rbCounts').textContent = parts.length ? parts.join(' · ') : '-';
+        $('rbBackup').textContent = last.backup_ref || '-';
+        $('rbError').textContent = last.last_error || (last.reason ? (REASON[last.reason] || last.reason) : '-');
+        var st = last.state;
+        show('rbStartBtn', st === 'required' || st === 'failed' || st === 'prerequisites_required');
+        show('rbResumeBtn', st === 'paused');
+        show('rbPauseBtn', st === 'running');
+        show('rbAcceptBtn', st === 'validating' && (c.failed_permanent || 0) > 0);
+        if (st === 'completed' || st === 'completed_with_gaps') { $('rbLaterLink').textContent = '계속'; }
+        clearTimeout(timer);
+        if (['preparing_backup', 'running', 'validating', 'committing'].indexOf(st) >= 0) timer = setTimeout(load, 3000);
+    }
+    function load() {
+        return request('GET', '').then(function (res) { render(res.data); }).catch(function (e) {
+            if (e.message !== 'login') alertBox('상태를 불러오지 못했습니다: ' + e.message, 'danger');
+        });
+    }
+    function act(path, body, btn, confirmText) {
+        if (busy) return;
+        if (confirmText && !window.confirm(confirmText)) return;
+        busy = true; btn.disabled = true; alertBox('');
+        request('POST', path, body).then(function (res) {
+            if (res.code === 'prerequisites_required') alertBox(REASON[(res.data || {}).reason] || '시작 조건을 확인해 주세요.', 'warning');
+            render(res.data);
+        }).catch(function (e) { if (e.message !== 'login') alertBox(e.message, 'danger'); })
+          .then(function () { busy = false; btn.disabled = false; });
+    }
+    $('rbStartBtn').addEventListener('click', function () {
+        act('/start', {}, this, '개인 DB 를 백업한 뒤 초기화 크롤링을 시작합니다. 신고 데이터는 지우지 않습니다. 시작할까요?');
+    });
+    $('rbResumeBtn').addEventListener('click', function () { act('/resume', {}, this); });
+    $('rbPauseBtn').addEventListener('click', function () { act('/pause', {}, this); });
+    $('rbAcceptBtn').addEventListener('click', function () {
+        act('/accept-gaps', {}, this, '안전신문고에서 읽지 못한 신고를 빼고 완료할까요? 그 신고는 공유 사본이 만들어지지 않습니다.');
+    });
+    load();
+})();
+</script>
+</body>
+</html>

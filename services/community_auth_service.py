@@ -6,7 +6,10 @@
 
 - 중앙 페이지는 이 서버에 접속하지 않는다. 중계 poll·코드 교환은 이 프로세스가 한다.
 - 토큰·verifier·비밀값·연결 링크는 data.db·config.ini·로그·URL 에 넣지 않는다(services/community_auth_store.py).
-- 업로드는 아직 없다. 향후 업로더는 is_upload_allowed() 와 get_access_token() 만 쓴다.
+- 카카오 인증 + 공유 동의는 필수 진입 게이트다(services/community_gate.py). `[COMMUNITY] enabled=false` 는 더 이상
+  연결을 끄지 못하고(경고만), `upload_enabled` 는 폐기했다 — 업로드 허용의 정본은 중앙 동의 grant 와 게이트다.
+- 공개 설정 우선순위: 환경변수(SAFETYREPORT_COMMUNITY_* = COMMUNITY_* 별칭, 둘 다 있고 다르면 config_conflict)
+  > config.ini [COMMUNITY] > 빌드에 넣은 community_public.json.
 """
 from __future__ import annotations
 
@@ -36,6 +39,9 @@ ENV_ENABLED = "SAFETYREPORT_COMMUNITY_ENABLED"
 ENV_SUPABASE_URL = "SAFETYREPORT_COMMUNITY_SUPABASE_URL"
 ENV_PUBLISHABLE_KEY = "SAFETYREPORT_COMMUNITY_PUBLISHABLE_KEY"
 ENV_SITE_URL = "SAFETYREPORT_COMMUNITY_SITE_URL"
+ENV_ALIASES = {ENV_ENABLED: "COMMUNITY_ENABLED", ENV_SUPABASE_URL: "COMMUNITY_SUPABASE_URL",
+               ENV_PUBLISHABLE_KEY: "COMMUNITY_PUBLISHABLE_KEY", ENV_SITE_URL: "COMMUNITY_SITE_URL"}
+BUNDLED_PUBLIC_FILE = "community_public.json"
 
 REFRESH_MARGIN_SECONDS = 60
 DEFAULT_POLL_SECONDS = 5.0
@@ -173,36 +179,43 @@ def validate_publishable_key(value) -> str | None:
 
 @dataclasses.dataclass(frozen=True)
 class CommunityConfig:
-    enabled: bool = False
+    enabled: bool = True  # 필수 기능 — 항상 True. 설정의 false 는 disabled_ignored 로만 남는다.
     supabase_url: str = ""
     publishable_key: str = ""
     site_url: str = DEFAULT_SITE_URL
     device_label: str = ""
     api_key_managers: frozenset = frozenset()
-    upload_enabled: bool = False
     problems: tuple = ()
     env_locked: frozenset = frozenset()
+    disabled_ignored: bool = False
 
     @property
     def configured(self) -> bool:
         return bool(self.supabase_url and self.publishable_key and self.site_url) and not self.problems
 
 
-def build_config(raw: dict, env: dict | None = None) -> CommunityConfig:
-    """config.ini [COMMUNITY] 값(raw) + 환경변수 우선값으로 검증된 설정을 만든다."""
+def build_config(raw: dict, env: dict | None = None, bundled: dict | None = None) -> CommunityConfig:
+    """환경변수(정식 이름·별칭) > config.ini [COMMUNITY](raw) > 번들 공개값(bundled) 순서로 검증된 설정을 만든다."""
     env = os.environ if env is None else env
+    bundled = bundled or {}
     locked = set()
+    conflicts = set()
 
     def pick(key: str, env_name: str, default: str = "") -> str:
-        env_value = env.get(env_name)
-        if env_value is not None and env_value.strip() != "":
+        values = [v.strip() for v in (env.get(env_name), env.get(ENV_ALIASES[env_name])) if v is not None and v.strip() != ""]
+        if values:
             locked.add(key)
-            return env_value.strip()
+            if len(set(values)) > 1:
+                conflicts.add(key)
+            return values[0]
         value = raw.get(key)
-        return default if value is None else str(value).strip()
+        if value is not None and str(value).strip() != "":
+            return str(value).strip()
+        value = bundled.get(key)
+        return default if not isinstance(value, str) or not value.strip() else value.strip()
 
     problems = []
-    enabled = pick("enabled", ENV_ENABLED, "false").lower() in _TRUE
+    disabled_ignored = pick("enabled", ENV_ENABLED, "true").lower() not in _TRUE
     url_raw = pick("supabase_url", ENV_SUPABASE_URL)
     key_raw = pick("publishable_key", ENV_PUBLISHABLE_KEY)
     site_raw = pick("site_url", ENV_SITE_URL, DEFAULT_SITE_URL) or DEFAULT_SITE_URL
@@ -220,10 +233,34 @@ def build_config(raw: dict, env: dict | None = None) -> CommunityConfig:
         h.strip().lower() for h in str(raw.get("api_key_managers") or "").split(",")
         if re.fullmatch(r"[0-9a-fA-F]{64}", h.strip())
     )
-    upload = str(raw.get("upload_enabled") or "false").strip().lower() in _TRUE
-    return CommunityConfig(enabled=enabled, supabase_url=url, publishable_key=key, site_url=site,
-                           device_label=label, api_key_managers=managers, upload_enabled=upload,
-                           problems=tuple(problems), env_locked=frozenset(locked))
+    if conflicts:
+        problems.append("config_conflict")
+    return CommunityConfig(enabled=True, supabase_url=url, publishable_key=key, site_url=site,
+                           device_label=label, api_key_managers=managers,
+                           problems=tuple(problems), env_locked=frozenset(locked), disabled_ignored=disabled_ignored)
+
+
+_bundled_cache: dict | None = None
+
+
+def load_bundled_public() -> dict:
+    """빌드가 넣은 공개 설정(community_public.json: supabase_url·publishable_key·site_url). 없거나 틀리면 빈 dict."""
+    global _bundled_cache
+    if _bundled_cache is None:
+        import json
+
+        from core.utils.path_utils import resource_path
+
+        data = {}
+        try:
+            with open(resource_path(BUNDLED_PUBLIC_FILE), "r", encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            if isinstance(loaded, dict):
+                data = {k: loaded[k] for k in ("supabase_url", "publishable_key", "site_url") if isinstance(loaded.get(k), str)}
+        except (OSError, ValueError):
+            data = {}
+        _bundled_cache = data
+    return _bundled_cache
 
 
 def load_config_from_settings() -> CommunityConfig:
@@ -231,7 +268,7 @@ def load_config_from_settings() -> CommunityConfig:
 
     cfg = app_settings._instance.config
     raw = dict(cfg.items(SECTION)) if cfg.has_section(SECTION) else {}
-    return build_config(raw)
+    return build_config(raw, bundled=load_bundled_public())
 
 
 # ── 서비스 ────────────────────────────────────────────────────────────────────
@@ -251,6 +288,7 @@ class CommunityAuthService:
         self._workers_lock = threading.Lock()
         self._start_lock = threading.Lock()
         self._shutdown = threading.Event()
+        self.upload_allowed_provider = None  # get_service() 가 community_gate 판정을 연결한다
 
     # 기본 도우미 -----------------------------------------------------------
     def config(self) -> CommunityConfig:
@@ -268,8 +306,6 @@ class CommunityAuthService:
 
     @staticmethod
     def _require_ready(cfg: CommunityConfig) -> None:
-        if not cfg.enabled:
-            raise CommunityAuthError("community_disabled")
         if not cfg.configured:
             raise CommunityAuthError("community_unconfigured")
 
@@ -311,9 +347,7 @@ class CommunityAuthService:
             return dto
         pending = st.get("pending") if (st.get("pending") or {}).get("request_id") else None
         current, reauth = st.get("current"), st.get("reauth")
-        if not cfg.enabled:
-            dto["state"] = "disabled"
-        elif not cfg.configured:
+        if not cfg.configured:
             dto["state"] = "unconfigured"
         elif pending:
             dto["state"] = "confirm_required" if pending.get("phase") == "confirm_required" else "pending"
@@ -348,8 +382,17 @@ class CommunityAuthService:
         if st.get("last_error"):
             code = st["last_error"].get("code")
             dto["last_error"] = _error(code if code in MESSAGES else "internal_error")
-        dto["upload_enabled"] = bool(cfg.upload_enabled and current)
+        dto["upload_enabled"] = bool(current and self._upload_allowed())
         return dto
+
+    def _upload_allowed(self) -> bool:
+        provider = self.upload_allowed_provider
+        if provider is None:
+            return False
+        try:
+            return bool(provider())
+        except Exception:
+            return False
 
     def is_connected(self) -> bool:
         try:
@@ -358,9 +401,9 @@ class CommunityAuthService:
             return False
 
     def is_upload_allowed(self) -> bool:
-        """향후 업로더는 업로드마다 이것을 확인한다: 연결됨 + [COMMUNITY] upload_enabled."""
+        """연결됨 + 게이트(카카오·중앙 동의) 통과. 실제 업로드는 중앙이 저장 트랜잭션에서 다시 확인한다."""
         cfg = self.config()
-        return bool(cfg.enabled and cfg.configured and cfg.upload_enabled and self.is_connected())
+        return bool(cfg.configured and self.is_connected() and self._upload_allowed())
 
     # 시작 ------------------------------------------------------------------
     def start(self, *, client_kind: str | None = None, device_label: str | None = None) -> dict:
@@ -513,7 +556,7 @@ class CommunityAuthService:
                     self._fail_pending(request_id, "expired")
                     return
                 cfg = self.config()
-                if not cfg.enabled or not cfg.configured:
+                if not cfg.configured:
                     return
                 interval = p.get("poll_interval") or DEFAULT_POLL_SECONDS
                 try:
@@ -838,7 +881,7 @@ class CommunityAuthService:
     def resume(self) -> None:
         """서버 시작 시: 만료 전 대기 요청이 있으면 poll 을 다시 시작한다. 그 밖에는 아무것도 하지 않는다."""
         cfg = self.config()
-        if not cfg.enabled or not cfg.configured:
+        if not cfg.configured:
             return
         try:
             st = self.store.load()
@@ -904,7 +947,14 @@ def get_service() -> CommunityAuthService:
             import settings.settings as app_settings
 
             _default = CommunityAuthService(app_settings.datapath)
+            _default.upload_allowed_provider = _gate_can_enter
         return _default
+
+
+def _gate_can_enter() -> bool:
+    from services import community_gate
+
+    return bool(community_gate.evaluate()["can_enter"])
 
 
 def resume_on_startup() -> None:
@@ -935,10 +985,10 @@ def update_settings(body: dict, known_key_hashes: set[str]) -> CommunityConfig:
         raise CommunityAuthError("invalid_settings")
     before = load_config_from_settings()
     updates: dict[str, str] = {}
-    if "enabled" in body and "enabled" not in before.env_locked:
-        if not isinstance(body["enabled"], bool):
-            raise CommunityAuthError("invalid_settings")
-        updates["enabled"] = "true" if body["enabled"] else "false"
+    if "enabled" in body and not isinstance(body["enabled"], bool):
+        raise CommunityAuthError("invalid_settings")
+    if "enabled" in body and "enabled" not in before.env_locked:  # 필수 기능: 켜기만 기록한다(끄기는 무시)
+        updates["enabled"] = "true"
     if "supabase_url" in body and "supabase_url" not in before.env_locked:
         raw = body["supabase_url"]
         if not isinstance(raw, str) or (raw.strip() and not normalize_supabase_url(raw)):
@@ -967,10 +1017,4 @@ def update_settings(body: dict, known_key_hashes: set[str]) -> CommunityConfig:
         app_settings._instance.update_config(SECTION, key, value)
     if updates:
         app_settings._instance.save()
-    after = load_config_from_settings()
-    if before.enabled and not after.enabled:
-        try:  # 끄면 진행 중인 연결 요청은 정리한다(기존 연결은 그대로)
-            get_service().cancel()
-        except CommunityAuthError:
-            pass
-    return after
+    return load_config_from_settings()

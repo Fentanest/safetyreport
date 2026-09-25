@@ -8,6 +8,27 @@
 
 ---
 
+## 2026-09-26 (ci0926/gate-rebuild, 미배포)
+
+### 커뮤니티 필수 진입 게이트 — 카카오 인증 + 신고내용 공유 동의 (T3a)
+
+- 관리자 로그인 뒤 `[필수] 카카오 인증`과 `[필수] 신고내용 공유 동의`(정책 2026-09-26.1)가 모두 있어야 화면·API·WS·예약 작업을 쓸 수 있다.
+  판정은 중앙 `community-account/status`(10분 캐시, 새 작업은 60초 이내 재검증, 온라인 60초 주기 재확인). 로그인만으로는 동의가 아니다.
+  `[COMMUNITY] enabled=false`·`upload_enabled` 는 더 이상 적용되지 않는다(경고만). `COMMUNITY_*` 환경변수 별칭(값이 다르면 설정 오류)·빌드 번들 공개값 지원.
+- 새 화면 `/onboarding/community`(두 필수 카드, 설정 화면 카드 재사용), `/onboarding/rebuild`(1회 초기화 안내), 초기화 필요 배너.
+  설정 화면에 "5. 신고내용 공유 동의"(상태·문서·철회·공유 자료 삭제 요청·업로드 연결 전환).
+- 게이트 미들웨어(관리자 인증 안쪽), 정확한 allowlist 외 전부 차단(HTML → 온보딩 이동, 그 밖 403 `COMMUNITY_ONBOARDING_REQUIRED`).
+  **보안 강화**: 예전에 인증 없이 열려 있던 `/media/*`, `/crawl/ws/logs`, `/rating/ws/rating_logs` 에 관리자 세션 또는 API 키를 요구(모바일 크롤 로그 화면은 `api_key` 필요).
+  WS 는 게이트 미충족·상실 시 4403.
+- 크롤 시작·큐(웹·모바일 API)는 게이트 60초 재검증 실패 403, 초기화 필요·진행 중 409 `COMMUNITY_REBUILD_REQUIRED`. 별점 일괄도 게이트 재검증.
+- 업로드 연결(writer): 공식 계정 기준 `dataset_key`, 연결 비밀은 `data/auth/community_writer.enc`(암호화, 로그아웃해도 유지 → 같은 사용자 재로그인은 rebind),
+  다른 기기가 쓰는 중이면 업로드만 멈추고 전환 버튼. 게이트 통과 때만 `community.db` context 활성화.
+- 새 로컬 API: `/settings/community/{gate,policy,consent,consent-revoke,writer,contributions-delete}`, `/api/v1/community/gate`.
+- 테스트: `tests/test_community_gate.py` 31건(판정 순서, 동의문 해시=계약 사본, 캐시 60초/10분, 장애 시 캐시, 원격 철회, writer 등록·rebind·충돌·전환,
+  Client 토큰 검증, 미들웨어 순서, 라우트 전수 차단, allowlist 실재, API 키 401 우선, media·WS 4001/4403, 동의·철회·로그아웃 흐름, 설정 복구, 크롤 409/403).
+  기존 테스트 중 `enabled`/`upload_enabled` 의미를 쓰던 4건과 게이트와 무관한 경로 3건은 새 전제에 맞게 수정(의도된 동작 변경). 전체 235건 OK(skip 3).
+- 문서 `docs/architecture/community-gate.md`.
+
 ## 2026-09-25 (dev, 미배포)
 
 ### 커뮤니티 계정 연결 (safeauth.worklazy.net)

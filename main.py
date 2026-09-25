@@ -13,7 +13,7 @@ import signal
 
 from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route, devices_route
 from web.routers import auth_route, api_route, ws_route, db_editor_route, backup_route, maintenance_route
-from web.routers import duplicate_route, media_route, community_route
+from web.routers import duplicate_route, media_route, community_route, community_onboarding_route
 import subprocess
 import sys
 
@@ -132,6 +132,7 @@ async def lifespan(app: FastAPI):
         community_auth_service.resume_on_startup()
     except Exception as exc:
         logger.LoggerFactory.logbot.warning(f"[community] 대기 연결 요청 재개 실패: {type(exc).__name__}")
+    _start_community_services()
 
     try:
         from services import media_proxy_service
@@ -161,6 +162,11 @@ async def lifespan(app: FastAPI):
     yield
 
     # ── shutdown ─────────────────────────────────────────────────────────────
+    try:
+        from services import community_uploader
+        community_uploader.stop_background()
+    except Exception:
+        pass
     try:
         from services import community_auth_service
         community_auth_service.shutdown()
@@ -231,6 +237,8 @@ app.include_router(backup_route.router)
 app.include_router(maintenance_route.router)
 app.include_router(community_route.router)
 app.include_router(community_route.api_router)
+app.include_router(community_route.gate_api_router)
+app.include_router(community_onboarding_route.router)
 app.include_router(api_route.router)
 app.include_router(ws_route.router)
 
@@ -286,6 +294,113 @@ def _login_redirect(request: Request):
         return RedirectResponse(f"/login?next={next_path}", status_code=302)
     return RedirectResponse("/login", status_code=302)
 
+# ── 커뮤니티 필수 게이트 미들웨어 ──────────────────────────────────────────────────
+# auth_middleware 보다 **먼저** 선언해야 안쪽에서(관리자 인증 뒤에) 실행된다: Session → auth → community gate → 라우트.
+# 정확한 method+path allowlist 만 게이트 없이 통과한다(각자 기존 인증·CSRF·manager 권한은 그대로).
+
+_GATE_ALLOW = frozenset({
+    ("GET", "/login"), ("POST", "/login"), ("GET", "/setup"), ("POST", "/setup"), ("GET", "/logout"), ("GET", "/health"),
+    ("GET", "/onboarding/community"), ("GET", "/onboarding/rebuild"),
+    ("GET", "/settings/community/status"), ("GET", "/settings/community/policy"), ("GET", "/settings/community/gate"),
+    *(("POST", f"/settings/community/{a}") for a in ("start", "confirm", "cancel", "disconnect", "settings", "consent",
+                                                      "consent-revoke", "writer", "contributions-delete")),
+    ("GET", "/settings/community/rebuild"),
+    *(("POST", f"/settings/community/rebuild/{a}") for a in ("start", "resume", "pause")),
+    ("GET", "/api/v1/app/config"), ("GET", "/api/v1/community-auth/status"),
+    *(("POST", f"/api/v1/community-auth/{a}") for a in ("start", "confirm", "cancel", "disconnect")),
+    ("GET", "/api/v1/community/gate"), ("GET", "/api/v1/community/rebuild"),
+    *(("POST", f"/api/v1/community/rebuild/{a}") for a in ("start", "resume")),
+})
+
+
+def _gate_exempt(method: str, path: str) -> bool:
+    if path.startswith("/static/"):
+        return True
+    if method == "HEAD":
+        method = "GET"
+    return (method, path) in _GATE_ALLOW
+
+
+def _request_api_key_valid(request: Request) -> bool:
+    key = request.headers.get("x-api-key") or request.query_params.get("api_key") or ""
+    return bool(key) and bool(database.validate_api_key(engine, key))
+
+
+def _community_gate_state() -> dict:
+    from services import community_gate
+    return community_gate.check_for_request()
+
+
+def _gate_blocked_response(request: Request, gate: dict):
+    from fastapi.responses import RedirectResponse, JSONResponse
+    path = request.url.path
+    if (request.method == "GET" and not _is_ajax(request)
+            and not path.startswith(("/api/", "/media/", "/community/", "/settings/community/"))):
+        from urllib.parse import quote
+        target = path + (f"?{request.url.query}" if request.url.query else "")
+        return RedirectResponse(f"/onboarding/community?next={quote(target, safe='/')}", status_code=302)
+    return JSONResponse({"detail": "COMMUNITY_ONBOARDING_REQUIRED", "code": "COMMUNITY_ONBOARDING_REQUIRED",
+                         "gate": {"state": gate.get("state"), "reasons": gate.get("reasons") or []}},
+                        status_code=403, headers={"Cache-Control": "no-store"})
+
+
+@app.middleware("http")
+async def community_gate_middleware(request: Request, call_next):
+    from starlette.concurrency import run_in_threadpool
+    path = request.url.path
+    if _gate_exempt(request.method, path):
+        return await call_next(request)
+    if path.startswith("/api/v1/"):
+        # 키가 없거나 틀리면 라우트가 401 을 준다(게이트 상태를 인증 전에 드러내지 않음).
+        if not await run_in_threadpool(_request_api_key_valid, request):
+            return await call_next(request)
+    elif path.startswith("/media/"):
+        # 예전에는 인증 없이 열려 있었다 → 관리자 세션 또는 API 키 + 게이트.
+        if not (request.session.get("admin_logged_in") or await run_in_threadpool(_request_api_key_valid, request)):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    gate = await run_in_threadpool(_community_gate_state)
+    if gate.get("can_enter"):
+        return await call_next(request)
+    return _gate_blocked_response(request, gate)
+
+
+def _on_community_gate_change(result: dict) -> None:
+    """게이트를 잃으면 이벤트 WS 를 4403 으로 닫는다(로그 WS 는 자체 GateWatch)."""
+    if not result.get("can_enter") and result.get("state") != "verification_required":
+        from services.ws_manager import ws_manager
+        ws_manager.close_all_from_thread(4403, "COMMUNITY_ONBOARDING_REQUIRED")
+
+
+def _start_community_services() -> None:
+    """interfaces.md 순서: CommunityStore.open → 게이트 확인(비동기) → 업로더 → 스케줄 job → 자정 따라잡기 → 초기화 재개."""
+    log = logger.LoggerFactory.logbot
+    try:
+        from services.community_store import CommunityStore
+        from services import community_gate
+        CommunityStore.open()
+        community_gate.on_change(_on_community_gate_change)
+        threading.Thread(target=community_gate.refresh_now, name="community-gate-startup", daemon=True).start()
+    except Exception as exc:
+        log.warning(f"[community] 커뮤니티 저장소·게이트 시작 실패: {type(exc).__name__}: {exc}")
+        return
+    import importlib
+
+    def _call(module: str, attr: str, *args):
+        getattr(importlib.import_module(f"services.{module}"), attr)(*args)
+
+    steps = [("uploader", lambda: _call("community_uploader", "start_background"))]
+    if scheduler.scheduler.running:
+        steps.append(("jobs", lambda: _call("community_schedule", "register_community_jobs", scheduler.scheduler)))
+        steps.append(("midnight catch-up", lambda: _call("community_schedule", "catch_up_on_start")))
+    steps.append(("rebuild resume", lambda: _call("community_rebuild", "resume_on_startup")))
+    for name, fn in steps:
+        try:
+            fn()
+        except Exception as exc:  # 한 단계 실패가 서버 시작을 막지 않는다(각 단계는 자체적으로 fail-closed)
+            log.warning(f"[community] 시작 단계 실패({name}): {type(exc).__name__}: {exc}")
+
+
 # ── 인증 미들웨어 ──────────────────────────────────────────────────────────────
 
 _PUBLIC_PATHS = {"/login", "/setup", "/logout", "/health"}
@@ -322,6 +437,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 from core.utils.security import get_or_create_session_key
 _session_key = get_or_create_session_key(settings.datapath)
+from core.utils import ws_auth as _ws_auth
+_ws_auth.configure(_session_key)  # 로그 WS 가 관리자 세션 쿠키를 같은 키로 읽는다
 
 class _WebSocketSafeSessionMiddleware:
     """WebSocket 연결에서 SessionMiddleware가 세션 쿠키를 덮어쓰는 것을 방지합니다.

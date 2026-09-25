@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>필수 설정 - 나만의 안전신문고</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ request.state.app_version }}-icon2">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    {% include "components/theme_head.html" %}
+    <style>
+        .onboarding-wrap { max-width: 860px; }
+        .onboarding-wrap .card-custom { border-radius: .75rem; }
+    </style>
+</head>
+<body class="sr-auth-body">
+<main class="container onboarding-wrap py-4 py-md-5" id="onboardingRoot" data-next="{{ next }}">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+        <div>
+            <h1 class="h4 fw-bold mb-1">필수 설정</h1>
+            <p class="text-muted small mb-0">나만의 안전신문고를 쓰려면 아래 두 항목이 모두 필요합니다. 안전신문고 로그인·신고 데이터는 그대로입니다.</p>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="/logout"><i class="fas fa-right-from-bracket me-1"></i>관리자 로그아웃</a>
+    </div>
+
+    <div id="gateSummary" class="alert alert-info small" role="status" aria-live="polite">
+        {% if gate.state == 'config_invalid' %}커뮤니티 서버 설정(공개 주소·공개 키)을 확인할 수 없습니다. 아래 고급 설정을 확인하거나 배포 설정을 점검해 주세요.
+        {% elif gate.state == 'verification_required' %}커뮤니티 서버에서 상태를 확인하지 못했습니다. 네트워크를 확인한 뒤 새로고침해 주세요.
+        {% elif gate.state == 'suspended' %}이 카카오 계정의 공유가 중지되어 있습니다. 운영자 안내를 확인해 주세요.
+        {% else %}카카오 인증과 신고내용 공유 동의를 마치면 원래 화면으로 이동합니다.{% endif %}
+    </div>
+
+    {% include "components/community_account_card.html" %}
+    {% include "components/community_consent_card.html" %}
+
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+        <button type="button" class="btn btn-success d-none" id="obContinueBtn">계속</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="obRecheckBtn">상태 다시 확인</button>
+        <a class="small ms-auto" href="https://safeauth.worklazy.net/privacy.html" target="_blank" rel="noopener noreferrer">개인정보 처리 안내</a>
+        <a class="small" href="https://safeauth.worklazy.net/help.html" target="_blank" rel="noopener noreferrer">도움말</a>
+    </div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function () {
+    'use strict';
+    var root = document.getElementById('onboardingRoot');
+    var next = root.getAttribute('data-next') || '/';
+    var summary = document.getElementById('gateSummary');
+    var cont = document.getElementById('obContinueBtn');
+    var MESSAGES = {
+        ok: '필수 설정을 마쳤습니다.',
+        config_invalid: '커뮤니티 서버 설정(공개 주소·공개 키)을 확인할 수 없습니다. 아래 고급 설정을 확인하거나 배포 설정을 점검해 주세요.',
+        kakao_required: '1단계: 카카오 계정으로 인증해 주세요.',
+        kakao_reauth_required: '카카오 로그인이 만료되었습니다. 다시 인증해 주세요.',
+        session_unreadable: '저장된 커뮤니티 로그인 정보를 읽을 수 없습니다. 카드의 초기화를 눌러 다시 연결해 주세요.',
+        verification_required: '커뮤니티 서버에서 상태를 확인하는 중입니다. 계속되면 네트워크를 확인해 주세요.',
+        suspended: '이 카카오 계정의 공유가 중지되어 있습니다. 운영자 안내를 확인해 주세요.',
+        consent_required: '2단계: 신고내용 공유 동의 문서를 읽고 동의해 주세요.'
+    };
+    function go() { window.location.href = next; }
+    document.addEventListener('sr:community-gate', function (ev) {
+        var g = ev.detail || {};
+        summary.textContent = MESSAGES[g.state] || ('상태 확인 필요 (' + g.state + ')');
+        summary.className = 'alert small alert-' + (g.state === 'ok' ? 'success' : (g.state === 'verification_required' ? 'secondary' : 'info'));
+        cont.classList.toggle('d-none', g.state !== 'ok');
+        if (g.state === 'ok' && !root.getAttribute('data-shown-ok')) {
+            root.setAttribute('data-shown-ok', '1');
+            setTimeout(go, 1200);
+        }
+    });
+    cont.addEventListener('click', go);
+    document.getElementById('obRecheckBtn').addEventListener('click', function () { window.location.reload(); });
+})();
+</script>
+</body>
+</html>
