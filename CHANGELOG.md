@@ -10,6 +10,13 @@
 
 ## 2026-09-25 (dev, 미배포)
 
+### 별점 대상 규칙을 모바일과 통일 + 사전 확인 버그 수정 (G16 W1)
+
+- 목록(`get_unrated_records`)과 제출(`run_batch_rating`)이 같은 규칙 `services/rating_eligibility.py` 를 쓴다(모바일 `RatingService.ineligibleReason` 과 같은 규칙·문구). 공용 판정 벡터 `contracts/rating-eligibility-vectors.json`(두 레포 바이트 동일, 왕복 검사 sha 비교).
+- 버그: 별점 작업의 사전 확인이 신고번호 목록을 ID 열로 찾아 사실상 동작하지 않았다(이미 참여한 건도 사이트에 물어봤고, 처리중·취하 건도 제출을 시도). 신고번호로 찾도록 고침(`database.get_merged_records_by_report_numbers`).
+- 사전 확인으로 거른 건마다 `스킵: [SPP-…] 사유` 줄을 남긴다 — 모바일 Client 가 이 줄로 결과를 표시한다(예전엔 "서버 로그에서 결과를 확인하지 못했습니다" 실패로 보였음).
+- 계획은 Gemini·6Sol(Codex) 두 라운드 검토를 거쳤다. 테스트 `tests/test_rating_eligibility.py`.
+
 ### 서버·모바일 파서 통일(서버 쪽) + 공통 기대값 파일
 
 - `contracts/parser-vectors.json`(모바일 레포에 같은 파일): 합성 응답 13건 → 저장 값. 서버 `tests/test_parser_vectors.py`. 고치기 전 서버 파서는 7건에서 틀리거나 멈췄다.

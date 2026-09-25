@@ -4,6 +4,7 @@ import settings.settings as settings
 from core.utils import logger
 from core.database import database
 from core.database.engine import get_engine
+from services import rating_eligibility
 
 def run_batch_rating(ids, score=5):
     """
@@ -16,14 +17,21 @@ def run_batch_rating(ids, score=5):
 
     log.info(f"=== 별점 처리 작업 시작 (요청 횟수: {len(ids)}건, 목표 점수: {score}점) ===")
 
-    existing_records = database.get_merged_records_by_ids(engine, ids)
-    already_rated_ids = [rec['신고번호'] for rec in existing_records if rec.get('만족도조사여부') in ('참여 완료', '참여 불가')]
-    ids_to_process = [rid for rid in ids if rid not in already_rated_ids]
+    # 사전 확인: 목록과 같은 대상 규칙(services/rating_eligibility, 모바일 ineligibleReason 과 동일).
+    # ids 는 신고번호다(예전엔 ID 열로 찾아 사전 확인이 사실상 동작하지 않았다).
+    skipped = {}
+    for rec in database.get_merged_records_by_report_numbers(engine, ids):
+        reason = rating_eligibility.ineligible_reason(rec.get('만족도조사여부'), rec.get('처리상태'))
+        if reason:
+            skipped[rec['신고번호']] = reason
+    ids_to_process = [rid for rid in ids if rid not in skipped]
 
-    skip_count = len(already_rated_ids)
+    skip_count = len(skipped)
     if skip_count > 0:
-        msg = f"DB 사전 확인: 이미 완료/불가 처리된 {skip_count}건을 로컬에서 스킵합니다. (실제 요청: {len(ids_to_process)}건)"
-        log.info(msg)
+        log.info(f"DB 사전 확인: 별점을 줄 수 없는 {skip_count}건을 로컬에서 스킵합니다. (실제 요청: {len(ids_to_process)}건)")
+        for rid, reason in skipped.items():
+            # 모바일 Client 가 이 줄을 읽는다(`스킵: [SPP-…] 사유`) — 문구 형식을 바꾸지 말 것
+            log.warning(f"  - 스킵: [{rid}] {reason}")
     
     success_count = 0
     fail_count = 0

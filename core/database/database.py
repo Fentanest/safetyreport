@@ -644,6 +644,19 @@ def load_results_by_category(engine):
             result[label] = df
         return result
 
+def get_merged_records_by_report_numbers(engine, report_numbers):
+    """신고번호(SPP-…)로 병합 표 행을 읽는다. 별점 작업은 신고번호로 움직인다."""
+    if not report_numbers:
+        return []
+    res = []
+    with engine.connect() as conn:
+        for t in [merge_traffic_table, merge_parking_table, merge_other_table]:
+            result = conn.execute(select(t).where(t.c["신고번호"].in_(list(report_numbers))))
+            col_names = result.keys()
+            res.extend(dict(zip(col_names, row)) for row in result.fetchall())
+    return res
+
+
 def get_merged_records_by_ids(engine, id_list):
     if not id_list:
         return []

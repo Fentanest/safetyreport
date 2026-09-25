@@ -1,0 +1,120 @@
+{
+ "description": "별점(만족도 조사) 대상 판정. 서버 services/rating_eligibility.ineligible_reason 과 모바일 RatingService.ineligibleReason 이 같은 결과를 내야 한다. reason=null 이면 대상. 두 레포에 바이트까지 같게 둔다.",
+ "eligibility_cases": [
+  {
+   "poll_status": "참여 가능",
+   "status": "수용",
+   "reason": null
+  },
+  {
+   "poll_status": "",
+   "status": "수용",
+   "reason": null
+  },
+  {
+   "poll_status": null,
+   "status": "불수용",
+   "reason": null
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": "일부수용",
+   "reason": null
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": "기타",
+   "reason": null
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": "답변완료",
+   "reason": null
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": "보완요청",
+   "reason": null
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": "",
+   "reason": null
+  },
+  {
+   "poll_status": "답변 대기",
+   "status": "수용",
+   "reason": null
+  },
+  {
+   "poll_status": "참여 완료",
+   "status": "수용",
+   "reason": "이미 만족도 조사에 참여한 신고입니다."
+  },
+  {
+   "poll_status": " 참여 완료 ",
+   "status": "수용",
+   "reason": "이미 만족도 조사에 참여한 신고입니다."
+  },
+  {
+   "poll_status": "참여 불가",
+   "status": "수용",
+   "reason": "만족도 조사가 불가능한 신고입니다."
+  },
+  {
+   "poll_status": "참여 불가\n",
+   "status": "수용",
+   "reason": "만족도 조사가 불가능한 신고입니다."
+  },
+  {
+   "poll_status": "참여 완료",
+   "status": "처리중",
+   "reason": "이미 만족도 조사에 참여한 신고입니다."
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": "처리중",
+   "reason": "처리중 상태에서는 만족도 조사를 진행할 수 없습니다."
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": "진행",
+   "reason": "처리중 상태에서는 만족도 조사를 진행할 수 없습니다."
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": "진행중",
+   "reason": "처리중 상태에서는 만족도 조사를 진행할 수 없습니다."
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": "검토중",
+   "reason": "처리중 상태에서는 만족도 조사를 진행할 수 없습니다."
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": " 검토중 ",
+   "reason": "처리중 상태에서는 만족도 조사를 진행할 수 없습니다."
+  },
+  {
+   "poll_status": "",
+   "status": "취하",
+   "reason": "취하 상태에서는 만족도 조사를 진행할 수 없습니다."
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": "답변 대기",
+   "reason": "답변 대기 상태에서는 만족도 조사를 진행할 수 없습니다."
+  },
+  {
+   "poll_status": "참여 가능",
+   "status": " 취하",
+   "reason": "취하 상태에서는 만족도 조사를 진행할 수 없습니다."
+  },
+  {
+   "poll_status": null,
+   "status": null,
+   "reason": null
+  }
+ ]
+}

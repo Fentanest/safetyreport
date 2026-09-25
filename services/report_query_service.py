@@ -4,7 +4,7 @@ from sqlalchemy.exc import OperationalError
 
 from core.database import database
 import settings.settings as app_settings
-from services import duplicate_group_service
+from services import duplicate_group_service, rating_eligibility
 
 
 def _safe_read(conn, table):
@@ -311,8 +311,12 @@ def get_unrated_records(engine):
                 continue
             if df.empty:
                 continue
-            df = df[~df["만족도조사여부"].isin(["참여 완료", "참여 불가"])]
-            df = df[~df["처리상태"].isin(["취하", "답변 대기", "처리중", "진행", "진행중", "검토중"])]
+            # 별점 대상 규칙은 제출 단계와 같은 함수(모바일 RatingService.ineligibleReason 과 같은 규칙)
+            eligible = [
+                rating_eligibility.ineligible_reason(poll, status) is None
+                for poll, status in zip(df["만족도조사여부"], df["처리상태"])
+            ]
+            df = df[eligible]
             if df.empty:
                 continue
             df["category"] = category
