@@ -580,7 +580,8 @@ def get_app_config(_: str = Depends(_require_api_key)):
             "auto_export_excel": settings.config.getboolean("SETTINGS", "auto_export_excel", fallback=True),
             "auto_export_sheet": settings.config.getboolean("SETTINGS", "auto_export_sheet", fallback=False),
             # 앱이 서버 기능을 알아보는 목록. rating_cause: /rating/start 가 공통 사유(cause)를 받는다(2026-09-25).
-            "capabilities": ["rating_cause"],
+            # community_account: /api/v1/community-auth/* (서버의 커뮤니티 계정 연결, 2026-09-25).
+            "capabilities": ["rating_cause", "community_account"],
             "rating_cause_max": rating_eligibility.RATING_CAUSE_MAX,
         },
     }

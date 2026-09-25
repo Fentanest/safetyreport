@@ -13,7 +13,7 @@ import signal
 
 from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route, devices_route
 from web.routers import auth_route, api_route, ws_route, db_editor_route, backup_route, maintenance_route
-from web.routers import duplicate_route, media_route
+from web.routers import duplicate_route, media_route, community_route
 import subprocess
 import sys
 
@@ -126,6 +126,12 @@ async def lifespan(app: FastAPI):
     if not skip_in_fixture("startup scheduler"):
         scheduler.init_scheduler()
     sunwi_service.start_background_refresh()
+    # 커뮤니티 계정: 부팅 때는 만료 전 대기 연결 요청의 poll 만 다시 시작한다(fixture 는 loopback 스택만).
+    try:
+        from services import community_auth_service
+        community_auth_service.resume_on_startup()
+    except Exception as exc:
+        logger.LoggerFactory.logbot.warning(f"[community] 대기 연결 요청 재개 실패: {type(exc).__name__}")
 
     try:
         from services import media_proxy_service
@@ -155,6 +161,11 @@ async def lifespan(app: FastAPI):
     yield
 
     # ── shutdown ─────────────────────────────────────────────────────────────
+    try:
+        from services import community_auth_service
+        community_auth_service.shutdown()
+    except Exception:
+        pass
     try:
         from core.crawler import direct_login
         direct_login.stop_keepalive()
@@ -218,6 +229,8 @@ app.include_router(db_editor_route.router)
 app.include_router(devices_route.router)
 app.include_router(backup_route.router)
 app.include_router(maintenance_route.router)
+app.include_router(community_route.router)
+app.include_router(community_route.api_router)
 app.include_router(api_route.router)
 app.include_router(ws_route.router)
 

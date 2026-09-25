@@ -4,6 +4,7 @@ import settings.settings as app_settings
 import os
 import re
 
+from core.utils import csrf
 from core.utils.templating import templates
 
 router = APIRouter(prefix="/settings")
@@ -55,6 +56,7 @@ def view_settings(request: Request):
         "google_json_exists": os.path.isfile(auth_path),
         "session_max_age": int(app_settings.config.get('SETTINGS', 'session_max_age', fallback=10800)),
         "trusted_proxies": app_settings.config.get('SETTINGS', 'trusted_proxies', fallback=''),
+        "csrf_token": csrf.get_or_create_token(request),
     })
 
 @router.post("/save")
