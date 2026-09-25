@@ -77,5 +77,32 @@ class PhotoBackfillJobTests(unittest.TestCase):
         self.assertFalse(maintenance_service.status(self.engine)["active"])
 
 
+class CarNumberRepairTests(unittest.TestCase):
+    def setUp(self):
+        logger.LoggerFactory.create_logger(mode="crawl")
+        self._dir = tempfile.TemporaryDirectory()
+        self.engine = create_engine(f"sqlite:///{Path(self._dir.name) / 'data.db'}")
+        fixture_server.seed_engine(self.engine)
+
+    def tearDown(self):
+        self.engine.dispose()
+        self._dir.cleanup()
+
+    def test_numbers_that_swallowed_the_next_line_are_extracted_again(self):
+        detail, raw = models.detail_traffic_table, models.raw_content_table
+        with self.engine.begin() as conn:
+            rid = conn.execute(select(detail.c.ID).order_by(detail.c.ID)).scalars().first()
+            conn.execute(update(detail).where(detail.c.ID == rid).values(차량번호="*발생일자:2026.09.01"))
+            conn.execute(raw.delete().where(raw.c.ID == rid))
+            conn.execute(raw.insert().values(ID=rid, raw_content="본문\n* 차량번호 : \n* 발생일자 : 2026.09.01", raw_type="report_body", saved_at=1))
+            good = conn.execute(select(detail.c.ID, detail.c["차량번호"]).where(detail.c.ID != rid).where(detail.c["차량번호"] != "")).first()
+        self.assertEqual(maintenance_service.repair_car_numbers(self.engine), 1)
+        with self.engine.connect() as conn:
+            self.assertEqual(conn.execute(select(detail.c["차량번호"]).where(detail.c.ID == rid)).scalar(), "")
+            self.assertEqual(conn.execute(select(models.merge_traffic_table.c["차량번호"]).where(models.merge_traffic_table.c.ID == rid)).scalar(), "")
+            self.assertEqual(conn.execute(select(detail.c["차량번호"]).where(detail.c.ID == good[0])).scalar(), good[1])  # 정상 값은 그대로
+        self.assertEqual(maintenance_service.repair_car_numbers(self.engine), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -173,13 +173,15 @@ def _update_title(conn, rec: CrawledDetail) -> None:
         return
     values = {c: fields[c] for c in TITLE_IDENTITY_COLUMNS if fields.get(c) not in (None, "")}
     poll = fields.get("만족도조사여부") or ""
-    has_rating = "별점" in fields  # 만족도 조회가 성공했거나 미참여가 확정됐을 때만 붙는다(detail_pipeline)
+    # 별점: 상세 응답의 점수(파서)나 만족도 조회 결과(detail_pipeline)가 있을 때만 붙는다. 사유는 조회가 성공했을 때만 붙는다.
+    has_rating = "별점" in fields
     if has_rating and poll == "참여 가능":
-        values["만족도조사여부"] = poll  # 확정 미참여 재분류
+        values["만족도조사여부"] = poll  # 확정 미참여 재분류(조회가 미참여를 확정)
     elif poll:
         values["만족도조사여부"] = case((title.c.만족도조사여부 == "참여 완료", title.c.만족도조사여부), else_=poll)
     if has_rating:  # 결정 D-2: 사이트 값이 있을 때만 바꾼다
         values["별점"] = fields.get("별점")
+    if "별점사유" in fields:  # 조회 실패면 사유 키가 없다 → 기존 사유 유지
         values["별점사유"] = fields.get("별점사유")
     if values:
         conn.execute(update(title).where(title.c.ID == rec.id).values(**values))

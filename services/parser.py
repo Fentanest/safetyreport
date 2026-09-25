@@ -7,6 +7,8 @@ _C_NOW_STATUS = {0: "진행", 10: "답변완료", 11: "일부수용", 12: "검�
 _CANONICAL_DONE_STATUSES = {"수용", "일부수용", "불수용", "기타", "답변완료", "취하", "이송"}
 _FULLWIDTH_TRANSLATION = str.maketrans('０１２３４５６７８９，', '0123456789,')
 
+_NOT_FINAL_ANSWER_STATUSES = ("진행", "처리중", "검토중")  # 이 값이면 다른 칸(C_R_PROC_STAT_NM)·신고 상태로 보완 — 모바일과 같은 규칙
+
 _REJECT_KEYWORDS = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
 _WARNING_KEYWORDS = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
 
@@ -323,6 +325,18 @@ def parse_details(driver, report_soup, result_soup=None, page_soup=None):
 
     return all_details
 
+def extract_car_number(content_text: str) -> str:
+    """본문의 `차량번호 : …` 한 줄에서 번호만. 같은 줄 안에서만 읽고 `*`·`(위` 에서 끊는다.
+
+    칸이 비어 있으면(`차량번호 : ⏎* 발생일자 …`) 빈 값 — 예전엔 콜론 뒤 줄바꿈을 건너뛰어 다음 줄을 번호로 가져갔다.
+    """
+    match = re.search(r'차량번호[ \t]*:[ \t]*([^\n]*)', content_text or "")
+    if not match:
+        return ""
+    value = re.split(r'\*|\(위', match.group(1), 1)[0]
+    return re.sub(r'\s+', '', value)
+
+
 def parse_json_details(result_data):
     # 1. Body Text Extraction & Regex Parsing
     content_text = result_data.get("C_A_CONTENTS", "")
@@ -333,13 +347,12 @@ def parse_json_details(result_data):
     entry_match = re.search(r'본 신고는 안전신문고 (?:앱의|포털의) (.*?) 메뉴로 접수된 신고입니다', content_text_clean)
     entry_value = entry_match.group(1).strip() if entry_match else result_data.get("C_APP_GUBUN_NM", "")
     
-    car_number_match = re.search(r'차량번호\s*:\s*(.*?)(?=\n|\(위)', content_text_clean)
-    car_number = re.sub(r'\s+', '', car_number_match.group(1)) if car_number_match else ""
+    car_number = extract_car_number(content_text_clean)
 
-    occurrence_date_match = re.search(r'발생일자\s*:\s*(\d{4}.\d{1,2}.\d{1,2})', content_text_clean)
-    occurrence_date = occurrence_date_match.group(1).strip().replace('.', '-') if occurrence_date_match else ""
+    occurrence_date_match = re.search(r'발생일자[ \t]*:[ \t]*(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})', content_text_clean)
+    occurrence_date = re.sub(r'[.\-/]', '-', occurrence_date_match.group(1).strip()) if occurrence_date_match else ""
 
-    occurrence_time_match = re.search(r'발생시각\s*:\s*(\d{2}:\d{2})', content_text_clean)
+    occurrence_time_match = re.search(r'발생시각[ \t]*:[ \t]*(\d{2}:\d{2})', content_text_clean)
     occurrence_time = occurrence_time_match.group(1).strip() if occurrence_time_match else ""
 
     # Extract Violation Location from text or fallback to JSON fields
@@ -349,7 +362,7 @@ def parse_json_details(result_data):
     elif result_data.get("C_A_ADD2"):
         violation_location = result_data.get("C_A_ADD2")
     else:
-        violation_location = str(result_data.get("C_A_ADDR_HEAD", "")) + " " + str(result_data.get("C_A_ADDR_TAIL", ""))
+        violation_location = str(result_data.get("C_A_ADDR_HEAD") or "") + " " + str(result_data.get("C_A_ADDR_TAIL") or "")
     violation_location = violation_location.strip()
 
     # 신고자가 보완 제출 완료(SPLMNT_CMPTN_DT 설정)하고 2차 요청 없음(SPLMNT_CMPTN_YN != 'N') 시 갱신
@@ -404,25 +417,28 @@ def parse_json_details(result_data):
 
     if answers:
         latest_ans = answers[-1]
-        processing_status = latest_ans.get("C_MANAGER_TYPE_NM")
-        if not processing_status or processing_status in ["진행", "처리중"]:
-            processing_status = latest_ans.get("C_R_PROC_STAT_NM", processing_status)
-            
-        if not processing_status or processing_status in ["진행", "처리중"]:
+        processing_status = latest_ans.get("C_MANAGER_TYPE_NM") or ""
+        if not processing_status or processing_status in _NOT_FINAL_ANSWER_STATUSES:
+            processing_status = latest_ans.get("C_R_PROC_STAT_NM") or processing_status
+
+        if not processing_status or processing_status in _NOT_FINAL_ANSWER_STATUSES:
             # If C_NOW indicates completion but agency left status as 진행
             if raw_status in _CANONICAL_DONE_STATUSES:
                 processing_status = raw_status
                 
         if processing_status in _CANONICAL_DONE_STATUSES:
             processing_finish = "Y"
-        processing_agency = latest_ans.get("C_MANAGE_ORG_NAME", latest_ans.get("C_MANAGER_TYPE_NM", ""))
-        person_in_charge = latest_ans.get("C_MANAGE_MAN", latest_ans.get("C_R_MOD_ID", ""))
-        response_date = latest_ans.get("C_DATE", latest_ans.get("C_R_MOD_DATE", ""))
+        # 값이 null 인 키는 "없음"으로 본다(모바일 `??` 와 같게)
+        processing_agency = latest_ans.get("C_MANAGE_ORG_NAME") or latest_ans.get("C_MANAGER_TYPE_NM") or ""
+        person_in_charge = latest_ans.get("C_MANAGE_MAN") or latest_ans.get("C_R_MOD_ID") or ""
+        response_date = latest_ans.get("C_DATE") or latest_ans.get("C_R_MOD_DATE") or ""
         if response_date and len(response_date) >= 10:
              response_date = response_date[:10]
         processing_content = (latest_ans.get("C_MANAGE_CONTENTS") or latest_ans.get("C_R_BODY") or "")
         # Strip HTML tags
         processing_content = re.sub(r'<[^>]+>', '\n', processing_content).strip()
+        # 전각 숫자·쉼표·nbsp 정리(과태료 금액·미확인 판정이 흔들리지 않게 — 모바일과 같게)
+        processing_content = processing_content.replace("\xa0", " ").translate(_FULLWIDTH_TRANSLATION)
         
     violation_law = ""
     if processing_content:
@@ -477,11 +493,11 @@ def parse_json_details(result_data):
             
             # FILE_TY: 1 (img) / 3 (img) / 8 (img) / 2 (video) / 99 (other)
             file_ty = str(f.get("FILE_TY", ""))
-            original_nm = f.get("ORGINL_FILE_NM", "").lower()
+            original_nm = (f.get("ORGINL_FILE_NM") or "").lower()
             if original_nm:
                 ext = original_nm.split('.')[-1]
             else:
-                ext = f.get("FILE_EXTSN", f.get("EXT", "")).lower()
+                ext = (f.get("FILE_EXTSN") or f.get("EXT") or "").lower()
                 
             if "MAPIMG" in file_url:
                 # 지도 이미지 — STTEMNT_IMAGE_URL이 없을 때만 fallback으로 사용
@@ -535,7 +551,10 @@ def parse_json_details(result_data):
         c_now_int = int(float(c_now_int))
     except Exception:
         c_now_int = 0
-    stsfdg = int(result_data.get('STSFDG_SCORE', 0) or 0)
+    try:
+        stsfdg = int(float(result_data.get('STSFDG_SCORE') or 0))
+    except (TypeError, ValueError):
+        stsfdg = 0
     if stsfdg > 0:
         poll_status = '참여 완료'
     elif c_now_int in (10, 11, 14, 15):
@@ -544,16 +563,19 @@ def parse_json_details(result_data):
         poll_status = '참여 불가'
     else:
         poll_status = '답변 대기'
-    title_raw = result_data.get('C_A_TITLE', '')
+    title_raw = result_data.get('C_A_TITLE') or ''
     title_text = title_raw.split(')', 1)[-1].strip() if ')' in title_raw else title_raw.strip()
     report_date = (result_data.get('C_DATE', '') or '').split()
     title_fields = {
         '상태': raw_status,
-        '신고번호': result_data.get('STTEMNT_NO', ''),
+        '신고번호': result_data.get('STTEMNT_NO') or '',
         '신고명': title_text,
         '신고일': report_date[0] if report_date else '',
         '만족도조사여부': poll_status,
     }
+    if stsfdg > 0:
+        # 상세 응답의 만족도 점수도 사이트 값이다(사용자 결정 2026-09-25). 사유는 만족도 조회로만 채운다.
+        title_fields['별점'] = stsfdg
 
     return {
         "entry_value": entry_value,

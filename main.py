@@ -119,6 +119,7 @@ async def lifespan(app: FastAPI):
         try:
             # 업데이트 뒤 한 번 훑기: 아직 못 읽은 주정차 사진 촬영 시각(추정 과태료용). 진행은 화면 하단 표시줄에 보인다.
             from services import maintenance_service
+            maintenance_service.repair_car_numbers(engine)  # 네트워크 없음, 금방 끝남
             maintenance_service.start_photo_backfill(engine)
         except Exception as exc:
             logger.LoggerFactory.logbot.warning(f"[maintenance] 사진 촬영 시각 한 번 훑기 시작 실패: {exc}")

@@ -103,6 +103,39 @@ def start_photo_backfill(engine, *, fetch=None, interval: float = _REQUEST_INTER
     return photo_job_state()
 
 
+def repair_car_numbers(engine) -> int:
+    """차량번호에 다음 줄 내용이 붙어 저장된 신고를 저장된 본문 원문으로 다시 뽑는다(2026-09-25 파서 수정 전 데이터). 반환: 고친 건수.
+
+    예전 규칙은 `차량번호 : ⏎* 발생일자 …` 처럼 칸이 비면 다음 줄을 번호로 가져갔다(값에 `*` 가 들어감). 네트워크 없음.
+    보완 완료로 바뀐 번호(SPLMNT_VHRNO)에는 `*` 가 들어가지 않으므로 대상이 아니다.
+    """
+    from sqlalchemy import select, update
+
+    from core.database import models
+    from core.storage import reports_repo
+    from services.parser import extract_car_number
+
+    raw = models.raw_content_table
+    fixed_ids = []
+    with engine.begin() as conn:
+        for table in (models.detail_traffic_table, models.detail_parking_table, models.detail_other_table):
+            rows = conn.execute(
+                select(table.c.ID, table.c["차량번호"], raw.c.raw_content)
+                .select_from(table.join(raw, raw.c.ID == table.c.ID))
+                .where(table.c["차량번호"].like("%*%"))
+            ).all()
+            for record_id, old, content in rows:
+                new = extract_car_number(content or "")
+                if new != old:
+                    conn.execute(update(table).where(table.c.ID == record_id).values(차량번호=new))
+                    fixed_ids.append(record_id)
+        if fixed_ids:
+            reports_repo.refresh_merge_rows(conn, fixed_ids)
+    if fixed_ids:
+        logger.LoggerFactory.logbot.info(f"[maintenance] 차량번호 다시 뽑기: {len(fixed_ids)}건")
+    return len(fixed_ids)
+
+
 def status(engine) -> dict:
     """하단 진행 표시줄용: 돌고 있거나 막 끝난 작업 목록. active 가 False 면 표시줄을 숨긴다."""
     from services import geocode_service
