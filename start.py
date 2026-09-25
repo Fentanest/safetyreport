@@ -25,7 +25,6 @@ def _parse_args():
         "force": '--force' in sys.argv,
         "reset": '--reset' in sys.argv,
         "min": '--min' in sys.argv,
-        "nonmember": '--nonmember' in sys.argv,
         "queue_file": None,
         "page_range": None
     }
@@ -353,16 +352,6 @@ def _process_and_save_results(engine, changed_item_ids):
             notifier_path = resource_path("core/utils/notifier.py")
             subprocess.run([sys.executable, notifier_path], input=msg, text=True)
 
-def wait_for_resume_signal():
-    logger.LoggerFactory.logbot.info("비회원 모드 대기 중... 브라우저에서 로그인 후 웹 UI의 '크롤링 재개'를 클릭하세요.")
-    sig_file = os.path.join(settings.datapath, 'resume.sig')
-    if os.path.exists(sig_file):
-        os.remove(sig_file)
-    while not os.path.exists(sig_file):
-        time.sleep(2)
-    os.remove(sig_file)
-    logger.LoggerFactory.logbot.info("'크롤링 재개' 신호 수신됨. 작업을 계속합니다.")
-
 def main():
     args = _parse_args()
     _validate_settings()
@@ -371,16 +360,9 @@ def main():
 
     driver = None
     effective_crawl_type = 'api' if settings.crawl_type == 'api' else 'legacy'
-    is_nonmember_mode = args["nonmember"]
     api_browser_fallback = False
     try:
-        if is_nonmember_mode:
-            effective_crawl_type = 'legacy'
-            logger.LoggerFactory.logbot.info(
-                "비회원(수동) 로그인 모드입니다. 직접 로그인/API 방식은 사용하지 않고 "
-                "설정된 Chrome 옵션으로 브라우저 로그인 대기 후 진행합니다."
-            )
-        elif effective_crawl_type == 'api':
+        if effective_crawl_type == 'api':
             # API 방식: 먼저 direct_login을 시도하고, 실패 시 Selenium 로그인 후
             # 브라우저 컨텍스트 API 호출($.get) fallback으로 진행
             from core.crawler import direct_login
@@ -403,23 +385,15 @@ def main():
             driver = driv.create_driver()
             driver.get(settings.loginurl)
 
-            if is_nonmember_mode:
-                if getattr(settings, "chrome_mode", "") == "desktop" and getattr(settings, "headless", False):
-                    logger.LoggerFactory.logbot.warning(
-                        "비회원(수동) 로그인 모드인데 Headless가 켜져 있습니다. "
-                        "브라우저 창이 보이지 않으면 설정에서 '크롬 창 숨기기'를 꺼주세요."
-                    )
-                wait_for_resume_signal()
-            else:
-                login_ok = login.login_mysafety(driver=driver)
-                if not login_ok:
-                    raise RuntimeError("안전신문고 Selenium 로그인에 실패했습니다.")
-                if settings.telegram_enabled:
-                    if is_frozen:
-                        subprocess.run([sys.executable, "--mode", "notify"], input="안전신문고 로그인에 성공했습니다.", text=True)
-                    else:
-                        notifier_path = resource_path("core/utils/notifier.py")
-                        subprocess.run([sys.executable, notifier_path], input="안전신문고 로그인에 성공했습니다.", text=True)
+            login_ok = login.login_mysafety(driver=driver)
+            if not login_ok:
+                raise RuntimeError("안전신문고 Selenium 로그인에 실패했습니다.")
+            if settings.telegram_enabled:
+                if is_frozen:
+                    subprocess.run([sys.executable, "--mode", "notify"], input="안전신문고 로그인에 성공했습니다.", text=True)
+                else:
+                    notifier_path = resource_path("core/utils/notifier.py")
+                    subprocess.run([sys.executable, notifier_path], input="안전신문고 로그인에 성공했습니다.", text=True)
         elif api_browser_fallback:
             driver = driv.create_driver()
             driver.get(settings.loginurl)

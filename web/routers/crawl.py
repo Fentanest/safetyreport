@@ -33,7 +33,6 @@ def crawl_dashboard(request: Request):
 
 @router.post("/start")
 def start_crawl(
-    login_mode: str = Form("member"),
     queue_list: str = Form(""),
     crawl_mode: str = Form("full"),
     crawl_type: str = Form("api"),
@@ -41,7 +40,6 @@ def start_crawl(
 ):
     try:
         crawl_control.start_crawl(
-            login_mode=login_mode,
             crawl_mode=crawl_mode,
             crawl_type="api" if crawl_type == "api" else "legacy",
             max_empty_pages=max_empty_pages,
@@ -56,12 +54,6 @@ def start_crawl(
         return JSONResponse({"status": "error", "message": f"오류: {exc}"})
 
     return JSONResponse({"status": "success", "message": "크롤링이 시작되었습니다."})
-
-
-@router.post("/resume")
-def resume_crawl():
-    crawl_control.resume_crawl()
-    return JSONResponse({"status": "success", "message": "크롤링 재개 신호가 전송되었습니다."})
 
 
 @router.post("/kill")

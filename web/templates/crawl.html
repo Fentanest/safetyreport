@@ -17,23 +17,8 @@
                     <input type="hidden" name="crawl_type" value="{{ crawl_type }}">
                     
                     <div class="ops-section">
-                        <div class="ops-section-title">로그인 모드</div>
-                        <div class="sr-seg mb-2" style="display: flex;">
-                            <input type="radio" class="sr-seg-radio" name="login_mode" id="loginMember" value="member" checked>
-                            <label class="sr-seg-label-btn flex-grow-1 text-center" for="loginMember">
-                                <i class="fas fa-user-check me-1"></i> 회원 로그인
-                            </label>
-                            
-                            <input type="radio" class="sr-seg-radio" name="login_mode" id="loginNonMember" value="nonmember">
-                            <label class="sr-seg-label-btn flex-grow-1 text-center" for="loginNonMember">
-                                <i class="fas fa-user-times me-1"></i> 비회원(수동)
-                            </label>
-                        </div>
-                        <div class="ops-hint">
-                            <span id="loginMemberHint">설정된 ID/PW로 자동 로그인 후 동작합니다.</span>
-                            <span id="loginNonMemberHint" style="display:none;">브라우저가 열리면 수동으로 로그인 후, 아래 '수동조작 완료' 버튼을 눌러야 시작됩니다.</span>
-                        </div>
-                        
+                        <div class="ops-section-title">로그인</div>
+                        <div class="ops-hint">설정된 ID/PW로 자동 로그인 후 동작합니다.</div>
                         <div class="d-flex align-items-center gap-2 mt-2 p-2 rounded" style="background-color: var(--sr-surface-2); border: 1px solid var(--sr-border);">
                             <i class="fas fa-exchange-alt text-muted" style="font-size:0.85em;"></i>
                             <span style="font-size:0.85em; color: var(--sr-text-muted);">크롤링 방식:</span>
@@ -88,9 +73,6 @@
                         <button type="submit" class="btn flex-grow-1 text-white" id="btnStart" style="background-color: var(--sr-primary); border: none;" {% if is_running %}disabled{% endif %}>
                             <i class="fas fa-play me-1"></i> 크롤링 시작
                         </button>
-                        <button type="button" class="btn" id="btnResume" style="background-color: var(--sr-status-supplement); color: #fff; border: none;">
-                            <i class="fas fa-play"></i> 수동조작 완료
-                        </button>
                         <button type="button" class="btn flex-grow-1 text-white" id="btnKill" style="background-color: var(--sr-status-reject); border: none;" {% if not is_running %}disabled{% endif %}>
                             <i class="fas fa-stop-circle me-1"></i> 강제 중지
                         </button>
@@ -135,17 +117,6 @@
             };
         }
         connectWs();
-
-        // UI hints
-        $('input[name="login_mode"]').change(function() {
-            if (this.value === 'member') {
-                $('#loginMemberHint').show();
-                $('#loginNonMemberHint').hide();
-            } else {
-                $('#loginMemberHint').hide();
-                $('#loginNonMemberHint').show();
-            }
-        });
 
         function updateCrawlOptions() {
             const isApi = '{{ crawl_type }}' === 'api';
@@ -204,12 +175,6 @@
                     }
                 });
             }
-        });
-
-        $('#btnResume').on('click', function () {
-            $.post('/crawl/resume', function (data) {
-                alert(data.message);
-            });
         });
 
         $('#btnExportExcel').on('click', function () {

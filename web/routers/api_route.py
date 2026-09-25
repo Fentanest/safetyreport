@@ -449,7 +449,7 @@ def get_crawl_config(_: str = Depends(_require_api_key)):
 @router.post("/crawl/start")
 async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key)):
     body = await request.json()
-    login_mode = body.get("login_mode", "member")
+    # login_mode(비회원)는 2026-09-25 제거 — 구앱이 보내도 무시하고 회원 로그인으로 진행
     crawl_type = "api" if body.get("crawl_type", "api") == "api" else "legacy"
     crawl_mode = body.get("crawl_mode", "full")
     max_empty_pages = int(body.get("max_empty_pages", 3))
@@ -470,7 +470,6 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
     try:
         await run_in_threadpool(
             crawl_control.start_crawl,
-            login_mode=login_mode,
             crawl_mode=crawl_mode,
             crawl_type=crawl_type,
             max_empty_pages=max_empty_pages,
@@ -496,8 +495,9 @@ def mobile_kill_crawl(_: str = Depends(_require_api_key)):
 
 @router.post("/crawl/resume")
 def mobile_resume_crawl(_: str = Depends(_require_api_key)):
-    crawl_control.resume_crawl()
-    return {"status": "success", "message": "크롤링 재개 신호가 전송되었습니다."}
+    """비회원(수동) 로그인 재개 신호 — 2026-09-25 비회원 모드 제거로 410. 구앱은 이 응답에 아무 안내도 띄우지 않지만,
+    크롤링은 회원 로그인으로 진행되므로 재개가 필요한 상황 자체가 없다."""
+    raise HTTPException(status_code=410, detail="비회원 로그인은 지원이 종료됐습니다. 크롤링은 회원 로그인으로 진행됩니다.")
 
 
 @router.get("/files")

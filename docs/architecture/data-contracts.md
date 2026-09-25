@@ -415,7 +415,7 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 | GET | `/crawl/config` | crawl_type, crawl_mode, max_empty_pages |
 | POST | `/crawl/start` | 모바일에서 크롤링 시작 |
 | POST | `/crawl/kill` | 크롤링 강제 중지 |
-| POST | `/crawl/resume` | 비회원 로그인 완료 신호 |
+| POST | `/crawl/resume` | (2026-09-25 비회원 제거) 410 Gone — 구앱 호환으로만 남음 |
 
 - `/summary` 의 취하 필드 규칙
   - `exclude_withdraw=True` 이면 그래프/모바일 카드 기준 `withdrawCount=0`, `withdraw_pct=0`

@@ -15,7 +15,6 @@ def run_crawler():
     logger.LoggerFactory.logbot.info("스케줄러에 의해 크롤러가 시작됩니다.")
     try:
         crawl_control.start_crawl(
-            login_mode="member",
             crawl_mode=app_settings.crawl_mode,
             crawl_type=app_settings.crawl_type,
             max_empty_pages=app_settings.max_empty_pages,

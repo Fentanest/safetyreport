@@ -39,11 +39,9 @@ def _write_log_header(header: str, *, rotate_existing: bool = False):
     return log_file
 
 
-def _build_command(*, login_mode: str = "member", crawl_mode: str = "full", queue_file: str | None = None):
+def _build_command(*, crawl_mode: str = "full", queue_file: str | None = None):
     is_frozen = getattr(sys, "frozen", False)
     command = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
-    if login_mode == "nonmember":
-        command.append("--nonmember")
     if crawl_mode == "min":
         command.append("--min")
     elif crawl_mode == "reset":
@@ -80,7 +78,6 @@ def _start_after_crawl_hook(log_file: str):
 @_serialized
 def start_crawl(
     *,
-    login_mode: str,
     crawl_mode: str,
     crawl_type: str,
     max_empty_pages: int,
@@ -103,7 +100,6 @@ def start_crawl(
         queue_file = _write_queue_file(queue_filename, queue_list)
 
     command = _build_command(
-        login_mode=login_mode,
         crawl_mode=crawl_mode,
         queue_file=queue_file,
     )
@@ -115,7 +111,6 @@ def start_crawl(
         "crawl_started",
         {
             "source": broadcast_source,
-            "login_mode": login_mode,
             "crawl_mode": crawl_mode,
             "crawl_type": crawl_type,
         },
@@ -217,8 +212,3 @@ def stop_crawl():
     return True
 
 
-def resume_crawl():
-    signal_file = os.path.join(settings.datapath, "resume.sig")
-    with open(signal_file, "w", encoding="utf-8") as file_obj:
-        file_obj.write("RESUME")
-    return signal_file
