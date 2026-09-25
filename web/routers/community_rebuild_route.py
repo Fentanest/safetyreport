@@ -120,16 +120,13 @@ def _can_manage(api_key: str) -> bool:
 
 
 def _verify_client_user_token(request: Request) -> bool:
-    """T3a 제공. 모듈·함수가 없으면 검사를 생략한다."""
+    """폰 사용자 access token 이 서버 연결 사용자와 같을 때만 True. 토큰이 없거나 확인 실패면 False."""
+    from services import community_gate as gate
+    token = request.headers.get(_USER_TOKEN_HEADER) or ""
+    if not token:
+        return False
     try:
-        from services import community_gate as gate
-    except ImportError:
-        return True
-    fn = getattr(gate, "verify_client_user_token", None)
-    if fn is None:
-        return True
-    try:
-        return bool(fn(request.headers.get(_USER_TOKEN_HEADER) or ""))
+        return bool(gate.verify_client_user_token(token))
     except Exception:
         return False
 

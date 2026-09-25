@@ -76,17 +76,17 @@ class RebuildEnv:
         return self
 
     def _inject(self, name, module):
-        if name in sys.modules:
-            self._saved_modules[name] = sys.modules[name]
-        sys.modules[name] = module
+        # 실제 모듈이 이미 import 됐으면 `from services import x` 는 패키지 속성을 먼저 본다 → 둘 다 바꾼다.
+        import services
+
+        for p in (mock.patch.dict(sys.modules, {name: module}),
+                  mock.patch.object(services, name.rsplit(".", 1)[1], module, create=True)):
+            p.start()
+            self._patches.append(p)
 
     def uninstall(self):
         for p in reversed(self._patches):
             p.stop()
-        for name in ("services.community_gate", "services.community_uploader"):
-            sys.modules.pop(name, None)
-            if name in self._saved_modules:
-                sys.modules[name] = self._saved_modules[name]
         CommunityStore._forget(os.path.join(self.tmp, "community.db"))
         try:
             self.engine.dispose()
@@ -516,7 +516,18 @@ class RouterTest(unittest.TestCase):
         resp = self.client.get("/api/v1/community/rebuild")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.headers.get("Cache-Control"), "no-store")
-        started = self.client.post("/api/v1/community/rebuild/start", json={})
+        # 통합 뒤: 폰 사용자 토큰이 없으면 거부(fail-closed), 서버 연결 사용자와 같을 때만 시작.
+        denied = self.client.post("/api/v1/community/rebuild/start", json={})
+        self.assertEqual((denied.status_code, denied.json()["code"]), (403, "user_token_required"))
+        import services  # 이 테스트의 게이트는 install() 이 넣은 가짜 모듈이다
+
+        with mock.patch.object(services.community_gate, "verify_client_user_token", create=True,
+                               side_effect=lambda t: t == "phone-token"):
+            wrong = self.client.post("/api/v1/community/rebuild/start", json={},
+                                     headers={"X-Community-User-Token": "other"})
+            self.assertEqual(wrong.status_code, 403)
+            started = self.client.post("/api/v1/community/rebuild/start", json={},
+                                       headers={"X-Community-User-Token": "phone-token"})
         self.assertEqual(started.status_code, 200)
         self.assertTrue(started.json()["data"]["run_id"])
 

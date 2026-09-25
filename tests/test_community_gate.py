@@ -143,6 +143,14 @@ class FakeAccount:
                      "deleted_at": "2026-09-26T00:00:00Z"}
 
 
+def inject_module(name, module):
+    """sys.modules 와 services 패키지 속성을 함께 바꾸는 patch 두 개(실제 모듈이 이미 import 된 뒤에도 적용)."""
+    import services
+
+    return [mock.patch.dict(sys.modules, {name: module}),
+            mock.patch.object(services, name.rsplit(".", 1)[1], module, create=True)]
+
+
 class FakeClock:
     def __init__(self):
         self.now = 1000.0
@@ -175,7 +183,7 @@ class GateTestBase(CommunityTestBase):
             return True
 
         fake_uploader.refresh_server_completed = refresh_server_completed
-        patches.append(mock.patch.dict(sys.modules, {"services.community_uploader": fake_uploader}))
+        patches += inject_module("services.community_uploader", fake_uploader)
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -629,8 +637,8 @@ class GateAppTests(GateTestBase):
         rebuild = types.ModuleType("services.community_rebuild")
         rebuild.required = lambda: True
         rebuild.blocking_state = lambda: None
-        with mock.patch.dict(sys.modules, {"services.community_rebuild": rebuild}), \
-             mock.patch("services.crawl_control.start_crawl") as start:
+        p_mod, p_attr = inject_module("services.community_rebuild", rebuild)
+        with p_mod, p_attr, mock.patch("services.crawl_control.start_crawl") as start:
             n = self.account.count("status")
             self.clock.now += 61
             r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, follow_redirects=False)
@@ -647,6 +655,26 @@ class GateAppTests(GateTestBase):
             r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, follow_redirects=False)
             self.assertEqual(r.status_code, 403, "철회 뒤 60초 안에 새 작업이 막힌다")
             self.assertEqual(start.call_count, 1)
+
+    def test_client_sensitive_controls_require_phone_user_token(self):
+        # Client 민감 제어(수동 업로드·초기화 시작)는 폰 사용자 토큰이 서버 연결 사용자와 같을 때만(plan §6.3).
+        self.cfg = cas.CommunityConfig(**{**self.cfg.__dict__, "api_key_managers": frozenset({cas.hash_api_key(self.key)})})
+        self.open_gate(USER_A)
+        mine = self.fake.issue_session(USER_A)["access_token"]
+        other = self.fake.issue_session(USER_B)["access_token"]
+        h = {"X-API-Key": self.key}
+        with mock.patch("services.community_uploader.request_upload", create=True,
+                        return_value={"result": "ok", "counts": {}}) as run:
+            r = self.client.post("/api/v1/community/upload/run", headers=h, json={})
+            self.assertEqual((r.status_code, r.json()["code"]), (403, "user_token_required"))
+            r = self.client.post("/api/v1/community/upload/run", headers={**h, "X-Community-User-Token": other}, json={})
+            self.assertEqual((r.status_code, r.json()["code"]), (403, "account_mismatch"))
+            self.assertEqual(run.call_count, 0)
+            r = self.client.post("/api/v1/community/upload/run", headers={**h, "X-Community-User-Token": mine}, json={})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(run.call_count, 1)
+        r = self.client.post("/api/v1/community/rebuild/start", headers=h, json={})
+        self.assertEqual((r.status_code, r.json()["code"]), (403, "user_token_required"))
 
     def test_gate_loss_closes_event_websockets(self):
         with mock.patch("services.ws_manager.ws_manager.close_all_from_thread") as close_all:

@@ -14,6 +14,7 @@ import signal
 from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route, devices_route
 from web.routers import auth_route, api_route, ws_route, db_editor_route, backup_route, maintenance_route
 from web.routers import duplicate_route, media_route, community_route, community_onboarding_route
+from web.routers import community_upload_route, community_rebuild_route
 import subprocess
 import sys
 
@@ -239,6 +240,10 @@ app.include_router(community_route.router)
 app.include_router(community_route.api_router)
 app.include_router(community_route.gate_api_router)
 app.include_router(community_onboarding_route.router)
+app.include_router(community_upload_route.router)
+app.include_router(community_upload_route.api_router)
+app.include_router(community_rebuild_route.router)
+app.include_router(community_rebuild_route.api_router)
 app.include_router(api_route.router)
 app.include_router(ws_route.router)
 

@@ -53,20 +53,14 @@ def _store(data_dir=None):
 
 
 def _gate_check():
-    """T3 community_gate.require_fresh(60). 없으면 통과로 본다(테스트 monkeypatch 대상)."""
-    try:
-        from services import community_gate as gate
-    except ImportError:
-        return {"state": "ok", "can_enter": True, "reasons": [], "verified_age": 0.0}
+    """community_gate.require_fresh(60) — 60초 이내 확인이 없으면 동기 재검증(실패면 업로드하지 않음)."""
+    from services import community_gate as gate
     return gate.require_fresh(60)
 
 
 def _gate_invalidate(reason: str) -> None:
-    try:
-        from services import community_gate as gate
-        gate.invalidate(reason)
-    except (ImportError, AttributeError):
-        pass
+    from services import community_gate as gate
+    gate.invalidate(reason)
 
 
 def _backoff_delay(attempt: int) -> str:

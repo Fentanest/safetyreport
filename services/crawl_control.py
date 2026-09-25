@@ -57,26 +57,22 @@ def _build_rebuild_command(run_id: str):
 
 
 def _check_crawl_allowed():
-    """일반 크롤 시작 전 게이트·초기화 확인. T3a/T3 모듈이 없으면 검사를 생략한다."""
+    """일반 크롤 시작 전 게이트·초기화 확인(fail-closed: 확인 중 오류도 시작하지 않는다)."""
+    from services import community_gate as gate
+    from services import community_rebuild as rebuild
+
     try:
-        from services import community_gate as gate
-        fresh = gate.require_fresh(max_age=60.0) if hasattr(gate, "require_fresh") else None
-        if fresh is not None and not fresh.get("can_enter"):
-            raise RuntimeError("COMMUNITY_ONBOARDING_REQUIRED")
-    except RuntimeError:
-        raise
+        fresh = gate.require_fresh(max_age=60.0)
     except Exception:
-        pass
+        raise RuntimeError("COMMUNITY_ONBOARDING_REQUIRED") from None
+    if not fresh.get("can_enter"):
+        raise RuntimeError("COMMUNITY_ONBOARDING_REQUIRED")
     try:
-        from services import community_rebuild as rebuild
-        if rebuild.required():
-            raise RuntimeError("COMMUNITY_REBUILD_REQUIRED")
-        if rebuild.blocking_state() is not None:
-            raise RuntimeError("COMMUNITY_REBUILD_REQUIRED")
-    except RuntimeError:
-        raise
+        blocked = rebuild.required() or rebuild.blocking_state() is not None
     except Exception:
-        pass
+        raise RuntimeError("COMMUNITY_REBUILD_REQUIRED") from None
+    if blocked:
+        raise RuntimeError("COMMUNITY_REBUILD_REQUIRED")
 
 
 def _write_queue_file(filename: str, queue_content: str):

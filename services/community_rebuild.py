@@ -3,8 +3,8 @@
 - 범위 키 = (REQUIRED_VERSION, local_dataset_id, source_account_namespace).
 - 상태는 community.db 의 rebuild_jobs·rebuild_items 에 둔다. 개인 DB(data.db)는
   제자리 갱신만 하고, 시작 전에 sqlite backup API 로 사전 백업을 남긴다.
-- 게이트(T3a)·업로더(T4)·스케줄러(T4)는 함수 안에서 import 한다. 아직 없는
-  모듈이면 ImportError 를 잡아 검사를 생략하고 계속한다(테스트는 가짜 모듈 주입).
+- 게이트(T3a)·업로더(T4)는 함수 안에서 import 한다(순환 import 방지). 검사를 생략하는 경로는 없다(fail-closed,
+  통합 때 병렬 작업용 부재 허용 분기를 제거함).
 """
 from __future__ import annotations
 
@@ -78,27 +78,15 @@ def _scope() -> tuple[str, str, str | None]:
 
 
 def _gate_fresh() -> dict:
-    """T3a community_gate.require_fresh(60). 모듈이 없으면 통과로 간주한다."""
-    try:
-        from services import community_gate as gate
-    except ImportError:
-        return {"state": "unknown", "can_enter": True, "reasons": []}
-    fn = getattr(gate, "require_fresh", None)
-    if fn is None:
-        return {"state": "unknown", "can_enter": True, "reasons": []}
-    return fn(max_age=60.0)
+    """community_gate.require_fresh(60)."""
+    from services import community_gate as gate
+    return gate.require_fresh(max_age=60.0)
 
 
 def _refresh_manifest() -> bool:
-    """T4 community_uploader.refresh_server_completed(). 모듈이 없으면 True."""
-    try:
-        from services import community_uploader as uploader
-    except ImportError:
-        return True
-    fn = getattr(uploader, "refresh_server_completed", None)
-    if fn is None:
-        return True
-    return bool(fn())
+    """community_uploader.refresh_server_completed() — 실패면 False(크롤을 시작하지 않음)."""
+    from services import community_uploader as uploader
+    return bool(uploader.refresh_server_completed())
 
 
 def _launch_crawl(run_id: str):

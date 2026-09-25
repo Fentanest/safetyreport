@@ -38,16 +38,17 @@ def _install_schedule_fake(testcase):
                 pass
 
     module.register_community_jobs = register_community_jobs
-    saved = sys.modules.get("services.community_schedule")
-    sys.modules["services.community_schedule"] = module
-    testcase.addCleanup(lambda: _restore_schedule_module(saved))
+    _inject_module(testcase, "services.community_schedule", module)
 
 
-def _restore_schedule_module(saved):
-    if saved is None:
-        sys.modules.pop("services.community_schedule", None)
-    else:
-        sys.modules["services.community_schedule"] = saved
+def _inject_module(testcase, name, module):
+    """sys.modules 와 services 패키지 속성을 함께 바꾼다(실제 모듈이 import 된 뒤에도 가짜가 쓰이게)."""
+    import services
+
+    for p in (mock.patch.dict(sys.modules, {name: module}),
+              mock.patch.object(services, name.rsplit(".", 1)[1], module, create=True)):
+        p.start()
+        testcase.addCleanup(p.stop)
 
 
 def _write_scheduler_config(*, enabled, mode="interval"):
@@ -126,15 +127,7 @@ class SchedulerSplitTest(unittest.TestCase):
         import services.crawl_control as cc
         gate = types.ModuleType("services.community_gate")
         gate.require_fresh = lambda max_age=60.0: {"state": "x", "can_enter": False, "reasons": []}
-        saved = sys.modules.get("services.community_gate")
-        sys.modules["services.community_gate"] = gate
-
-        def _restore_gate():
-            sys.modules.pop("services.community_gate", None)
-            if saved is not None:
-                sys.modules["services.community_gate"] = saved
-
-        self.addCleanup(_restore_gate)
+        _inject_module(self, "services.community_gate", gate)
         with mock.patch.object(cc, "start_crawl") as started:
             scheduler.run_crawler()
         started.assert_not_called()
