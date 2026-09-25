@@ -234,10 +234,12 @@ def main() -> int:
         diffs = []
         # 저장 계약은 두 레포에 바이트 동일해야 한다(저장 계층 재설계 R0).
         import hashlib
-        contract_paths = [REPO_ROOT / "contracts" / "storage-contract.json", args.mobile_repo.resolve() / "contracts" / "storage-contract.json"]
-        digests = [hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None for p in contract_paths]
-        if None in digests or digests[0] != digests[1]:
-            diffs.append(f"[contract] 서버·모바일 storage-contract.json 불일치: {digests}")
+        # 두 레포가 바이트까지 같아야 하는 계약 파일(저장 계약, 파서 기대값)
+        for name in ("storage-contract.json", "parser-vectors.json"):
+            contract_paths = [REPO_ROOT / "contracts" / name, args.mobile_repo.resolve() / "contracts" / name]
+            digests = [hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None for p in contract_paths]
+            if digests[0] is None or digests[0] != digests[1]:
+                diffs.append(f"[contract] 서버·모바일 {name} 불일치: {digests}")
         keys = {"mysafety_entry_value": "ID", "mysafety_raw_content": "ID"}
         for table in SERVER_TABLES_BY_ID:
             diffs += compare(f"A:{table}", _rows(s0, table, keys.get(table, "ID")), _rows(s2, table, keys.get(table, "ID")))
