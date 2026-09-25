@@ -6,11 +6,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import settings.settings as settings
-from core.crawler import driv, login, crawltitle, crawldetail
-try:
-    from core.crawler import crawltitle_api, crawldetail_api
-except ImportError:
-    pass
+from core.crawler import driv, login, crawltitle_api, crawldetail_api
 from core.utils import logger
 logger.LoggerFactory.create_logger(mode='crawl')
 from core.database import database
@@ -24,7 +20,6 @@ def _parse_args():
     args = {
         "force": '--force' in sys.argv,
         "reset": '--reset' in sys.argv,
-        "min": '--min' in sys.argv,
         "queue_file": None,
         "page_range": None
     }
@@ -124,36 +119,29 @@ def extract_ids_from_queue(engine, queuelist):
                 resolved_ids.append(item)
     return resolved_ids, missing_rnums
 
-def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fallback=False):
-    crawl_type = 'api' if (crawl_type or settings.crawl_type) == 'api' else 'legacy'
+def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
+    """API 방식 크롤링(레거시 Selenium HTML 크롤링은 2026-09-25 제거). driver 는 브라우저 비상 경로에서만 있다."""
     last_page = 0
     titlelist = []
     
     if args.get("queue_file"):
         logger.LoggerFactory.logbot.info("큐 지정 크롤링 모드입니다. 전체 목록 갱신을 건너뜁니다.")
     else:
-        if crawl_type == 'api':
-            if api_browser_fallback:
-                logger.LoggerFactory.logbot.info("[API 방식 - Selenium fallback]으로 신고 목록 크롤링 시작.")
-            else:
-                logger.LoggerFactory.logbot.info("[API 방식]으로 신고 목록 크롤링 시작.")
-            if args["page_range"]:
-                titlelist, last_page = crawltitle_api.crawl_titles(
-                    driver=driver,
-                    page_range=args["page_range"],
-                    browser_fallback=api_browser_fallback,
-                )
-            else:
-                titlelist, last_page = crawltitle_api.crawl_titles(
-                    driver=driver,
-                    browser_fallback=api_browser_fallback,
-                )
+        if api_browser_fallback:
+            logger.LoggerFactory.logbot.info("[API 방식 - Selenium fallback]으로 신고 목록 크롤링 시작.")
         else:
-            logger.LoggerFactory.logbot.info("[웹 방식(레거시)]으로 신고 목록 크롤링 시작.")
-            if args["page_range"]:
-                titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"], page_range=args["page_range"])
-            else:
-                titlelist, last_page = crawltitle.crawl_titles(driver=driver, use_minimal_crawl=args["min"])
+            logger.LoggerFactory.logbot.info("[API 방식]으로 신고 목록 크롤링 시작.")
+        if args["page_range"]:
+            titlelist, last_page = crawltitle_api.crawl_titles(
+                driver=driver,
+                page_range=args["page_range"],
+                browser_fallback=api_browser_fallback,
+            )
+        else:
+            titlelist, last_page = crawltitle_api.crawl_titles(
+                driver=driver,
+                browser_fallback=api_browser_fallback,
+            )
 
         new_report_numbers = database.title_to_sql(dataframes=titlelist, engine=engine)
         if settings.telegram_enabled:
@@ -175,9 +163,8 @@ def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fal
             q_items = f.readlines()
         detaillist, missing_rnums = extract_ids_from_queue(engine, q_items)
 
-        # DB에 없는 신고번호가 있으면 목록 크롤링으로 탐색
-        can_search_queue = crawl_type == 'api' or driver is not None
-        if missing_rnums and can_search_queue:
+        # DB에 없는 신고번호가 있으면 목록 크롤링으로 탐색(API 방식은 브라우저 없이도 가능)
+        if missing_rnums:
             logger.LoggerFactory.logbot.info(
                 f"미확인 신고번호 {len(missing_rnums)}건을 목록 크롤링으로 탐색합니다."
             )
@@ -187,14 +174,11 @@ def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fal
                     break
                 logger.LoggerFactory.logbot.info(f"목록 탐색 중... 페이지 {page_num} (남은 미확인: {len(missing_rnums)}건)")
                 try:
-                    if crawl_type == 'api':
-                        page_dfs, _ = crawltitle_api.crawl_titles(
-                            driver=driver,
-                            page_range=[page_num],
-                            browser_fallback=api_browser_fallback,
-                        )
-                    else:
-                        page_dfs, _ = crawltitle.crawl_titles(driver=driver, page_range=[page_num])
+                    page_dfs, _ = crawltitle_api.crawl_titles(
+                        driver=driver,
+                        page_range=[page_num],
+                        browser_fallback=api_browser_fallback,
+                    )
                 except Exception as e:
                     logger.LoggerFactory.logbot.warning(f"페이지 {page_num} 탐색 실패: {e}")
                     break
@@ -216,11 +200,6 @@ def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fal
                 missing_rnums = still_missing
             if missing_rnums:
                 logger.LoggerFactory.logbot.warning(f"탐색 완료 후에도 찾지 못한 신고번호: {missing_rnums}")
-        elif missing_rnums:
-            logger.LoggerFactory.logbot.warning(
-                f"미확인 신고번호 {len(missing_rnums)}건이 있지만 현재 크롤링 방식에서는 "
-                "목록 재탐색에 필요한 브라우저 세션이 없어 건너뜁니다."
-            )
 
         logger.LoggerFactory.logbot.info(f"큐 파일에서 {len(detaillist)}개의 아이템 크롤링 시작.")
     elif args["page_range"]:
@@ -236,19 +215,15 @@ def _run_crawling_process(driver, engine, args, crawl_type=None, api_browser_fal
 
     logger.LoggerFactory.logbot.info(f"상세 크롤링 대상 ID: {len(detaillist)} 건 (순차 처리)")
     
-    if crawl_type == 'api':
-        if api_browser_fallback:
-            logger.LoggerFactory.logbot.info("[API 방식 - Selenium fallback] 상세 데이터 추출 시작")
-        else:
-            logger.LoggerFactory.logbot.info("[API 방식] 상세 데이터 추출 시작")
-        detail_stream = crawldetail_api.crawl_details(
-            driver=driver,
-            report_ids=detaillist,
-            browser_fallback=api_browser_fallback,
-        )
+    if api_browser_fallback:
+        logger.LoggerFactory.logbot.info("[API 방식 - Selenium fallback] 상세 데이터 추출 시작")
     else:
-        logger.LoggerFactory.logbot.info("[웹 방식(레거시)] 상세 데이터 추출 시작")
-        detail_stream = crawldetail.crawl_details(driver=driver, report_ids=detaillist)
+        logger.LoggerFactory.logbot.info("[API 방식] 상세 데이터 추출 시작")
+    detail_stream = crawldetail_api.crawl_details(
+        driver=driver,
+        report_ids=detaillist,
+        browser_fallback=api_browser_fallback,
+    )
 
     changed_item_ids = _save_details_as_they_arrive(engine, detail_stream)
     if settings.telegram_enabled:
@@ -359,42 +334,23 @@ def main():
     _prepare_database(engine, reset=args["reset"])
 
     driver = None
-    effective_crawl_type = 'api' if settings.crawl_type == 'api' else 'legacy'
     api_browser_fallback = False
     try:
-        if effective_crawl_type == 'api':
-            # API 방식: 먼저 direct_login을 시도하고, 실패 시 Selenium 로그인 후
-            # 브라우저 컨텍스트 API 호출($.get) fallback으로 진행
-            from core.crawler import direct_login
-            try:
-                direct_login.get_valid_token()
-                logger.LoggerFactory.logbot.info("직접 로그인 토큰 확보 완료.")
-            except Exception as e:
-                logger.LoggerFactory.logbot.error(f"직접 로그인 실패: {e}")
-                logger.LoggerFactory.logbot.warning(
-                    f"직접 로그인 최대 재시도({settings.max_retry_attemps}) 실패. "
-                    "Selenium 로그인 후 브라우저 기반 API 호출 fallback으로 진행합니다."
-                )
-                api_browser_fallback = True
-        else:
-            logger.LoggerFactory.logbot.info(
-                "레거시 크롤링 모드입니다. direct_login을 사용하지 않고 Selenium 로그인으로 진행합니다."
+        # API 방식만 쓴다(레거시 Selenium HTML 크롤링·비회원 로그인은 2026-09-25 제거).
+        # 먼저 direct_login 을 시도하고, 실패하면 Selenium 로그인 후 브라우저 컨텍스트 API 호출($.get) 비상 경로로 진행.
+        from core.crawler import direct_login
+        try:
+            direct_login.get_valid_token()
+            logger.LoggerFactory.logbot.info("직접 로그인 토큰 확보 완료.")
+        except Exception as e:
+            logger.LoggerFactory.logbot.error(f"직접 로그인 실패: {e}")
+            logger.LoggerFactory.logbot.warning(
+                f"직접 로그인 최대 재시도({settings.max_retry_attemps}) 실패. "
+                "Selenium 로그인 후 브라우저 기반 API 호출 fallback으로 진행합니다."
             )
+            api_browser_fallback = True
 
-        if effective_crawl_type == 'legacy':
-            driver = driv.create_driver()
-            driver.get(settings.loginurl)
-
-            login_ok = login.login_mysafety(driver=driver)
-            if not login_ok:
-                raise RuntimeError("안전신문고 Selenium 로그인에 실패했습니다.")
-            if settings.telegram_enabled:
-                if is_frozen:
-                    subprocess.run([sys.executable, "--mode", "notify"], input="안전신문고 로그인에 성공했습니다.", text=True)
-                else:
-                    notifier_path = resource_path("core/utils/notifier.py")
-                    subprocess.run([sys.executable, notifier_path], input="안전신문고 로그인에 성공했습니다.", text=True)
-        elif api_browser_fallback:
+        if api_browser_fallback:
             driver = driv.create_driver()
             driver.get(settings.loginurl)
             login_ok = login.login_mysafety(driver=driver)
@@ -407,7 +363,6 @@ def main():
             driver,
             engine,
             args,
-            crawl_type=effective_crawl_type,
             api_browser_fallback=api_browser_fallback,
         )
     except Exception as e:

@@ -293,11 +293,11 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 - 보완요청은 신고 행에 **마지막 round 1세트 + 누적 횟수** 만 보존한다. 다회차 이력 전체는 저장하지 않는다.
   - detail/merge 의 신규 컬럼 4개로 표현: `보완횟수` (누적 round 수), `보완_미응답` (`Y/N`), `보완_요청_내용` (요청자/연락처/요청·완료 일시 prefix + 본문), `보완_신고자_의견`.
   - 보완요청 내용 prefix 는 `services/parser.py:_build_supplement_summary()` 가 `"보완 요청자: <name> (<phone>) · 요청 일시: ... · 완료 일시: ..."` 형식으로 조립한다. 마지막 답변자와 최종 판정자가 다를 수 있으므로 누가 이 보완을 요청했는지 본문 안에 함께 표시.
-  - 레거시 모드는 `services/supplement_parser.py:parse_supplement_rounds_from_html()` 로 `splmntDivBody` round 리스트를 만든 뒤 마지막 round 만 요약에 사용한다. round 카운트는 round 리스트 길이, API 모드는 `SPLMNT_DMND_NO` 사용.
-  - 마지막 완료 round 의 신고자 의견 텍스트는 기존처럼 신고 메인 행의 차량번호/발생일자·시각/위반장소를 덮어쓴다 (`supplement_parser.latest_completed_overrides()`).
+  - round 카운트는 `SPLMNT_DMND_NO`(예전 레거시 HTML 파서 `supplement_parser` 는 2026-09-25 삭제).
+  - 보완 완료 시 신고자가 고친 차량번호/발생일자·시각/위반장소는 `parse_json_details` 가 `SPLMNT_VHRNO`·`SPLMNT_DEVEL_*`·`SPLMNT_RN_ADRES` 로 신고 메인 행에 덮어쓴다.
   - 신고 본 row 의 `처리상태/종결여부` 는 보완요청이 열려 있으면 `보완요청 / N`, 종결 상태(취하/답변완료 등)에서는 `보완_미응답='N'` 으로 닫는다.
   - `get_pending_detail_ids()` 가 detail 의 `보완_미응답='Y'` row 를 항상 재크롤링 대상에 포함 → 다음 크롤링에서 답변/추가 round 변화가 자동 반영된다.
-  - API 모드 JSON 만으로 보존되는 정보는 마지막 round 의 요청자·요청일시·요청 내용 + 신고자 의견 + 종결 여부 + 누적 횟수에 한정된다. 과거 round 의 요청자 이름까지 보고 싶다면 같은 ID 를 레거시 모드로 다시 크롤링하면 된다.
+  - API 모드 JSON 만으로 보존되는 정보는 마지막 round 의 요청자·요청일시·요청 내용 + 신고자 의견 + 종결 여부 + 누적 횟수에 한정된다. 과거 round 의 요청자 이름은 보존하지 않는다(레거시 HTML 크롤링 제거).
   - crawl_changes payload 의 `change_reason` 은 신고 자체가 보완요청 상태이거나 `보완_미응답='Y'` 일 때 `supplement`, 그 외는 `report`. payload 에 `supplement_count`, `supplement_open`, `보완_요청_내용`, `보완_신고자_의견` 가 함께 들어간다.
 - 중복군 자동 감지는 `mysafety_raw_content.raw_content`가 있는 row만 대상으로 한다.
   - 같은 payload hash라도 `차량번호`, `category`, `entry_value`가 충돌하면 기본 상태는 `review_required` + `apply_globally=0`이다.
@@ -314,9 +314,9 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 
 | 키 | 섹션 | 설명 | 기본값 |
 |----|------|------|--------|
-| `crawl_type` | `Crawler` | `api` / `web` | `api` |
-| `crawl_mode` | `SETTINGS` | `full` / `min` (reset은 저장 안 함 → full로 저장) | `full` |
-| `max_empty_pages` | `SETTINGS` | 빈 페이지 허용 횟수 | `3` |
+| `crawl_type` | `Crawler` | (2026-09-25 제거) 저장값과 무관하게 늘 `api` 로 읽는다. `/api/v1/crawl/config` 는 구앱 호환으로 `api` 를 돌려준다 | `api` |
+| `crawl_mode` | `SETTINGS` | 늘 `full`(`min` 제거, reset 은 저장 안 함) | `full` |
+| `max_empty_pages` | `SETTINGS` | (최소 크롤링 제거로 사용 안 함, `/crawl/config` 호환 필드만) | `3` |
 | `normalize_police` | `SETTINGS` | 경찰 기관명 정규화 | `True` |
 | `exclude_withdraw` | `SETTINGS` | 취하 데이터 숨기기 | `True` |
 | `use_representative_records` | `SETTINGS` | 대표건 기준 canonical 집계를 전역 기본값으로 사용 | `True` |
@@ -412,7 +412,7 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 | GET | `/crawl/status` | 크롤링 실행 여부 |
 | GET | `/crawl/done` | 완료 마커 조회 (읽으면 삭제) |
 | GET | `/crawl/results` | 변경 신고 목록 조회 (읽으면 삭제) |
-| GET | `/crawl/config` | crawl_type, crawl_mode, max_empty_pages |
+| GET | `/crawl/config` | crawl_type(늘 api), crawl_mode(늘 full), max_empty_pages — 구앱 호환 필드 |
 | POST | `/crawl/start` | 모바일에서 크롤링 시작 |
 | POST | `/crawl/kill` | 크롤링 강제 중지 |
 | POST | `/crawl/resume` | (2026-09-25 비회원 제거) 410 Gone — 구앱 호환으로만 남음 |

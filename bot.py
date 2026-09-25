@@ -31,10 +31,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     """Displays the main menu."""
     keyboard = [
         [InlineKeyboardButton("1. 크롤링 시작", callback_data="start_crawl")],
-        [InlineKeyboardButton("2. 크롤링(min) 시작", callback_data="start_crawl_min")],
-        [InlineKeyboardButton("3. 차량검색", callback_data="search_car")],
-        [InlineKeyboardButton("4. 신고번호 검색", callback_data="search_report_number")],
-        [InlineKeyboardButton("5. 엑셀만 저장하기", callback_data="save_excel")],
+        [InlineKeyboardButton("2. 차량검색", callback_data="search_car")],
+        [InlineKeyboardButton("3. 신고번호 검색", callback_data="search_report_number")],
+        [InlineKeyboardButton("4. 엑셀만 저장하기", callback_data="save_excel")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("원하시는 작업을 선택하세요:", reply_markup=reply_markup)
@@ -62,23 +61,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         else:
             logger.LoggerFactory.get_logger().error(f"Error running start.py. Exit code: {process.returncode}")
             await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링 중 오류가 발생했습니다. 자세한 내용은 로그를 확인해주세요.")
-        return ConversationHandler.END
-
-    elif query.data == "start_crawl_min":
-        await query.edit_message_text(text="크롤링(min) 프로세스를 시작합니다. 완료되면 알려드리겠습니다...")
-        cmd = [sys.executable, "--mode", "crawl", "--min"] if is_frozen else [sys.executable, "start.py", "--min"]
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        _, _ = await process.communicate()
-        
-        if process.returncode == 0:
-            await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링(min) 및 모든 작업이 완료되었습니다.")
-        else:
-            logger.LoggerFactory.get_logger().error(f"Error running start.py --min. Exit code: {process.returncode}")
-            await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링(min) 중 오류가 발생했습니다. 자세한 내용은 로그를 확인해주세요.")
         return ConversationHandler.END
 
     elif query.data == "save_excel":

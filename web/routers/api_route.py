@@ -439,6 +439,7 @@ def get_crawl_config(_: str = Depends(_require_api_key)):
     return {
         "status": "success",
         "data": {
+            # 구앱 호환으로 필드는 남긴다: 늘 api / full
             "crawl_type": settings.crawl_type,
             "crawl_mode": settings.crawl_mode,
             "max_empty_pages": settings.max_empty_pages,
@@ -450,9 +451,8 @@ def get_crawl_config(_: str = Depends(_require_api_key)):
 async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key)):
     body = await request.json()
     # login_mode(비회원)는 2026-09-25 제거 — 구앱이 보내도 무시하고 회원 로그인으로 진행
-    crawl_type = "api" if body.get("crawl_type", "api") == "api" else "legacy"
+    # crawl_type(레거시)·max_empty_pages(최소 크롤링)는 2026-09-25 제거 — 구앱이 보내도 무시
     crawl_mode = body.get("crawl_mode", "full")
-    max_empty_pages = int(body.get("max_empty_pages", 3))
     queue_list = body.get("queue_list", "").strip()
 
     if crawl_manager.is_crawling():
@@ -471,8 +471,6 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
         await run_in_threadpool(
             crawl_control.start_crawl,
             crawl_mode=crawl_mode,
-            crawl_type=crawl_type,
-            max_empty_pages=max_empty_pages,
             queue_list=queue_list,
             queue_filename="mobile_queue.txt",
             header="=== [모바일에서 시작된 크롤링] ===",
@@ -666,8 +664,6 @@ async def update_settings(request: Request, _: str = Depends(_require_api_key)):
         settings._instance.update_config("SETTINGS", "exclude_withdraw", body["exclude_withdraw"])
     if "use_representative_records" in body:
         settings._instance.update_config("SETTINGS", "use_representative_records", body["use_representative_records"])
-    if "crawl_type" in body:
-        settings._instance.update_config("Crawler", "crawl_type", "api" if body["crawl_type"] == "api" else "legacy")
     if "auto_export_excel" in body:
         settings._instance.update_config("SETTINGS", "auto_export_excel", body["auto_export_excel"])
     if "auto_export_sheet" in body:

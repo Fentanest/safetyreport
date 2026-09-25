@@ -36,15 +36,13 @@
 ├── core/
 │   ├── crawler/
 │   │   ├── api_client.py        # direct login 세션 + Selenium 브라우저 fallback 공용화
-│   │   ├── title_pipeline.py    # API/legacy 공용 목록 row 정규화
-│   │   ├── detail_pipeline.py   # API/legacy 공용 상세 row 정규화 + 만족도 보강
+│   │   ├── title_pipeline.py    # 목록 row 정규화
+│   │   ├── detail_pipeline.py   # 상세 row 정규화 + 만족도 보강
 │   │   ├── direct_login.py       # curl_cffi + RSA + OAuth 기반 직접 로그인
 │   │   ├── driv.py               # Selenium Chrome driver 생성 (desktop/remote/hub)
 │   │   ├── login.py              # Selenium 로그인 UI 처리
 │   │   ├── crawltitle_api.py     # API 목록 크롤러
-│   │   ├── crawldetail_api.py    # API 상세 크롤러
-│   │   ├── crawltitle.py         # 레거시 Selenium 목록 크롤러
-│   │   └── crawldetail.py        # 레거시 Selenium 상세 크롤러
+│   │   └── crawldetail_api.py    # API 상세 크롤러 (레거시 Selenium 크롤러는 2026-09-25 삭제)
 │   ├── database/
 │   │   ├── engine.py             # 공용 SQLAlchemy engine 생성/재사용
 │   │   ├── database.py           # SQLAlchemy 테이블 정의 + DB 쿼리 + merge/save 보조
@@ -78,7 +76,6 @@
 │   ├── report_stats_service.py  # 대시보드/기관 통계/연도 목록
 │   ├── satisfaction_fetcher.py  # 만족도조사 점수+사유 조회 (HTTP + Selenium)
 │   ├── star_rating_service.py   # 별점 배치 처리
-│   ├── supplement_parser.py     # 보완요청 round 리스트 HTML 파서 (splmntDivBody) — 마지막 round 추출에 사용
 │   ├── sunwi_fetcher.py         # 안전신문고 통계 API 수집/대분류-소분류 Top5 CSV 가공 유틸
 │   ├── sunwi_service.py         # 행정구역별 안전신문고 Top5 수집/캐시/CSV 저장
 │   └── ws_manager.py            # WebSocket 클라이언트 연결 관리 싱글톤
@@ -126,11 +123,10 @@
 - FastAPI 웹앱은 `main.py`에서 기동하고, 실제 크롤링은 `start.py`를 **별도 서브프로세스**로 실행한다.
 - 설정 저장/조회는 `settings/settings.py`의 `AppSettings` 싱글톤을 중심으로 돌고, 실데이터는 `data/config.ini`, `data/data.db`, `data/auth/*`에 쌓인다.
 - 모바일 API는 `web/routers/api_route.py`, 웹 UI는 `web/routers/*.py` + `web/templates/*.html` 조합으로 구성되며, 실제 공통 작업은 `services/` 계층으로 최대한 이동했다.
-- 크롤링은 크게 세 갈래다.
-  - `legacy`: Selenium 로그인 + Selenium HTML 파싱
+- 크롤링은 API 방식 하나다(2026-09-25 레거시 Selenium HTML 크롤링·최소 크롤링·`crawl_type` 설정 제거).
   - `api`: `direct_login` + `curl_cffi` API 호출
-  - `api fallback`: direct login 실패 시 Selenium 로그인 후 브라우저 컨텍스트 `$.get` API 호출
-- API/legacy 상세/목록 파싱 결과는 `title_pipeline.py`, `detail_pipeline.py`로 공통 row 스키마에 맞춘다.
+  - `api fallback`: direct login 실패 시 Selenium 로그인 후 브라우저 컨텍스트 `$.get` 으로 같은 API 호출(비상 경로 — Chrome 설정·Selenium 의존성은 이것 때문에 남아 있다)
+- 상세/목록 파싱 결과는 `title_pipeline.py`, `detail_pipeline.py`로 공통 row 스키마에 맞춘다.
 - `start.py`의 큐 지정 크롤링은 전체 목록 갱신은 건너뛰지만,
   큐 신고번호가 DB에 아직 없으면 목록 페이지를 다시 순회해 ID를 찾아낸 뒤 상세 크롤링으로 이어가야 한다.
   특히 API direct-login 모드는 Selenium driver가 없어도 이 재탐색이 동작해야 한다.
@@ -185,12 +181,8 @@
 - 지도 지오코딩 백필은 `services/geocode_service.py`가 `config_required/config_warning/queued/running/error/completed` 상태를 관리한다.
   - 크롤링 상세 저장 중 주소 준비/캐시 upsert 는 **반드시 같은 DB 연결/트랜잭션 안에서** 수행해야 하며, 별도 write 연결을 열면 SQLite self-lock으로 `database is locked` 가 날 수 있다.
   - 크롤링 중 새 백필은 `queued` 로만 남기고, 실제 백필 재개는 서버 시작 시, 크롤링 종료 직후, 모바일 DB 복원 직후에 공통 helper 로 다시 건다.
-- `legacy` 상세 파서는 처리결과가 여러 개일 때 마지막 `처리결과` 테이블을 최신 답변으로 사용한다.
-- `legacy` 목록 파서는 페이지 전환 중 `stale element reference`가 나면 같은 페이지를 다시 읽도록 재시도한다.
 - 비회원(수동) 로그인 모드는 2026-09-25 제거했다. 크롤링은 늘 회원 로그인이고, `/api/v1/crawl/resume` 은 구앱 호환으로 410 만 돌려준다.
-- 만족도 보강은 API/legacy 각각 다른 조회 경로를 유지한다.
-  - API 상세: 점수 API 우선, 필요 시 만족도 팝업 HTML로 사유 보강
-  - legacy 상세: 만족도 팝업 HTML 직접 조회
+- 만족도 보강: 점수 API 우선, 필요 시 만족도 팝업 HTML로 사유 보강(브라우저 비상 경로면 브라우저 세션으로 같은 조회)
   - 공통 원칙: 조회 실패는 미참여로 간주하지 않고, 확정 미참여일 때만 `참여 완료 -> 참여 가능` 재분류
 - `sunwi_service`는 로그인 없이 안전신문고 통계 API를 별도로 호출하고, 서버 시작 후 즉시 1회 + 이후 3시간마다 대분류/소분류 기준 행정구역 Top5를 갱신한다.
 - `web/templates/base.html`의 신고 상세 모달과 `web/templates/data_table.html`의 첨부 렌더는 이제 문자열 외 값도 받아들인다.

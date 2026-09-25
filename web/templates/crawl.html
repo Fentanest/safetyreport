@@ -14,21 +14,10 @@
             </div>
             <div class="ops-card-body">
                 <form id="crawlForm">
-                    <input type="hidden" name="crawl_type" value="{{ crawl_type }}">
                     
                     <div class="ops-section">
                         <div class="ops-section-title">로그인</div>
-                        <div class="ops-hint">설정된 ID/PW로 자동 로그인 후 동작합니다.</div>
-                        <div class="d-flex align-items-center gap-2 mt-2 p-2 rounded" style="background-color: var(--sr-surface-2); border: 1px solid var(--sr-border);">
-                            <i class="fas fa-exchange-alt text-muted" style="font-size:0.85em;"></i>
-                            <span style="font-size:0.85em; color: var(--sr-text-muted);">크롤링 방식:</span>
-                            {% if crawl_type == 'api' %}
-                            <span class="badge" style="background-color: var(--sr-primary-soft); color: var(--sr-primary); border: 1px solid var(--sr-primary-soft);">API 방식</span>
-                            {% else %}
-                            <span class="sr-badge sr-badge-supplement">웹 크롤링 방식 (레거시)</span>
-                            {% endif %}
-                            <a href="/settings#crawl-type" class="ms-auto" style="color: var(--sr-text-muted); font-size:0.8em;" title="설정에서 변경"><i class="fas fa-cog"></i></a>
-                        </div>
+                        <div class="ops-hint">설정된 ID/PW로 자동 로그인한 뒤 API 방식으로 수집합니다. 직접 로그인이 막히면 크롬 창으로 대신 로그인합니다(설정의 크롬 구동 방식).</div>
                     </div>
 
                     <div class="ops-section">
@@ -37,18 +26,10 @@
                             <input type="radio" class="sr-seg-radio" name="crawl_mode" id="crawlFull" value="full" checked>
                             <label class="sr-seg-label-btn flex-grow-1 text-center" for="crawlFull">전체 크롤링</label>
                             
-                            <input type="radio" class="sr-seg-radio" name="crawl_mode" id="crawlMin" value="min">
-                            <label class="sr-seg-label-btn flex-grow-1 text-center" for="crawlMin">최소 크롤링</label>
-                            
                             <input type="radio" class="sr-seg-radio" name="crawl_mode" id="crawlReset" value="reset">
                             <label class="sr-seg-label-btn flex-grow-1 text-center text-danger" for="crawlReset">DB 초기화</label>
                         </div>
                         
-                        <div class="d-flex align-items-center p-2 rounded mt-2" id="minCrawlOptions" style="background-color: var(--sr-surface-2); border: 1px solid var(--sr-border);">
-                            <span style="font-size: 0.85rem; color: var(--sr-text-muted);">최소 크롤링 탐색 한도:</span>
-                            <input type="number" class="ops-input ms-auto" name="max_empty_pages" id="maxEmptyPages" value="{{ max_empty_pages }}" style="width: 80px; padding: 0.25rem 0.5rem; text-align: right;" disabled>
-                        </div>
-                    </div>
 
                     <div class="ops-section">
                         <div class="ops-section-title">큐(Queue) 기능 (선택사항)</div>
@@ -118,34 +99,11 @@
         }
         connectWs();
 
-        function updateCrawlOptions() {
-            const isApi = '{{ crawl_type }}' === 'api';
-            if (isApi) {
-                $('#crawlMin').prop('disabled', true);
-                if ($('#crawlMin').is(':checked')) {
-                    $('#crawlFull').prop('checked', true);
-                }
-                $('#maxEmptyPages').prop('disabled', true);
-                $('#minCrawlOptions').css('opacity', '0.5');
-            } else {
-                $('#crawlMin').prop('disabled', false);
-                if ($('#crawlMin').is(':checked')) {
-                    $('#maxEmptyPages').prop('disabled', false);
-                    $('#minCrawlOptions').css('opacity', '1');
-                } else {
-                    $('#maxEmptyPages').prop('disabled', true);
-                    $('#minCrawlOptions').css('opacity', '0.5');
-                }
-            }
-        }
-
-        $('input[name="crawl_mode"]').change(updateCrawlOptions);
-        updateCrawlOptions(); // Init
 
         $('#crawlForm').on('submit', function (e) {
             e.preventDefault();
 
-            if (!confirm("⚠️ 경고: 크롤링이 시작되면 브라우저(Chrome)가 열리고 스스로 작동합니다. 절대 마우스나 키보드로 진행 중인 화면을 방해하지 마세요!\n\n계속하시겠습니까?")) {
+            if (!confirm("크롤링을 시작하시겠습니까?\n\n직접 로그인이 막히면 크롬 창이 열려 대신 로그인할 수 있습니다. 그때는 진행 중인 창을 건드리지 마세요.")) {
                 return;
             }
 

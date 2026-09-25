@@ -17,19 +17,13 @@
 
 ```
 main()
-  → 로그인 전략 결정
-      → nonmember      → legacy 강제 + Selenium 수동 로그인 대기
-      → crawl_type=api → direct_login 시도
+  → 로그인 (2026-09-25부터 API 방식·회원 로그인만 — 레거시 Selenium HTML 크롤링·비회원 수동 로그인·최소 크롤링 제거)
+      → direct_login 시도
           → 성공       → driver 없이 API 호출
-          → 실패       → Selenium 로그인 후 브라우저 API fallback
-      → crawl_type=legacy → Selenium 회원 로그인 강제
-  → _run_crawling_process()
-      → API 경로
-          → crawltitle_api.crawl_titles(browser_fallback 여부 반영)
-          → crawldetail_api.crawl_details(browser_fallback 여부 반영)
-      → 레거시 경로
-          → crawltitle.crawl_titles()
-          → crawldetail.crawl_details()
+          → 실패       → Selenium 로그인 후 브라우저 API fallback(같은 API 를 브라우저 세션으로 부르는 비상 경로, 유지)
+  → _run_crawling_process(driver, engine, args, api_browser_fallback)
+      → crawltitle_api.crawl_titles(browser_fallback 여부 반영)
+      → crawldetail_api.crawl_details(browser_fallback 여부 반영)
       → database.title_to_sql()
       → (큐 모드) extract_ids_from_queue()
           → missing_rnums 있으면 최대 100페이지 단건 크롤링으로 탐색
@@ -85,7 +79,7 @@ API 차단 대비 Selenium 백업 코드 주석 보존.
 
 
 <!-- legacy CLAUDE.md 616-637 -->
-### 주정차위반 카테고리 (crawldetail_api.py, crawldetail.py)
+### 주정차위반 카테고리 (crawldetail_api.py)
 크롤링 시 `entry_value` 기준으로 3분류:
 - `"자동차·교통위반"` in entry_value → `traffic`
 - `"불법주정차신고"` in entry_value → `parking`
@@ -117,21 +111,12 @@ python scripts/debug/extractor.py SPP-2604-1234567   # 신고번호
 python scripts/debug/extractor.py 59216726 40871819  # 내부 ID 다중
 ```
 
-### 기능
+### 기능 (2026-09-25 API 전용으로 축소)
 - 신고번호(SPP-xxx) → DB 조회로 내부 ID 자동 변환, 다중 ID 순차 처리
-- **API 방식** + **Selenium 방식** 둘 다 크롤링하여 결과 비교
-- 출력 파일 5종 (`data/logs/`):
+- direct_login 세션(브라우저 없음)으로 상세 API 를 불러 저장:
   - `{id}_api_raw.json` — API 원시 응답
-  - `{id}_api_parsed.txt` — API 파싱 결과
-  - `{id}_legacy_raw.html` — Selenium 전체 페이지 소스
-  - `{id}_legacy_parsed.txt` — Selenium 파싱 결과
-  - `{id}_diff.txt` — 두 방식 파싱 차이 자동 비교
+  - `{id}_api_parsed.txt` — `parse_json_details` 결과
 - **DB 갱신 없음** — 순수 테스터
-
-### 주요 설계: `_create_debug_driver()`
-- **Docker** (`/.dockerenv`): 이미지 내장 Chromium + 시스템 chromedriver 직접 사용 (Hub 미사용)
-  - 같은 컨테이너에서 Hub 통신 시 네트워크 스파이크 → Cloudflare 502 유발하므로 Hub 우회
-- **비Docker**: chrome_mode 설정(hub/remote/desktop) 그대로 따름
-- `remote` 모드(비Docker 한정): `driver.quit()` 호출 안 함 → 공유 Chrome 유지
+- 예전의 API vs Selenium HTML 비교(`_legacy_raw.html`, `_diff.txt`)는 레거시 크롤러 제거와 함께 없앴다.
 
 ---

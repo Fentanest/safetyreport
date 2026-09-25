@@ -67,9 +67,9 @@ class AppSettings:
         self.normalize_police = self.config.getboolean('SETTINGS', 'normalize_police', fallback=True)
         self.auto_export_excel = self.config.getboolean('SETTINGS', 'auto_export_excel', fallback=True)
         self.auto_export_sheet = self.config.getboolean('SETTINGS', 'auto_export_sheet', fallback=False)
-        self.crawl_mode = self.config.get('SETTINGS', 'crawl_mode', fallback='full')
-        raw_crawl_type = self.config.get('Crawler', 'crawl_type', fallback='api')
-        self.crawl_type = 'api' if raw_crawl_type == 'api' else 'legacy'
+        # 크롤링은 API 방식·전체(full)만 있다(레거시·최소 크롤링은 2026-09-25 제거). 예전 설정값(legacy/min)은 무시한다.
+        self.crawl_mode = 'full'
+        self.crawl_type = 'api'
         self.exclude_withdraw = self.config.getboolean('SETTINGS', 'exclude_withdraw', fallback=True)
         self.use_representative_records = self.config.getboolean('SETTINGS', 'use_representative_records', fallback=True)
         self.retry_interval = int(self.config.get('SETTINGS', 'retry_interval', fallback=10))

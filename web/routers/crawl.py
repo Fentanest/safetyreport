@@ -25,8 +25,6 @@ def crawl_dashboard(request: Request):
     return templates.TemplateResponse(request, "crawl.html", {
         "title": "크롤링 제어 및 모니터링",
         "is_running": crawl_manager.is_crawling(),
-        "crawl_type": app_settings.crawl_type,
-        "max_empty_pages": app_settings.config.get("SETTINGS", "max_empty_pages", fallback=3),
         "google_sheet_enabled": app_settings.google_sheet_enabled,
     })
 
@@ -35,14 +33,10 @@ def crawl_dashboard(request: Request):
 def start_crawl(
     queue_list: str = Form(""),
     crawl_mode: str = Form("full"),
-    crawl_type: str = Form("api"),
-    max_empty_pages: int = Form(3),
 ):
     try:
         crawl_control.start_crawl(
             crawl_mode=crawl_mode,
-            crawl_type="api" if crawl_type == "api" else "legacy",
-            max_empty_pages=max_empty_pages,
             queue_list=queue_list,
             queue_filename="queue.txt",
             header="=== 크롤링 작업 시작 ===",

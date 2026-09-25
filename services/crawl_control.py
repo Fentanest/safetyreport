@@ -42,9 +42,7 @@ def _write_log_header(header: str, *, rotate_existing: bool = False):
 def _build_command(*, crawl_mode: str = "full", queue_file: str | None = None):
     is_frozen = getattr(sys, "frozen", False)
     command = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
-    if crawl_mode == "min":
-        command.append("--min")
-    elif crawl_mode == "reset":
+    if crawl_mode == "reset":
         command.append("--reset")
     if queue_file:
         command.extend(["--queue", queue_file])
@@ -58,10 +56,14 @@ def _write_queue_file(filename: str, queue_content: str):
     return path
 
 
-def configure_crawl_settings(*, crawl_type: str, crawl_mode: str, max_empty_pages: int):
-    settings._instance.update_config("SETTINGS", "max_empty_pages", max_empty_pages)
-    settings._instance.update_config("Crawler", "crawl_type", "api" if crawl_type == "api" else "legacy")
-    settings._instance.update_config("SETTINGS", "crawl_mode", "full" if crawl_mode == "reset" else crawl_mode)
+def normalize_crawl_mode(crawl_mode) -> str:
+    """full / reset 만 있다. 예전 값(min 등)은 full 로(최소 크롤링은 레거시 전용이라 2026-09-25 제거)."""
+    return "reset" if str(crawl_mode or "") == "reset" else "full"
+
+
+def configure_crawl_settings(*, crawl_mode: str):
+    # reset 은 저장하지 않는다(다음 실행이 또 초기화되지 않게). crawl_type·max_empty_pages 는 더 쓰지 않는다.
+    settings._instance.update_config("SETTINGS", "crawl_mode", "full")
     settings._instance.save()
 
 
@@ -79,8 +81,6 @@ def _start_after_crawl_hook(log_file: str):
 def start_crawl(
     *,
     crawl_mode: str,
-    crawl_type: str,
-    max_empty_pages: int,
     queue_list: str = "",
     queue_filename: str = "queue.txt",
     header: str,
@@ -89,11 +89,8 @@ def start_crawl(
     if crawl_manager.is_crawling():
         raise RuntimeError("크롤링이 이미 실행 중입니다.")
 
-    configure_crawl_settings(
-        crawl_type=crawl_type,
-        crawl_mode=crawl_mode,
-        max_empty_pages=max_empty_pages,
-    )
+    crawl_mode = normalize_crawl_mode(crawl_mode)
+    configure_crawl_settings(crawl_mode=crawl_mode)
 
     queue_file = None
     if queue_list.strip():
@@ -112,7 +109,7 @@ def start_crawl(
         {
             "source": broadcast_source,
             "crawl_mode": crawl_mode,
-            "crawl_type": crawl_type,
+            "crawl_type": "api",  # 구앱 호환(이벤트 필드 유지)
         },
     )
     _start_after_crawl_hook(log_file)

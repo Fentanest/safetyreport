@@ -53,5 +53,72 @@ class NonMemberRemovedTests(unittest.TestCase):
         self.assertNotIn("resume.sig", source)
 
 
+
+class LegacyCrawlRemovedTests(unittest.TestCase):
+    def test_legacy_modules_are_gone(self):
+        import importlib.util
+
+        for name in ("core.crawler.crawltitle", "core.crawler.crawldetail", "services.supplement_parser"):
+            self.assertIsNone(importlib.util.find_spec(name), name)
+        from services import parser
+
+        self.assertFalse(hasattr(parser, "parse_details"))
+        self.assertTrue(hasattr(parser, "parse_json_details"))
+
+    def test_old_settings_values_are_ignored(self):
+        import settings.settings as settings
+
+        settings._instance.update_config("Crawler", "crawl_type", "legacy")
+        settings._instance.update_config("SETTINGS", "crawl_mode", "min")
+        settings._instance.save()
+        settings._instance.load()
+        self.assertEqual(settings.crawl_type, "api")
+        self.assertEqual(settings.crawl_mode, "full")
+
+    def test_min_mode_is_normalized_and_never_passed_to_the_crawler(self):
+        from services import crawl_control
+
+        self.assertEqual(crawl_control.normalize_crawl_mode("min"), "full")
+        self.assertEqual(crawl_control.normalize_crawl_mode("reset"), "reset")
+        self.assertNotIn("--min", crawl_control._build_command(crawl_mode="min"))
+        self.assertIn("--reset", crawl_control._build_command(crawl_mode="reset"))
+        self.assertEqual(
+            set(inspect.signature(crawl_control.start_crawl).parameters) & {"crawl_type", "max_empty_pages"}, set()
+        )
+
+    def test_crawl_config_keeps_fields_for_old_apps(self):
+        from web.routers import api_route
+
+        data = api_route.get_crawl_config(_="key")["data"]
+        self.assertEqual(data["crawl_type"], "api")
+        self.assertEqual(data["crawl_mode"], "full")
+        self.assertIn("max_empty_pages", data)
+
+    def test_mobile_start_ignores_old_crawl_type_and_pages(self):
+        from web.routers import api_route
+
+        request = mock.Mock()
+
+        async def body():
+            return {"crawl_type": "legacy", "crawl_mode": "min", "max_empty_pages": 9, "queue_list": ""}
+
+        request.json = body
+        with mock.patch.object(api_route.crawl_manager, "is_crawling", return_value=False), \
+             mock.patch.object(api_route.crawl_control, "start_crawl") as start:
+            asyncio.run(api_route.mobile_start_crawl(request, _="key"))
+        kwargs = start.call_args.kwargs
+        self.assertNotIn("crawl_type", kwargs)
+        self.assertNotIn("max_empty_pages", kwargs)
+
+    def test_start_script_uses_only_the_api_crawler(self):
+        from pathlib import Path
+
+        source = (Path(__file__).resolve().parents[1] / "start.py").read_text(encoding="utf-8")
+        self.assertNotIn("crawltitle.crawl_titles", source)
+        self.assertNotIn("crawldetail.crawl_details", source)
+        self.assertNotIn("--min", source)
+        self.assertIn("api_browser_fallback", source)  # 브라우저 비상 경로는 남긴다
+
+
 if __name__ == "__main__":
     unittest.main()

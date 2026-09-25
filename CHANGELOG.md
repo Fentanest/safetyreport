@@ -10,6 +10,14 @@
 
 ## 2026-09-25 (dev, 미배포)
 
+### 레거시(Selenium HTML) 크롤링 제거 (G16 W4)
+
+- 삭제: `core/crawler/crawltitle.py`·`crawldetail.py`, `services/supplement_parser.py`, `parser.parse_details` 와 HTML 전용 헬퍼, 별점 Selenium 백업 주석 코드. `scripts/debug/extractor.py` 는 API 전용 덤프 도구로 축소.
+- 크롤링 방식 설정(`crawl_type`)과 최소 크롤링(`min`, 레거시에서만 동작 — API 경로에서는 효과 없었음)·탐색 페이지 한도를 설정·크롤링 화면·텔레그램 봇 메뉴에서 없앴다. 예전 설정값 legacy/min 은 api/full 로 읽는다.
+- 유지: direct login 이 막히면 Selenium 으로 로그인해 같은 API 를 브라우저 세션으로 부르는 비상 경로(그래서 Chrome 설정·Selenium 의존성은 남는다). API 저장 어댑터 `CrawledDetail.from_legacy_tuple` 은 이름과 달리 API 경로가 쓰므로 유지.
+- 구앱 호환: `/api/v1/crawl/config` 는 `crawl_type: api`·`crawl_mode: full`·`max_empty_pages` 를 계속 돌려주고, `/api/v1/crawl/start`·`/api/v1/settings` 의 `crawl_type`·`max_empty_pages` 는 무시한다. 크롤링 시작 이벤트의 `crawl_type` 필드는 `api` 로 유지.
+- 테스트 `tests/test_crawl_modes_removed.py`(11건). 계획은 Gemini·6Sol 두 라운드 검토.
+
 ### 비회원(수동) 로그인 제거 (G16 W3)
 
 - 크롤링 화면의 "비회원(수동)" 로그인과 "수동조작 완료"(재개) 버튼, `start.py --nonmember`·재개 신호 파일(`resume.sig`) 대기, 웹 `/crawl/resume` 을 없앴다. 크롤링은 늘 회원 로그인이다.
