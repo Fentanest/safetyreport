@@ -10,7 +10,7 @@ from starlette.background import BackgroundTask
 import settings.settings as settings
 from core.database import database
 from core.database.engine import get_engine
-from services import crawl_control, crawl_state_store, data_service, db_editor_service, duplicate_group_service, file_service, geocode_service, rating_service, sunwi_service
+from services import crawl_control, crawl_state_store, data_service, db_editor_service, duplicate_group_service, file_service, geocode_service, rating_eligibility, rating_service, sunwi_service
 from services.crawl_manager import crawl_manager
 from services.ws_manager import ws_manager
 from web.routers.filters import default_dedupe_mode, normalize_dedupe_mode
@@ -310,6 +310,9 @@ async def api_start_batch_rating(request: Request, _: str = Depends(_require_api
     body = await request.json()
     report_numbers = body.get("report_numbers", [])
     score = int(body.get("score", 5))
+    cause = body.get("cause") or ""  # 공통 사유(선택, 2026-09-25). 구앱은 보내지 않는다 → 빈 값
+    if not isinstance(cause, str):
+        raise HTTPException(status_code=400, detail="cause must be a string")
 
     if not isinstance(report_numbers, list) or not report_numbers:
         raise HTTPException(status_code=400, detail="report_numbers is required")
@@ -321,7 +324,10 @@ async def api_start_batch_rating(request: Request, _: str = Depends(_require_api
         raise HTTPException(status_code=400, detail="유효한 신고번호가 없습니다.")
 
     try:
-        final_ids = await run_in_threadpool(rating_service.start_batch_rating, engine, normalized, score)
+        cause_problem = rating_eligibility.cause_error(cause)
+        if cause_problem:
+            raise HTTPException(status_code=400, detail=cause_problem)
+        final_ids = await run_in_threadpool(rating_service.start_batch_rating, engine, normalized, score, cause)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     except RuntimeError as exc:
@@ -575,6 +581,9 @@ def get_app_config(_: str = Depends(_require_api_key)):
             "normalize_police": settings.normalize_police,
             "auto_export_excel": settings.config.getboolean("SETTINGS", "auto_export_excel", fallback=True),
             "auto_export_sheet": settings.config.getboolean("SETTINGS", "auto_export_sheet", fallback=False),
+            # 앱이 서버 기능을 알아보는 목록. rating_cause: /rating/start 가 공통 사유(cause)를 받는다(2026-09-25).
+            "capabilities": ["rating_cause"],
+            "rating_cause_max": rating_eligibility.RATING_CAUSE_MAX,
         },
     }
 

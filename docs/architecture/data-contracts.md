@@ -407,7 +407,7 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 | GET | `/reports/other` | 기타위반 신고 목록 |
 | GET | `/stats` | 기관별/담당자별 통계 |
 | GET/POST | `/watchlist` | 감시 목록 조회/수정 |
-| POST | `/rating/start` | 모바일 Client 별점 배치 시작 (API 키 인증) |
+| POST | `/rating/start` | 모바일 Client 별점 배치 시작 (API 키 인증). 본문 `{report_numbers, score, cause?}` — `cause` 는 공통 사유(선택, 2026-09-25, 코드포인트 1000 초과면 400). 결과는 `logs/current_rating.log` 줄 형식이 계약(모바일이 정규식으로 읽음) |
 | POST | `/crawl/enqueue` | 신고번호 큐 등록 (알림 리스너 연동) |
 | GET | `/crawl/status` | 크롤링 실행 여부 |
 | GET | `/crawl/done` | 완료 마커 조회 (읽으면 삭제) |
@@ -420,7 +420,7 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 - `/summary` 의 취하 필드 규칙
   - `exclude_withdraw=True` 이면 그래프/모바일 카드 기준 `withdrawCount=0`, `withdraw_pct=0`
   - 실제 원본 취하 건수는 `withdrawRawCount` 로 별도 전달
-| GET | `/app/config` | 앱 설정 (`exclude_withdraw`, `normalize_police`, `use_representative_records` 등) |
+| GET | `/app/config` | 앱 설정 (`exclude_withdraw`, `normalize_police`, `use_representative_records` 등). `capabilities`(기능 목록, 예 `rating_cause`)·`rating_cause_max` — 앱이 서버 기능을 알아본다(2026-09-25) |
 | POST | `/settings` | 필터 설정 저장 (`normalize_police`, `exclude_withdraw`, `use_representative_records`) |
 | GET | `/files?path=` | 서버 파일 브라우저 (logs/results 한정) |
 | GET | `/files/download?path=&api_key=` | 파일 다운로드 (헤더 또는 쿼리 파라미터 인증) |

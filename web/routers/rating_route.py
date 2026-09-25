@@ -4,7 +4,7 @@ import settings.settings as app_settings
 import os
 import asyncio
 from core.database.engine import get_engine
-from services import data_service, rating_service
+from services import data_service, rating_eligibility, rating_service
 from core.utils.templating import templates
 
 engine = get_engine()
@@ -17,17 +17,18 @@ def view_rating_page(request: Request):
     return templates.TemplateResponse(request, "rating.html", {
         "title": "자동 별점 주기",
         "records": records,
-        "phone_number": app_settings.phone_number or ""
+        "phone_number": app_settings.phone_number or "",
+        "rating_cause_max": rating_eligibility.RATING_CAUSE_MAX,
     })
 
 @router.post("/start")
-def start_batch_rating(request: Request, ids: str = Form(""), score: int = Form(5)):
+def start_batch_rating(request: Request, ids: str = Form(""), score: int = Form(5), cause: str = Form("")):
     id_list = [i.strip() for i in ids.replace(',', '\n').split('\n') if i.strip()]
     if not id_list:
         return JSONResponse({"status": "error", "message": "별점을 부여할 신고 번호 또는 ID를 입력해주세요."})
 
     try:
-        final_ids = rating_service.start_batch_rating(engine, id_list, score)
+        final_ids = rating_service.start_batch_rating(engine, id_list, score, cause)
     except ValueError as exc:
         return JSONResponse({"status": "error", "message": str(exc)})
     except RuntimeError as exc:

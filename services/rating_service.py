@@ -33,13 +33,19 @@ def resolve_rating_targets(engine, raw_values):
     return data_service.resolve_to_report_numbers(engine, normalized)
 
 
-def _run_rating_worker(report_numbers: list[str], score: int):
+def _run_rating_worker(report_numbers: list[str], score: int, cause: str = ""):
     from services import star_rating_service
 
-    star_rating_service.run_batch_rating(report_numbers, score=score)
+    star_rating_service.run_batch_rating(report_numbers, score=score, cause=cause)
 
 
-def start_batch_rating(engine, report_numbers, score: int):
+def start_batch_rating(engine, report_numbers, score: int, cause: str = ""):
+    from services import rating_eligibility
+
+    cause_problem = rating_eligibility.cause_error(cause)
+    if cause_problem:
+        raise ValueError(cause_problem)
+    cause = rating_eligibility.normalize_cause(cause)
     final_report_numbers = resolve_rating_targets(engine, report_numbers)
     if not final_report_numbers:
         raise ValueError("유효한 신고 건을 찾을 수 없습니다.")
@@ -53,7 +59,7 @@ def start_batch_rating(engine, report_numbers, score: int):
     prepare_current_rating_log()
     threading.Thread(
         target=_run_rating_worker,
-        args=(final_report_numbers, score),
+        args=(final_report_numbers, score, cause),
         daemon=True,
     ).start()
     return final_report_numbers

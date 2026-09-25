@@ -10,6 +10,13 @@
 
 ## 2026-09-25 (dev, 미배포)
 
+### 별점 공통 사유 입력 + 제출 확인 강화 (G16 W2)
+
+- 자동 별점 화면에 "공통 사유(선택)" 칸. 입력하면 선택한 모든 건에 같은 사유를 사이트 `STSFDG_CAUSE` 로 보낸다(예전엔 늘 빈 값). 글자 수는 서버·웹·앱 모두 유니코드 코드포인트로 세고 상한 1000(사이트 제한 미상 — 안전 상한).
+- 성공 판정: 예전엔 제출 HTTP 200 이면 성공으로 저장했다. 이제 제출 뒤 사이트에서 점수를 다시 읽어 보일 때만 성공으로 기록하고, 사이트가 돌려준 점수·사유(비어 있으면 만족도 팝업에서 읽음)를 저장한다. 확인 전에 끊겨 재시도하면 다시 제출하지 않고 성공으로 센다. 모바일 Standalone 과 같은 흐름.
+- API: `/api/v1/rating/start` 본문 `cause`(선택), `/api/v1/app/config` 에 `capabilities: ["rating_cause"]`·`rating_cause_max`. 로그 줄 형식은 그대로(모바일 Client 가 읽는다).
+- 테스트: `tests/test_rating_eligibility.py`(가짜 사이트로 제출 흐름 6건, API 계약), `tools/web-tests/specs/rating-cause.spec.ts`.
+
 ### 별점 대상 규칙을 모바일과 통일 + 사전 확인 버그 수정 (G16 W1)
 
 - 목록(`get_unrated_records`)과 제출(`run_batch_rating`)이 같은 규칙 `services/rating_eligibility.py` 를 쓴다(모바일 `RatingService.ineligibleReason` 과 같은 규칙·문구). 공용 판정 벡터 `contracts/rating-eligibility-vectors.json`(두 레포 바이트 동일, 왕복 검사 sha 비교).

@@ -1,5 +1,5 @@
 {
- "description": "별점(만족도 조사) 대상 판정. 서버 services/rating_eligibility.ineligible_reason 과 모바일 RatingService.ineligibleReason 이 같은 결과를 내야 한다. reason=null 이면 대상. 두 레포에 바이트까지 같게 둔다.",
+ "description": "별점(만족도 조사) 대상 판정과 공통 사유 규칙. 서버 services/rating_eligibility(ineligible_reason, normalize_cause, cause_error)와 모바일 RatingService(ineligibleReason, normalizeCause, causeError)가 같은 결과를 내야 한다. reason=null 이면 대상. cause_cases: input 을 repeat 번 이어 붙인 값을 정리하면 normalized(또는 길이 normalized_length, 코드포인트 수)가 되고, 상한(1000) 초과면 too_long=true. 두 레포에 바이트까지 같게 둔다.",
  "eligibility_cases": [
   {
    "poll_status": "참여 가능",
@@ -115,6 +115,69 @@
    "poll_status": null,
    "status": null,
    "reason": null
+  }
+ ],
+ "rating_cause_max": 1000,
+ "cause_cases": [
+  {
+   "input": null,
+   "normalized": "",
+   "too_long": false
+  },
+  {
+   "input": "",
+   "normalized": "",
+   "too_long": false
+  },
+  {
+   "input": "   ",
+   "normalized": "",
+   "too_long": false
+  },
+  {
+   "input": "  감사합니다  ",
+   "normalized": "감사합니다",
+   "too_long": false
+  },
+  {
+   "input": "첫 줄\r\n둘째 줄\r셋째 줄\n",
+   "normalized": "첫 줄\n둘째 줄\n셋째 줄",
+   "too_long": false
+  },
+  {
+   "input": "　 \t빠른 처리﻿",
+   "normalized": "빠른 처리",
+   "too_long": false
+  },
+  {
+   "input": "가",
+   "repeat": 1000,
+   "normalized_length": 1000,
+   "too_long": false
+  },
+  {
+   "input": "가",
+   "repeat": 1001,
+   "normalized_length": 1001,
+   "too_long": true
+  },
+  {
+   "input": "😀",
+   "repeat": 1000,
+   "normalized_length": 1000,
+   "too_long": false
+  },
+  {
+   "input": "😀",
+   "repeat": 1001,
+   "normalized_length": 1001,
+   "too_long": true
+  },
+  {
+   "input": " 가",
+   "repeat": 1000,
+   "normalized_length": 1999,
+   "too_long": true
   }
  ]
 }
