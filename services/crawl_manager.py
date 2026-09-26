@@ -231,56 +231,16 @@ class CrawlManager:
         return True
 
     def record_direct_queue_result(self, queue_file: str) -> bool:
-        """큐 지정 **직접 시작** 크롤이 끝난 뒤(감사 R8-02·R9-01·R9-02·R9-04): 없음·모호 번호는 기록하고, 처리하지 못한 번호
-        (보고 없음·실패·목록 일부만 받음)는 대기 큐로 넘겨 늘어나는 간격으로 다시 시도한다. 기록에 실패한 없음·모호 번호도 대기 큐로
-        넘겨 다음에 다시 판정한다. 다 넘기면 실행 파일을 지우고 True, 넘기지 못하면 파일을 남겨(기동 때 회수) False."""
+        """큐 지정 **직접 시작** 크롤이 끝난 뒤(감사 R8-02·R9-01·R9-02): 없음·모호 번호를 기록하고 실행 파일(고유 큐·보고)을 지운다.
+        기록을 저장하지 못하면 보고 파일을 지우지 않고 남긴다(False). 직접 시작은 대기 큐가 아니므로 처리하지 못한 번호를 자동으로
+        다시 돌리지 않는다 — 사용자가 멈춘 크롤을 되살리지 않게(감사 R10-02). 결과는 크롤 로그와 /crawl/status 의 unresolved 로 본다."""
         from services import crawl_queue_report
 
-        try:
-            with open(queue_file, encoding="utf-8") as f:
-                requested = [line.strip() for line in f if line.strip()]
-        except OSError:
-            requested = []
-        done, not_found, ambiguous = crawl_queue_report.read(queue_file)
+        _, not_found, ambiguous = crawl_queue_report.read(queue_file)
         if (not_found or ambiguous) and not self._publish_unresolved(not_found, ambiguous):
-            done = done - set(not_found) - set(ambiguous)
-        left = [n for n in dict.fromkeys(requested) if n not in done]
-        try:
-            for n in left:
-                self.append_to_pending(n)
-        except RuntimeError:
-            from core.utils import logger
-            logger.LoggerFactory.logbot.warning("[crawl] 직접 실행에서 남은 번호를 대기 큐에 넘기지 못함 — 다음 기동 때 다시 회수")
             return False
-        if left:
-            self._schedule_retry()
         crawl_queue_report.remove_files(queue_file)
         return True
-
-    def recover_leftover_queue_runs(self) -> None:
-        """서버 기동 때: 지난 실행이 끝을 정리하지 못한 큐 파일·결과 보고를 회수한다(감사 R9-01·R9-02).
-        대기 큐 실행(pending_queue_*)은 보고의 끝난 번호만 큐에서 빼고, 직접 실행은 위 규칙대로 넘긴다."""
-        import glob
-        import settings.settings as s
-        from services import crawl_queue_report
-
-        for path in glob.glob(os.path.join(s.datapath, "*_*.txt")):
-            name = os.path.basename(path)
-            if not any(name.startswith(p) for p in ("pending_queue_", "queue_", "mobile_queue_", "web_selected_queue_")):
-                continue
-            if name.startswith("pending_queue_"):
-                done = self._read_queue_report(path)
-                if done:
-                    with self._state_lock:
-                        self._load_pending_locked()
-                        self._pending_queue[:] = [r for r in self._pending_queue if r not in done]
-                        try:
-                            self._save_pending_locked()
-                        except OSError:
-                            continue
-                crawl_queue_report.remove_files(path)
-            else:
-                self.record_direct_queue_result(path)
 
     def _settle_pending(self, items: List[str], done: set) -> List[str]:
         """대기 큐 크롤이 끝난 뒤: 자식이 끝냈다고 보고한 번호만 큐에서 빼고, 나머지는 예약만 풀어 큐에 남긴다(R4-01·R5-01).

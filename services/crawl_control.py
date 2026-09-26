@@ -119,6 +119,14 @@ def configure_crawl_settings(*, crawl_mode: str):
     settings._instance.save()
 
 
+def _discard_queue_file(queue_file: str | None) -> None:
+    if not queue_file:
+        return
+    from services import crawl_queue_report
+
+    crawl_queue_report.remove_files(queue_file)
+
+
 def _start_after_crawl_hook(log_file: str, queue_file: str | None = None):
     """완료 훅. queue_file 이 있으면(큐 지정 직접 시작) 크롤이 끝난 뒤 번호별 보고를 읽어 처리하지 못한 번호(없음·모호)를
     남긴다(감사 R8-02 — 대기 큐 자동 시작과 같은 기록·상태·WS)."""
@@ -185,8 +193,14 @@ def start_crawl(
         queue_file=queue_file,
     )
     log_file, prepare = _log_header(header)
-    if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
-                                     restore_generation=generation):
+    try:
+        started = crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
+                                            restore_generation=generation)
+    except BaseException:
+        _discard_queue_file(queue_file)
+        raise
+    if not started:
+        _discard_queue_file(queue_file)  # 시작하지 못한 실행의 고유 큐 파일은 남기지 않는다(R10-03)
         raise RuntimeError("크롤링 프로세스를 시작하지 못했습니다.")
 
     ws_manager.broadcast_from_thread(
@@ -220,8 +234,14 @@ def enqueue_report(report_number: str):
     queue_file = _write_queue_file("mobile_queue.txt", normalized)
     log_file, prepare = _log_header(f"=== [모바일에서 시작된 크롤링] - 신고번호: {normalized} ===")
     command = _build_command(queue_file=queue_file)
-    if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
-                                     restore_generation=generation):
+    try:
+        started = crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
+                                            restore_generation=generation)
+    except BaseException:
+        _discard_queue_file(queue_file)
+        raise
+    if not started:
+        _discard_queue_file(queue_file)  # R10-03
         # 그 사이 다른 크롤(대기 큐 자동 시작 등)이 먼저 시작했다 — 번호를 대기 큐에 넣고, 그 크롤의 완료 훅이 이미
         # 지나갔을 수 있으니 한 번 더 시작을 시도한다(R5-02 — 실행 중이면 그 크롤이 끝날 때 이어서 처리)
         queue_size = crawl_manager.append_to_pending(normalized)
@@ -280,8 +300,14 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
         + "\n".join(f"  - {report_number}" for report_number in normalized)
     )
     command = _build_command(queue_file=queue_file)
-    if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
-                                     restore_generation=generation):
+    try:
+        started = crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
+                                            restore_generation=generation)
+    except BaseException:
+        _discard_queue_file(queue_file)
+        raise
+    if not started:
+        _discard_queue_file(queue_file)  # R10-03
         result = _queue_all()  # 그 사이 다른 크롤이 먼저 시작했다 — 대기 큐로(R5-02: 한 번 더 시작 시도)
         crawl_manager.request_pending_launch()
         return result
