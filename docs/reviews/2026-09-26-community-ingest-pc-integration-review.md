@@ -24,3 +24,14 @@
   공개 함수 1건, PC 키 = 서버 `source_report_key` 앞 24hex, manifest 교체, 같은 내용 재관측 이벤트 없음·원장 불변, 원격 철회 → consent_required·context 비활성·
   공개 0·대기 이벤트 미전송.
 - 확인 못 함: 실제 카카오(호스팅) 로그인, PyInstaller·Docker 산출물에서의 동작(T8), 브라우저 화면 검수(T7).
+
+## T7 브라우저 QA (Muse, 검수자·코드 무수정) 판정 — 2026-09-26
+- 실행: `opencode-go/muse-spark-1.3-contributor`, 세션 `ses_f24a465fcffeuyYWRlR51L3pDb`, detached worktree `safetyreport/qa`(d37749e). 증거는 worktree 밖 쓰기 거부로
+  `qa/.agent-runs/T7/`(report.md, shots 12장, smoke.log). 온보딩 1-1~1-8 passed(리다이렉트·next 유지, 체크박스 기본 해제·체크 전 비활성, 동의 뒤 next 이동,
+  설정 5번 카드, 초기화 배너·화면, 지도 공유 패널, 크롤 로그 WS, 1440 라이트/다크·375 가로 스크롤 없음).
+- F1(카카오 연결 502, relay `config_missing`): **합성 스택 설정 누락**(함수 런타임의 SUPABASE_URL 이 내부 주소) — `AUTH_PUBLIC_SUPABASE_URL` 을 스택 함수 환경에 추가.
+  제품 코드 결함 아님. PC 실스택 테스트에 실제 relay 연결 요청 시작(비교코드·링크)을 추가해 확인.
+- F2(스모크 6건: 크롤 차단 문구 기대와 409 초기화 게이트 불일치): 새 게이트가 fixture 차단보다 먼저 막는 **의도된 동작**. 테스트는 고치지 않고
+  QA 세션 도구에 `--rebuild-done` 을 넣어 스모크가 원래 의도(fixture 차단)를 그대로 검증하게 함 → 재실행 125/126(남은 1건은 firefox 콘솔 오류 간헐, 반복 28/28 통과).
+- F3(axe: login/stats/settings 대비·라벨): 이번 변경 전부터 있던 화면 — **기존 결함**으로 기록, 이번 범위에서 수정하지 않음.
+- 검수 3(map 좌표 결측 문구)은 Muse 경계상 blocked → Opus 가 map 실스택 테스트로 API `location_missing` 을 확인했고, 화면 문구는 빌드·스캔 통과까지만(브라우저 표시 not-run).
