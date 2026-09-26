@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 from settings import settings
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 FILE_NAME = "community.db"
 
 _SCHEMA = """
@@ -86,6 +86,30 @@ CREATE TABLE IF NOT EXISTS rebuild_items (
   attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, event_id TEXT, last_list_label TEXT,
   PRIMARY KEY (run_id, source_report_id));
 """
+
+# 번호 붙은 단계(v → 문장 목록). 한 단계는 한 트랜잭션.
+_UPLOAD_RUN_RESULTS = ("'running','no_change','success','partial','auth_required','consent_required','connection_required',"
+                       "'offline','failed','deferred','sent','no_pending','not_due','cooldown','busy_other_run',"
+                       "'needs_auth','needs_consent','blocked_gate','more_pending'")
+_MIGRATIONS: dict[int, list[str]] = {
+    # v2 (2026-09-27 업로드 장애 대응 UC-1): 영속 전송 제어 표, upload_runs 결과 코드 확장(표 재생성·행 보존)
+    2: [
+        "CREATE TABLE IF NOT EXISTS upload_control (scope TEXT PRIMARY KEY,"
+        " state TEXT NOT NULL CHECK (state IN ('ready','cooling_down','probing')),"
+        " next_attempt_at TEXT, consecutive_failures INTEGER NOT NULL DEFAULT 0, last_error_code TEXT,"
+        " updated_at TEXT NOT NULL)",
+        "CREATE TABLE upload_runs_v2 (run_id TEXT PRIMARY KEY, trigger TEXT NOT NULL, schedule_key TEXT,"
+        " contributor_fingerprint TEXT, started_at TEXT NOT NULL, finished_at TEXT,"
+        f" result TEXT CHECK (result IN ({_UPLOAD_RUN_RESULTS})),"
+        " counts_json TEXT NOT NULL DEFAULT '{}', request_ids TEXT NOT NULL DEFAULT '[]', error_code TEXT)",
+        "INSERT INTO upload_runs_v2 SELECT run_id, trigger, schedule_key, contributor_fingerprint, started_at,"
+        " finished_at, result, counts_json, request_ids, error_code FROM upload_runs",
+        "DROP TABLE upload_runs",
+        "ALTER TABLE upload_runs_v2 RENAME TO upload_runs",
+        "CREATE INDEX IF NOT EXISTS upload_runs_started ON upload_runs(started_at)",
+        "CREATE INDEX IF NOT EXISTS journal_ack ON source_journal(acked_at)",
+    ],
+}
 
 
 def utc_now() -> datetime:
@@ -169,17 +193,30 @@ class CommunityStore:
         return int(self.connect().execute("PRAGMA data_version").fetchone()[0])
 
     def _migrate(self) -> None:
+        """v1 표를 만든 뒤 번호 붙은 단계로 올린다(각 단계 한 트랜잭션, 기존 행 보존 — community.db 를 지우지 않는다)."""
         conn = self.connect()
         conn.executescript(_SCHEMA)
         with self.transaction() as tx:
             current = tx.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
             if current is None:
-                tx.execute("INSERT INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
+                tx.execute("INSERT INTO meta(key, value) VALUES ('schema_version', '1')")
                 tx.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('local_dataset_id', ?)", (str(uuid.uuid4()),))
                 tx.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('next_revision', '1')")
                 tx.execute("INSERT OR IGNORE INTO meta(key, value) VALUES ('dataset_history', '[]')")
-            elif int(current["value"]) > SCHEMA_VERSION:
-                raise RuntimeError(f"community.db schema {current['value']} is newer than this program ({SCHEMA_VERSION})")
+                version = 1
+            else:
+                version = int(current["value"])
+            if version > SCHEMA_VERSION:
+                raise RuntimeError(f"community.db schema {version} is newer than this program ({SCHEMA_VERSION})")
+        for step in range(version + 1, SCHEMA_VERSION + 1):
+            with self.transaction() as tx:
+                # 다른 프로세스(수집 서브프로세스·두 번째 서버)가 먼저 올렸으면 건너뛴다 — 쓰기 잠금 안에서 다시 읽는다(모바일과 같음)
+                now = tx.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+                if now is not None and int(now["value"]) >= step:
+                    continue
+                for statement in _MIGRATIONS[step]:
+                    tx.execute(statement)
+                self.set_meta("schema_version", str(step), tx)
 
     # --- meta ---------------------------------------------------------------------------
     def meta(self, key: str) -> str | None:
@@ -267,6 +304,13 @@ class CommunityStore:
                        " ON CONFLICT(name) DO UPDATE SET owner=excluded.owner, until=excluded.until",
                        (name, owner, iso(now + timedelta(seconds=seconds))))
             return True
+
+    def renew_lease(self, name: str, owner: str, seconds: int) -> bool:
+        """소유자가 같을 때만 연장(heartbeat). 다른 실행이 가져갔으면 False — 그 뒤로는 새 배치를 보내지 않는다."""
+        with self.transaction() as tx:
+            cur = tx.execute("UPDATE leases SET until=? WHERE name=? AND owner=?",
+                             (iso(utc_now() + timedelta(seconds=seconds)), name, owner))
+            return cur.rowcount == 1
 
     def release_lease(self, name: str, owner: str) -> None:
         with self.transaction() as tx:

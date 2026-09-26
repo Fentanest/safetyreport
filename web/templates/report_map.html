@@ -690,11 +690,24 @@
             var csrfToken = sharePanel.getAttribute('data-csrf') || '';
             var uploading = false;
 
+            // UC-1 결과 코드(outcome). 예전 서버 응답의 result 값도 받는다.
             var RESULT_TEXT = {
-                success: '중앙 저장 완료', no_change: '새로 업로드할 신고가 없습니다',
-                partial: '부분 성공 — 확인이 필요한 항목이 있습니다', auth_required: '인증 필요 — 커뮤니티 계정을 다시 연결해 주세요',
-                consent_required: '공유 동의 필요', connection_required: '연결 확인 필요',
-                failed: '실패', deferred: '지연됨 — 다음 자동 업로드 때 다시 시도합니다'
+                sent: '중앙 저장 확인', success: '중앙 저장 확인', no_pending: '보낼 미전송 자료가 없습니다',
+                more_pending: '남은 자료를 이어서 보냅니다',
+                no_change: '보낼 미전송 자료가 없습니다', not_due: '미전송 자료는 다음 재시도 시각에 보냅니다',
+                partial: '일부만 저장 확인 — 확인이 필요한 항목이 있습니다',
+                cooldown: '서버가 일시적으로 요청을 받지 못해 잠시 기다립니다', deferred: '다음 기회에 다시 시도합니다',
+                busy_other_run: '다른 업로드가 진행 중입니다', blocked_gate: '커뮤니티 연결 확인 뒤 보냅니다',
+                needs_auth: '인증 필요 — 커뮤니티 계정을 다시 연결해 주세요', auth_required: '인증 필요 — 커뮤니티 계정을 다시 연결해 주세요',
+                needs_consent: '공유 동의 확인 필요', consent_required: '공유 동의 확인 필요', connection_required: '연결 확인 필요',
+                failed: '실패'
+            };
+            // 확인된 코드만 사람이 읽는 말로(원인을 추정하지 않는다)
+            var ERROR_TEXT = {
+                rate_limited: '요청이 많아 서버가 잠시 대기를 요청함(429)', busy: '서버 혼잡(503)',
+                service_unavailable: '서비스 일시 중단(503)', server_error: '서버 일시 오류(500)',
+                offline: '네트워크 연결 실패', invalid_ack: '서버 응답 형식 이상', ack_missing: '일부 응답 누락',
+                auth_unavailable: '인증 서버 연결 실패'
             };
             var PROJECTION_TEXT = {
                 published: '지도 반영됨', removed: '지도에서 빠짐(정정)',
@@ -703,30 +716,49 @@
             };
 
             function setState(text) { if (shareState) { shareState.textContent = text || ''; } }
+            function errText(code) {
+                if (!code) { return ''; }
+                if (ERROR_TEXT[code]) { return ERROR_TEXT[code]; }
+                var http = /^http_(\d{3})$/.exec(code);
+                return http ? ('서버 일시 오류(HTTP ' + http[1] + ')') : ('오류 ' + code);
+            }
 
             function renderStatus(data) {
                 var pending = Number(data.pending || 0);
+                var auth = Number(data.auth_required || 0);
                 var attention = Number(data.needs_attention || 0);
+                var quarantined = Number(data.quarantined || 0);
                 var reshare = Number(data.reshare_candidates || 0);
+                var control = data.control || {};
                 if (!data.has_journal) {
                     shareSummary.textContent = '업로드할 수집 사본이 없습니다. 커뮤니티 연결 뒤 수집(초기화)을 먼저 진행해 주세요.';
                 } else {
-                    var last = data.last_upload_kst ? ('마지막 업로드 ' + data.last_upload_kst + ' (한국 시간)') : '아직 업로드 기록이 없습니다';
-                    shareSummary.textContent = last + ' · 전송 대기 ' + pending + '건 / 확인 필요 ' + attention + '건';
+                    var bits = ['전송 대기 ' + pending + '건'];
+                    if (auth > 0) { bits.push('인증 필요 ' + auth + '건'); }
+                    bits.push('확인 필요 ' + attention + '건');
+                    if (quarantined > 0) { bits.push('중앙 보관·지도 미반영 ' + quarantined + '건'); }
+                    if (data.oldest_unsent_kst) { bits.push('가장 오래된 미전송 ' + data.oldest_unsent_kst); }
+                    if (data.next_retry_kst) { bits.push('다음 재시도 ' + data.next_retry_kst); }
+                    bits.push(data.last_central_ack_kst ? ('마지막 중앙 저장 확인 ' + data.last_central_ack_kst)
+                                                        : '중앙 저장 확인 기록 없음');
+                    shareSummary.textContent = bits.join(' · ') + ' (한국 시간)';
                 }
-                if (data.last_result && data.has_journal) {
-                    var extra = data.last_request ? (' · 추적 ' + String(data.last_request).slice(0, 8)) : '';
+                if (!data.has_journal) { setState(''); }
+                else if (control.state === 'cooling_down') {
+                    setState('서버가 일시적으로 요청을 받지 못해 ' + (control.until_kst || '') + '까지 기다립니다'
+                             + (control.reason ? ' · ' + errText(control.reason) : ''));
+                } else if (auth > 0) {
+                    setState('커뮤니티 계정 인증이 필요합니다 — 다시 연결하면 대기 중인 자료를 그대로 보냅니다');
+                } else {
+                    var outcome = data.last_outcome || data.last_result;
                     var proj = data.projections || {};
                     var projBits = [];
                     ['published', 'removed', 'held', 'not_public'].forEach(function (key) {
-                        if (Number(proj[key] || 0) > 0) {
-                            projBits.push(PROJECTION_TEXT[key] + ' ' + proj[key] + '건');
-                        }
+                        if (Number(proj[key] || 0) > 0) { projBits.push(PROJECTION_TEXT[key] + ' ' + proj[key] + '건'); }
                     });
-                    setState((RESULT_TEXT[data.last_result] || data.last_result) + extra +
-                        (projBits.length ? ' · ' + projBits.join(' / ') : ''));
-                } else if (!data.has_journal) {
-                    setState('');
+                    var extra = data.last_request ? (' · 추적 ' + String(data.last_request).slice(0, 8)) : '';
+                    setState((outcome ? (RESULT_TEXT[outcome] || outcome) + extra : '')
+                             + (projBits.length ? ' · 중앙 저장 ' + Number(data.stored || 0) + '건 중 ' + projBits.join(' / ') : ''));
                 }
                 if (reshare > 0) {
                     reshareCount.textContent = String(reshare);
@@ -765,10 +797,12 @@
                     setState('업로드 중…');
                     postJson('/community/upload/run', {}).then(function (body) {
                         var data = (body && body.data) || {};
-                        var text = RESULT_TEXT[data.result] || String(data.result || '');
-                        if (data.result === 'success' || data.result === 'no_change') { setState(text); }
-                        else { setState(text + (data.error_code ? ' · 추적 ' + String(data.error_code).slice(0, 8) : '')); }
-                        return refreshStatus();
+                        var outcome = data.outcome || data.result;
+                        var text = RESULT_TEXT[outcome] || String(outcome || '');
+                        if (outcome === 'cooldown' && data.next_attempt_kst) { text += ' (' + data.next_attempt_kst + '까지)'; }
+                        if (data.error_code && outcome !== 'sent' && outcome !== 'no_pending') { text += ' · ' + errText(data.error_code); }
+                        setState(text);
+                        return refreshStatus().then(function () { setState(text); });
                     }).catch(function (e) {
                         setState((e && e.message) || '실패');
                     }).then(function () {

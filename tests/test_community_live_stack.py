@@ -145,7 +145,8 @@ class PcLiveStackTest(unittest.TestCase):
         res = cap.capture(dict(INPUT), source_report_id=report_id, trigger="realtime", data_dir=self.tmp)
         self.assertTrue(res.event_id and res.eligible)
         run = up.request_upload("manual", data_dir=self.tmp)
-        self.assertEqual(run["result"], "success", run)
+        self.assertEqual(run["result"], "sent", run)  # UC-1 결과 코드(API 의 옛 result 는 success 로 변환)
+        self.assertEqual(up.legacy_result(run["result"]), "success")
         row = store.connect().execute("SELECT ack_status, projection_status, receipt_id FROM source_journal WHERE event_id=?",
                                       (res.event_id,)).fetchone()
         self.assertEqual((row["ack_status"], row["projection_status"]), ("accepted", "published"))
@@ -174,7 +175,8 @@ class PcLiveStackTest(unittest.TestCase):
         other = dict(INPUT, processing_status="일부수용")
         pending = cap.capture(other, source_report_id=f"LIVE{uuid.uuid4().hex[:12]}", trigger="realtime", data_dir=self.tmp)
         run = up.request_upload("manual", data_dir=self.tmp)
-        self.assertIn(run["result"], ("consent_required", "auth_required"), run)
+        self.assertIn(run["result"], ("needs_consent", "needs_auth"), run)
+        self.assertIn(up.legacy_result(run["result"]), ("consent_required", "auth_required"))
         self.assertEqual(int(_sql("select count(*) from private.community_ingest_events;")), ledger)
         self.assertIsNotNone(pending.event_id)
 

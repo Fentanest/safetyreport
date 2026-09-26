@@ -841,8 +841,12 @@ class CommunityAuthService:
             return False
 
     # 세션 공급 ---------------------------------------------------------------
-    def get_access_token(self) -> str:
-        """업로더용: 유효한 access token. 60초 안에 만료되면 락 안에서 한 번만 refresh 한다."""
+    def get_access_token(self, *, rejected: str | None = None) -> str:
+        """업로더용: 유효한 access token. 60초 안에 만료되면 락 안에서 한 번만 refresh 한다.
+
+        rejected: 서버가 401 로 거절한 토큰. 저장된 토큰이 그것과 같으면 만료 전이어도 **실제로** refresh 한다(같은 토큰을
+        다시 돌려주는 것은 갱신이 아니다). 다른 호출자가 이미 바꿨으면 새 토큰을 그대로 돌려준다(회전된 refresh token 을 덮지 않음).
+        refresh 네트워크 실패는 auth_unavailable(일시), refresh token 거부는 reauth_required(확정)."""
         cfg = self.config()
         self._require_ready(cfg)
         with self.store.locked():
@@ -850,7 +854,8 @@ class CommunityAuthService:
             cur = st.get("current")
             if not cur:
                 raise CommunityAuthError("reauth_required" if st.get("reauth") else "not_connected")
-            if float(cur.get("expires_at") or 0) - self._now() > REFRESH_MARGIN_SECONDS:
+            forced = rejected is not None and cur.get("access_token") == rejected
+            if not forced and float(cur.get("expires_at") or 0) - self._now() > REFRESH_MARGIN_SECONDS:
                 return cur["access_token"]
             try:
                 session = self._client(cfg).refresh(refresh_token=cur["refresh_token"])
@@ -967,8 +972,8 @@ def shutdown() -> None:
         _default.shutdown()
 
 
-def get_access_token() -> str:
-    return get_service().get_access_token()
+def get_access_token(*, rejected: str | None = None) -> str:
+    return get_service().get_access_token(rejected=rejected)
 
 
 def is_upload_allowed() -> bool:

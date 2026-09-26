@@ -125,13 +125,27 @@ def _mismatch(code: str = "account_mismatch") -> JSONResponse:
     return JSONResponse({"detail": detail, "code": code}, status_code=403, headers=_NO_STORE)
 
 
+def _kst_label(value) -> str | None:
+    from datetime import datetime, timedelta, timezone
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return (dt + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M")
+
+
 def _public_run(raw: dict) -> dict:
     """내부 run_id(UUID)·request_id 전체는 빼고 결과·건수·추적ID(앞 8자)만. 토큰·UUID 없음."""
     ids = raw.get("request_ids") or []
     tracking = (ids[-1][:8] if ids else raw.get("last_request") or "") or None
     if isinstance(tracking, str):
         tracking = tracking[:8]
-    return {"result": raw.get("result"), "counts": raw.get("counts", {}),
+    from services.community_upload_policy import legacy_result
+    return {"result": legacy_result(raw.get("result")), "outcome": raw.get("result"), "counts": raw.get("counts", {}),
+            "next_attempt_kst": _kst_label(raw.get("next_attempt_at")),
             "error_code": raw.get("error_code"), "tracking": tracking,
             **({"reshared": raw["reshared"]} if "reshared" in raw else {}),
             **({"count": raw["count"]} if "count" in raw else {})}
