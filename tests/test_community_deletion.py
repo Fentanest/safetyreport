@@ -142,6 +142,24 @@ class DeletionBlockTest(unittest.TestCase):
         self.assertEqual(self.pending_keys(), [])
         self.assertEqual(self.sent, [])
 
+    def test_writer_file_failure_after_central_success_does_not_block_local_confirmation(self):
+        """Sol 4차 3: 중앙 성공 뒤 writer 파일 삭제가 실패해도 로컬 확정·적용은 끝나고, 응답이 그 상태를 알린다."""
+        from web.routers import community_route as route
+
+        cap.capture(dict(INPUT), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        with mock.patch.object(cap, "_store", lambda data_dir=None: self.store), \
+             mock.patch.object(route, "_account_call", side_effect=lambda fn: {"deletion_id": "d4"}), \
+             mock.patch.object(route.community_gate, "invalidate"), \
+             mock.patch.object(route, "_regate", return_value={}), \
+             mock.patch.object(route.cas, "get_service") as svc:
+            svc.return_value.store.save_writer.side_effect = OSError("fsync failed")
+            res = route._contributions_delete()
+        svc.return_value.store.save_writer.assert_called_once_with(None)
+        self.assertFalse(res["local_cleanup_pending"])
+        self.assertTrue(res["writer_reset_pending"])
+        self.assertEqual(self.journal()["R1"], "deleted_by_user")
+        self.assertEqual(self.pending_keys(), [])
+
     def test_route_does_not_call_central_delete_when_the_marker_cannot_be_written(self):
         from services.community_auth_service import CommunityAuthError
 

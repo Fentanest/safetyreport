@@ -211,6 +211,8 @@
             var n = data.result && typeof data.result.deleted_facts === 'number' ? data.result.deleted_facts : null;
             if (data.local_cleanup_pending) {
                 alertBox('중앙에서는 삭제했지만 이 서버의 대기 사본 정리를 끝내지 못했습니다. 정리될 때까지 업로드하지 않으며 다음 업로드 때 다시 시도합니다.', 'warning');
+            } else if (data.writer_reset_pending) {
+                alertBox('삭제를 요청했습니다' + (n === null ? '' : ' (' + n + '건)') + '. 다만 이 서버의 업로드 연결 파일을 지우지 못했습니다. 데이터 폴더의 쓰기 권한·여유 공간을 확인해 주세요.', 'warning');
             } else {
                 alertBox('삭제를 요청했습니다' + (n === null ? '.' : ' (' + n + '건).'), 'success');
             }

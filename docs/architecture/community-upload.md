@@ -59,10 +59,16 @@
   published=지도 반영됨, removed=지도에서 빠짐(정정),
   held=중앙 저장 완료·지도 반영 대기, not_public=중앙 저장(지도 비표시),
   not_applicable=변경 없음.
-- 삭제(`contributions-delete` 성공 뒤 T3 라우트가 `on_contributions_deleted()` 호출):
-  outbox 대기 전부 `blocked:deleted_by_user`, 삭제 시각 이전 journal
-  `blocked_reason='deleted_by_user'`(reshare·location_supplement 후보 영구 제외),
-  `server_completed` 비움.
+- 삭제(`contributions-delete`, `web/routers/community_route.py` `_contributions_delete`) — 두 단계 표시(Sol 3·4차):
+  1. 중앙 호출 **전** community.db meta 에 `deletion_pending:<id>` = `prepared` 를 쓴다. 못 쓰면 중앙 삭제를 요청하지 않는다.
+     prepared 가 있는 동안 업로드·reshare 는 `deferred`/`deletion_cleanup_pending` 으로 막기만 하고 적용·삭제하지 않는다.
+  2. 중앙 결과: 확정 거절(4xx)이면 자기 표시만 지운다. 불명(네트워크·5xx)이면 표시를 유지하고 503 `deletion_unconfirmed`
+     로 다시 요청하게 한다(중앙 삭제는 반복해도 안전).
+  3. 중앙 성공 뒤 모든 표시를 `confirmed` 로 바꾸고 한 트랜잭션에서 적용한다: 그 시점 journal 최대 rowid 까지
+     `blocked_reason='deleted_by_user'`, 그 outbox `blocked`, `server_completed` 비움, 표시 삭제. 실패하면 confirmed 표시가
+     남아 다음 업로드가 먼저 적용한다(응답 `local_cleanup_pending`).
+  4. 그 뒤 writer 연결 파일을 지운다. 실패하면 응답 `writer_reset_pending`(로컬 확정은 이미 끝남).
+  모바일(`lib/community/upload_hooks.dart` `requestDeletion`)도 같은 순서다.
 - 자정 업로드: KST 00:00 due, 키 범위
   (project_namespace, contributor_fingerprint, local_dataset_id, writer_epoch,
   schedule_key). 최신 키 1회만 보충하며 이전 날짜 누락은 따로 실행하지 않는다.

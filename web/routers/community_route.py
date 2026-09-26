@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 
 from fastapi import APIRouter, Depends, Request
@@ -23,6 +24,8 @@ from services import community_gate
 from services.community_account_client import AccountApiError, CommunityAccountClient
 from services.community_auth_service import CommunityAuthError, hash_api_key
 from web.routers.api_route import _require_api_key
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settings/community")
 api_router = APIRouter(prefix="/api/v1/community-auth")
@@ -278,14 +281,22 @@ def _contributions_delete() -> dict:
         # 삭제는 여러 번 요청해도 안전하다(Sol 3차 H-03d).
         raise CommunityAuthError("deletion_unconfirmed", "삭제 요청 결과를 확인하지 못했습니다. 확인될 때까지 업로드를 멈췄습니다. "
                                  "네트워크를 확인한 뒤 '공유한 자료 삭제 요청'을 다시 눌러 주세요.") from None
-    cas.get_service().store.save_writer(None)  # 중앙이 연결을 모두 폐기했다 → 다음 확인 때 새로 등록
     local_ok = True
     try:  # 2) 중앙 성공 뒤에만 확정·적용(그 시점까지의 journal 전부 차단, 앞선 prepared 표시 포함). 실패해도 confirmed 표시가 막는다.
         community_capture.confirm_deletion()
     except Exception:
         local_ok = False
+    # 3) 로컬 확정 뒤에 writer 파일을 지운다(Sol 4차 3 — 파일 오류가 확정을 가로막지 않게).
+    #    중앙이 연결을 모두 폐기했다 → 다음 확인 때 새로 등록. 못 지우면 폐기된 연결이라 중앙이 거절하므로 업로드는 나가지 않는다.
+    writer_ok = True
+    try:
+        cas.get_service().store.save_writer(None)
+    except Exception:
+        writer_ok = False
+        logger.warning("공유 자료 삭제 뒤 writer 연결 파일을 지우지 못함 — 다음 게이트 확인 때 다시 등록 필요")
     return {"result": {k: res.get(k) for k in ("deletion_id", "deleted_facts", "revoked_connections", "deleted_at")},
-            "local_cleanup_pending": not local_ok, "gate": _regate("deletion_completed")}
+            "local_cleanup_pending": not local_ok, "writer_reset_pending": not writer_ok,
+            "gate": _regate("deletion_completed")}
 
 
 @router.get("/policy")
