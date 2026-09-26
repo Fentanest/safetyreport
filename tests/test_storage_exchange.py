@@ -48,6 +48,13 @@ def _mobile_db(path: Path, *, watchlist="SPP-2609-9000011", with_override=True):
 class ExchangeRestoreTests(unittest.TestCase):
     def setUp(self):
         logger.LoggerFactory.create_logger(mode="crawl")
+        # 복원 뒤 재개 스레드가 실제 게이트 검사(네트워크 대기)를 하며 다음 테스트로 새지 않게 기본은 즉시 거부.
+        # 대기 큐 시작을 시험하는 테스트는 _launch_env 가 이 위에 다시 패치한다.
+        default_gate = mock.patch("services.crawl_control._check_crawl_allowed",
+                                  side_effect=RuntimeError("test default: crawl not allowed"))
+        default_gate.start()
+        self.addCleanup(default_gate.stop)
+        self.addCleanup(self._join_crawl_threads)
         get_engine().dispose()
         for ext in ("", "-wal", "-shm"):
             if os.path.exists(settings.db_path + ext):
@@ -57,6 +64,13 @@ class ExchangeRestoreTests(unittest.TestCase):
             conn.execute(text("INSERT INTO mysafety_geocode_cache(주소정규화, 상태, source) VALUES ('서버 전용 주소', 'ok', 'kakao')"))
         self._tmp = tempfile.TemporaryDirectory()
         self.upload = Path(self._tmp.name) / "mobile.db"
+
+    @staticmethod
+    def _join_crawl_threads():
+        import threading
+        for t in threading.enumerate():
+            if t.name in ("crawl-resume-after-restore", "crawl-pending-after"):
+                t.join(15)
 
     def tearDown(self):
         get_engine().dispose()
@@ -398,7 +412,7 @@ class ExchangeRestoreTests(unittest.TestCase):
                 r.join(20)
             self.assertFalse(r.is_alive())
             self.assertEqual(len(errors), 1)
-            popen.assert_not_called()
+            self.assertEqual(popen.call_count, 0)  # 호출 인자(환경 변수)를 실패 메시지에 찍지 않는다(R4-04)
             self.assertFalse(crawl_manager.restore_in_progress())
             # 복원 뒤 재개는 크롤 허용 검사(여기서는 초기화 필요)에 막혀 큐에 그대로 남는다
             time_limit = __import__("time").monotonic() + 5
@@ -407,7 +421,7 @@ class ExchangeRestoreTests(unittest.TestCase):
             self.assertEqual(crawl_manager.pop_pending(), ["SPP-1", "SPP-2"])
             # 복원이 끝나면 다시 시작할 수 있다
             self.assertTrue(crawl_manager.start_crawl(["crawler"], cwd=".", log_file=log))
-            popen.assert_called_once()
+            self.assertEqual(popen.call_count, 1)  # 호출 인자(환경 변수)를 실패 메시지에 찍지 않는다(R4-04)
 
     def test_restore_is_refused_atomically_when_a_crawl_is_running(self):
         from services.crawl_manager import crawl_manager
@@ -485,32 +499,71 @@ class ExchangeRestoreTests(unittest.TestCase):
         self.assertTrue(crawl_manager.stop_crawl())
         self.assertIsNone(crawl_manager.get_process())
 
-    def _launch_env(self, gate_ok=True):
-        """실제 launch_pending_crawl 경로를 돌리되 프로세스만 가짜로(Popen), 게이트 검사는 gate_ok 로."""
-        proc = mock.MagicMock()
-        proc.poll.return_value = None
-        proc.args = []
-        self._launched = []
+    class _Child:
+        """가짜 크롤러 자식: finish(code) 전까지 실행 중."""
 
-        def fake_popen(cmd, **kwargs):  # 자식이 읽을 큐 파일 내용을 시작 순간에 기록한다
+        def __init__(self):
+            import threading
+            self.done = threading.Event()
+            self.code = None
+            self.args = []
+
+        def poll(self):
+            return self.code if self.done.is_set() else None
+
+        def wait(self, timeout=None):
+            if not self.done.wait(timeout if timeout is not None else 10):
+                import subprocess
+                raise subprocess.TimeoutExpired("crawler", timeout)
+            return self.code
+
+        def finish(self, code):
+            self.code = code
+            self.done.set()
+
+        def terminate(self):
+            self.finish(-15)
+
+        kill = terminate
+
+    def _launch_env(self, gate_ok=True, gate=None):
+        """실제 launch_pending_crawl·start_crawl 경로를 돌리되 자식 프로세스만 가짜(_Child)로. 자식이 읽을 큐 파일 내용은
+        시작 순간 기록한다(실제 자식은 나중에 읽지만, 여기서는 파일이 무엇을 담았는지만 본다)."""
+        self._launched = []
+        self._children = []
+
+        def fake_popen(cmd, **kwargs):
             path = cmd[cmd.index("--queue") + 1] if "--queue" in cmd else None
             if path:
                 with open(path, encoding="utf-8") as f:
                     self._launched.append((path, f.read().split("\n")))
-            return proc
+            child = self._Child()
+            if getattr(self, "_children_exit_immediately", False):
+                child.finish(0)
+            self._children.append(child)
+            return child
 
         popen = mock.MagicMock(side_effect=fake_popen)
+        check = gate if gate is not None else (None if gate_ok else RuntimeError("COMMUNITY_REBUILD_REQUIRED"))
         patches = [
             mock.patch("services.crawl_manager.subprocess.Popen", popen),
             mock.patch("services.crawl_manager.block_if_fixture"),
-            mock.patch("services.crawl_manager.CrawlManager.run_after_crawl"),  # 가짜 프로세스의 완료 훅은 돌리지 않는다
-            mock.patch("services.crawl_control._check_crawl_allowed",
-                       side_effect=None if gate_ok else RuntimeError("COMMUNITY_REBUILD_REQUIRED")),
+            mock.patch("services.crawl_manager.CrawlManager.run_after_crawl"),  # 완료 훅의 나머지(로그·방송)는 돌리지 않는다
+            mock.patch("services.crawl_control._check_crawl_allowed", side_effect=check),
             mock.patch("services.ws_manager.ws_manager.broadcast_from_thread"),
         ]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
+        def finish_children():  # 패치가 살아 있는 동안 자식을 끝내고 후처리 스레드가 끝나길 기다린다(다음 테스트로 새지 않게)
+            from services.crawl_manager import crawl_manager
+            for c in self._children:
+                if not c.done.is_set():
+                    c.finish(0)
+            self._until(lambda: not crawl_manager._reserved)
+            import time
+            time.sleep(0.1)
+        self.addCleanup(finish_children)
         return popen
 
     def _queue_arg(self, call):
@@ -518,9 +571,16 @@ class ExchangeRestoreTests(unittest.TestCase):
         path = cmd[cmd.index("--queue") + 1]
         return next((p, items) for p, items in self._launched if p == path)
 
+    @staticmethod
+    def _until(cond, seconds=5):
+        import time
+        deadline = time.monotonic() + seconds
+        while not cond() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return cond()
+
     def test_pending_queue_resumes_once_after_restore_and_survives_a_restart(self):
         """감사 R2-02: 복원이 끝나면 허용 검사 뒤 대기 큐를 한 번 이어서 처리하고, 큐는 파일로 남아 재시작에도 유지된다."""
-        import time
         from services.crawl_manager import crawl_manager
 
         self.addCleanup(self._crawl_reset)
@@ -531,12 +591,10 @@ class ExchangeRestoreTests(unittest.TestCase):
         _mobile_db(self.upload)
         popen = self._launch_env(gate_ok=True)
         exchange.restore(str(self.upload), "mobile")
-        deadline = time.monotonic() + 5
-        while not popen.called and time.monotonic() < deadline:
-            time.sleep(0.05)
-        popen.assert_called_once()
+        self.assertTrue(self._until(lambda: popen.call_count == 1))
         self.assertEqual(self._queue_arg(popen.call_args)[1], ["SPP-7"])
-        self.assertEqual(crawl_manager.pending_count(), 0, "시작에 성공한 뒤에만 큐에서 뺀다")
+        self._children[0].finish(0)
+        self.assertTrue(self._until(lambda: crawl_manager.pending_items() == []), "정상 종료 뒤에만 큐에서 뺀다")
         self.assertFalse(os.path.exists(os.path.join(settings.datapath, crawl_manager.PENDING_FILE)))
 
     def test_pending_items_stay_when_the_start_fails_and_each_run_gets_its_own_queue_file(self):
@@ -550,13 +608,15 @@ class ExchangeRestoreTests(unittest.TestCase):
         busy.poll.return_value = None
         crawl_manager._active_process = busy  # 다른 요청이 먼저 크롤러를 시작함
         self.assertFalse(crawl_manager.launch_pending_crawl())
-        popen.assert_not_called()
+        self.assertEqual(popen.call_count, 0)  # 호출 인자(환경 변수)를 실패 메시지에 찍지 않는다(R4-04)
         self.assertEqual(crawl_manager.pending_items(), ["SPP-RACE"])
         self.assertTrue(os.path.exists(os.path.join(settings.datapath, crawl_manager.PENDING_FILE)))
         crawl_manager.clear_process()
         self.assertTrue(crawl_manager.launch_pending_crawl())
         first_path, first = self._queue_arg(popen.call_args)
         self.assertEqual(first, ["SPP-RACE"])
+        self._children[0].finish(0)
+        self.assertTrue(self._until(lambda: crawl_manager.pending_items() == []))
         crawl_manager.clear_process()
         crawl_manager.append_to_pending("SPP-SECOND")
         self.assertTrue(crawl_manager.launch_pending_crawl())
@@ -564,6 +624,98 @@ class ExchangeRestoreTests(unittest.TestCase):
         self.assertNotEqual(first_path, second_path)
         self.assertEqual(second, ["SPP-SECOND"])
         self.assertEqual(self._launched[0], (first_path, ["SPP-RACE"]), "앞 실행의 큐 파일을 덮어쓰지 않는다")
+
+    def test_items_stay_queued_until_the_child_exits_cleanly(self):
+        """감사 R4-01: 자식이 큐를 읽기 전에(또는 처리 중) 실패하면 번호가 큐에 남는다. 실행 중에는 다시 맡기지 않는다."""
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        popen = self._launch_env(gate_ok=True)
+        crawl_manager.append_to_pending("SPP-A")
+        self.assertTrue(crawl_manager.launch_pending_crawl())
+        self.assertEqual(crawl_manager.pending_count(), 0, "실행이 맡은 번호는 다시 맡기지 않는다")
+        self.assertEqual(crawl_manager.pending_items(), ["SPP-A"], "자식이 끝나기 전에는 큐(파일)에 남아 있다")
+        crawl_manager.append_to_pending("SPP-B")  # 실행 중에 들어온 번호
+        self._children[0].finish(1)  # 로그인·DB 준비 중 실패 등
+        self.assertTrue(self._until(lambda: crawl_manager.pending_count() == 2))
+        self.assertEqual(crawl_manager.pending_items(), ["SPP-A", "SPP-B"])
+        self.assertEqual(popen.call_count, 1)  # 실패한 번호로 곧바로 다시 돌지 않는다(다음 계기에)
+        with open(os.path.join(settings.datapath, crawl_manager.PENDING_FILE), encoding="utf-8") as f:
+            self.assertEqual(__import__("json").load(f), ["SPP-A", "SPP-B"])
+
+    def test_concurrent_launches_start_once_and_keep_the_running_log(self):
+        """감사 R4-02: 동시에 두 번 불러도 시작은 한 번, 두 번째가 실행 중인 크롤의 로그를 지우지 않는다."""
+        import threading
+        from services import crawl_control
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        popen = self._launch_env(gate_ok=True)
+        crawl_manager.append_to_pending("SPP-DUPE")
+        barrier = threading.Barrier(2)
+        results = []
+
+        def go():
+            barrier.wait()
+            results.append(crawl_manager.launch_pending_crawl())
+
+        ts = [threading.Thread(target=go) for _ in range(2)]
+        [t.start() for t in ts]
+        [t.join(10) for t in ts]
+        self.assertEqual(sorted(results), [False, True])
+        self.assertEqual(popen.call_count, 1)
+        self.assertEqual(len({p for p, _ in self._launched}), 1)
+        log = os.path.join(settings.datapath, "logs", "current_crawl.log")
+        with open(log, encoding="utf-8") as f:
+            head = f.read()
+        self.assertIn("대기 큐 자동 시작", head)
+        # 실행 중에 사용자가 번호를 요청해도 로그는 그대로, 번호는 대기 큐로
+        with mock.patch.object(crawl_manager, "is_crawling", return_value=False):  # 사전 검사를 지나 실제 시작 경쟁까지 가게
+            self.assertEqual(crawl_control.enqueue_report("SPP-USER")["status"], "queued")
+        with open(log, encoding="utf-8") as f:
+            self.assertEqual(f.read(), head, "실행 중인 크롤의 로그를 지우지 않는다")
+        self.assertIn("SPP-USER", crawl_manager.pending_items())
+
+    def test_two_launches_never_hand_the_same_numbers_to_two_crawls(self):
+        """감사 R4-02: 첫 자식이 곧바로 끝나도(다음 시작이 가능해짐) 동시에 불린 둘째 launch 가 같은 번호로 또 시작하지 않는다."""
+        import threading
+        import time
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        self._children_exit_immediately = True
+        self.addCleanup(setattr, self, "_children_exit_immediately", False)
+        # 두 호출이 모두 번호를 읽은 뒤 시작하도록 허용 검사를 늦춘다
+        popen = self._launch_env(gate=lambda: time.sleep(0.3))
+        crawl_manager.append_to_pending("SPP-ONCE")
+        barrier = threading.Barrier(2)
+        ts = [threading.Thread(target=lambda: (barrier.wait(), crawl_manager.launch_pending_crawl())) for _ in range(2)]
+        [t.start() for t in ts]
+        [t.join(10) for t in ts]
+        self.assertEqual([items for _, items in self._launched].count(["SPP-ONCE"]), 1, "같은 번호를 두 크롤이 맡지 않는다")
+        self.assertLessEqual(popen.call_count, 1)
+
+    def test_a_restore_between_the_check_and_the_start_blocks_the_start(self):
+        """감사 R4-03: 허용 검사를 통과한 뒤 복원이 끝나면(데이터셋 교체) 그 검사로는 시작하지 않는다 — 대기 큐·사용자 시작 모두."""
+        from services import crawl_control
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+
+        def check_then_restore():
+            with mock.patch.object(threading_mod.Thread, "start"):  # 복원 뒤 재개 스레드는 띄우지 않는다
+                with crawl_manager.hold_for_restore():
+                    pass
+
+        import threading as threading_mod
+        popen = self._launch_env(gate=check_then_restore)
+        crawl_manager.append_to_pending("SPP-GEN")
+        self.assertFalse(crawl_manager.launch_pending_crawl())
+        self.assertEqual(popen.call_count, 0)
+        self.assertEqual(crawl_manager.pending_count(), 1)
+        with self.assertRaises(RuntimeError):
+            crawl_control.enqueue_report("SPP-USER2")
+        self.assertEqual(popen.call_count, 0)
 
     def test_crawl_completion_does_not_start_the_queue_while_a_rebuild_is_required(self):
         """감사 R3-02: 완료 훅의 대기 큐 시작도 게이트·초기화 검사를 거친다 — 막히면 시작 0, 큐 보존."""
@@ -578,7 +730,7 @@ class ExchangeRestoreTests(unittest.TestCase):
         finished.args = []
         with mock.patch("time.sleep"), mock.patch.object(crawl_manager, "_resume_geocode_backfill"):
             real_run_after_crawl(crawl_manager, finished, os.path.join(settings.datapath, "logs", "none.log"))
-        popen.assert_not_called()
+        self.assertEqual(popen.call_count, 0)  # 호출 인자(환경 변수)를 실패 메시지에 찍지 않는다(R4-04)
         self.assertEqual(crawl_manager.pending_items(), ["SPP-9"])
 
     def test_a_queue_that_cannot_be_saved_is_reported_not_silently_kept_in_memory(self):

@@ -39,6 +39,13 @@ def _write_log_header(header: str, *, rotate_existing: bool = False):
     return log_file
 
 
+def _log_header(header: str):
+    """(로그 경로, prepare) — 로그 교체·머리말 쓰기를 crawl_manager.start_crawl 잠금 안에서 시작이 확정된 뒤에만 하게 한다
+    (감사 R4-02: 다른 시작과 겹쳐 실행 중인 크롤의 로그를 지우지 않는다)."""
+    log_file = get_current_crawl_log_path()
+    return log_file, lambda: _write_log_header(header, rotate_existing=True)
+
+
 def _build_command(*, crawl_mode: str = "full", queue_file: str | None = None):
     is_frozen = getattr(sys, "frozen", False)
     command = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
@@ -111,11 +118,8 @@ def start_rebuild(run_id: str):
     if _manager.is_crawling():
         raise RuntimeError("크롤링이 이미 실행 중입니다.")
     command = _build_rebuild_command(run_id)
-    log_file = _write_log_header(
-        f"=== [초기화 크롤링] run {run_id} ===",
-        rotate_existing=True,
-    )
-    if not _manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file):
+    log_file, prepare = _log_header(f"=== [초기화 크롤링] run {run_id} ===")
+    if not _manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare):
         raise RuntimeError("크롤링 프로세스를 시작하지 못했습니다.")
     ws_manager.broadcast_from_thread(
         "crawl_started",
@@ -137,6 +141,7 @@ def start_crawl(
     if crawl_manager.is_crawling():
         raise RuntimeError("크롤링이 이미 실행 중입니다.")
 
+    generation = crawl_manager.restore_generation()  # 검사 뒤 복원이 끼면 시작하지 않는다(R4-03)
     _check_crawl_allowed()
 
     crawl_mode = normalize_crawl_mode(crawl_mode)
@@ -150,8 +155,9 @@ def start_crawl(
         crawl_mode=crawl_mode,
         queue_file=queue_file,
     )
-    log_file = _write_log_header(header, rotate_existing=True)
-    if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file):
+    log_file, prepare = _log_header(header)
+    if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
+                                     restore_generation=generation):
         raise RuntimeError("크롤링 프로세스를 시작하지 못했습니다.")
 
     ws_manager.broadcast_from_thread(
@@ -172,6 +178,7 @@ def enqueue_report(report_number: str):
     if not normalized:
         raise ValueError("report_number is required")
 
+    generation = crawl_manager.restore_generation()  # R4-03
     _check_crawl_allowed()
 
     if crawl_manager.is_crawling():
@@ -179,13 +186,13 @@ def enqueue_report(report_number: str):
         return {"status": "queued", "queue_size": queue_size}
 
     queue_file = _write_queue_file("mobile_queue.txt", normalized)
-    log_file = _write_log_header(
-        f"=== [모바일에서 시작된 크롤링] - 신고번호: {normalized} ===",
-        rotate_existing=True,
-    )
+    log_file, prepare = _log_header(f"=== [모바일에서 시작된 크롤링] - 신고번호: {normalized} ===")
     command = _build_command(queue_file=queue_file)
-    if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file):
-        raise RuntimeError("크롤링 프로세스를 시작하지 못했습니다.")
+    if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
+                                     restore_generation=generation):
+        # 그 사이 다른 크롤(대기 큐 자동 시작 등)이 먼저 시작했다 — 번호를 대기 큐에 넣는다
+        queue_size = crawl_manager.append_to_pending(normalized)
+        return {"status": "queued", "queue_size": queue_size}
 
     ws_manager.broadcast_from_thread(
         "crawl_started",
@@ -214,9 +221,10 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
     if not normalized:
         raise ValueError("report_numbers is required")
 
+    generation = crawl_manager.restore_generation()  # R4-03
     _check_crawl_allowed()
 
-    if crawl_manager.is_crawling():
+    def _queue_all():
         queue_size = 0
         for report_number in normalized:
             queue_size = crawl_manager.append_to_pending(report_number)
@@ -226,15 +234,18 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
             "queue_size": queue_size,
         }
 
+    if crawl_manager.is_crawling():
+        return _queue_all()
+
     queue_file = _write_queue_file("web_selected_queue.txt", "\n".join(normalized))
-    log_file = _write_log_header(
+    log_file, prepare = _log_header(
         f"=== [웹 선택 크롤링] 신고번호 {len(normalized)}건 ===\n"
-        + "\n".join(f"  - {report_number}" for report_number in normalized),
-        rotate_existing=True,
+        + "\n".join(f"  - {report_number}" for report_number in normalized)
     )
     command = _build_command(queue_file=queue_file)
-    if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file):
-        raise RuntimeError("크롤링 프로세스를 시작하지 못했습니다.")
+    if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
+                                     restore_generation=generation):
+        return _queue_all()  # 그 사이 다른 크롤이 먼저 시작했다 — 대기 큐로
 
     ws_manager.broadcast_from_thread(
         "crawl_started",

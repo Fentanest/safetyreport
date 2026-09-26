@@ -97,9 +97,12 @@ by_law (법규별, 같은 필드 + law)
     크롤 중지(`/crawl/kill`)는 종료 신호 뒤 **실제로 끝난 것을 확인한 다음에만** 프로세스 참조를 지운다(10초 뒤 kill, 그래도 살아 있으면 참조 유지 →
     복원 계속 거부, 감사 R2-01). 대기 큐는 `data/crawl_pending_queue.json` 에도 남아 재시작 뒤에도 유지되고(시작 때 자동 크롤은 안 함),
     파일에 쓰지 못하면 대기열에 넣지 않고 오류로 답한다(R3-03).
-    대기 큐 자동 시작(크롤 완료 뒤·복원 뒤)은 `crawl_manager.launch_pending_crawl()` 한 경계: 일반 크롤과 같은 허용 검사(게이트·1회 초기화)
-    → 실행마다 고유 큐 파일(`pending_queue_<uuid>.txt`, 크롤이 끝나면 삭제) → 시작에 **성공한 뒤에만** 그 항목을 큐에서 뺀다.
-    막히거나 시작하지 못하면 큐에 그대로 남는다(R3-01·R3-02).
+    대기 큐 자동 시작(크롤 완료 뒤·복원 뒤)은 `crawl_manager.launch_pending_crawl()` 한 경계(한 번에 하나): 복원 세대를 먼저 읽고
+    일반 크롤과 같은 허용 검사(게이트·1회 초기화) → `start_crawl(prepare=…, restore_generation=…)` 가 **같은 잠금 안에서** 세대가 그대로인지 확인하고
+    (검사 뒤 복원이 있었으면 시작 안 함, R4-03) 시작이 확정된 뒤에만 로그 교체·실행별 큐 파일(`pending_queue_<uuid>.txt`)을 만든다(R4-02).
+    맡은 번호는 '예약'(다른 실행이 다시 맡지 않음)으로 두고, 자식이 **exit 0 으로 끝난 뒤에만** 큐에서 뺀다. 실패하면 예약만 풀려 큐에 남고
+    다음 계기(다음 크롤 완료·복원 완료)에 다시 시도한다(R4-01). 사용자 크롤 시작(`crawl_control`)도 같은 세대 확인·시작 뒤 로그 교체를 쓰고,
+    시작 경쟁에서 지면 번호를 대기 큐에 넣는다.
 - **API 값**: `/api/v1/reports/{traffic,parking,other}` 는 NULL 을 null, 정수 열(별점·synced_at·보완횟수·사진_촬영수)을 정수로 보낸다. 웹 화면 조회는 기존처럼 ''.
 - **변경 알림 payload**(`crawl_changes.json`): NULL 은 '' (표시용).
 - 새 표: `mysafety_report_override`(사용자 수정값), `mysafety_duplicate_decision`(중복 판단), `mysafety_change_log`·`mysafety_change_cursor`(변경 기록) — 쓰기는 R2·R5 부터.

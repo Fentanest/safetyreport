@@ -31,7 +31,15 @@ class CrawlManager:
                 cls._instance._state_lock = threading.Lock()
                 cls._instance._pending_queue: List[str] = []
                 cls._instance._restore_hold = False
+                # 복원이 시작될 때마다 +1. 크롤 시작 전 허용 검사를 한 뒤 복원이 끼어들었으면 시작하지 않는다(감사 R4-03).
+                cls._instance._restore_generation = 0
+                cls._instance._reserved: set = set()  # 실행 중인 대기 큐 크롤이 맡은 번호(R4-01)
+                cls._instance._launch_lock = threading.Lock()  # 대기 큐 시작 직렬화(R4-02)
         return cls._instance
+
+    def restore_generation(self) -> int:
+        with self._state_lock:
+            return self._restore_generation
 
     @contextmanager
     def hold_for_restore(self):
@@ -43,13 +51,14 @@ class CrawlManager:
             if self._restore_hold:
                 raise RestoreBlocked("다른 복원이 진행 중입니다.")
             self._restore_hold = True
+            self._restore_generation += 1
         try:
             yield
         finally:
             with self._state_lock:
                 self._restore_hold = False
             # 쓰기 장벽·hold 가 모두 풀린 뒤(restore 는 hold 를 바깥에서 잡는다) 대기 큐를 한 번 이어서 처리한다.
-            threading.Thread(target=self._resume_pending_after_restore, daemon=True).start()
+            threading.Thread(target=self._resume_pending_after_restore, daemon=True, name="crawl-resume-after-restore").start()
 
     def restore_in_progress(self) -> bool:
         with self._state_lock:
@@ -60,16 +69,23 @@ class CrawlManager:
         with self._state_lock:
             return self._active_process is not None and self._active_process.poll() is None
 
-    def start_crawl(self, cmd: list, cwd: str, log_file: str) -> bool:
-        """크롤링 프로세스를 시작합니다. 이미 실행 중이면 False 반환."""
+    def start_crawl(self, cmd: list, cwd: str, log_file: str, *, prepare=None,
+                    restore_generation: Optional[int] = None) -> bool:
+        """크롤링 프로세스를 시작합니다. 이미 실행 중이면 False 반환.
+        restore_generation: 호출자가 허용 검사(게이트·초기화) 전에 읽은 복원 세대. 그 사이 복원이 있었으면 시작하지 않는다(R4-03).
+        prepare: 시작이 확정된 뒤(같은 잠금 안, Popen 직전)에만 실행 — 로그 교체·큐 파일 작성이 다른 시작과 겹치지 않는다(R4-02)."""
         with self._state_lock:
             if self._active_process is not None and self._active_process.poll() is None:
                 return False
             if self._restore_hold:
                 raise CrawlBlockedByRestore("DB 복원이 진행 중입니다. 끝난 뒤 다시 시작하세요.")
+            if restore_generation is not None and restore_generation != self._restore_generation:
+                raise CrawlBlockedByRestore("DB 가 복원되어 공유 데이터 확인을 다시 해야 합니다. 다시 시작하세요.")
 
             block_if_fixture("crawl subprocess")
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
+            if prepare is not None:
+                prepare()
 
             # Force UTF-8 for subprocesses on Windows to avoid encoding issues in log streaming
             env = os.environ.copy()
@@ -171,15 +187,23 @@ class CrawlManager:
             return len(self._pending_queue)
 
     def pending_items(self) -> List[str]:
+        """큐 전체(실행 중인 대기 큐 크롤이 맡은 번호 포함)."""
         with self._state_lock:
             self._load_pending_locked()
             return list(self._pending_queue)
 
-    def _remove_pending(self, items: List[str]) -> None:
-        """시작에 성공한 항목만 큐에서 뺀다. 파일 저장에 실패해도 크롤은 이미 시작됐으므로 기록만 남긴다
-        (재시작 뒤 같은 번호를 한 번 더 조회할 수 있을 뿐 잃지는 않는다)."""
+    def _unreserved_locked(self) -> List[str]:
+        self._load_pending_locked()
+        return [r for r in self._pending_queue if r not in self._reserved]
+
+    def _settle_pending(self, items: List[str], processed: bool) -> None:
+        """대기 큐 크롤이 끝난 뒤: 정상 종료(exit 0)면 그 번호를 큐에서 빼고, 아니면 예약만 풀어 큐에 남긴다(R4-01 —
+        자식이 큐 파일을 읽기 전에 실패해도 번호를 잃지 않는다). 파일 저장 실패는 기록만(재시작 뒤 한 번 더 조회될 뿐)."""
         with self._state_lock:
             self._load_pending_locked()
+            self._reserved.difference_update(items)
+            if not processed:
+                return
             self._pending_queue[:] = [r for r in self._pending_queue if r not in set(items)]
             try:
                 self._save_pending_locked()
@@ -193,6 +217,7 @@ class CrawlManager:
             self._load_pending_locked()
             items = list(self._pending_queue)
             self._pending_queue.clear()
+            self._reserved.clear()
             try:
                 self._save_pending_locked()
             except OSError:
@@ -200,9 +225,9 @@ class CrawlManager:
             return items
 
     def pending_count(self) -> int:
+        """아직 어떤 실행도 맡지 않은 대기 번호 수."""
         with self._state_lock:
-            self._load_pending_locked()
-            return len(self._pending_queue)
+            return len(self._unreserved_locked())
 
     def _resume_pending_after_restore(self) -> None:
         """복원이 끝난 뒤 대기 큐를 한 번 이어서 처리한다(감사 R2-02). 검사·시작·큐 갱신은 launch_pending_crawl 한 경계."""
@@ -269,69 +294,93 @@ class CrawlManager:
             self._resume_geocode_backfill()
 
     def launch_pending_crawl(self) -> bool:
-        """대기 큐의 신고번호로 새 크롤링을 시작한다(배경 스레드에서 호출 가능). 모든 자동 시작의 한 경계(감사 R3-01/02):
-        1) 일반 크롤과 같은 허용 검사(게이트·1회 초기화) — 막히면 큐에 그대로 둔다(복원으로 데이터셋이 바뀐 뒤 초기화 전 크롤 금지),
-        2) 실행마다 고유한 큐 파일(다른 시작이 덮어쓰지 않음), 3) 시작에 **성공한 뒤에만** 그 항목을 큐에서 뺀다.
+        """대기 큐의 신고번호로 새 크롤링을 시작한다(배경 스레드에서 호출 가능). 모든 자동 시작의 한 경계:
+        - 한 번에 하나만(R4-02): 같은 번호를 두 실행이 맡지 않는다.
+        - 복원 세대를 먼저 읽고 일반 크롤과 같은 허용 검사(게이트·1회 초기화). 검사 뒤 복원이 끼면 시작하지 않는다(R3-02·R4-03).
+        - 로그 교체·실행별 큐 파일 작성은 start_crawl 잠금 안에서 시작이 확정된 뒤에만(R4-02 — 다른 실행의 로그를 지우지 않음).
+        - 맡은 번호는 '예약'으로 두고, 자식이 정상 종료한 뒤에만 큐에서 뺀다(R4-01). 실패하면 예약만 풀려 큐에 남는다.
         시작하면 True."""
         import uuid
         import settings.settings as s
         from core.utils import logger
         from services.ws_manager import ws_manager
 
-        pending = self.pending_items()
-        if not pending:
-            return False
-        try:
-            from services import crawl_control
-            crawl_control._check_crawl_allowed()
-        except Exception as exc:
-            logger.LoggerFactory.logbot.info(f"[crawl] 대기 큐 {len(pending)}건 보류: {exc}")
-            return False
-
-        is_frozen = getattr(sys, 'frozen', False)
-        cmd = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
-
-        queue_file = os.path.join(s.datapath, f'pending_queue_{uuid.uuid4().hex}.txt')
-        with open(queue_file, 'w', encoding='utf-8') as f:
-            f.write('\n'.join(str(r) for r in pending))
-        cmd.extend(["--queue", queue_file])
-
-        log_dir = os.path.join(s.datapath, 'logs')
-        log_file = os.path.join(log_dir, 'current_crawl.log')
-        rotate_crawl_log(log_file)
-
-        with open(log_file, 'w', encoding='utf-8') as f:
-            f.write(f"=== [대기 큐 자동 시작] 신고번호 {len(pending)}건 ===\n")
-            f.write('\n'.join(f"  - {r}" for r in pending) + '\n')
-
-        work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        try:
-            started = self.start_crawl(cmd, cwd=work_dir, log_file=log_file)
-        except CrawlBlockedByRestore:
-            started = False  # 복원과 겹쳤다 — 큐는 그대로(복원이 끝나면 다시 시도)
-        if not started:
+        with self._launch_lock:
+            with self._state_lock:
+                pending = self._unreserved_locked()
+                generation = self._restore_generation
+            if not pending:
+                return False
             try:
-                os.remove(queue_file)
-            except OSError:
-                pass
-            return False
-        self._remove_pending(pending)
+                from services import crawl_control
+                crawl_control._check_crawl_allowed()
+            except Exception as exc:
+                logger.LoggerFactory.logbot.info(f"[crawl] 대기 큐 {len(pending)}건 보류: {exc}")
+                return False
+
+            is_frozen = getattr(sys, 'frozen', False)
+            cmd = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "-u", "start.py"]
+            queue_file = os.path.join(s.datapath, f'pending_queue_{uuid.uuid4().hex}.txt')
+            cmd.extend(["--queue", queue_file])
+            log_file = os.path.join(s.datapath, 'logs', 'current_crawl.log')
+
+            def prepare():  # start_crawl 잠금 안: 시작이 확정된 뒤에만 파일을 만든다
+                with open(queue_file, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(str(r) for r in pending))
+                rotate_crawl_log(log_file)
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    f.write(f"=== [대기 큐 자동 시작] 신고번호 {len(pending)}건 ===\n")
+                    f.write('\n'.join(f"  - {r}" for r in pending) + '\n')
+                self._reserved.update(pending)  # 같은 잠금(_state_lock) 안
+
+            work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            try:
+                started = self.start_crawl(cmd, cwd=work_dir, log_file=log_file, prepare=prepare,
+                                           restore_generation=generation)
+            except CrawlBlockedByRestore as exc:
+                logger.LoggerFactory.logbot.info(f"[crawl] 대기 큐 {len(pending)}건 보류: {exc}")
+                started = False
+            except Exception:
+                # prepare 나 Popen 이 실패했다 — 예약을 풀고 큐에 남긴다
+                with self._state_lock:
+                    self._reserved.difference_update(pending)
+                raise
+            if not started:
+                with self._state_lock:
+                    self._reserved.difference_update(pending)
+                try:
+                    os.remove(queue_file)
+                except OSError:
+                    pass
+                return False
+            proc = self.get_process()
+
         ws_manager.broadcast_from_thread("crawl_started", {
             "source": "pending_queue",
             "count": len(pending),
             "crawl_mode": s.crawl_mode,
             "crawl_type": s.crawl_type,
         })
-        proc = self.get_process()
-        if proc:
-            def _after():
+
+        def _after():
+            code = None
+            try:
+                code = proc.wait() if proc else None
+            except Exception:
+                pass
+            # 결과를 먼저 정리한 뒤(정상 종료면 제거, 아니면 예약 해제 — 실패한 번호로 곧바로 다시 돌지 않게 run_after_crawl 뒤에 해제)
+            if code == 0:
+                self._settle_pending(pending, processed=True)
+            try:
                 self.run_after_crawl(proc, log_file)
+            finally:
+                if code != 0:
+                    self._settle_pending(pending, processed=False)
                 try:
                     os.remove(queue_file)
                 except OSError:
                     pass
-            threading.Thread(target=_after, daemon=True).start()
+        threading.Thread(target=_after, daemon=True, name="crawl-pending-after").start()
         return True
-
 
 crawl_manager = CrawlManager()
