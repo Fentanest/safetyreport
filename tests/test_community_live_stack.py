@@ -122,12 +122,11 @@ class PcLiveStackTest(unittest.TestCase):
         self.service.cancel()
         user = self.login("A")
         store = CommunityStore.open(self.tmp)
+        st = self.account("status", user["access_token"], {}).json()
+        if st["consent"]["state"] == "active":  # 같은 mock 계정을 쓴 다른 실행이 남긴 동의 → 먼저 철회해 '동의 전'으로
+            self.account("consent-revoke", user["access_token"], {"grant_id": st["consent"]["grant_id"]})
         # 동의 전: 로그인만으로는 통과하지 않는다
         self.assertEqual(community_gate.refresh_now()["state"], "consent_required")
-        st = self.account("status", user["access_token"], {}).json()
-        if st["consent"]["state"] == "active":  # 같은 mock 계정의 이전 실행
-            self.account("consent-revoke", user["access_token"], {"grant_id": st["consent"]["grant_id"]})
-            self.assertEqual(community_gate.refresh_now()["state"], "consent_required")
         r = self.account("consent", user["access_token"], {"policy_version": REQUIRED_POLICY_VERSION,
                                                            "consent_text_sha256": CONSENT_TEXT_SHA256,
                                                            "via": "safetyreport_server", "accepted": True})
