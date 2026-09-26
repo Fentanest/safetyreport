@@ -139,6 +139,20 @@ by_law (법규별, 같은 필드 + law)
 - 진행 표시: 모든 화면 하단 `#srJobBar`(base.html, 작업 있을 때만), `GET /maintenance/status`(웹), `GET /api/v1/maintenance/status`(Client 앱). 지도 좌표 채우기(geocode 백필) 진행도 같이 보인다.
   응답: `{active, jobs:[{key,label,state(running|paused|completed),total,done,current,message}]}`.
 
+## 2026-09-26 커뮤니티 필수 게이트·공유 업로드 계약 (하위호환 추가 + 인증 강화)
+정본: `contracts/community-ingest/`(map 레포 원본의 사본), 설명: `community-gate.md`·`community-upload.md`·`community-rebuild.md`.
+
+| 항목 | 내용 |
+|---|---|
+| 게이트 미충족 | `/api/v1/**`(allowlist 제외)·관리자 화면 AJAX → 403 `{"detail":"COMMUNITY_ONBOARDING_REQUIRED","code":…,"gate":{state,reasons}}`. 키가 틀리면 여전히 401 이 먼저 |
+| allowlist(API 키) | `GET /api/v1/app/config`, `/api/v1/community-auth/*`, `GET /api/v1/community/gate`, `GET/POST /api/v1/community/rebuild[/start|/resume]` |
+| 새 API | `GET /api/v1/community/gate`(서버 게이트 요약, 토큰·UUID 없음), `/api/v1/community/upload/{status,run}`, `/api/v1/community/rebuild[...]` — 실행·시작은 manager 키 + `X-Community-User-Token`(폰 사용자 = 서버 연결 사용자) |
+| 크롤 시작 | `/api/v1/crawl/start`·`/crawl/enqueue`: 게이트 60초 재검증 실패 403 `detail=COMMUNITY_ONBOARDING_REQUIRED`, 초기화 필요·진행 중 409 `detail=COMMUNITY_REBUILD_REQUIRED` |
+| WebSocket | `/ws/events` 게이트 미충족·상실 시 4403(인증 실패는 기존 4001). **`/crawl/ws/logs`·`/rating/ws/rating_logs` 는 이제 API 키(`?api_key=`/`X-API-Key`) 또는 관리자 세션 필요** |
+| `/media/*` | 이제 관리자 세션 또는 API 키 + 게이트(이전: 인증 없음) |
+| 기존 필드 | `/api/v1/community-auth/status` 의 `upload_enabled` 유지(의미: 연결 + 게이트 통과) |
+| 로컬 저장 | `data/community.db`(개인 `data.db` 와 분리 — 서버↔모바일 DB 교환 대상 아님, PROJECT_RULES 3-1 영향 없음), `data/auth/community_writer.enc`(업로드 연결 비밀, 암호화) |
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 199-307 -->
