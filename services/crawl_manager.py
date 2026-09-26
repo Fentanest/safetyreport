@@ -37,6 +37,8 @@ class CrawlManager:
                 cls._instance._launch_lock = threading.Lock()  # 대기 큐 시작 직렬화(R4-02)
                 cls._instance._retry_timer = None  # 남은 번호 재시도(R5-02)
                 cls._instance._retry_delay = cls.RETRY_FIRST_SECONDS
+                cls._instance._request_worker_active = False  # 시작 요청 합치기(R6-04)
+                cls._instance._request_again = False
         return cls._instance
 
     def restore_generation(self) -> int:
@@ -202,10 +204,13 @@ class CrawlManager:
     def _read_queue_report(queue_file: str) -> set:
         from services import crawl_queue_report
 
-        done, not_found = crawl_queue_report.read(queue_file)
+        done, not_found, ambiguous = crawl_queue_report.read(queue_file)
+        from core.utils import logger
         if not_found:
-            from core.utils import logger
-            logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐에서 찾을 수 없는 신고번호 제외: {not_found[:20]}")
+            logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐에서 목록 전체에 없는 신고번호 제외: {not_found[:20]}")
+        if ambiguous:
+            logger.LoggerFactory.logbot.error(
+                f"[crawl] 여러 신고에 걸리는 번호라 대기 큐에서 제외 — 정확한 신고번호로 다시 요청하세요: {ambiguous[:20]}")
         return done
 
     def _settle_pending(self, items: List[str], done: set) -> List[str]:
@@ -230,8 +235,43 @@ class CrawlManager:
     RETRY_MAX_SECONDS = 1800.0
 
     def request_pending_launch(self) -> None:
-        """대기 번호를 넣은 쪽이 실행 중인 크롤·완료 훅에 기댈 수 없을 때(시작 경쟁에서 짐) 바로 한 번 시도한다."""
-        threading.Thread(target=self.launch_pending_crawl, daemon=True, name="crawl-pending-request").start()
+        """대기 번호를 넣은 쪽이 한 번 더 시작을 시도하게 한다(완료 훅이 이미 지나간 경우 대비). 요청은 **작업자 하나로 합친다**
+        (감사 R6-04): 이미 작업자가 있으면 '한 번 더' 표시만 한다. 작업자를 못 띄우면 재시도 타이머에 맡긴다(예외를 올리지 않음)."""
+        with self._state_lock:
+            if self._request_worker_active:
+                self._request_again = True
+                return
+            self._request_worker_active = True
+            self._request_again = False
+        try:
+            threading.Thread(target=self._request_worker, daemon=True, name="crawl-pending-request").start()
+        except Exception:
+            with self._state_lock:
+                self._request_worker_active = False
+            self._schedule_retry()
+
+    def _request_worker(self) -> None:
+        try:
+            while True:
+                try:
+                    self.launch_pending_crawl()
+                except Exception as exc:
+                    from core.utils import logger
+                    logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐 시작 요청 실패: {type(exc).__name__}")
+                    self._schedule_retry()
+                with self._state_lock:
+                    if not self._request_again:
+                        return
+                    self._request_again = False
+        finally:
+            with self._state_lock:
+                self._request_worker_active = False
+
+    def schedule_retry_if_pending(self) -> None:
+        """서버 기동 때: 파일에 남은 대기 번호가 있으면 재시도 타이머 하나를 건다(감사 R6-03 — 재시작으로 재시도가 사라지지 않게).
+        시작 때 곧바로 크롤하지는 않는다."""
+        if self.pending_count():
+            self._schedule_retry()
 
     def _schedule_retry(self) -> None:
         with self._state_lock:
@@ -248,8 +288,17 @@ class CrawlManager:
     def _retry_fire(self) -> None:
         with self._state_lock:
             self._retry_timer = None
-        if not self.is_crawling() and self.pending_count():
-            self.launch_pending_crawl()
+        started = False
+        try:
+            if not self.is_crawling() and self.pending_count():
+                started = self.launch_pending_crawl()
+        except Exception as exc:
+            from core.utils import logger
+            logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐 재시도 실패: {type(exc).__name__}")
+        # 게이트·초기화에 막히거나 시작하지 못했는데 번호가 남았으면 늘어나는 간격으로 다시 건다(R6-03).
+        # 실행 중이면 그 크롤의 완료 훅이 이어서 처리하므로 걸지 않는다.
+        if not started and not self.is_crawling() and self.pending_count():
+            self._schedule_retry()
 
     def pop_pending(self) -> List[str]:
         """대기 큐 전체를 반환하고 초기화(테스트·수동 정리용 — 자동 시작은 launch_pending_crawl 이 시작 성공 뒤에만 뺀다)."""
@@ -394,23 +443,24 @@ class CrawlManager:
             proc = self.get_process()
 
         def _after():
+            # 무슨 일이 있어도(보고 손상·완료 훅 예외) 예약을 풀고 실행 파일을 지운다(감사 R6-05).
+            left = list(pending)
             try:
-                if proc:
-                    proc.wait()
-            except Exception:
-                pass
-            done = self._read_queue_report(queue_file)
-            # 끝낸 번호는 먼저 빼고, 남은 번호의 예약은 완료 훅 뒤에 푼다 — 실패한 번호로 곧바로 다시 돌지 않게.
-            with self._state_lock:
-                finished_now = set(pending) & done
-            if finished_now:
-                self._settle_pending(list(finished_now), done)
-            left = [r for r in pending if r not in done]
-            try:
+                try:
+                    if proc:
+                        proc.wait()
+                except Exception:
+                    pass
+                done = self._read_queue_report(queue_file)
+                # 끝낸 번호는 먼저 빼고, 남은 번호의 예약은 완료 훅 뒤에 푼다 — 실패한 번호로 곧바로 다시 돌지 않게.
+                finished_now = [r for r in pending if r in done]
+                if finished_now:
+                    self._settle_pending(finished_now, done)
+                left = [r for r in pending if r not in done]
                 self.run_after_crawl(proc, log_file)
             finally:
                 if left:
-                    self._settle_pending(left, done)
+                    self._settle_pending(left, set())
                     self._schedule_retry()  # 남은 번호는 늘어나는 간격으로 다시(R5-02)
                 else:
                     with self._state_lock:

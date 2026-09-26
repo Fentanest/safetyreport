@@ -1,7 +1,9 @@
 """대기 큐 크롤의 번호별 결과 보고(감사 R5-01). 자식(start.py)이 쓰고 부모(crawl_manager)가 읽는다.
 
-processed = 상세 저장까지 끝난 번호, not_found = 목록을 끝까지 찾아도 없는 번호. 여기 없는 번호(로그인·네트워크·저장 실패,
-중간 중단)는 부모가 큐에 남겨 다시 시도한다. 자식의 종료 코드는 믿지 않는다 — 실패해도 0 으로 끝날 수 있다.
+processed = 상세 저장까지 끝난 번호, not_found = 목록 전 페이지를 성공적으로 훑어도 없는 번호,
+ambiguous = 목록 전 페이지를 훑은 뒤에도 여러 신고에 걸려 정할 수 없는 번호(사용자가 정확한 번호로 다시 요청해야 함).
+여기 없는 번호(로그인·네트워크·저장 실패, 목록 탐색 실패·상한, 중간 중단)는 부모가 큐에 남겨 다시 시도한다.
+자식의 종료 코드는 믿지 않는다 — 실패해도 0 으로 끝날 수 있다.
 """
 from __future__ import annotations
 
@@ -13,29 +15,35 @@ def report_path(queue_file: str) -> str:
     return f"{queue_file}.done.json"
 
 
-def write(queue_file: str, processed, not_found) -> None:
+def write(queue_file: str, processed, not_found, ambiguous=()) -> None:
     """원자적으로 쓴다(fsync + replace). 실패하면 OSError — 호출자는 기록만 하고, 부모는 보고가 없으니 전부 재시도한다."""
     path = report_path(queue_file)
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump({"processed": sorted(set(processed)), "not_found": sorted(set(not_found))}, f, ensure_ascii=False)
+        json.dump({"processed": sorted(set(processed)), "not_found": sorted(set(not_found)),
+                   "ambiguous": sorted(set(ambiguous))}, f, ensure_ascii=False)
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
 
 
-def read(queue_file: str) -> tuple[set, list]:
-    """(끝난 번호 집합, 찾을 수 없는 번호 목록). 보고가 없거나 깨졌으면 (빈 집합, [])."""
+def read(queue_file: str) -> tuple[set, list, list]:
+    """(끝난 번호 집합, 없는 번호, 모호한 번호). 보고가 없거나 깨졌거나 형식이 다르면 (빈 집합, [], []) — 아무것도 끝나지 않은 것으로 본다
+    (감사 R6-05: 유효한 JSON 이라도 필드가 문자열 목록이 아니면 버린다)."""
     try:
         with open(report_path(queue_file), encoding="utf-8") as f:
             report = json.load(f)
     except (OSError, ValueError):
-        return set(), []
+        return set(), [], []
     if not isinstance(report, dict):
-        return set(), []
-    processed = [str(v) for v in report.get("processed") or [] if isinstance(v, str)]
-    not_found = [str(v) for v in report.get("not_found") or [] if isinstance(v, str)]
-    return set(processed) | set(not_found), not_found
+        return set(), [], []
+    fields = {}
+    for key in ("processed", "not_found", "ambiguous"):
+        value = report.get(key, [])
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            return set(), [], []
+        fields[key] = value
+    return set(fields["processed"]) | set(fields["not_found"]) | set(fields["ambiguous"]), fields["not_found"], fields["ambiguous"]
 
 
 def remove_files(queue_file: str) -> None:

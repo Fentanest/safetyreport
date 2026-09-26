@@ -126,6 +126,13 @@ async def lifespan(app: FastAPI):
             logger.LoggerFactory.logbot.warning(f"[maintenance] 사진 촬영 시각 한 번 훑기 시작 실패: {exc}")
     if not skip_in_fixture("startup scheduler"):
         scheduler.init_scheduler()
+    if not skip_in_fixture("startup crawl pending retry"):
+        try:
+            # 지난 실행에서 남은 대기 큐 번호가 있으면 재시도 타이머를 건다(곧바로 크롤하지는 않음, 감사 R6-03).
+            from services.crawl_manager import crawl_manager
+            crawl_manager.schedule_retry_if_pending()
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐 재시도 예약 실패: {type(exc).__name__}")
     sunwi_service.start_background_refresh()
     # 커뮤니티 계정: 부팅 때는 만료 전 대기 연결 요청의 poll 만 다시 시작한다(fixture 는 loopback 스택만).
     try:
