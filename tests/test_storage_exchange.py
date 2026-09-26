@@ -341,10 +341,16 @@ class ExchangeRestoreTests(unittest.TestCase):
 
     # ── Sol 재검증 SOL-04: 복원 ↔ 크롤러 시작 경쟁 ─────────────────────────────
 
+    def _crawl_reset(self):
+        from services.crawl_manager import crawl_manager
+        crawl_manager.clear_process()
+        crawl_manager.pop_pending()
+
     def test_crawler_cannot_start_while_a_restore_is_running(self):
         import threading
         from services.crawl_manager import CrawlBlockedByRestore, crawl_manager
 
+        self.addCleanup(self._crawl_reset)
         _mobile_db(self.upload)
         inside = threading.Event()
         proceed = threading.Event()
@@ -357,47 +363,136 @@ class ExchangeRestoreTests(unittest.TestCase):
 
         popen = mock.MagicMock()
         errors = []
+        log = os.path.join(settings.datapath, "logs", "t.log")
         with mock.patch.object(exchange, "_swap_in", slow_swap), \
              mock.patch("services.crawl_manager.subprocess.Popen", popen), \
-             mock.patch("services.crawl_manager.block_if_fixture"):
+             mock.patch("services.crawl_manager.block_if_fixture"), \
+             mock.patch("services.crawl_control._check_crawl_allowed", side_effect=RuntimeError("COMMUNITY_REBUILD_REQUIRED")):
             r = threading.Thread(target=lambda: exchange.restore(str(self.upload), "mobile"))
             r.start()
-            self.assertTrue(inside.wait(10))
-            self.assertTrue(crawl_manager.restore_in_progress())
             try:
-                crawl_manager.start_crawl(["crawler"], cwd=".", log_file=os.path.join(settings.datapath, "logs", "t.log"))
-            except CrawlBlockedByRestore as exc:
-                errors.append(exc)
-            # 대기 큐 자동 시작이 겹치면 신고번호를 잃지 않고 큐로 되돌린다
-            crawl_manager.launch_pending_crawl(["SPP-1", "SPP-2"])
-            proceed.set()
-            r.join(20)
+                self.assertTrue(inside.wait(10))
+                self.assertTrue(crawl_manager.restore_in_progress())
+                try:
+                    crawl_manager.start_crawl(["crawler"], cwd=".", log_file=log)
+                except CrawlBlockedByRestore as exc:
+                    errors.append(exc)
+                # 대기 큐 자동 시작이 겹치면 신고번호를 잃지 않고 큐로 되돌린다
+                crawl_manager.launch_pending_crawl(["SPP-1", "SPP-2"])
+            finally:
+                proceed.set()
+                r.join(20)
+            self.assertFalse(r.is_alive())
             self.assertEqual(len(errors), 1)
             popen.assert_not_called()
-            self.assertEqual(crawl_manager.pop_pending(), ["SPP-1", "SPP-2"])
             self.assertFalse(crawl_manager.restore_in_progress())
+            # 복원 뒤 재개는 크롤 허용 검사(여기서는 초기화 필요)에 막혀 큐에 그대로 남는다
+            time_limit = __import__("time").monotonic() + 5
+            while __import__("time").monotonic() < time_limit and crawl_manager.pending_count() != 2:
+                __import__("time").sleep(0.05)
+            self.assertEqual(crawl_manager.pop_pending(), ["SPP-1", "SPP-2"])
             # 복원이 끝나면 다시 시작할 수 있다
-            self.assertTrue(crawl_manager.start_crawl(["crawler"], cwd=".", log_file=os.path.join(settings.datapath, "logs", "t.log")))
+            self.assertTrue(crawl_manager.start_crawl(["crawler"], cwd=".", log_file=log))
             popen.assert_called_once()
-        crawl_manager.clear_process()
 
     def test_restore_is_refused_atomically_when_a_crawl_is_running(self):
         from services.crawl_manager import crawl_manager
 
+        self.addCleanup(self._crawl_reset)
         _mobile_db(self.upload)
         running = mock.MagicMock()
         running.poll.return_value = None
         crawl_manager._active_process = running
         before = self._count(models.title_table)
-        try:
-            # ensure_restore_allowed 의 사전 검사를 지나도(가짜로 False) hold 가 같은 잠금에서 다시 막는다
-            with mock.patch.object(crawl_manager, "is_crawling", return_value=False):
-                with self.assertRaises(exchange.RestoreRefused):
-                    exchange.restore(str(self.upload), "mobile")
-        finally:
-            crawl_manager.clear_process()
+        # ensure_restore_allowed 의 사전 검사를 지나도(가짜로 False) hold 가 같은 잠금에서 다시 막는다
+        with mock.patch.object(crawl_manager, "is_crawling", return_value=False):
+            with self.assertRaises(exchange.RestoreRefused):
+                exchange.restore(str(self.upload), "mobile")
         self.assertEqual(self._count(models.title_table), before)
         self.assertFalse(crawl_manager.restore_in_progress())
+
+    def test_a_stopped_crawler_that_is_still_alive_keeps_blocking_restore(self):
+        """감사 R2-01: 종료 요청만으로 참조를 지우지 않는다 — 실제로 끝날 때까지 복원은 거부."""
+        import subprocess
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        _mobile_db(self.upload)
+        state = {"alive": True, "terminated": 0, "killed": 0}
+
+        class Stubborn:
+            def poll(self):
+                return None if state["alive"] else 0
+
+            def terminate(self):
+                state["terminated"] += 1
+
+            def kill(self):
+                state["killed"] += 1
+
+            def wait(self, timeout=None):
+                if state["alive"]:
+                    raise subprocess.TimeoutExpired("crawler", timeout)
+                return 0
+
+        proc = Stubborn()
+        crawl_manager._active_process = proc
+        with mock.patch.object(crawl_manager, "STOP_WAIT_SECONDS", 0.01), mock.patch.object(crawl_manager, "KILL_WAIT_SECONDS", 0.01):
+            self.assertTrue(crawl_manager.stop_crawl())
+        self.assertEqual((state["terminated"], state["killed"]), (1, 1))
+        self.assertIs(crawl_manager.get_process(), proc, "살아 있으면 참조를 지우지 않는다")
+        self.assertTrue(crawl_manager.is_crawling())
+        before = self._count(models.title_table)
+        with self.assertRaises(exchange.RestoreRefused):
+            exchange.restore(str(self.upload), "mobile")
+        self.assertEqual(self._count(models.title_table), before)
+        # 실제로 끝나면 복원할 수 있다
+        state["alive"] = False
+        _, count = exchange.restore(str(self.upload), "mobile")
+        self.assertEqual(count, 1)
+
+    def test_stop_clears_the_reference_only_after_the_crawler_exits(self):
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        state = {"alive": True}
+
+        class Polite:
+            def poll(self):
+                return None if state["alive"] else 0
+
+            def terminate(self):
+                state["alive"] = False
+
+            def wait(self, timeout=None):
+                return 0
+
+        crawl_manager._active_process = Polite()
+        self.assertTrue(crawl_manager.stop_crawl())
+        self.assertIsNone(crawl_manager.get_process())
+
+    def test_pending_queue_resumes_once_after_restore_and_survives_a_restart(self):
+        """감사 R2-02: 복원이 끝나면 허용 검사 뒤 대기 큐를 한 번 이어서 처리하고, 큐는 파일로 남아 재시작에도 유지된다."""
+        import time
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        crawl_manager.append_to_pending("SPP-7")
+        # 재시작 흉내: 메모리 큐를 비우고 다시 읽는다
+        crawl_manager._pending_queue.clear()
+        crawl_manager._pending_loaded = False
+        self.assertEqual(crawl_manager.pending_count(), 1)
+        _mobile_db(self.upload)
+        launched = []
+        with mock.patch("services.crawl_control._check_crawl_allowed"), \
+             mock.patch.object(crawl_manager, "launch_pending_crawl", side_effect=lambda p: launched.append(list(p))):
+            exchange.restore(str(self.upload), "mobile")
+            deadline = time.monotonic() + 5
+            while not launched and time.monotonic() < deadline:
+                time.sleep(0.05)
+        self.assertEqual(launched, [["SPP-7"]])
+        self.assertEqual(crawl_manager.pending_count(), 0)
+        self.assertFalse(os.path.exists(os.path.join(settings.datapath, crawl_manager.PENDING_FILE)))
 
 
 if __name__ == "__main__":

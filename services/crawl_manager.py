@@ -1,3 +1,4 @@
+import json
 import subprocess
 import threading
 import sys
@@ -47,6 +48,8 @@ class CrawlManager:
         finally:
             with self._state_lock:
                 self._restore_hold = False
+            # 쓰기 장벽·hold 가 모두 풀린 뒤(restore 는 hold 를 바깥에서 잡는다) 대기 큐를 한 번 이어서 처리한다.
+            threading.Thread(target=self._resume_pending_after_restore, daemon=True).start()
 
     def restore_in_progress(self) -> bool:
         with self._state_lock:
@@ -83,19 +86,34 @@ class CrawlManager:
             )
             return True
 
-    def stop_crawl(self) -> bool:
-        """크롤링 강제 종료"""
-        with self._state_lock:
-            if self._active_process is not None and self._active_process.poll() is None:
-                self._active_process.terminate()
-                self._active_process = None
-                return True
-            return False
+    STOP_WAIT_SECONDS = 10.0
+    KILL_WAIT_SECONDS = 5.0
 
-    def clear_process(self):
-        """종료 대기 훅이나 로그 회전을 위한 프로세스 참조 초기화"""
+    def stop_crawl(self) -> bool:
+        """크롤링 강제 종료. 종료 신호를 보낸 뒤 **실제로 끝난 것을 확인한 다음에만** 참조를 지운다(감사 R2-01) —
+        그 전까지 is_crawling·hold_for_restore 는 실행 중으로 보고 복원을 막는다. 끝나지 않으면 kill, 그래도 살아 있으면 참조 유지."""
         with self._state_lock:
-            self._active_process = None
+            proc = self._active_process
+            if proc is None or proc.poll() is not None:
+                return False
+            proc.terminate()
+        try:
+            proc.wait(timeout=self.STOP_WAIT_SECONDS)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            try:
+                proc.wait(timeout=self.KILL_WAIT_SECONDS)
+            except subprocess.TimeoutExpired:
+                return True
+        self.clear_process(proc)
+        return True
+
+    def clear_process(self, proc: Optional[subprocess.Popen] = None):
+        """종료 대기 훅이나 로그 회전을 위한 프로세스 참조 초기화. proc 을 주면 그 프로세스일 때만 지운다
+        (그 사이 새로 시작한 크롤의 참조를 지우지 않게)."""
+        with self._state_lock:
+            if proc is None or self._active_process is proc:
+                self._active_process = None
 
     def get_process(self) -> Optional[subprocess.Popen]:
         with self._state_lock:
@@ -103,23 +121,77 @@ class CrawlManager:
 
     # ── 대기 큐 (크롤링 중 들어온 신고번호 예약) ─────────────────────────────
 
+    # 대기 큐는 파일에도 남긴다(감사 R2-02): 서버를 다시 시작해도 신고번호를 잃지 않는다. 시작 때 자동으로 크롤하지는 않고,
+    # 다음 크롤이 끝나거나 복원이 끝날 때(게이트·초기화 검사 통과 시) 이어서 처리한다.
+    PENDING_FILE = "crawl_pending_queue.json"
+
+    def _pending_path(self) -> str:
+        import settings.settings as s
+        return os.path.join(s.datapath, self.PENDING_FILE)
+
+    def _load_pending_locked(self) -> None:
+        if getattr(self, "_pending_loaded", False):
+            return
+        self._pending_loaded = True
+        try:
+            with open(self._pending_path(), encoding="utf-8") as f:
+                saved = json.load(f)
+        except (OSError, ValueError):
+            return
+        for r in saved if isinstance(saved, list) else []:
+            if isinstance(r, str) and r not in self._pending_queue:
+                self._pending_queue.append(r)
+
+    def _save_pending_locked(self) -> None:
+        path = self._pending_path()
+        try:
+            if not self._pending_queue:
+                if os.path.exists(path):
+                    os.remove(path)
+                return
+            tmp = f"{path}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(self._pending_queue, f, ensure_ascii=False)
+            os.replace(tmp, path)
+        except OSError:
+            pass  # 파일을 못 써도 메모리 큐는 그대로 동작한다
+
     def append_to_pending(self, report_number: str) -> int:
         """크롤링 중 들어온 신고번호를 대기 큐에 추가 (중복 제외). 현재 큐 크기 반환."""
         with self._state_lock:
+            self._load_pending_locked()
             if report_number not in self._pending_queue:
                 self._pending_queue.append(report_number)
+                self._save_pending_locked()
             return len(self._pending_queue)
 
     def pop_pending(self) -> List[str]:
         """대기 큐 전체를 반환하고 초기화."""
         with self._state_lock:
+            self._load_pending_locked()
             items = list(self._pending_queue)
             self._pending_queue.clear()
+            self._save_pending_locked()
             return items
 
     def pending_count(self) -> int:
         with self._state_lock:
+            self._load_pending_locked()
             return len(self._pending_queue)
+
+    def _resume_pending_after_restore(self) -> None:
+        """복원이 끝난 뒤 대기 큐를 한 번 이어서 처리한다(감사 R2-02). 복원은 공유 데이터셋을 회전시켜 1회 초기화가
+        필요해질 수 있으므로 일반 크롤과 같은 허용 검사(게이트·초기화)를 먼저 하고, 막히면 큐에 그대로 남긴다."""
+        if self.is_crawling() or not self.pending_count():
+            return
+        try:
+            from services import crawl_control
+            crawl_control._check_crawl_allowed()
+        except Exception:
+            return
+        pending = self.pop_pending()
+        if pending:
+            self.launch_pending_crawl(pending)
 
     # ── 크롤링 완료 후 공통 처리 ──────────────────────────────────────────────
 
@@ -140,7 +212,7 @@ class CrawlManager:
 
         if proc:
             proc.wait()
-        self.clear_process()
+        self.clear_process(proc)
         # 초기화 크롤 후처리 훅(T3b): --rebuild <run_id> 로 시작한 크롤이면 같은 run 으로 종결 판정.
         try:
             from services import community_rebuild as _rebuild

@@ -94,6 +94,9 @@ by_law (법규별, 같은 필드 + law)
     이미 빌린 연결이 반납될 때까지 기다리고(20초 넘으면 409), 그동안 새 연결은 기다렸다가 교체된 새 파일로 다시 연다.
     크롤러는 별도 프로세스라 이 장벽 밖이므로, 복원은 `crawl_manager.hold_for_restore()` 로 크롤 시작 검사와 **같은 잠금 안에서**
     "복원 중" 을 표시한다. 그동안 크롤 시작은 `CrawlBlockedByRestore`(화면 문장), 대기 큐 자동 시작은 신고번호를 큐로 되돌린다(Sol 재검증 SOL-04).
+    크롤 중지(`/crawl/kill`)는 종료 신호 뒤 **실제로 끝난 것을 확인한 다음에만** 프로세스 참조를 지운다(10초 뒤 kill, 그래도 살아 있으면 참조 유지 →
+    복원 계속 거부, 감사 R2-01). 대기 큐는 `data/crawl_pending_queue.json` 에도 남아 재시작 뒤에도 유지되고(시작 때 자동 크롤은 안 함),
+    복원이 끝나면 일반 크롤 허용 검사(게이트·초기화)를 통과할 때 한 번 이어서 처리한다(R2-02).
 - **API 값**: `/api/v1/reports/{traffic,parking,other}` 는 NULL 을 null, 정수 열(별점·synced_at·보완횟수·사진_촬영수)을 정수로 보낸다. 웹 화면 조회는 기존처럼 ''.
 - **변경 알림 payload**(`crawl_changes.json`): NULL 은 '' (표시용).
 - 새 표: `mysafety_report_override`(사용자 수정값), `mysafety_duplicate_decision`(중복 판단), `mysafety_change_log`·`mysafety_change_cursor`(변경 기록) — 쓰기는 R2·R5 부터.
