@@ -10,6 +10,15 @@
 
 ## 2026-09-26 (dev, 미배포)
 
+### 커뮤니티 공개 설정·동의문 패키징 (T8)
+
+- 실행파일(PyInstaller)에 동의문 사본(`contracts/community-ingest/consent/`)과 빌드 때 만든 공개 설정 `community_public.json` 을 넣는다.
+  공개 설정은 CI 저장소 Variables(`COMMUNITY_SUPABASE_URL`·`COMMUNITY_PUBLISHABLE_KEY`·`COMMUNITY_SITE_URL`)에서만 받고, https 가 아니거나
+  비밀 키·자리표시자면 빌드를 멈춘다(값이 없으면 번들하지 않고 경고). 워크플로 5개의 PyInstaller 단계에 변수를 연결(편집만, 실행 안 함).
+- Docker: `.dockerignore` 의 `*.md` 가 동의문 사본까지 빼던 것을 예외 처리(Docker 는 실행 때 `COMMUNITY_*` 환경변수로 설정).
+- 확인: 깨끗한 archive 에서 로컬 PyInstaller 빌드 → 번들에 동의문·해시·공개 설정 포함, 비밀 문자열 없음. 실행파일을 `--network none` 컨테이너에서 기동:
+  관리자 설정·로그인 → `/settings/` 가 필수 설정 화면으로 이동, 동의문 해시 일치, 잘못된 API 키 401. Docker 빌드 컨텍스트에 동의문 포함 확인.
+
 ### 커뮤니티 필수 진입 게이트 — 카카오 인증 + 신고내용 공유 동의 (T3a)
 
 - 관리자 로그인 뒤 `[필수] 카카오 인증`과 `[필수] 신고내용 공유 동의`(정책 2026-09-26.1)가 모두 있어야 화면·API·WS·예약 작업을 쓸 수 있다.
