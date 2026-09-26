@@ -117,13 +117,16 @@ def extract_ids_from_queue(engine, queuelist, id_to_items=None):
             item = item.strip()
             if not item: continue
             if item.startswith('SPP-') or '-' in item:
-                res = _resolve_report_number(conn, item)
+                # 여기서는 정확 일치만 믿는다. 부분 일치는 목록 전체를 받은 뒤에만 확정한다(감사 R8-01 — DB 에서
+                # 지금 유일해 보여도 최신 목록에 다른 후보가 있을 수 있다).
+                from services import report_number_resolver
+                res = report_number_resolver.resolve_exact(conn, item)
                 if res:
                     resolved_ids.append(res)
                     if id_to_items is not None:
                         id_to_items.setdefault(str(res), []).append(item)
                 else:
-                    logger.LoggerFactory.logbot.warning(f"큐 신고번호 {item}의 ID를 찾을 수 없습니다. 목록 크롤링 후 재검색합니다.")
+                    logger.LoggerFactory.logbot.warning(f"큐 신고번호 {item}이(가) 정확히 일치하지 않습니다. 목록 전체를 받은 뒤 다시 찾습니다.")
                     missing_rnums.append(item)
             else:
                 resolved_ids.append(item)
@@ -395,11 +398,16 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
                 logger.LoggerFactory.logbot.warning(f"목록 탐색을 끝내지 못했습니다: {progress.get('first_error')}")
             if page_dfs:
                 database.title_to_sql(dataframes=page_dfs, engine=engine)
-            # 받은 목록을 반영한 DB 에서 같은 규칙으로 다시 해석한다(정확 → 접두어 → 유일한 부분 일치, R6-02)
+            # 받은 목록을 반영한 DB 에서 다시 해석한다. 목록 전체를 받았으면 정확 → 접두어 → 유일한 부분 일치(R6-02),
+            # 일부만 받았으면 **정확 일치만** — 부분 일치를 다른 신고로 확정하지 않고 다음에 다시 찾는다(R8-01).
+            from services import report_number_resolver
             still_missing, ambiguous_now = [], []
             with engine.connect() as conn:
                 for rnum in missing_rnums:
-                    res, ambiguous = _resolve_report_number_detail(conn, rnum)
+                    if search_complete:
+                        res, ambiguous = _resolve_report_number_detail(conn, rnum)
+                    else:
+                        res, ambiguous = report_number_resolver.resolve_exact(conn, rnum), False
                     if res:
                         detaillist.append(res)
                         id_to_items.setdefault(str(res), []).append(rnum)

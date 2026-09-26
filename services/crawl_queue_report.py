@@ -64,8 +64,8 @@ def _unresolved_path() -> str:
     return os.path.join(s.datapath, UNRESOLVED_FILE)
 
 
-def record_unresolved(not_found, ambiguous) -> None:
-    """최근 항목부터 최대 UNRESOLVED_KEEP 개. 못 쓰면 기록만(큐 정리는 이미 끝났고 로그에도 남는다)."""
+def record_unresolved(not_found, ambiguous) -> bool:
+    """최근 항목부터 최대 UNRESOLVED_KEEP 개. 파일에 남겼으면 True, 못 쓰면 False(호출자는 번호를 큐에 남긴다, 감사 R8-03)."""
     from datetime import datetime, timezone
 
     at = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -83,6 +83,8 @@ def record_unresolved(not_found, ambiguous) -> None:
     except OSError:
         from core.utils import logger
         logger.LoggerFactory.logbot.warning("[crawl] 처리하지 못한 번호 기록을 저장하지 못함")
+        return False
+    return True
 
 
 def unresolved() -> list[dict]:

@@ -115,14 +115,21 @@ def configure_crawl_settings(*, crawl_mode: str):
     settings._instance.save()
 
 
-def _start_after_crawl_hook(log_file: str):
+def _start_after_crawl_hook(log_file: str, queue_file: str | None = None):
+    """완료 훅. queue_file 이 있으면(큐 지정 직접 시작) 크롤이 끝난 뒤 번호별 보고를 읽어 처리하지 못한 번호(없음·모호)를
+    남긴다(감사 R8-02 — 대기 큐 자동 시작과 같은 기록·상태·WS)."""
     process = crawl_manager.get_process()
-    if process:
-        threading.Thread(
-            target=crawl_manager.run_after_crawl,
-            args=(process, log_file),
-            daemon=True,
-        ).start()
+    if not process:
+        return
+
+    def _after():
+        try:
+            crawl_manager.run_after_crawl(process, log_file)
+        finally:
+            if queue_file:
+                crawl_manager.record_direct_queue_result(queue_file)
+
+    threading.Thread(target=_after, daemon=True, name="crawl-direct-after").start()
 
 
 @_serialized
@@ -159,6 +166,9 @@ def start_crawl(
     generation = crawl_manager.restore_generation()  # 검사 뒤 복원이 끼면 시작하지 않는다(R4-03)
     _check_crawl_allowed()
 
+    if queue_list.strip():
+        _refuse_ambiguous(queue_list.splitlines())  # R8-02: 모바일 /crawl/start·웹 시작도 같은 거부
+
     crawl_mode = normalize_crawl_mode(crawl_mode)
     configure_crawl_settings(crawl_mode=crawl_mode)
 
@@ -183,7 +193,7 @@ def start_crawl(
             "crawl_type": "api",  # 구앱 호환(이벤트 필드 유지)
         },
     )
-    _start_after_crawl_hook(log_file)
+    _start_after_crawl_hook(log_file, queue_file)
     return log_file
 
 
@@ -223,7 +233,7 @@ def enqueue_report(report_number: str):
             "crawl_type": settings.crawl_type,
         },
     )
-    _start_after_crawl_hook(log_file)
+    _start_after_crawl_hook(log_file, queue_file)
     return {"status": "success", "queue_size": 1}
 
 
@@ -281,7 +291,7 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
             "crawl_type": settings.crawl_type,
         },
     )
-    _start_after_crawl_hook(log_file)
+    _start_after_crawl_hook(log_file, queue_file)
     return {
         "status": "success",
         "requested_count": len(normalized),

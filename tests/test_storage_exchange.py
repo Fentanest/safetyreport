@@ -863,6 +863,101 @@ class ExchangeRestoreTests(unittest.TestCase):
         self.assertEqual((not_found, ambiguous), ([], [token]))
         self.assertEqual(done, {token})
 
+    def _partial_pair(self):
+        """같은 부분 번호(token)에 걸리는 A(1쪽)·B(2쪽). 둘 다 DB 에 없는 새 신고."""
+        base = [(r[0], r[1]) for r in self._db_numbers()]
+        a, b = ("77710001", "SPP-2609-7771001"), ("77710002", "SPP-2609-7771002")
+        filler = [(f"8{i:07d}", f"SPP-2601-{i:07d}") for i in range(200 - len(base) - 1)]
+        return "SPP-2609-777100", a, b, base + [a] + filler + [b]  # A 는 1쪽, B 는 2쪽(201번째)
+
+    def test_a_partial_number_is_not_completed_from_an_incomplete_list(self):
+        """감사 R8-01: 뒤쪽 페이지를 못 받았으면 앞쪽에서만 유일해 보이는 부분 일치를 확정하지 않는다(저장 0, 보고 0 → 다시 찾음).
+        목록 전체를 받으면 모호로 확정한다. 정확한 번호는 목록 일부만 받아도 처리한다."""
+        import start
+
+        token, (a_id, a_num), (b_id, b_num), entries = self._partial_pair()
+        saved = []
+        real_save = start._save_details_as_they_arrive
+
+        def spy(engine, stream, saved_ids=None):
+            result = real_save(engine, stream, saved_ids)
+            saved.extend(saved_ids or [])
+            return result
+
+        with mock.patch.object(start, "_save_details_as_they_arrive", side_effect=spy):
+            _, report = self._queue_run([token], listing=self._FakeList(entries, fail_at=201))
+            self.assertEqual((saved, report), ([], (set(), [], [])), "2쪽 실패 — A 로 확정하지 않는다")
+            # 이제 A 는 DB 에 있다(1쪽을 받아 저장됨). DB 에서 유일해 보여도 목록 전체 확인 전에는 확정하지 않는다.
+            _, report = self._queue_run([token], listing=self._FakeList(entries, fail_at=201))
+            self.assertEqual((saved, report), ([], (set(), [], [])), "DB 에서 유일해 보여도 최신 목록 확인 전에는 확정하지 않는다")
+            _, (done, not_found, ambiguous) = self._queue_run([token], listing=self._FakeList(entries))
+            self.assertEqual((saved, not_found, ambiguous), ([], [], [token]), "목록 전체를 받으면 A·B 둘 다 걸려 모호")
+            _, (done, _, _) = self._queue_run([a_num], listing=self._FakeList(entries, fail_at=201))
+            self.assertEqual(done, {a_num}, "정확한 번호는 목록 일부만 받아도 처리한다")
+            self.assertEqual(saved, [a_id])
+
+    def test_mobile_start_refuses_ambiguous_numbers_and_direct_runs_record_unresolved(self):
+        """감사 R8-02: 모바일 /api/v1/crawl/start(대기·시작 두 분기)도 모호 번호를 400 으로 거부하고, 큐 지정 직접 시작의
+        '없음·모호' 결과도 unresolved 에 남는다."""
+        import asyncio
+        from fastapi import HTTPException
+        from services import crawl_queue_report
+        from services.crawl_manager import crawl_manager
+        from web.routers import api_route
+
+        self.addCleanup(self._crawl_reset)
+        numbers = [r[1] for r in self._db_numbers()]
+        token = next(t for t in ("SPP-", "SPP-26", "SPP-2609") if sum(t in n for n in numbers) > 1)
+
+        class Req:
+            def __init__(self, body):
+                self.body = body
+
+            async def json(self):
+                return self.body
+
+        with mock.patch.object(api_route, "_raise_if_community_blocked"):
+            for running in (False, True):
+                with mock.patch.object(crawl_manager, "is_crawling", return_value=running):
+                    with self.assertRaises(HTTPException) as ctx:
+                        asyncio.run(api_route.mobile_start_crawl(Req({"queue_list": f"{numbers[0]}\n{token}"}), "k"))
+                    self.assertEqual(ctx.exception.status_code, 400)
+                    self.assertIn("정확한 신고번호", ctx.exception.detail)
+        self.assertEqual(crawl_manager.pending_items(), [])
+        # 직접 시작한 큐 크롤의 결과 보고 → unresolved
+        queue_file = os.path.join(settings.datapath, "mobile_queue.txt")
+        with open(queue_file, "w", encoding="utf-8") as f:
+            f.write("SPP-0000-GONE")
+        crawl_queue_report.write(queue_file, [], ["SPP-0000-GONE"], [])
+        crawl_manager.record_direct_queue_result(queue_file)
+        self.assertIn("SPP-0000-GONE", [e["number"] for e in crawl_queue_report.unresolved()])
+        self.assertFalse(os.path.exists(crawl_queue_report.report_path(queue_file)))
+
+    def test_numbers_stay_queued_when_the_unresolved_record_cannot_be_saved(self):
+        """감사 R8-03: 처리하지 못한 번호의 기록을 저장하지 못하면 큐에서 빼지 않는다(사용자가 볼 수 없는 채로 사라지지 않게)."""
+        from services import crawl_queue_report
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        queue_file = os.path.join(settings.datapath, "pending_queue_r83.txt")
+        self.addCleanup(crawl_queue_report.remove_files, queue_file)
+        crawl_queue_report.write(queue_file, ["SPP-DONE"], ["SPP-GONE"], ["SPP-AMB"])
+        for n in ("SPP-DONE", "SPP-GONE", "SPP-AMB"):
+            crawl_manager.append_to_pending(n)
+        real_replace = os.replace
+
+        def failing_replace(src, dst):
+            if dst.endswith(crawl_queue_report.UNRESOLVED_FILE):
+                raise OSError("disk full")
+            return real_replace(src, dst)
+
+        with mock.patch("services.crawl_queue_report.os.replace", side_effect=failing_replace):
+            done = crawl_manager._read_queue_report(queue_file)
+        self.assertEqual(done, {"SPP-DONE"})
+        left = crawl_manager._settle_pending(["SPP-DONE", "SPP-GONE", "SPP-AMB"], done)
+        self.assertEqual(sorted(left), ["SPP-AMB", "SPP-GONE"])
+        self.assertEqual(sorted(crawl_manager.pending_items()), ["SPP-AMB", "SPP-GONE"])
+
     def test_an_already_ambiguous_number_is_refused_when_requested(self):
         """감사 R7-03: 요청 시점에 이미 여러 신고에 걸리는 번호는 대기열에 넣지 않고 거부한다(400 문장)."""
         from services import crawl_control

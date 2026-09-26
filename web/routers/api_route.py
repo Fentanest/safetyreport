@@ -478,12 +478,21 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
     queue_list = body.get("queue_list", "").strip()
 
     await run_in_threadpool(_raise_if_community_blocked)
+    if queue_list:
+        try:  # 여러 신고에 걸리는 번호는 받지 않는다(감사 R8-02 — /crawl/enqueue 와 같은 400 문장)
+            await run_in_threadpool(crawl_control._refuse_ambiguous, queue_list.splitlines())
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
     if crawl_manager.is_crawling():
         if queue_list:
-            for report_number in queue_list.splitlines():
-                report_number = report_number.strip()
-                if report_number:
-                    crawl_manager.append_to_pending(report_number)
+            try:
+                for report_number in queue_list.splitlines():
+                    report_number = report_number.strip()
+                    if report_number:
+                        crawl_manager.append_to_pending(report_number)
+            except RuntimeError as exc:  # 대기 큐 저장 실패(R3-03)
+                raise HTTPException(status_code=500, detail=str(exc))
+            crawl_manager.request_pending_launch()  # 실행 중이던 크롤의 완료 훅이 이미 지나갔을 수 있다(R5-02)
             return {
                 "status": "queued",
                 "message": f"크롤링 완료 후 자동 실행됩니다. (대기 중: {crawl_manager.pending_count()}건)",
@@ -499,6 +508,8 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
             header="=== [모바일에서 시작된 크롤링] ===",
             broadcast_source="mobile_start",
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
         raise _community_runtime_error(exc) or HTTPException(status_code=500, detail=str(exc))
     except Exception as exc:

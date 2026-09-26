@@ -200,8 +200,8 @@ class CrawlManager:
         self._load_pending_locked()
         return [r for r in self._pending_queue if r not in self._reserved]
 
-    @staticmethod
-    def _read_queue_report(queue_file: str) -> set:
+    @classmethod
+    def _read_queue_report(cls, queue_file: str) -> set:
         from services import crawl_queue_report
 
         done, not_found, ambiguous = crawl_queue_report.read(queue_file)
@@ -211,15 +211,38 @@ class CrawlManager:
         if ambiguous:
             logger.LoggerFactory.logbot.error(
                 f"[crawl] 여러 신고에 걸리는 번호라 대기 큐에서 제외 — 정확한 신고번호로 다시 요청하세요: {ambiguous[:20]}")
-        if not_found or ambiguous:
-            # 처리하지 못하고 큐에서 뺀 번호는 사용자가 볼 수 있게 남긴다(감사 R7-03): 파일·/crawl/status·WS
-            crawl_queue_report.record_unresolved(not_found, ambiguous)
-            try:
-                from services.ws_manager import ws_manager
-                ws_manager.broadcast_from_thread("crawl_queue_unresolved", {"not_found": not_found, "ambiguous": ambiguous})
-            except Exception:
-                pass
+        if (not_found or ambiguous) and not cls._publish_unresolved(not_found, ambiguous):
+            # 기록을 못 남기면 큐에서 빼지 않는다 — 사용자가 볼 수 없는 채로 사라지지 않게(감사 R8-03). 다음에 다시 판정한다.
+            done = done - set(not_found) - set(ambiguous)
         return done
+
+    @staticmethod
+    def _publish_unresolved(not_found, ambiguous) -> bool:
+        """처리하지 못한 번호를 사용자가 볼 수 있게 남긴다(감사 R7-03): 파일(/crawl/status 의 unresolved)·WS. 파일에 남겼으면 True."""
+        from services import crawl_queue_report
+
+        if not crawl_queue_report.record_unresolved(not_found, ambiguous):
+            return False
+        try:
+            from services.ws_manager import ws_manager
+            ws_manager.broadcast_from_thread("crawl_queue_unresolved", {"not_found": list(not_found), "ambiguous": list(ambiguous)})
+        except Exception:
+            pass
+        return True
+
+    def record_direct_queue_result(self, queue_file: str) -> None:
+        """큐 지정 **직접 시작**(대기 큐가 아닌) 크롤이 끝난 뒤: 처리하지 못한 번호를 기록하고 보고 파일을 지운다(감사 R8-02).
+        큐 파일 자체는 사용자가 준 입력이라 그대로 둔다."""
+        from services import crawl_queue_report
+
+        _, not_found, ambiguous = crawl_queue_report.read(queue_file)
+        if not_found or ambiguous:
+            self._publish_unresolved(not_found, ambiguous)
+        for path in (crawl_queue_report.report_path(queue_file), f"{crawl_queue_report.report_path(queue_file)}.tmp"):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
     def _settle_pending(self, items: List[str], done: set) -> List[str]:
         """대기 큐 크롤이 끝난 뒤: 자식이 끝냈다고 보고한 번호만 큐에서 빼고, 나머지는 예약만 풀어 큐에 남긴다(R4-01·R5-01).
