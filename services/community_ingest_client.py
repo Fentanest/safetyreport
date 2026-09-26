@@ -205,8 +205,29 @@ def post_envelope(envelope: dict, *, timeout: float = READ_TIMEOUT) -> IngestRes
     return ack
 
 
-def post_manifest(*, after: str | None = None, limit: int = 5000) -> tuple[bool, dict]:
-    """manifest 페이지 1회 조회. (성공, 본문) — 실패면 (False, {}). 응답 본문은 로그에 남기지 않는다."""
+_HEX24 = re.compile(r"^[0-9a-f]{24}$")
+_HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_TOKEN = re.compile(r"^[0-9]+$")
+
+
+def _valid_manifest_page(parsed) -> bool:
+    """account-api.md manifest 응답: dataset_key, writer_epoch, total, manifest_token("^[0-9]+$"),
+    key_prefixes(24hex 목록), next_after(null|64hex). 형식이 하나라도 틀리면 페이지 전체를 거부한다."""
+    if not isinstance(parsed, dict) or parsed.get("protocol") != 1:
+        return False
+    total, token, keys, nxt = parsed.get("total"), parsed.get("manifest_token"), parsed.get("key_prefixes"), parsed.get("next_after")
+    if not isinstance(total, int) or isinstance(total, bool) or total < 0:
+        return False
+    if not isinstance(token, str) or not _TOKEN.match(token):
+        return False
+    if not isinstance(keys, list) or not all(isinstance(k, str) and _HEX24.match(k) for k in keys):
+        return False
+    return nxt is None or (isinstance(nxt, str) and bool(_HEX64.match(nxt)))
+
+
+def post_manifest(*, connection_id: str, after: str | None = None, limit: int = 5000) -> tuple[bool, dict]:
+    """manifest 페이지 1회 조회(POST {protocol, connection_id, after, limit}). (성공, 본문) — 실패·형식 오류면 (False, {}).
+    응답 본문은 로그에 남기지 않는다."""
     from services import community_auth_service as cas
     cfg = _config()
     try:
@@ -214,7 +235,8 @@ def post_manifest(*, after: str | None = None, limit: int = 5000) -> tuple[bool,
     except cas.CommunityAuthError:
         return False, {}
     url = cfg.supabase_url.rstrip("/") + MANIFEST_PATH
-    body = json.dumps({"after": after, "limit": min(limit, 5000)}, separators=(",", ":")).encode()
+    body = json.dumps({"protocol": 1, "connection_id": connection_id, "after": after, "limit": max(1, min(limit, 5000))},
+                      separators=(",", ":")).encode()
     headers = {"apikey": cfg.publishable_key, "Authorization": f"Bearer {token}",
                "Content-Type": "application/json"}
     try:
@@ -228,6 +250,6 @@ def post_manifest(*, after: str | None = None, limit: int = 5000) -> tuple[bool,
         parsed = json.loads(raw.decode("utf-8")) if raw else {}
     except ValueError:
         return False, {}
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("keys"), list):
+    if not _valid_manifest_page(parsed):
         return False, {}
     return True, parsed

@@ -724,59 +724,66 @@ def request_reshare(data_dir=None) -> dict:
 
 
 def refresh_server_completed(data_dir=None, limit: int = 5000) -> bool:
-    """manifest 전 페이지를 받아 total·중복 검증 후 한 트랜잭션으로 교체. 실패면 False.
+    """manifest 전 페이지를 받아 검증 후 한 트랜잭션으로 server_completed 를 교체한다. 실패면 False(fail-closed).
 
-    모든 페이지의 manifest_token 이 같아야 교체 — 다르면 처음부터 다시, 최대 3회.
+    - 받는 동안 upload lease 를 잡아 자기 업로드로 세대(manifest_token)가 바뀌지 않게 한다.
+    - 모든 페이지의 manifest_token 이 같고, 받은 개수 = total, 중복 없음, 페이지의 dataset_key·writer_epoch 가
+      현재 연결과 같을 때만 교체. 토큰이 바뀌면 처음부터 다시(최대 3회).
     """
+    import uuid as _uuid
+
     from services import community_ingest_client as client
     store = _store(data_dir)
     ctx = store.active_context()
-    if ctx is None or not ctx.get("dataset_key"):
+    if ctx is None or not ctx.get("dataset_key") or not ctx.get("connection_id"):
         return False
     dataset_key = ctx["dataset_key"]
-    seen: list[str] = []
-    total: int | None = None
-    for _ in range(3):
-        seen = []
-        total = None
-        token: str | None = None
-        after: str | None = None
-        consistent = True
-        while True:
-            ok, body = client.post_manifest(after=after, limit=limit)
-            if not ok:
-                return False
-            page_token = body.get("manifest_token")
-            if token is None:
-                token = page_token
-            elif page_token != token:
-                consistent = False
+    owner = f"manifest:{_uuid.uuid4()}"
+    if not store.acquire_lease("upload", owner, LEASE_SECONDS):
+        return False
+    try:
+        seen: list[str] | None = None
+        for _ in range(3):
+            keys: list[str] = []
+            token: str | None = None
+            total: int | None = None
+            after: str | None = None
+            consistent = True
+            while True:
+                ok, body = client.post_manifest(connection_id=ctx["connection_id"], after=after, limit=limit)
+                if not ok:
+                    return False
+                if body.get("dataset_key") != dataset_key or body.get("writer_epoch") != ctx.get("writer_epoch"):
+                    return False
+                if token is None:
+                    token, total = body["manifest_token"], body["total"]
+                elif body["manifest_token"] != token or body["total"] != total:
+                    consistent = False
+                    break
+                keys.extend(body["key_prefixes"])
+                after = body.get("next_after")
+                if after is None:
+                    break
+            if consistent:
+                if len(keys) != total or len(set(keys)) != len(keys):
+                    return False
+                seen = keys
                 break
-            if total is None:
-                total = body.get("total")
-            for key in body.get("keys", []):
-                seen.append(str(key))
-            after = body.get("next_after")
-            if not body.get("has_more") or not after:
-                break
-        if consistent:
-            break
-    else:
-        return False
-    if not consistent:
-        return False
-    if total is not None and len(seen) != total:
-        return False
-    if len(set(seen)) != len(seen):
-        return False
-    now = _iso(_now())
-    with store.transaction() as tx:
-        tx.execute("DELETE FROM server_completed WHERE dataset_key=?", (dataset_key,))
-        for prefix in seen:
-            tx.execute("INSERT INTO server_completed(dataset_key, key_prefix, fetched_at) VALUES (?, ?, ?)",
-                       (dataset_key, prefix, now))
-        store.set_meta("manifest_scope", f"{dataset_key}:{ctx.get('writer_epoch')}", tx)
-    return True
+        if seen is None:
+            return False
+        now = _iso(_now())
+        with store.transaction() as tx:
+            tx.execute("DELETE FROM server_completed WHERE dataset_key=?", (dataset_key,))
+            for prefix in seen:
+                tx.execute("INSERT INTO server_completed(dataset_key, key_prefix, fetched_at) VALUES (?, ?, ?)",
+                           (dataset_key, prefix, now))
+            store.set_meta("manifest_scope", f"{dataset_key}:{ctx.get('writer_epoch')}", tx)
+        return True
+    finally:
+        try:
+            store.release_lease("upload", owner)
+        except Exception:
+            pass
 
 
 def on_contributions_deleted(data_dir=None) -> None:

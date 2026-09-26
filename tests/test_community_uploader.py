@@ -1,4 +1,5 @@
 """uploader 테스트 — B01~B05/B08/B11~B13, C04, H02~H05, reshare, status 범위."""
+import json
 import os
 import tempfile
 import threading
@@ -311,33 +312,7 @@ class UploaderTest(unittest.TestCase):
         self.assertEqual(result["result"], "consent_required")
 
     def test_refresh_server_completed_replaces(self):
-        """manifest 전 페이지 교체 + total·중복 검증; 실패면 False."""
-        pages = [{"keys": ["aa", "bb"], "total": 3, "manifest_token": "7", "has_more": True, "next_after": "bb"},
-                 {"keys": ["cc"], "total": 3, "manifest_token": "7", "has_more": False, "next_after": None}]
-        with mock.patch.object(client, "post_manifest", side_effect=[(True, p) for p in pages]):
-            self.assertTrue(up.refresh_server_completed(data_dir=self.tmp))
-        rows = self.store.connect().execute(
-            "SELECT key_prefix FROM server_completed ORDER BY key_prefix").fetchall()
-        self.assertEqual([r["key_prefix"] for r in rows], ["aa", "bb", "cc"])
-        self.assertEqual(self.store.meta("manifest_scope"), f"{CTX['dataset_key']}:{CTX['writer_epoch']}")
-        # total 불일치면 교체 안 함
-        bad = [{"keys": ["zz"], "total": 2, "manifest_token": "9", "has_more": False, "next_after": None}]
-        with mock.patch.object(client, "post_manifest", side_effect=[(True, bad[0])]):
-            self.assertFalse(up.refresh_server_completed(data_dir=self.tmp))
-        rows = self.store.connect().execute(
-            "SELECT key_prefix FROM server_completed ORDER BY key_prefix").fetchall()
-        self.assertEqual([r["key_prefix"] for r in rows], ["aa", "bb", "cc"])
-
-    def test_manifest_token_mismatch_retries(self):
-        bodies = [
-            {"keys": ["aa"], "total": 1, "manifest_token": "7", "has_more": True, "next_after": "aa"},
-            {"keys": ["aa"], "total": 1, "manifest_token": "8", "has_more": False, "next_after": None},
-            {"keys": ["zz"], "total": 1, "manifest_token": "9", "has_more": False, "next_after": None},
-        ]
-        with mock.patch.object(client, "post_manifest", side_effect=[(True, b) for b in bodies]):
-            self.assertTrue(up.refresh_server_completed(data_dir=self.tmp))
-        rows = self.store.connect().execute("SELECT key_prefix FROM server_completed").fetchall()
-        self.assertEqual([r["key_prefix"] for r in rows], ["zz"])
+        _check_manifest_contract(self)
 
     def test_projection_status_saved_and_shown(self):
         """ACK projection_status 5종 저장·패널 반영."""
@@ -534,29 +509,85 @@ class UploaderBranchesTest(UploaderTest):
         self.assertEqual(result["result"], "consent_required")
 
     def test_refresh_server_completed_replaces_atomically(self):
-        pages = [{"keys": ["aa", "bb"], "manifest_token": "7", "total": 3, "has_more": True,
-                  "next_after": "bb"},
-                 {"keys": ["cc"], "manifest_token": "7", "total": 3, "has_more": False,
-                  "next_after": None}]
-        with mock.patch("services.community_ingest_client.post_manifest",
-                        side_effect=[(True, p) for p in pages]):
-            self.assertTrue(up.refresh_server_completed(data_dir=self.tmp))
-        rows = self.store.connect().execute("SELECT key_prefix FROM server_completed").fetchall()
-        self.assertEqual(sorted(r["key_prefix"] for r in rows), ["aa", "bb", "cc"])
-        scope = self.store.meta("manifest_scope")
-        self.assertEqual(scope, f"{CTX['dataset_key']}:{CTX['writer_epoch']}")
+        _check_manifest_contract(self)
 
-    def test_refresh_manifest_token_mismatch_retries(self):
-        bodies = [
-            {"keys": ["aa"], "manifest_token": "7", "total": 1, "has_more": True, "next_after": "aa"},
-            {"keys": ["aa"], "manifest_token": "8", "total": 1, "has_more": False, "next_after": None},
-            {"keys": ["zz"], "manifest_token": "9", "total": 1, "has_more": False, "next_after": None},
-        ]
-        with mock.patch("services.community_ingest_client.post_manifest",
-                        side_effect=[(True, b) for b in bodies]):
-            self.assertTrue(up.refresh_server_completed(data_dir=self.tmp))
-        rows = self.store.connect().execute("SELECT key_prefix FROM server_completed").fetchall()
-        self.assertEqual([r["key_prefix"] for r in rows], ["zz"])
+def _page(keys, token="7", total=None, next_after=None, **over):
+    """account-api.md manifest 응답 모양(protocol·dataset_key·writer_epoch·total·manifest_token·key_prefixes·next_after)."""
+    body = {"protocol": 1, "dataset_key": CTX["dataset_key"], "writer_epoch": CTX["writer_epoch"],
+            "total": len(keys) if total is None else total, "manifest_token": token,
+            "key_prefixes": keys, "next_after": next_after}
+    body.update(over)
+    return body
+
+
+K = [c * 24 for c in "abcdef"]
+CURSOR = "e" * 64
+
+
+def _check_manifest_contract(t):
+    """전 페이지·같은 토큰·개수=total·중복 없음·연결 일치일 때만 교체, 토큰 변화 최대 3회, 실패·형식 오류는 교체 없음."""
+    rows = lambda: sorted(r["key_prefix"] for r in t.store.connect().execute("SELECT key_prefix FROM server_completed"))
+    pages = [_page(K[:2], total=3, next_after=CURSOR), _page(K[2:3], total=3)]
+    with mock.patch.object(client, "post_manifest", side_effect=[(True, p) for p in pages]) as post:
+        t.assertTrue(up.refresh_server_completed(data_dir=t.tmp))
+    t.assertEqual(rows(), K[:3])
+    t.assertEqual(post.call_args_list[0].kwargs, {"connection_id": CTX["connection_id"], "after": None, "limit": 5000})
+    t.assertEqual(post.call_args_list[1].kwargs["after"], CURSOR)
+    t.assertEqual(t.store.meta("manifest_scope"), f"{CTX['dataset_key']}:{CTX['writer_epoch']}")
+    for bad in ([_page(K[4:5], total=2)],                                    # 개수 != total
+                [_page([K[4], K[4]])],                                       # 중복
+                [_page(K[4:5], dataset_key="0" * 64)],                       # 다른 dataset
+                [_page(K[4:5], writer_epoch=CTX["writer_epoch"] + 1)],       # 다른 epoch
+                [_page(K[4:5], token="7", next_after=CURSOR), _page(K[5:6], token="8"),
+                 _page(K[4:5], token="9", next_after=CURSOR), _page(K[5:6], token="10"),
+                 _page(K[4:5], token="11", next_after=CURSOR), _page(K[5:6], token="12")]):  # 3회 모두 토큰 변화
+        with mock.patch.object(client, "post_manifest", side_effect=[(True, p) for p in bad]):
+            t.assertFalse(up.refresh_server_completed(data_dir=t.tmp))
+        t.assertEqual(rows(), K[:3], "실패면 이전 목록을 그대로 둔다")
+    with mock.patch.object(client, "post_manifest", side_effect=[(False, {})]):
+        t.assertFalse(up.refresh_server_completed(data_dir=t.tmp))
+    # 토큰이 한 번 바뀌면 처음부터 다시 받아 성공
+    retry = [_page(K[:1], token="7", total=2, next_after=CURSOR), _page(K[1:2], token="8", total=2),
+             _page([K[5]], token="9")]
+    with mock.patch.object(client, "post_manifest", side_effect=[(True, p) for p in retry]):
+        t.assertTrue(up.refresh_server_completed(data_dir=t.tmp))
+    t.assertEqual(rows(), [K[5]])
+    # 자기 업로드가 lease 를 잡고 있으면 교체하지 않는다
+    t.assertTrue(t.store.acquire_lease("upload", "other-run", 60))
+    try:
+        with mock.patch.object(client, "post_manifest") as post:
+            t.assertFalse(up.refresh_server_completed(data_dir=t.tmp))
+        post.assert_not_called()
+    finally:
+        t.store.release_lease("upload", "other-run")
+    # 빈 dataset: 토큰 "0", total 0 → 빈 목록으로 교체
+    with mock.patch.object(client, "post_manifest", side_effect=[(True, _page([], token="0"))]):
+        t.assertTrue(up.refresh_server_completed(data_dir=t.tmp))
+    t.assertEqual(rows(), [])
+
+
+class ManifestClientContractTest(unittest.TestCase):
+    def test_request_body_and_response_validation(self):
+        sent = {}
+
+        def fake_post(url, headers, body, timeout):
+            sent["url"], sent["body"] = url, json.loads(body)
+            return 200, json.dumps(fake_post.reply).encode(), {}
+
+        cfg = mock.Mock(supabase_url="http://127.0.0.1:56321", publishable_key="sb_publishable_x")
+        with mock.patch.object(client, "_config", return_value=cfg), \
+             mock.patch("services.community_auth_service.get_access_token", return_value="tok"), \
+             mock.patch.object(client, "_http_post", side_effect=fake_post):
+            fake_post.reply = _page(K[:1])
+            ok, body = client.post_manifest(connection_id=CTX["connection_id"], after=None, limit=9000)
+            self.assertTrue(ok)
+            self.assertEqual(sent["url"], "http://127.0.0.1:56321/functions/v1/community-ingest/manifest")
+            self.assertEqual(sent["body"], {"protocol": 1, "connection_id": CTX["connection_id"], "after": None, "limit": 5000})
+            for broken in (dict(_page(K[:1]), key_prefixes=["zz"]), dict(_page(K[:1]), manifest_token="x"),
+                           dict(_page(K[:1]), next_after="short"), dict(_page(K[:1]), total=-1),
+                           {k: v for k, v in _page(K[:1]).items() if k != "protocol"}, {"keys": K[:1]}):
+                fake_post.reply = broken
+                self.assertEqual(client.post_manifest(connection_id=CTX["connection_id"]), (False, {}), broken)
 
 
 if __name__ == "__main__":
