@@ -84,6 +84,14 @@ by_law (법규별, 같은 필드 + law)
 - **감시목록**: 원천은 `mysafety_watchlist` 하나. title·merge 의 `감시목록` 열은 `database.refresh_watch_flags` 가 계산(merge_final·감시목록 변경 때). 서버 sync_meta 에는 'watchlist' 키를 두지 않는다(모바일은 sync_meta 'watchlist' 가 원천이라 교환 때 변환).
 - **복원**(`services/db_backup.py` → `core/storage/exchange.py`): 사본에 적용 → 무결성 검사 → 백업(`data/backups/`) → 원자적 교체. 크롤링·지도 좌표 변환 중에는 409.
   모바일 DB 로 복원해도 관리자·API 키·변경 기록은 유지되고 지오코딩 캐시는 합쳐진다. 구버전 앱 DB 에 수정값·중복 판단 표가 없으면 서버 것을 유지.
+- **2026-09-26 감사 보강(SOL-02·03·04, 모바일 레포와 함께 변경)**:
+  - 모르는 열: 변환 대상 표에 계약(`storage-contract.json`)에 없는 열이 있고 그 열에 NULL 아닌 값('' 포함)이 하나라도 있으면
+    교체 전에 거부한다(서버 `exchange.UnknownColumns` → 409 문장, 모바일 `UnknownColumnsException`). 값이 모두 NULL 인 열은 잃는 값이 없어 통과.
+    서버가 아는 모바일 열 목록은 `exchange.known_mobile_columns()` 이고 테스트가 계약과 같은지 검사한다.
+  - entry_value: 서버 `mysafety_entry_value` 행 없음 ↔ 모바일 `reports.entry_value` NULL, 행의 값(빈 문자열 포함) ↔ 같은 값.
+    앱에 열이 있으면 앱 값이 원천(빈 문자열도 덮어씀), 열이 없는 구앱이면 서버 값 유지.
+  - 복원 중 동시 쓰기: 스테이징 복사부터 파일 교체까지 `core/database/write_barrier.exclusive()` 가 운영 DB 연결을 막는다.
+    이미 빌린 연결이 반납될 때까지 기다리고(20초 넘으면 409), 그동안 새 연결은 기다렸다가 교체된 새 파일로 다시 연다.
 - **API 값**: `/api/v1/reports/{traffic,parking,other}` 는 NULL 을 null, 정수 열(별점·synced_at·보완횟수·사진_촬영수)을 정수로 보낸다. 웹 화면 조회는 기존처럼 ''.
 - **변경 알림 payload**(`crawl_changes.json`): NULL 은 '' (표시용).
 - 새 표: `mysafety_report_override`(사용자 수정값), `mysafety_duplicate_decision`(중복 판단), `mysafety_change_log`·`mysafety_change_cursor`(변경 기록) — 쓰기는 R2·R5 부터.

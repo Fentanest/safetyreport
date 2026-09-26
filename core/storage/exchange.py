@@ -21,7 +21,7 @@ from datetime import datetime
 from sqlalchemy import create_engine, func, select
 
 import settings.settings as settings
-from core.database import models
+from core.database import models, write_barrier
 from core.utils import logger
 
 BATCH = 200
@@ -61,6 +61,45 @@ def _read_table(conn: sqlite3.Connection, tables: set[str], name: str) -> list[d
     return [dict(r) for r in conn.execute(f'SELECT * FROM "{name}"')]
 
 
+# 모바일 표별로 이 서버가 아는 열 = 계약(contracts/storage-contract.json)의 mobile 열.
+# tests/test_storage_exchange.py 가 계약과 같은지 검사한다. reports 의 category·entry_value·raw_content(legacy)는 모바일 전용 열이다.
+REPORTS_MOBILE_ONLY_COLUMNS = ("category", "entry_value", "raw_content")
+
+
+def known_mobile_columns() -> dict[str, set[str]]:
+    return {
+        "reports": set(_columns(models.title_table)) | set(_columns(models.detail_traffic_table)) | set(REPORTS_MOBILE_ONLY_COLUMNS),
+        "report_raw": set(_columns(models.raw_content_table)),
+        "sync_meta": set(_columns(models.sync_meta_table)),
+        "geocode_cache": set(_columns(models.geocode_cache_table)),
+        "duplicate_group": set(_columns(models.duplicate_group_table)),
+        "duplicate_member": set(_columns(models.duplicate_member_table)),
+        "report_override": set(_columns(models.report_override_table)),
+        "duplicate_decision": set(_columns(models.duplicate_decision_table)),
+    }
+
+
+class UnknownColumns(RestoreRefused):
+    """모르는 열에 값이 있어 변환하면 값이 사라진다 — 교체 전에 멈춘다(PROJECT_RULES 3-1, 감사 SOL-02)."""
+
+
+def _refuse_unknown_columns(conn: sqlite3.Connection, tables: set[str]) -> None:
+    problems = []
+    for table, known in known_mobile_columns().items():
+        if table not in tables:
+            continue
+        for col in [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]:
+            if col in known:
+                continue
+            n = conn.execute(f'SELECT count(*) FROM "{table}" WHERE "{col}" IS NOT NULL').fetchone()[0]
+            if n:  # 값이 모두 NULL(모름)인 열은 버려도 잃는 값이 없다
+                problems.append(f"{table}.{col}({n}행)")
+    if problems:
+        raise UnknownColumns(
+            "이 서버가 모르는 열에 값이 있어 복원하지 않았습니다(그대로 바꾸면 값이 사라집니다): "
+            + ", ".join(problems) + ". 서버를 최신 버전으로 업데이트한 뒤 다시 복원하세요.")
+
+
 def read_mobile_db(path: str) -> MobileSnapshot:
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
@@ -68,6 +107,7 @@ def read_mobile_db(path: str) -> MobileSnapshot:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         if "reports" not in tables:
             raise ValueError("모바일 DB 에 reports 표가 없습니다.")
+        _refuse_unknown_columns(conn, tables)
         return MobileSnapshot(
             report_columns={r[1] for r in conn.execute('PRAGMA table_info("reports")')},
             reports=_read_table(conn, tables, "reports") or [],
@@ -178,11 +218,12 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
             conn.execute(models.watchlist_table.delete())
             _insert(conn, models.watchlist_table, [{"신고번호": n} for n in dict.fromkeys(watchlist)])
 
-        # entry_value: 앱 값이 있는 신고는 앱 값, 없으면 서버 값 유지, 사라진 신고의 행은 삭제.
+        # entry_value(감사 SOL-03): 앱에 열이 있으면 앱 값이 원천 — 빈 문자열도 그대로 쓰고, NULL(모름)은 서버 행 없음.
+        # 열이 없는 구앱이면 서버 값을 유지한다. 사라진 신고의 행은 삭제.
         if "entry_value" in snapshot.report_columns:
             for r in snapshot.reports:
-                if r.get("entry_value"):
-                    conn.execute(models.entry_value_table.delete().where(models.entry_value_table.c.ID == r["ID"]))
+                conn.execute(models.entry_value_table.delete().where(models.entry_value_table.c.ID == r["ID"]))
+                if r.get("entry_value") is not None:
                     conn.execute(models.entry_value_table.insert().values(ID=r["ID"], entry_value=r["entry_value"]))
         existing_ev = [row[0] for row in conn.execute(select(models.entry_value_table.c.ID))]
         orphan = [i for i in existing_ev if i not in report_ids]
@@ -316,11 +357,22 @@ def _swap_in(staged: str, dst: str) -> None:
 
 def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
     """kind='server' | 'mobile'. (백업 경로, 신고 수) 반환. 실패하면 현재 DB 는 그대로다."""
-    from core.database import database
     from core.database.engine import get_engine
 
     dst = settings.db_path
     ensure_restore_allowed(get_engine())
+    snapshot = read_mobile_db(uploaded_path) if kind == "mobile" else None  # 모르는 열 검사 포함 — 장벽 전에
+    # 스테이징 복사부터 교체까지 다른 요청의 운영 DB 연결을 막는다(SOL-04). 이미 빌린 연결이 반납될 때까지 기다린다.
+    try:
+        with write_barrier.exclusive():
+            return _restore_exclusive(uploaded_path, kind, dst, snapshot)
+    except write_barrier.BarrierTimeout as exc:
+        raise RestoreRefused(str(exc)) from None
+
+
+def _restore_exclusive(uploaded_path: str, kind: str, dst: str, snapshot: "MobileSnapshot | None") -> tuple[str, int]:
+    from core.database import database
+
     staged = os.path.join(os.path.dirname(dst), f".restore_staging_{os.getpid()}_{datetime.now().strftime('%Y%m%d%H%M%S%f')}.db")
     try:
         if kind == "server":
@@ -333,7 +385,6 @@ def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
             finally:
                 engine.dispose()
         elif kind == "mobile":
-            snapshot = read_mobile_db(uploaded_path)
             if os.path.exists(dst):
                 _copy_sqlite(dst, staged)  # 서버 전용 표(관리자·API 키·변경 기록·캐시)를 가진 현재 DB 위에 적용
             engine = create_engine(f"sqlite:///{staged}")

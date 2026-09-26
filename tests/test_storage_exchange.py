@@ -167,6 +167,178 @@ class ExchangeRestoreTests(unittest.TestCase):
             exchange.restore(str(newer), "server")
         self.assertEqual(self._count(models.title_table), before)
 
+    # ── 2026-09-26 감사 SOL-02·03·04 ──────────────────────────────────────────
+
+    def test_known_mobile_columns_match_the_contract(self):
+        import json
+        contract = json.loads((Path(__file__).resolve().parents[1] / "contracts" / "storage-contract.json").read_text(encoding="utf-8"))
+        expected = {e["mobile_table"]: {c["name"] for c in e["columns"] if c.get("mobile")}
+                    for e in contract["entities"] if e.get("mobile_table")}
+        self.assertEqual(exchange.known_mobile_columns(), expected)
+
+    def test_unknown_column_with_values_refuses_before_touching_live_db(self):
+        _mobile_db(self.upload)
+        con = sqlite3.connect(self.upload)
+        con.execute("ALTER TABLE reports ADD COLUMN 미래열 TEXT")
+        con.execute("UPDATE reports SET 미래열 = '' WHERE ID = 'm1'")  # 빈 문자열도 값이다
+        con.commit()
+        con.close()
+        before = self._count(models.title_table)
+        with self.assertRaises(exchange.UnknownColumns) as ctx:
+            exchange.restore(str(self.upload), "mobile")
+        self.assertIn("reports.미래열(1행)", str(ctx.exception))
+        self.assertIsInstance(ctx.exception, exchange.RestoreRefused)  # 라우트가 409 문장으로 보여 준다
+        self.assertEqual(self._count(models.title_table), before)
+
+    def test_unknown_column_that_is_all_null_loses_nothing_and_restores(self):
+        _mobile_db(self.upload)
+        con = sqlite3.connect(self.upload)
+        con.execute("ALTER TABLE report_override ADD COLUMN 미래열 TEXT")
+        con.commit()
+        con.close()
+        _, count = exchange.restore(str(self.upload), "mobile")
+        self.assertEqual(count, 1)
+
+    def _entry_value(self, report_id="m1"):
+        with get_engine().connect() as conn:
+            rows = conn.execute(select(models.entry_value_table.c.entry_value).where(models.entry_value_table.c.ID == report_id)).fetchall()
+        return [r[0] for r in rows]
+
+    def _set_server_entry(self, value):
+        with get_engine().begin() as conn:
+            conn.execute(models.entry_value_table.delete().where(models.entry_value_table.c.ID == "m1"))
+            conn.execute(models.entry_value_table.insert().values(ID="m1", entry_value=value))
+
+    def test_entry_value_follows_the_app_exactly_empty_null_and_old_app(self):
+        # 앱의 빈 문자열은 서버의 이전 값을 덮는다
+        self._set_server_entry("이전 값")
+        _mobile_db(self.upload)
+        con = sqlite3.connect(self.upload)
+        con.execute("UPDATE reports SET entry_value = '' WHERE ID = 'm1'")
+        con.commit()
+        con.close()
+        exchange.restore(str(self.upload), "mobile")
+        self.assertEqual(self._entry_value(), [""])
+        # 앱의 NULL(모름)은 서버 행 없음
+        self._set_server_entry("이전 값")
+        con = sqlite3.connect(self.upload)
+        con.execute("UPDATE reports SET entry_value = NULL WHERE ID = 'm1'")
+        con.commit()
+        con.close()
+        exchange.restore(str(self.upload), "mobile")
+        self.assertEqual(self._entry_value(), [])
+        # 열이 없는 구앱이면 서버 값 유지
+        self._set_server_entry("이전 값")
+        old = Path(self._tmp.name) / "old.db"
+        con = sqlite3.connect(old)
+        con.executescript("""
+            CREATE TABLE reports (ID TEXT PRIMARY KEY, 신고번호 TEXT, 위반장소 TEXT, category TEXT);
+            CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
+            INSERT INTO reports VALUES ('m1','SPP-2609-9000011','서울 강서구 1','traffic');
+        """)
+        con.commit()
+        con.close()
+        exchange.restore(str(old), "mobile")
+        self.assertEqual(self._entry_value(), ["이전 값"])
+
+    def test_write_committed_while_restore_waits_is_kept(self):
+        """SOL-04: 복원이 시작될 때 이미 연결을 빌려 쓰던 요청의 커밋은 새 DB 에 남는다(장벽이 반납을 기다린다)."""
+        import threading
+        from core.database import write_barrier
+
+        _mobile_db(self.upload)
+        holding = threading.Event()
+        release = threading.Event()
+        errors = []
+
+        def writer():
+            try:
+                with get_engine().begin() as conn:
+                    holding.set()
+                    release.wait(10)
+                    conn.execute(models.api_keys_table.insert().values(key="k-during-restore", name="동시 쓰기", created_at="2026-09-26"))
+            except Exception as exc:  # pragma: no cover
+                errors.append(exc)
+
+        t = threading.Thread(target=writer)
+        t.start()
+        self.assertTrue(holding.wait(5))
+        result = {}
+        r = threading.Thread(target=lambda: result.setdefault("v", exchange.restore(str(self.upload), "mobile")))
+        r.start()
+        # 복원은 연결 반납을 기다린다
+        r.join(0.5)
+        self.assertTrue(r.is_alive())
+        self.assertEqual(write_barrier.active_connections(), 1)
+        release.set()
+        t.join(10)
+        r.join(20)
+        self.assertEqual(errors, [])
+        self.assertFalse(r.is_alive())
+        with get_engine().connect() as conn:
+            keys = {row[0] for row in conn.execute(select(models.api_keys_table.c.key))}
+        self.assertIn("k-during-restore", keys)
+
+    def test_connections_opened_during_restore_wait_and_write_to_the_new_db(self):
+        import threading
+        from core.database import write_barrier
+
+        _mobile_db(self.upload)
+        entered = threading.Event()
+        written = threading.Event()
+        order = []
+        real_swap = exchange._swap_in
+
+        def slow_swap(staged, dst):
+            entered.set()
+            written.wait(0.5)  # 이 사이 다른 스레드가 연결을 얻으면 안 된다
+            order.append("swap")
+            real_swap(staged, dst)
+
+        def late_writer():
+            entered.wait(10)
+            with get_engine().begin() as conn:
+                order.append("write")
+                conn.execute(models.api_keys_table.insert().values(key="k-after-restore", name="뒤 쓰기", created_at="2026-09-26"))
+            written.set()
+
+        w = threading.Thread(target=late_writer)
+        w.start()
+        with mock.patch.object(exchange, "_swap_in", slow_swap):
+            exchange.restore(str(self.upload), "mobile")
+        w.join(10)
+        self.assertEqual(order, ["swap", "write"])
+        with get_engine().connect() as conn:
+            keys = {row[0] for row in conn.execute(select(models.api_keys_table.c.key))}
+        self.assertIn("k-after-restore", keys)
+        self.assertEqual(write_barrier.active_connections(), 0)
+
+    def test_restore_refuses_when_a_connection_is_never_returned(self):
+        import threading
+        from core.database import write_barrier
+
+        _mobile_db(self.upload)
+        release = threading.Event()
+        holding = threading.Event()
+
+        def holder():
+            with get_engine().connect():
+                holding.set()
+                release.wait(10)
+
+        t = threading.Thread(target=holder)
+        t.start()
+        holding.wait(5)
+        before = self._count(models.title_table)
+        try:
+            with mock.patch.object(write_barrier, "DRAIN_WAIT_SECONDS", 0.3):
+                with self.assertRaises(exchange.RestoreRefused):
+                    exchange.restore(str(self.upload), "mobile")
+        finally:
+            release.set()
+            t.join(10)
+        self.assertEqual(self._count(models.title_table), before)
+
 
 if __name__ == "__main__":
     unittest.main()
