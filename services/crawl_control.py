@@ -98,7 +98,11 @@ def _refuse_ambiguous(numbers) -> None:
 
 
 def _write_queue_file(filename: str, queue_content: str):
-    path = os.path.join(settings.datapath, filename)
+    """실행마다 고유한 큐 파일(감사 R9-01 — 연속 직접 실행이 서로의 큐·결과 보고를 덮지 않게). 이름: <stem>_<uuid>.txt"""
+    import uuid
+
+    stem, ext = os.path.splitext(filename)
+    path = os.path.join(settings.datapath, f"{stem}_{uuid.uuid4().hex}{ext or '.txt'}")
     with open(path, "w", encoding="utf-8") as file_obj:
         file_obj.write(queue_content)
     return path

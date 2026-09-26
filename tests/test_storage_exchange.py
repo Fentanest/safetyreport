@@ -901,6 +901,7 @@ class ExchangeRestoreTests(unittest.TestCase):
         '없음·모호' 결과도 unresolved 에 남는다."""
         import asyncio
         from fastapi import HTTPException
+        from services import crawl_control as crawl_control_mod
         from services import crawl_queue_report
         from services.crawl_manager import crawl_manager
         from web.routers import api_route
@@ -925,13 +926,72 @@ class ExchangeRestoreTests(unittest.TestCase):
                     self.assertIn("정확한 신고번호", ctx.exception.detail)
         self.assertEqual(crawl_manager.pending_items(), [])
         # 직접 시작한 큐 크롤의 결과 보고 → unresolved
-        queue_file = os.path.join(settings.datapath, "mobile_queue.txt")
-        with open(queue_file, "w", encoding="utf-8") as f:
-            f.write("SPP-0000-GONE")
+        queue_file = crawl_control_mod._write_queue_file("mobile_queue.txt", "SPP-0000-GONE")
         crawl_queue_report.write(queue_file, [], ["SPP-0000-GONE"], [])
         crawl_manager.record_direct_queue_result(queue_file)
         self.assertIn("SPP-0000-GONE", [e["number"] for e in crawl_queue_report.unresolved()])
         self.assertFalse(os.path.exists(crawl_queue_report.report_path(queue_file)))
+
+    def test_direct_runs_keep_their_own_report_and_hand_leftovers_to_the_queue(self):
+        """감사 R9-01·R9-02·R9-04: 직접 실행마다 고유 큐·보고 파일(연속 실행이 서로 덮지 않음). 처리하지 못한 번호(보고 없음 포함)와
+        기록을 못 남긴 없음·모호 번호는 대기 큐로 넘겨 다시 시도한다."""
+        from services import crawl_control, crawl_queue_report
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        first = crawl_control._write_queue_file("mobile_queue.txt", "SPP-A1\nSPP-A2")
+        second = crawl_control._write_queue_file("mobile_queue.txt", "SPP-B1")
+        self.assertNotEqual(first, second)
+        crawl_queue_report.write(first, ["SPP-A1"], ["SPP-A2"], [])
+        crawl_queue_report.write(second, ["SPP-B1"], [], [])  # 둘째 실행의 보고가 첫째를 덮지 않는다
+        self.assertTrue(crawl_manager.record_direct_queue_result(first))
+        self.assertIn("SPP-A2", [e["number"] for e in crawl_queue_report.unresolved()])
+        self.assertEqual(crawl_manager.pending_items(), [])
+        self.assertTrue(crawl_manager.record_direct_queue_result(second))
+        for path in (first, second):
+            self.assertFalse(os.path.exists(path) or os.path.exists(crawl_queue_report.report_path(path)))
+
+        # 보고 없이 끝남(로그인 실패 등) → 요청 번호 전부 대기 큐로, 재시도 타이머
+        third = crawl_control._write_queue_file("queue.txt", "SPP-C1\nSPP-C2")
+        self.assertTrue(crawl_manager.record_direct_queue_result(third))
+        self.assertEqual(crawl_manager.pending_items(), ["SPP-C1", "SPP-C2"])
+        self.assertIsNotNone(crawl_manager._retry_timer)
+
+        # 없음 기록을 저장하지 못하면 그 번호도 대기 큐로(다음에 다시 판정)
+        fourth = crawl_control._write_queue_file("queue.txt", "SPP-D1")
+        crawl_queue_report.write(fourth, [], ["SPP-D1"], [])
+        real_replace = os.replace
+
+        def failing_replace(src, dst):
+            if dst.endswith(crawl_queue_report.UNRESOLVED_FILE):
+                raise OSError("disk full")
+            return real_replace(src, dst)
+
+        with mock.patch("services.crawl_queue_report.os.replace", side_effect=failing_replace):
+            self.assertTrue(crawl_manager.record_direct_queue_result(fourth))
+        self.assertIn("SPP-D1", crawl_manager.pending_items())
+
+    def test_startup_recovers_leftover_queue_runs(self):
+        """감사 R9-01·R9-02: 지난 실행이 정리하지 못한 파일 — 대기 큐 실행의 보고는 끝난 번호를 빼고, 직접 실행의 큐는 대기 큐로 넘긴다."""
+        from services import crawl_control, crawl_queue_report
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        import glob
+        for old in glob.glob(os.path.join(settings.datapath, "*queue_*.txt*")):  # 앞 테스트가 남긴 실행 파일
+            os.remove(old)
+        crawl_manager.pop_pending()
+        for n in ("SPP-P1", "SPP-P2"):
+            crawl_manager.append_to_pending(n)
+        pending_file = os.path.join(settings.datapath, "pending_queue_leftover.txt")
+        with open(pending_file, "w", encoding="utf-8") as f:
+            f.write("SPP-P1\nSPP-P2")
+        crawl_queue_report.write(pending_file, ["SPP-P1"], [], [])
+        direct_file = crawl_control._write_queue_file("web_selected_queue.txt", "SPP-W1")
+        crawl_manager.recover_leftover_queue_runs()
+        self.assertEqual(sorted(crawl_manager.pending_items()), ["SPP-P2", "SPP-W1"])
+        for path in (pending_file, direct_file):
+            self.assertFalse(os.path.exists(path) or os.path.exists(crawl_queue_report.report_path(path)))
 
     def test_numbers_stay_queued_when_the_unresolved_record_cannot_be_saved(self):
         """감사 R8-03: 처리하지 못한 번호의 기록을 저장하지 못하면 큐에서 빼지 않는다(사용자가 볼 수 없는 채로 사라지지 않게)."""

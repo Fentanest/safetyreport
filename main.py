@@ -130,6 +130,7 @@ async def lifespan(app: FastAPI):
         try:
             # 지난 실행에서 남은 대기 큐 번호가 있으면 재시도 타이머를 건다(곧바로 크롤하지는 않음, 감사 R6-03).
             from services.crawl_manager import crawl_manager
+            crawl_manager.recover_leftover_queue_runs()  # 지난 실행이 정리하지 못한 큐·결과 보고 회수(R9-01·02)
             crawl_manager.schedule_retry_if_pending()
         except Exception as exc:
             logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐 재시도 예약 실패: {type(exc).__name__}")
