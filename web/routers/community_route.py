@@ -266,16 +266,22 @@ def _contributions_delete() -> dict:
     community_gate.invalidate("deletion_requested")
     try:
         res = _account_call(lambda c, t: c.delete_contributions(t))
-    except CommunityAuthError:
-        try:  # 중앙 삭제가 확실히 실패했으면 이 표시만 지운다(지우지 못하면 업로드가 막힌 채로 남는다 — fail-closed)
-            community_capture.cancel_deletion(local_id)
-        except Exception:
-            pass
-        raise
+    except CommunityAuthError as exc:
+        if 400 <= (exc.status or 500) < 500:
+            # 중앙이 확실히 거절(4xx·토큰 없음 등 — 삭제가 일어나지 않음): 이 prepared 표시만 지운다
+            try:
+                community_capture.cancel_deletion(local_id)
+            except Exception:
+                pass  # 지우지 못하면 업로드가 막힌 채 남는다(fail-closed)
+            raise
+        # 응답 불명(네트워크·타임아웃·5xx): 중앙이 이미 지웠을 수 있다 → 표시를 유지하고(업로드·reshare 차단) 다시 요청하게 한다.
+        # 삭제는 여러 번 요청해도 안전하다(Sol 3차 H-03d).
+        raise CommunityAuthError("deletion_unconfirmed", "삭제 요청 결과를 확인하지 못했습니다. 확인될 때까지 업로드를 멈췄습니다. "
+                                 "네트워크를 확인한 뒤 '공유한 자료 삭제 요청'을 다시 눌러 주세요.") from None
     cas.get_service().store.save_writer(None)  # 중앙이 연결을 모두 폐기했다 → 다음 확인 때 새로 등록
     local_ok = True
-    try:  # 2) 표시를 한 트랜잭션에서 적용(그 시점까지의 journal 전부 차단). 실패해도 표시가 남아 업로드·reshare 를 막는다.
-        community_capture.apply_pending_deletion()
+    try:  # 2) 중앙 성공 뒤에만 확정·적용(그 시점까지의 journal 전부 차단, 앞선 prepared 표시 포함). 실패해도 confirmed 표시가 막는다.
+        community_capture.confirm_deletion()
     except Exception:
         local_ok = False
     return {"result": {k: res.get(k) for k in ("deletion_id", "deleted_facts", "revoked_connections", "deleted_at")},

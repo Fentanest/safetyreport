@@ -152,6 +152,11 @@
             var aw = g.writer && g.writer.active_writer;
             $('ccActiveWriter').textContent = aw ? [aw.device_label, aw.platform].filter(Boolean).join(', ') : '알 수 없는 기기';
         }
+        if (g && g.deletion === 'unconfirmed') {
+            alertBox('공유한 자료 삭제 요청의 결과를 확인하지 못해 업로드를 멈춘 상태입니다. 네트워크를 확인한 뒤 “공유한 자료 삭제 요청”을 다시 눌러 주세요.', 'warning');
+        } else if (g && g.deletion === 'cleanup_pending') {
+            alertBox('삭제 뒤 이 서버의 대기 사본 정리가 남아 업로드를 멈춘 상태입니다. 다음 업로드 때 다시 정리합니다.', 'warning');
+        }
         try { document.dispatchEvent(new CustomEvent('sr:community-gate', { detail: g })); } catch (e) {}
     }
 

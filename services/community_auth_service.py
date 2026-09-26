@@ -81,6 +81,7 @@ MESSAGES = {
     "internal_error": "알 수 없는 오류가 발생했습니다. 새로 연결을 시작해 주세요.",
 }
 
+HTTP_STATUS_EXTRA = {"deletion_unconfirmed": 503}
 HTTP_STATUS = {
     "community_disabled": 503, "community_unconfigured": 503, "fixture_blocked": 503,
     "no_pending": 409, "request_mismatch": 409, "invalid_state": 409, "store_unreadable": 409,
@@ -97,7 +98,7 @@ class CommunityAuthError(RuntimeError):
     def __init__(self, code: str, message: str | None = None, retry_after: float | None = None):
         super().__init__(code)
         self.code = code
-        self.status = HTTP_STATUS.get(code, 500)
+        self.status = HTTP_STATUS.get(code) or HTTP_STATUS_EXTRA.get(code, 500)
         self.message = message or MESSAGES.get(code, MESSAGES["internal_error"])
         self.retry_after = retry_after
 

@@ -363,7 +363,8 @@ class _Gate:
                 "kakao": bool((status.get("gate") or {}).get("kakao")),
                 "contributor": (status.get("contributor") or {}).get("status"),
                 "account": status.get("account"), "projection": status.get("projection"),
-                "writer": self._writer_note or ({"code": "ok"} if result["can_enter"] else None)}
+                "writer": self._writer_note or ({"code": "ok"} if result["can_enter"] else None),
+                "deletion": _deletion_state()}
 
     def current_grant_id(self) -> str | None:
         with self._lock:
@@ -415,6 +416,15 @@ def request_takeover() -> dict:
 
 def status_view() -> dict:
     return _gate.status_view()
+
+
+def _deletion_state() -> str | None:
+    try:
+        from services import community_capture
+
+        return community_capture.deletion_state()
+    except Exception:
+        return None
 
 
 def current_grant_id() -> str | None:

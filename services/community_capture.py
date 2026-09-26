@@ -472,51 +472,74 @@ DELETION_KEY_PREFIX = "deletion_pending:"
 
 
 def begin_deletion(data_dir: str | None = None) -> str:
-    """중앙 삭제를 요청하기 **전에** community.db 에 삭제 대기 표시를 트랜잭션으로 남긴다(journal 과 같은 DB — 따로 잃지 않는다).
-    표시를 못 쓰면 예외 → 호출자는 중앙 삭제를 요청하지 않는다(Sol 2차 H-03a). 표시마다 고유 id 라 동시 삭제가 서로를 지우지 않는다(H-03b)."""
+    """중앙 삭제를 요청하기 **전에** community.db 에 'prepared' 표시를 트랜잭션으로 남긴다(journal 과 같은 DB).
+    못 쓰면 예외 → 호출자는 중앙 삭제를 요청하지 않는다. 표시마다 고유 id(동시 삭제가 서로를 덮지 않음)."""
     deletion_id = str(uuid.uuid4())
     store = _store(data_dir)
     with store.transaction() as tx:
-        store.set_meta(DELETION_KEY_PREFIX + deletion_id, json.dumps({"requested_at": _now_iso()}), tx)
+        store.set_meta(DELETION_KEY_PREFIX + deletion_id, json.dumps({"state": "prepared", "at": _now_iso()}), tx)
     return deletion_id
 
 
 def cancel_deletion(deletion_id: str, data_dir: str | None = None) -> None:
-    """중앙 삭제가 확실히 실패했을 때만: 그 표시 하나를 지운다(다른 삭제의 표시는 건드리지 않는다)."""
+    """중앙이 삭제를 **확실히 거절**했을 때만(4xx): 그 prepared 표시 하나를 지운다. 응답 불명이면 부르지 않는다."""
     store = _store(data_dir)
     with store.transaction() as tx:
-        tx.execute("DELETE FROM meta WHERE key=?", (DELETION_KEY_PREFIX + deletion_id,))
+        tx.execute("DELETE FROM meta WHERE key=? AND json_extract(value, '$.state')='prepared'",
+                   (DELETION_KEY_PREFIX + deletion_id,))
 
 
-def apply_pending_deletion(data_dir: str | None = None) -> bool:
-    """남은 삭제 표시가 있으면 **한 트랜잭션에서** 적용하고 지운다: 그 시점까지의 journal 행 전부(행 순번 — 시계 무관)를
-    deleted_by_user 로, 그 outbox 를 blocked 로, server_completed 를 비운다. 표시가 없으면 아무것도 하지 않는다. 실패는 예외.
-    경계는 적용 시점이라 중앙 삭제 직후 몇 초 사이의 새 관측도 막힐 수 있다(보수적 — 옛 사본이 새 연결로 나가는 것보다 안전)."""
+def confirm_deletion(data_dir: str | None = None) -> None:
+    """중앙 삭제 성공 뒤: 모든 prepared 표시를 confirmed 로 바꾸고(삭제는 그 시점까지 전부를 지운다) 곧바로 적용한다.
+    적용이 실패해도 confirmed 표시는 남아 업로드·reshare 를 막고, 다음 적용 시도에서 처리된다."""
     store = _store(data_dir)
     with store.transaction() as tx:
-        keys = [r["key"] for r in tx.execute("SELECT key FROM meta WHERE key LIKE ?", (DELETION_KEY_PREFIX + "%",))]
-        if not keys:
-            return True
-        boundary = (tx.execute("SELECT max(rowid) AS m FROM source_journal").fetchone()["m"]) or 0
-        tx.execute("UPDATE source_journal SET blocked_reason='deleted_by_user'"
-                   " WHERE rowid <= ? AND (blocked_reason IS NULL OR blocked_reason != 'deleted_by_user')", (boundary,))
-        tx.execute("UPDATE outbox SET state='blocked', last_error_code='deleted_by_user'"
-                   " WHERE state != 'dead_letter' AND event_id IN (SELECT event_id FROM source_journal WHERE rowid <= ?)",
-                   (boundary,))
-        tx.execute("DELETE FROM server_completed")
-        tx.executemany("DELETE FROM meta WHERE key=?", [(k,) for k in keys])
-    return True
-
-
-def on_contributions_deleted(data_dir: str | None = None, deletion_id: str | None = None) -> None:
-    """중앙 삭제 성공 뒤(표시는 begin_deletion 이 이미 남겼다). 표시 없이 불린 경우(구 호출)도 보수적으로 표시를 만든 뒤 적용한다."""
-    if deletion_id is None:
-        begin_deletion(data_dir)
+        tx.execute("UPDATE meta SET value=json_set(value, '$.state', 'confirmed', '$.confirmed_at', ?) WHERE key LIKE ?",
+                   (_now_iso(), DELETION_KEY_PREFIX + "%"))
     apply_pending_deletion(data_dir)
 
 
+def apply_pending_deletion(data_dir: str | None = None) -> bool:
+    """confirmed 표시가 있으면 **한 트랜잭션에서** 적용하고 지운다: 그 시점까지의 journal 전부(행 순번 — 시계 무관)
+    deleted_by_user, 그 outbox blocked, server_completed 비움. prepared 표시는 건드리지 않는다(중앙 결과 전 — Sol 3차 H-03c).
+    남은 표시가 하나도 없으면 True, prepared 가 남아 있으면 False."""
+    store = _store(data_dir)
+    with store.transaction() as tx:
+        rows = tx.execute("SELECT key, json_extract(value, '$.state') AS state FROM meta WHERE key LIKE ?",
+                          (DELETION_KEY_PREFIX + "%",)).fetchall()
+        confirmed = [r["key"] for r in rows if r["state"] == "confirmed"]
+        if confirmed:
+            boundary = (tx.execute("SELECT max(rowid) AS m FROM source_journal").fetchone()["m"]) or 0
+            tx.execute("UPDATE source_journal SET blocked_reason='deleted_by_user'"
+                       " WHERE rowid <= ? AND (blocked_reason IS NULL OR blocked_reason != 'deleted_by_user')", (boundary,))
+            tx.execute("UPDATE outbox SET state='blocked', last_error_code='deleted_by_user'"
+                       " WHERE state != 'dead_letter' AND event_id IN (SELECT event_id FROM source_journal WHERE rowid <= ?)",
+                       (boundary,))
+            tx.execute("DELETE FROM server_completed")
+            tx.executemany("DELETE FROM meta WHERE key=?", [(k,) for k in confirmed])
+        return len(rows) == len(confirmed)
+
+
+def deletion_state(data_dir: str | None = None) -> str | None:
+    """화면용: None(없음) / 'unconfirmed'(중앙 결과 불명 — 다시 요청 필요) / 'cleanup_pending'(적용 대기)."""
+    try:
+        rows = _store(data_dir).connect().execute(
+            "SELECT json_extract(value, '$.state') AS state FROM meta WHERE key LIKE ?", (DELETION_KEY_PREFIX + "%",)).fetchall()
+    except Exception:
+        return "cleanup_pending"
+    states = {r["state"] for r in rows}
+    return "unconfirmed" if "prepared" in states else ("cleanup_pending" if states else None)
+
+
+def on_contributions_deleted(data_dir: str | None = None, deletion_id: str | None = None) -> None:
+    """중앙 삭제 성공 뒤(구 호출 호환). 표시가 없으면 만들고 확정·적용한다."""
+    if deletion_id is None:
+        begin_deletion(data_dir)
+    confirm_deletion(data_dir)
+
+
 def deletion_cleanup_pending(data_dir: str | None = None) -> bool:
-    """삭제 표시가 남아 있으면 적용을 다시 시도한다. 여전히 못 하면(또는 저장소를 읽을 수 없으면) True — 업로드·reshare 금지."""
+    """삭제 표시가 남아 있으면 True(업로드·reshare 금지). confirmed 는 적용을 시도하고, prepared(중앙 결과 전·불명)는 그대로 둔다."""
     try:
         return not apply_pending_deletion(data_dir)
     except Exception:
