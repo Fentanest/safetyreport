@@ -19,9 +19,12 @@
 ## 이전 버전 개인 DB (2026-09-27, 이번 릴리스)
 이번 릴리스는 이전 버전 개인 DB 를 새 구조로 옮기지 않는다(서버·모바일의 DB 업데이트 로직을 주석 처리해 비활성). 한 번 초기화 크롤링으로 다시 채운다.
 - 이전 버전 = 서버 `PRAGMA user_version` < 서버 스키마 버전(표가 하나라도 있을 때), 모바일 저장 버전 1 이상 < 앱 `dbVersion`.
-- 첫 실행(서버 시작·모바일 DB 열기) 때: 통째로 백업(서버 sqlite backup API → `<data>/backups/legacy_v<옛 버전>_<시각>.db`, 모바일 WAL 합친 뒤 파일 복사 →
-  `<db>.legacy_v<옛 버전>.<epoch ms>.bak`, 둘 다 `PRAGMA integrity_check`) → community dataset 선회전(실패하면 비우지 않음) →
+- 첫 실행(서버 시작·모바일 DB 열기) 때: 통째로 백업(WAL 에만 있는 쓰기까지 담는 방법 — 서버 sqlite backup API → `<data>/backups/legacy_v<옛 버전>_<시각>.db`,
+  모바일 `VACUUM INTO` → `<db>.legacy_v<옛 버전>.<epoch ms>.bak`, 둘 다 `PRAGMA integrity_check`) → community dataset 선회전(실패하면 비우지 않음) →
   한 트랜잭션으로 비우고 지금 스키마로 다시 만든다(서버: 남길 표 외 DROP·CREATE, 모바일: 새 빈 DB 를 옆에 만들어 남길 자료만 옮긴 뒤 이름 교체).
+  서버는 쓰기 잠금(`BEGIN IMMEDIATE`)을 먼저 잡고 그 안에서 버전을 다시 확인한 뒤 백업·선회전·비우기를 한다 — 동시에 두 번 시작해도 두 번째는 아무것도 하지 않는다.
+  크롤러 직접 실행(`start.py`, `--reset` 포함)은 이전 버전 DB 면 무엇이든 바꾸기 전에 멈춘다(비우기는 서버 시작만 한다).
+- 모바일 데모(심사용 합성 데이터, 별도 DB 파일)는 초기화 대상이 아니다(판정·안내·동기화 차단 모두 없음).
 - 남기는 것(구조가 지금과 같을 때만, 옮기는 코드 없음): 감시목록, 지오코딩 캐시. 서버는 관리자·API 키도 — 구조가 다르면 비우지 않고 멈춘다.
 - 기록 `sync_meta[legacy_reset]` = `{from_version, backup, kept, dropped, at}`. 이 기록이 있으면 신고가 0건이어도 초기화가 필요하다.
   상태 응답(`GET /settings/community/rebuild`, `/api/v1/community/rebuild`)에 `legacy_reset`(추가 필드, 없으면 null).

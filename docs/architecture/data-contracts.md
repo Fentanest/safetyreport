@@ -165,9 +165,13 @@ by_law (법규별, 같은 필드 + law)
 - `upgrade_schema`: 새 DB(표 없음)는 지금 스키마로 만들고 `user_version=SCHEMA_VERSION` 을 적는다. 지금 버전 DB 는 빠진 표만 만들고 인덱스(`_index_statements`, IF NOT EXISTS)를 매번 확인한다.
   이전 버전 DB(`is_legacy_database`: 표가 있고 `user_version < SCHEMA_VERSION`)는 건드리지 않고 `LegacyDatabase` 로 멈춘다. 더 새 버전은 전처럼 거부.
 - 서버 시작(`main.py`): `upgrade_schema` 전에 `reset_legacy_database(engine, data/backups, before_reset=community dataset 선회전)`.
-  이전 버전이면 sqlite backup API 로 `data/backups/legacy_v<옛 버전>_<시각>.db` + `integrity_check` → 선회전 → 명시적 `BEGIN IMMEDIATE` 한 트랜잭션으로
+  이전 버전이면 먼저 쓰기 잠금(명시적 `BEGIN IMMEDIATE`, 최대 `LEGACY_RESET_LOCK_TIMEOUT` 300초 대기)을 잡고 **그 안에서 버전·표를 다시 확인**한다
+  (다른 프로세스가 먼저 끝냈으면 ROLLBACK 하고 아무것도 안 함 — 동시 기동 때 비운 뒤 수집한 신고를 다시 지우지 않게, Sol 검토 1).
+  → sqlite backup API 로 `data/backups/legacy_v<옛 버전>_<시각>.db` + `integrity_check`(잠금 중에도 읽기는 됨) → 선회전 → 같은 트랜잭션에서
   남길 표 외 전부 DROP(보기 포함) → 지금 스키마 CREATE·인덱스 → `sync_meta[legacy_reset]` 기록 → `user_version=SCHEMA_VERSION` → COMMIT.
   백업·선회전이 실패하면 아무것도 지우지 않고 서버 시작이 멈춘다. 트랜잭션 안에서 실패하면 전부 되돌아간다.
+- 크롤러(`start.py _prepare_database`)는 이전 버전 DB 면 `--reset` 을 포함해 무엇이든 바꾸기 전에 `LegacyDatabase` 로 멈춘다(비우기는 서버 시작만, Sol 검토 3).
+  `--reset` 은 `sync_meta` 를 지울 때 `watchlist` 와 함께 `legacy_reset` 기록도 남긴다.
 - 남기는 표(`LEGACY_KEEP_TABLES`, 구조가 지금과 같을 때만): `admin_users`·`api_keys`(관리자 로그인·모바일 연결, 구조가 다르면 비우지 않고 멈춤),
   `mysafety_watchlist`, `mysafety_geocode_cache`. 그 밖(신고·상세·병합·원문·entry_value·중복군·sync_meta·수정값·중복 판단·변경 기록)은 비운다.
   예전에 직접 고친 값·중복 판단·메모는 옮기지 않는다(백업 파일에만 남음).

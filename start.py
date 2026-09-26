@@ -59,6 +59,11 @@ def _validate_settings():
         os.makedirs(settings.resultpath, exist_ok=True)
 
 def _prepare_database(engine, reset=False):
+    # 이전 버전 DB 는 크롤러가 건드리지 않는다(2026-09-27): 서버 시작이 먼저 백업·비우기를 한다. --reset 이 백업 없이 신고부터 지우지 않게
+    # 무엇이든 바꾸기 전에 멈춘다.
+    if database.is_legacy_database(engine):
+        raise database.LegacyDatabase(
+            "이전 버전 DB 입니다. 서버를 먼저 시작해 이전 DB 를 백업·비운 뒤(초기화 크롤링 안내) 다시 실행하세요. 아무것도 바꾸지 않았습니다.")
     if reset:
         logger.LoggerFactory.logbot.warning("--reset 옵션이 사용되어 크롤링 데이터 테이블을 초기화합니다.")
         # 관리자 계정(admin_users), API 키(api_keys), 감시 목록(watchlist)은 보존.
@@ -89,7 +94,7 @@ def _prepare_database(engine, reset=False):
             database.metadata.drop_all(conn, tables=data_tables)
             conn.execute(
                 database.sync_meta_table.delete().where(
-                    database.sync_meta_table.c.key != "watchlist"
+                    database.sync_meta_table.c.key.notin_(["watchlist", database.LEGACY_RESET_META_KEY])
                 )
             )
             conn.exec_driver_sql("DROP TABLE IF EXISTS mysafety_supplement_history")

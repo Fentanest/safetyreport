@@ -187,6 +187,69 @@ class LegacyServerDbTests(unittest.TestCase):
         self.assertEqual(self._version(), 0)
         self.assertEqual(self._q("SELECT count(*) FROM mysafety")[0][0], 1)
 
+    def test_a_second_start_that_decided_before_the_first_finished_changes_nothing(self):
+        """Sol 검토 1: 두 프로세스가 모두 '이전 버전' 으로 판정한 뒤 A 가 먼저 비우고 수집을 시작했으면, B 는 잠금 안에서 다시 확인해 아무것도 하지 않는다."""
+        database.reset_legacy_database(self.engine, str(self.backups))  # A
+        con = sqlite3.connect(self.path)
+        con.execute("INSERT INTO mysafety (ID, 신고번호) VALUES ('90000001', 'SPP-NEW')")  # A 가 그 뒤 수집한 신고
+        con.commit()
+        con.close()
+        rotated = mock.Mock()
+        with mock.patch.object(database, "is_legacy_database", return_value=True):  # B 의 낡은 판정
+            self.assertIsNone(database.reset_legacy_database(self.engine, str(self.backups), before_reset=rotated))
+        rotated.assert_not_called()
+        self.assertEqual(self._q("SELECT ID FROM mysafety"), [("90000001",)])
+        self.assertEqual(len(list(self.backups.glob("*.db"))), 1, "B 는 백업도 만들지 않는다")
+
+    def test_a_reset_waits_for_the_one_already_running_and_then_does_nothing(self):
+        import threading
+
+        holder = sqlite3.connect(self.path, isolation_level=None)
+        holder.execute("BEGIN IMMEDIATE")  # A 가 비우는 중(쓰기 잠금)
+        result = {}
+
+        def second():
+            try:
+                result["info"] = database.reset_legacy_database(self.engine, str(self.backups))
+            except BaseException as exc:  # pragma: no cover - 실패 원인 보고용
+                result["error"] = exc
+
+        with mock.patch.object(database, "LEGACY_RESET_LOCK_TIMEOUT", 30.0):
+            t = threading.Thread(target=second)
+            t.start()
+            t.join(0.5)
+            self.assertTrue(t.is_alive(), "B 는 A 의 잠금을 기다린다")
+            holder.execute("DELETE FROM mysafety")  # A 가 비우고 버전을 올린 것처럼
+            holder.execute(f"PRAGMA user_version = {database.SCHEMA_VERSION}")
+            holder.execute("INSERT INTO mysafety (ID, 신고번호) VALUES ('90000002', 'SPP-AFTER')")
+            holder.execute("COMMIT")
+            holder.close()
+            t.join(30)
+        self.assertNotIn("error", result)
+        self.assertIsNone(result["info"])
+        self.assertEqual(self._q("SELECT ID FROM mysafety"), [("90000002",)])
+        self.assertFalse(self.backups.exists() and any(self.backups.iterdir()))
+
+    def test_crawler_reset_refuses_an_old_db_before_deleting_anything(self):
+        """Sol 검토 3: start.py --reset 이 이전 버전 DB 의 신고를 백업 없이 지우지 않는다."""
+        import start
+
+        with self.assertRaises(database.LegacyDatabase):
+            start._prepare_database(self.engine, reset=True)
+        self.assertEqual(self._version(), 0)
+        self.assertEqual(self._q("SELECT count(*) FROM mysafety")[0][0], 1)
+        self.assertEqual(self._q("SELECT count(*) FROM mysafetymerge_traffic")[0][0], 1)
+        with self.assertRaises(database.LegacyDatabase):
+            start._prepare_database(self.engine, reset=False)
+
+    def test_crawler_reset_on_a_reset_db_keeps_the_legacy_record(self):
+        import start
+
+        database.reset_legacy_database(self.engine, str(self.backups))
+        start._prepare_database(self.engine, reset=True)
+        self.assertIsNotNone(database.legacy_reset_info(self.engine))
+        self.assertEqual(self._q("SELECT username FROM admin_users"), [("admin",)])
+
     def test_newer_database_is_refused(self):
         con = sqlite3.connect(self.path)
         con.execute(f"PRAGMA user_version = {database.SCHEMA_VERSION + 1}")

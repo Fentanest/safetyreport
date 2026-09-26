@@ -461,12 +461,12 @@ def _refuse_legacy_schema(engine):
             "이번 업데이트는 이전 DB 를 옮기지 않습니다 — 초기화 크롤링으로 다시 수집하세요.")
 
 
-def _keepable(conn, name: str) -> bool:
-    """남길 표의 열(이름·타입·NOT NULL·기본키)이 지금 스키마와 정확히 같을 때만 True."""
+def _keepable(conn, name: str, dialect) -> bool:
+    """남길 표의 열(이름·타입·NOT NULL·기본키)이 지금 스키마와 정확히 같을 때만 True. conn 은 sqlite3 연결."""
     table = metadata.tables[name]
     actual = [(r[1], str(r[2]).upper(), bool(r[3]), bool(r[5]))
-              for r in conn.exec_driver_sql(f'PRAGMA table_info("{name}")')]
-    expected = [(c.name, str(c.type.compile(dialect=conn.dialect)).upper(), not c.nullable or c.primary_key, c.primary_key)
+              for r in conn.execute(f'PRAGMA table_info("{name}")')]
+    expected = [(c.name, str(c.type.compile(dialect=dialect)).upper(), not c.nullable or c.primary_key, c.primary_key)
                 for c in table.columns]
     return actual == expected
 
@@ -495,11 +495,17 @@ def _backup_file_db(db_path: str, target: str) -> None:
         raise RuntimeError(f"이전 DB 백업 무결성 검사 실패: {result}")
 
 
-def reset_legacy_database(engine, backup_dir: str, *, before_reset=None) -> dict | None:
-    """이전 버전 DB 면: 통째로 백업 → (before_reset 호출) → 한 트랜잭션으로 남길 표 외 전부 지우고 지금 스키마로 다시 만든다.
-    반환: {from_version, backup, kept, dropped, at} (이전 버전 DB 가 아니면 None). 백업이 실패하면 아무것도 지우지 않고 예외.
+#: 다른 프로세스가 비우는 중이면 쓰기 잠금을 이만큼 기다린다(백업 복사 시간 포함).
+LEGACY_RESET_LOCK_TIMEOUT = 300.0
 
-    남기는 표는 LEGACY_KEEP_TABLES 중 구조가 지금과 같은 것. 관리자·API 키 표의 구조가 다르면 지우지 않고 멈춘다.
+
+def reset_legacy_database(engine, backup_dir: str, *, before_reset=None) -> dict | None:
+    """이전 버전 DB 면: 쓰기 잠금(BEGIN IMMEDIATE)을 먼저 잡고 그 안에서 버전을 다시 확인한 뒤 → 통째로 백업 → (before_reset 호출)
+    → 남길 표 외 전부 지우고 지금 스키마로 다시 만든다 → COMMIT. 반환: {from_version, backup, kept, dropped, at}
+    (이전 버전 DB 가 아니거나 다른 프로세스가 먼저 끝냈으면 None). 백업·before_reset 이 실패하면 아무것도 지우지 않고 예외.
+
+    잠금 안에서 다시 확인하므로 서버를 동시에 두 번 띄워도 두 번째는 이미 비운(그 뒤 수집이 시작됐을 수 있는) DB 를 다시 비우지 않는다.
+    남기는 표는 LEGACY_KEEP_TABLES 중 구조가 지금과 같은 것. 관리자·API 키 표의 구조가 다르면 비우지 않고 멈춘다.
     결과는 sync_meta[legacy_reset] 에 남겨 초기화 크롤링 안내 화면이 보여 준다."""
     import json
     import sqlite3
@@ -511,31 +517,38 @@ def reset_legacy_database(engine, backup_dir: str, *, before_reset=None) -> dict
     db_path = engine.url.database
     if not db_path or db_path == ":memory:" or not os.path.exists(db_path):
         raise LegacyDatabase("파일이 아닌 이전 버전 DB 는 비울 수 없습니다.")
-    from_version = get_schema_version(engine)
-    with engine.connect() as conn:
-        tables = _user_tables(conn)
-        kept = [name for name in LEGACY_KEEP_TABLES if name in tables and _keepable(conn, name)]
-    broken = [name for name in LEGACY_REQUIRED_KEEP if name in tables and name not in kept]
-    if broken:
-        raise LegacyDatabase(f"이전 DB 의 {', '.join(broken)} 표 구조가 달라 비우지 않았습니다. DB 를 그대로 두고 멈춥니다.")
-
-    os.makedirs(backup_dir, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup = os.path.join(backup_dir, f"{LEGACY_BACKUP_PREFIX}{from_version}_{stamp}.db")
-    _backup_file_db(db_path, backup)
-    logger.LoggerFactory.logbot.info(f"[schema] 이전 버전 DB(v{from_version}) 백업: {backup}")
-    if before_reset is not None:
-        before_reset()
-
-    dropped = [name for name in tables if name not in kept]
-    at = datetime.now().isoformat(timespec="seconds")
-    info = {"from_version": from_version, "backup": backup, "kept": kept, "dropped": dropped, "at": at}
-    engine.dispose()
     dialect = engine.dialect
-    conn = sqlite3.connect(db_path, isolation_level=None)  # 명시적 BEGIN — DDL 까지 한 트랜잭션(중간에 멈춰 반쯤 지운 DB 없음)
+    engine.dispose()
+    # 명시적 BEGIN — DDL 까지 한 트랜잭션(중간에 멈춰 반쯤 지운 DB 없음). 잠금을 잡은 채 백업한다(읽기는 막히지 않는다).
+    conn = sqlite3.connect(db_path, isolation_level=None, timeout=LEGACY_RESET_LOCK_TIMEOUT)
+    backup = None
     try:
         conn.execute("BEGIN IMMEDIATE")
         try:
+            from_version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+            if from_version > SCHEMA_VERSION:
+                raise RuntimeError(f"DB 스키마 버전 {from_version} 은 이 서버({SCHEMA_VERSION})보다 새 버전입니다. 서버를 업데이트하세요.")
+            if from_version == SCHEMA_VERSION or not tables:
+                conn.execute("ROLLBACK")  # 다른 프로세스가 먼저 끝냈다
+                return None
+            kept = [name for name in LEGACY_KEEP_TABLES if name in tables and _keepable(conn, name, dialect)]
+            broken = [name for name in LEGACY_REQUIRED_KEEP if name in tables and name not in kept]
+            if broken:
+                raise LegacyDatabase(f"이전 DB 의 {', '.join(broken)} 표 구조가 달라 비우지 않았습니다. DB 를 그대로 두고 멈춥니다.")
+
+            os.makedirs(backup_dir, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup = os.path.join(backup_dir, f"{LEGACY_BACKUP_PREFIX}{from_version}_{stamp}.db")
+            _backup_file_db(db_path, backup)
+            logger.LoggerFactory.logbot.info(f"[schema] 이전 버전 DB(v{from_version}) 백업: {backup}")
+            if before_reset is not None:
+                before_reset()
+
+            dropped = [name for name in tables if name not in kept]
+            at = datetime.now().isoformat(timespec="seconds")
+            info = {"from_version": from_version, "backup": backup, "kept": kept, "dropped": dropped, "at": at}
             views = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='view'")]
             for name in views:
                 conn.execute(f'DROP VIEW "{name}"')
@@ -554,7 +567,8 @@ def reset_legacy_database(engine, backup_dir: str, *, before_reset=None) -> dict
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             conn.execute("COMMIT")
         except BaseException:
-            conn.execute("ROLLBACK")
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
             raise
     finally:
         conn.close()
