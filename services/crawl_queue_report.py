@@ -52,3 +52,43 @@ def remove_files(queue_file: str) -> None:
             os.remove(path)
         except OSError:
             pass
+
+
+# ── 처리하지 못하고 큐에서 뺀 번호(감사 R7-03) ─────────────────────────────────
+UNRESOLVED_FILE = "crawl_queue_unresolved.json"
+UNRESOLVED_KEEP = 50
+
+
+def _unresolved_path() -> str:
+    import settings.settings as s
+    return os.path.join(s.datapath, UNRESOLVED_FILE)
+
+
+def record_unresolved(not_found, ambiguous) -> None:
+    """최근 항목부터 최대 UNRESOLVED_KEEP 개. 못 쓰면 기록만(큐 정리는 이미 끝났고 로그에도 남는다)."""
+    from datetime import datetime, timezone
+
+    at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    new = [{"number": n, "reason": "not_found", "at": at} for n in not_found] + \
+          [{"number": n, "reason": "ambiguous", "at": at} for n in ambiguous]
+    items = new + [e for e in unresolved() if e.get("number") not in {x["number"] for x in new}]
+    path = _unresolved_path()
+    try:
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(items[:UNRESOLVED_KEEP], f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except OSError:
+        from core.utils import logger
+        logger.LoggerFactory.logbot.warning("[crawl] 처리하지 못한 번호 기록을 저장하지 못함")
+
+
+def unresolved() -> list[dict]:
+    try:
+        with open(_unresolved_path(), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+    return [e for e in data if isinstance(e, dict) and isinstance(e.get("number"), str)] if isinstance(data, list) else []

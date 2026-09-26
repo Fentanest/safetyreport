@@ -82,6 +82,16 @@ def _check_crawl_allowed():
         raise RuntimeError("COMMUNITY_REBUILD_REQUIRED")
 
 
+def _refuse_ambiguous(numbers) -> None:
+    """이미 여러 신고에 걸리는 번호는 받지 않는다(ValueError → 400, 감사 R7-03) — 대기열에 넣었다가 조용히 버리지 않게."""
+    from core.database.engine import get_engine
+    from services import report_number_resolver
+
+    bad = report_number_resolver.ambiguous_numbers(get_engine(), numbers)
+    if bad:
+        raise ValueError(f"여러 신고에 걸리는 번호라 어느 신고인지 정할 수 없습니다. 정확한 신고번호로 요청하세요: {', '.join(bad[:10])}")
+
+
 def _write_queue_file(filename: str, queue_content: str):
     path = os.path.join(settings.datapath, filename)
     with open(path, "w", encoding="utf-8") as file_obj:
@@ -177,6 +187,7 @@ def enqueue_report(report_number: str):
     normalized = str(report_number).strip()
     if not normalized:
         raise ValueError("report_number is required")
+    _refuse_ambiguous([normalized])
 
     generation = crawl_manager.restore_generation()  # R4-03
     _check_crawl_allowed()
@@ -224,6 +235,7 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
 
     if not normalized:
         raise ValueError("report_numbers is required")
+    _refuse_ambiguous(normalized)
 
     generation = crawl_manager.restore_generation()  # R4-03
     _check_crawl_allowed()

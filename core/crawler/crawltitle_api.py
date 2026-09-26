@@ -58,7 +58,7 @@ def _fetch_api_page_via_browser(driver, start_row, end_row):
 def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, progress: dict | None = None):
     """반환은 그대로 ([df...], 마지막 페이지). progress dict 를 주면 수집 경과를 채운다.
 
-    progress 키: total(총 건수·첫 페이지 실패면 None), pages_expected(예상 페이지 수),
+    progress 키: total(총 건수·첫 페이지 실패면 None), pages_expected(받을 페이지 번호 목록),
     pages_ok(성공 페이지), pages_failed(실패·잘린 페이지), first_error, list_ok(전 페이지 성공).
     초기화 크롤(start.py --rebuild)이 전 페이지 성공 판정에 쓴다.
     """
@@ -84,19 +84,19 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, p
         first_payload = fetch_page(1, page_size)
     except Exception as exc:
         logger.LoggerFactory.logbot.error(f"API 목록 첫 페이지 호출 실패: {exc}")
-        _note(total=None, pages_expected=0, pages_ok=[], pages_failed=[1],
+        _note(total=None, pages_expected=[], pages_ok=[], pages_failed=[1],
               first_error=f"network: {exc}", list_ok=False)
         return [], 0
     if "error" in first_payload or "result" not in first_payload:
         logger.LoggerFactory.logbot.error(f"API 목록 호출 실패: {first_payload.get('error', 'No result')}")
-        _note(total=None, pages_expected=0, pages_ok=[], pages_failed=[1],
+        _note(total=None, pages_expected=[], pages_ok=[], pages_failed=[1],
               first_error=str(first_payload.get("error", "No result")), list_ok=False)
         return [], 0
 
     tot_cnt = first_payload.get("totalCnt", 0)
     if tot_cnt == 0:
         logger.LoggerFactory.logbot.warning("조회된 신고 내역이 없습니다.")
-        _note(total=0, pages_expected=0, pages_ok=[], pages_failed=[],
+        _note(total=0, pages_expected=[], pages_ok=[], pages_failed=[],
               first_error=None, list_ok=True)
         return [], 0
 

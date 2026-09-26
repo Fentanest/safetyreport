@@ -211,6 +211,14 @@ class CrawlManager:
         if ambiguous:
             logger.LoggerFactory.logbot.error(
                 f"[crawl] 여러 신고에 걸리는 번호라 대기 큐에서 제외 — 정확한 신고번호로 다시 요청하세요: {ambiguous[:20]}")
+        if not_found or ambiguous:
+            # 처리하지 못하고 큐에서 뺀 번호는 사용자가 볼 수 있게 남긴다(감사 R7-03): 파일·/crawl/status·WS
+            crawl_queue_report.record_unresolved(not_found, ambiguous)
+            try:
+                from services.ws_manager import ws_manager
+                ws_manager.broadcast_from_thread("crawl_queue_unresolved", {"not_found": not_found, "ambiguous": ambiguous})
+            except Exception:
+                pass
         return done
 
     def _settle_pending(self, items: List[str], done: set) -> List[str]:
@@ -251,21 +259,19 @@ class CrawlManager:
             self._schedule_retry()
 
     def _request_worker(self) -> None:
-        try:
-            while True:
-                try:
-                    self.launch_pending_crawl()
-                except Exception as exc:
-                    from core.utils import logger
-                    logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐 시작 요청 실패: {type(exc).__name__}")
-                    self._schedule_retry()
-                with self._state_lock:
-                    if not self._request_again:
-                        return
-                    self._request_again = False
-        finally:
+        while True:
+            try:
+                self.launch_pending_crawl()
+            except Exception as exc:
+                from core.utils import logger
+                logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐 시작 요청 실패: {type(exc).__name__}")
+                self._schedule_retry()
+            # '더 할 일 없음' 판단과 작업자 종료 표시를 한 잠금 구간에서 — 그 사이 들어온 요청이 유실되지 않게(감사 R7-02)
             with self._state_lock:
-                self._request_worker_active = False
+                if not self._request_again:
+                    self._request_worker_active = False
+                    return
+                self._request_again = False
 
     def schedule_retry_if_pending(self) -> None:
         """서버 기동 때: 파일에 남은 대기 번호가 있으면 재시도 타이머 하나를 건다(감사 R6-03 — 재시작으로 재시도가 사라지지 않게).

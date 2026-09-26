@@ -97,15 +97,10 @@ def _prepare_database(engine, reset=False):
     database.upgrade_schema(engine, maintenance=False, backup_dir=os.path.join(settings.datapath, "backups"))
 
 def _resolve_report_number_detail(conn, item):
-    """(ID 또는 None, 모호 여부). 정확 일치 → 'SPP-' 를 붙인 정확 일치 → 부분 일치가 딱 1건일 때만(S-24).
-    부분 일치가 2건 이상이면 (None, True) — 어느 신고인지 정할 수 없다(감사 R6-02)."""
-    title = database.title_table
-    for candidate in dict.fromkeys([item, item if item.startswith("SPP-") else f"SPP-{item}"]):
-        found = conn.execute(select(title.c.ID).where(title.c.신고번호 == candidate)).scalar()
-        if found:
-            return found, False
-    matches = conn.execute(select(title.c.ID).where(title.c.신고번호.like(f"%{item}%")).limit(2)).scalars().all()
-    return (matches[0], False) if len(matches) == 1 else (None, len(matches) > 1)
+    """(ID 또는 None, 모호 여부) — services/report_number_resolver 와 같은 규칙(서버 요청 검사와 공유)."""
+    from services import report_number_resolver
+
+    return report_number_resolver.resolve_detail(conn, item)
 
 
 def _resolve_report_number(conn, item):
@@ -378,54 +373,42 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
             q_items = f.readlines()
         detaillist, missing_rnums = extract_ids_from_queue(engine, q_items, id_to_items)
 
-        # DB에 없는 신고번호가 있으면 목록 크롤링으로 탐색(API 방식은 브라우저 없이도 가능).
-        # '없음'·'모호함'은 목록 전 페이지를 **성공적으로** 훑은 뒤에만 확정한다(감사 R6-01) — 호출 실패·잘린 페이지·
-        # 탐색 상한 도달이면 확정하지 않고 큐에 남겨 다음에 다시 찾는다.
+        # DB에 없는 신고번호가 있으면 목록 전체를 **한 번** 받아 찾는다(첫 페이지 1회 + 각 페이지 1회, 감사 R7-04).
+        # '없음'·'모호함'은 목록 전 페이지를 성공적으로 받았을 때(list_ok)만 확정한다(R6-01·R7-01) — 호출 실패·잘린 페이지면
+        # 확정하지 않고 큐에 남겨 다음에 다시 찾는다.
         if missing_rnums:
             logger.LoggerFactory.logbot.info(
-                f"미확인 신고번호 {len(missing_rnums)}건을 목록 크롤링으로 탐색합니다."
+                f"미확인 신고번호 {len(missing_rnums)}건을 목록 전체에서 찾습니다."
             )
-            MAX_SEARCH_PAGES = 100
-            search_complete = False
-            ambiguous_now = []
-            for page_num in range(1, MAX_SEARCH_PAGES + 1):
-                if not missing_rnums:
-                    break
-                logger.LoggerFactory.logbot.info(f"목록 탐색 중... 페이지 {page_num} (남은 미확인: {len(missing_rnums)}건)")
-                progress = {}
-                try:
-                    page_dfs, _ = crawltitle_api.crawl_titles(
-                        driver=driver,
-                        page_range=[page_num],
-                        browser_fallback=api_browser_fallback,
-                        progress=progress,
-                    )
-                except Exception as e:
-                    logger.LoggerFactory.logbot.warning(f"페이지 {page_num} 탐색 실패: {e}")
-                    break
-                if progress.get("first_error") or progress.get("pages_failed") or progress.get("total") is None:
-                    logger.LoggerFactory.logbot.warning(f"페이지 {page_num} 탐색 실패: {progress.get('first_error')}")
-                    break
-                if page_dfs:
-                    database.title_to_sql(dataframes=page_dfs, engine=engine)
-                # 이번 페이지까지 반영한 DB 에서 같은 규칙으로 다시 해석한다(정확 → 접두어 → 유일한 부분 일치, R6-02)
-                still_missing, ambiguous_now = [], []
-                with engine.connect() as conn:
-                    for rnum in missing_rnums:
-                        res, ambiguous = _resolve_report_number_detail(conn, rnum)
-                        if res:
-                            detaillist.append(res)
-                            id_to_items.setdefault(str(res), []).append(rnum)
-                            logger.LoggerFactory.logbot.info(f"신고번호 {rnum} → ID {res} 발견 (페이지 {page_num})")
-                        else:
-                            still_missing.append(rnum)
-                            if ambiguous:
-                                ambiguous_now.append(rnum)
-                missing_rnums = still_missing
-                pages_expected = progress.get("pages_expected") or 0
-                if page_num >= pages_expected:  # 목록 전 페이지(총 건수 기준)를 성공적으로 훑었다
-                    search_complete = True
-                    break
+            progress = {}
+            try:
+                page_dfs, _ = crawltitle_api.crawl_titles(
+                    driver=driver,
+                    browser_fallback=api_browser_fallback,
+                    progress=progress,
+                )
+            except Exception as e:
+                logger.LoggerFactory.logbot.warning(f"목록 탐색 실패: {e}")
+                page_dfs, progress = [], {"list_ok": False, "first_error": str(e)}
+            search_complete = bool(progress.get("list_ok"))
+            if not search_complete:
+                logger.LoggerFactory.logbot.warning(f"목록 탐색을 끝내지 못했습니다: {progress.get('first_error')}")
+            if page_dfs:
+                database.title_to_sql(dataframes=page_dfs, engine=engine)
+            # 받은 목록을 반영한 DB 에서 같은 규칙으로 다시 해석한다(정확 → 접두어 → 유일한 부분 일치, R6-02)
+            still_missing, ambiguous_now = [], []
+            with engine.connect() as conn:
+                for rnum in missing_rnums:
+                    res, ambiguous = _resolve_report_number_detail(conn, rnum)
+                    if res:
+                        detaillist.append(res)
+                        id_to_items.setdefault(str(res), []).append(rnum)
+                        logger.LoggerFactory.logbot.info(f"신고번호 {rnum} → ID {res} 발견")
+                    else:
+                        still_missing.append(rnum)
+                        if ambiguous:
+                            ambiguous_now.append(rnum)
+            missing_rnums = still_missing
             if missing_rnums and search_complete:
                 queue_ambiguous = [r for r in missing_rnums if r in ambiguous_now]
                 queue_not_found = [r for r in missing_rnums if r not in ambiguous_now]
@@ -435,11 +418,7 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
                 if queue_not_found:
                     logger.LoggerFactory.logbot.warning(f"목록 전체를 찾아도 없는 신고번호: {queue_not_found}")
             elif missing_rnums:
-                logger.LoggerFactory.logbot.warning(
-                    f"목록 탐색을 끝내지 못해 다음에 다시 찾습니다: {missing_rnums}")
-                queue_ambiguous, queue_not_found = [], []
-            else:
-                queue_ambiguous, queue_not_found = [], []
+                logger.LoggerFactory.logbot.warning(f"목록 탐색을 끝내지 못해 다음에 다시 찾습니다: {missing_rnums}")
 
         logger.LoggerFactory.logbot.info(f"큐 파일에서 {len(detaillist)}개의 아이템 크롤링 시작.")
     elif args["page_range"]:

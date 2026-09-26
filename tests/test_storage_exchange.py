@@ -733,20 +733,35 @@ class ExchangeRestoreTests(unittest.TestCase):
         self.assertEqual(crawl_manager.pending_items(), ["SPP-FAIL"])
         self.assertIsNotNone(crawl_manager._retry_timer, "남은 번호는 늘어나는 간격으로 다시 시도한다(R5-02)")
 
-    def _queue_run(self, items, *, titles, details=None):
-        """실제 start._run_crawling_process 큐 경로를 돌린다. titles(page_range, progress) 가 목록 탐색 결과·경과를 흉내 낸다."""
+    class _FakeList:
+        """안전신문고 목록 API 흉내(HTTP 만 가짜 — 실제 crawltitle_api.crawl_titles 가 이 응답을 해석한다).
+        entries: [(C_NO, 신고번호)], fail_at: 이 시작 행에서 예외, error_at: 이 시작 행에서 오류 응답."""
+
+        def __init__(self, entries, fail_at=None, error_at=None):
+            self.entries, self.fail_at, self.error_at, self.calls = list(entries), fail_at, error_at, 0
+
+        def fetch(self, session, start_row, end_row):
+            self.calls += 1
+            if self.fail_at == start_row:
+                raise ConnectionError("network down")
+            if self.error_at == start_row:
+                return {"error": "server busy"}, session
+            rows = [{"C_NO": c, "STTEMNT_NO": n, "C_A_TITLE": "(교통) 신호위반", "C_DATE": "2026-09-01",
+                     "C_NOW": 0, "STSFDG_SCORE": 0} for c, n in self.entries[start_row - 1:end_row]]
+            return {"totalCnt": len(self.entries), "result": rows}, session
+
+    def _queue_run(self, items, *, listing, details=None):
+        """실제 start._run_crawling_process 큐 경로 + 실제 crawl_titles. 목록 HTTP·상세 스트림만 가짜."""
         import pandas as pd
         import start
+        from core.crawler import crawltitle_api
         from services import crawl_queue_report
 
-        queue_file = os.path.join(settings.datapath, f"pending_queue_test_{len(items)}.txt")
+        queue_file = os.path.join(settings.datapath, "pending_queue_test.txt")
         crawl_queue_report.remove_files(queue_file)
         with open(queue_file, "w", encoding="utf-8") as f:
             f.write("\n".join(items))
         self.addCleanup(crawl_queue_report.remove_files, queue_file)
-
-        def fake_titles(driver=None, page_range=None, browser_fallback=False, progress=None):
-            return titles(page_range, progress if progress is not None else {})
 
         def fake_details(driver=None, report_ids=None, browser_fallback=False):
             for rid in report_ids:
@@ -755,41 +770,40 @@ class ExchangeRestoreTests(unittest.TestCase):
                 yield (pd.DataFrame([{"ID": rid, "처리상태": "수용", "처리내용": "큐 저장", "종결여부": "Y"}]), "traffic", "자동차·교통위반-신호위반")
 
         args = {"queue_file": queue_file, "page_range": None, "force": False, "rebuild": None}
-        with mock.patch.object(start.crawltitle_api, "crawl_titles", side_effect=fake_titles), \
+        with mock.patch.object(crawltitle_api, "_fetch_api_page", side_effect=listing.fetch), \
+             mock.patch.object(crawltitle_api.direct_login, "make_authorized_session", return_value=(object(), None)), \
+             mock.patch.object(crawltitle_api, "sleep"), \
              mock.patch.object(start.crawldetail_api, "crawl_details", side_effect=fake_details):
             start._run_crawling_process(None, get_engine(), args)
         return queue_file, crawl_queue_report.read(queue_file)
 
-    @staticmethod
-    def _list_ok(pages):
-        def titles(page_range, progress):
-            progress.update(total=pages * 200, pages_expected=pages, pages_ok=list(page_range), pages_failed=[],
-                            first_error=None, list_ok=True)
-            return [], pages
-        return titles
-
-    def _two_numbers(self):
+    def _db_numbers(self):
         with get_engine().connect() as conn:
-            return conn.execute(select(models.title_table.c.ID, models.title_table.c["신고번호"]).limit(2)).all()
+            return conn.execute(select(models.title_table.c.ID, models.title_table.c["신고번호"])).all()
 
     def test_the_real_crawler_reports_saved_and_missing_numbers_only(self):
-        """감사 R5-01·R6-01: start.py 큐 경로 — 저장까지 끝난 번호와 목록 전체를 **성공적으로** 훑어도 없는 번호만 보고한다.
+        """감사 R5-01·R6-01·R7-01: 실제 crawl_titles 로 목록 전체를 받은 뒤 — 저장까지 끝난 번호와 목록 어디에도 없는 번호만 보고한다.
         중간에 멈춘 번호는 보고하지 않는다. 로그인 실패로 끝나면 보고가 없다."""
         import start
         from services import crawl_queue_report
         from services.crawl_manager import crawl_manager
 
         self.addCleanup(self._crawl_reset)
-        (id1, num1), (id2, num2) = self._two_numbers()
+        rows = self._db_numbers()
+        (id1, num1), (id2, num2) = rows[:2]
+        listing = self._FakeList([(r[0], r[1]) for r in rows])  # DB 와 같은 목록(1쪽)
         queue_file, (done, not_found, ambiguous) = self._queue_run(
-            [num1, num2, "SPP-0000-NOPE"], titles=self._list_ok(1), details={id1})
+            [num1, num2, "SPP-0000-NOPE"], listing=listing, details={id1})
         self.assertEqual(done, {num1, "SPP-0000-NOPE"})
         self.assertEqual((not_found, ambiguous), (["SPP-0000-NOPE"], []))
+        self.assertEqual(listing.calls, 2, "첫 페이지(총 건수) 1회 + 1쪽 1회")
         for n in (num1, num2, "SPP-0000-NOPE"):
             crawl_manager.append_to_pending(n)
         left = crawl_manager._settle_pending([num1, num2, "SPP-0000-NOPE"], crawl_manager._read_queue_report(queue_file))
         self.assertEqual(left, [num2])
         self.assertEqual(crawl_manager.pending_items(), [num2])
+        self.assertIn({"number": "SPP-0000-NOPE", "reason": "not_found"},
+                      [{k: e[k] for k in ("number", "reason")} for e in crawl_queue_report.unresolved()])
 
         # 로그인(직접·대체) 모두 실패: 오류를 기록하고 정상 반환하지만 보고는 없다 → 전부 남는다
         crawl_queue_report.remove_files(queue_file)
@@ -805,26 +819,37 @@ class ExchangeRestoreTests(unittest.TestCase):
         self.assertEqual(crawl_queue_report.read(queue_file), (set(), [], []))
         self.assertEqual(crawl_manager._settle_pending([num2], crawl_manager._read_queue_report(queue_file)), [num2])
 
+    def test_a_number_on_a_later_page_is_found_and_absent_numbers_are_confirmed_after_all_pages(self):
+        """감사 R7-01: 2쪽·101쪽 목록 — 뒤쪽 페이지의 새 번호를 찾아 저장하고, 전 페이지를 받은 뒤에만 '없음'을 확정한다."""
+        base = [(r[0], r[1]) for r in self._db_numbers()]
+        for pages in (2, 101):
+            filler = [(f"8{i:07d}", f"SPP-2601-{i:07d}") for i in range(pages * 200 - len(base) - 1)]
+            new_id, new_num = "79999999", "SPP-2609-7999999"
+            listing = self._FakeList(base + filler + [(new_id, new_num)])  # 새 번호는 마지막 쪽
+            _, (done, not_found, ambiguous) = self._queue_run([new_num, "SPP-0000-NOPE"], listing=listing, details={new_id})
+            self.assertEqual(done, {new_num, "SPP-0000-NOPE"}, pages)
+            self.assertEqual((not_found, ambiguous), (["SPP-0000-NOPE"], []), pages)
+            self.assertEqual(listing.calls, pages + 1, "첫 페이지 1회 + 각 페이지 1회")
+
     def test_a_failed_or_incomplete_list_search_never_marks_a_number_missing(self):
-        """감사 R6-01: 목록 호출 실패(예외·오류 응답)나 탐색 상한 도달은 '없음'으로 확정하지 않는다 — 번호는 다시 찾는다."""
-        def failing(page_range, progress):
-            progress.update(total=None, pages_expected=0, pages_ok=[], pages_failed=[1], first_error="network: down", list_ok=False)
-            return [], 0
-
-        def raising(page_range, progress):
-            raise ConnectionError("down")
-
-        for titles in (failing, raising, self._list_ok(250)):  # 250 페이지 > 탐색 상한 100
-            _, (done, not_found, ambiguous) = self._queue_run(["SPP-0000-NOPE"], titles=titles)
-            self.assertEqual((done, not_found, ambiguous), (set(), [], []), titles)
+        """감사 R6-01: 첫 페이지 예외·오류 응답·중간 페이지 실패는 '없음'으로 확정하지 않는다. 빈 정상 목록은 확정한다."""
+        base = [(r[0], r[1]) for r in self._db_numbers()]
+        three_pages = base + [(f"8{i:07d}", f"SPP-2601-{i:07d}") for i in range(600 - len(base))]
+        for listing in (self._FakeList(three_pages, fail_at=1), self._FakeList(three_pages, error_at=1),
+                        self._FakeList(three_pages, fail_at=201), self._FakeList(three_pages, error_at=401)):
+            _, report = self._queue_run(["SPP-0000-NOPE"], listing=listing)
+            self.assertEqual(report, (set(), [], []), (listing.fail_at, listing.error_at))
+        _, (done, not_found, _) = self._queue_run(["SPP-0000-NOPE"], listing=self._FakeList([]))
+        self.assertEqual(not_found, ["SPP-0000-NOPE"], "정상 응답으로 신고가 0건이면 없음이 확정된다")
 
     def test_an_ambiguous_partial_number_is_never_completed_with_an_arbitrary_report(self):
-        """감사 R6-02: 목록 탐색 뒤 재해석도 '정확 → 접두어 → 유일한 부분 일치' 규칙 — 여러 건에 걸리면 임의 신고로 처리하지 않는다."""
-        with get_engine().connect() as conn:
-            numbers = [r[0] for r in conn.execute(select(models.title_table.c["신고번호"]))]
+        """감사 R6-02: 목록 탐색 뒤 재해석도 '정확 → 접두어 → 유일한 부분 일치' — 여러 건에 걸리면 임의 신고로 처리하지 않는다."""
+        import start
+
+        rows = self._db_numbers()
+        numbers = [r[1] for r in rows]
         token = next(t for t in ("SPP-", "SPP-26", "SPP-2609") if sum(t in n for n in numbers) > 1)
         saved = []
-        import start
         real_save = start._save_details_as_they_arrive
 
         def spy(engine, stream, saved_ids=None):
@@ -833,10 +858,25 @@ class ExchangeRestoreTests(unittest.TestCase):
             return result
 
         with mock.patch.object(start, "_save_details_as_they_arrive", side_effect=spy):
-            _, (done, not_found, ambiguous) = self._queue_run([token], titles=self._list_ok(1))
+            _, (done, not_found, ambiguous) = self._queue_run([token], listing=self._FakeList([(r[0], r[1]) for r in rows]))
         self.assertEqual(saved, [], "모호한 번호로 어떤 신고도 저장하지 않는다")
         self.assertEqual((not_found, ambiguous), ([], [token]))
-        self.assertEqual(done, {token}, "목록 전체를 훑은 뒤에도 모호하면 사용자에게 알리고 큐에서 뺀다")
+        self.assertEqual(done, {token})
+
+    def test_an_already_ambiguous_number_is_refused_when_requested(self):
+        """감사 R7-03: 요청 시점에 이미 여러 신고에 걸리는 번호는 대기열에 넣지 않고 거부한다(400 문장)."""
+        from services import crawl_control
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        numbers = [r[1] for r in self._db_numbers()]
+        token = next(t for t in ("SPP-", "SPP-26", "SPP-2609") if sum(t in n for n in numbers) > 1)
+        with mock.patch("services.crawl_control._check_crawl_allowed"):
+            with self.assertRaises(ValueError):
+                crawl_control.enqueue_report(token)
+            with self.assertRaises(ValueError):
+                crawl_control.enqueue_reports([numbers[0], token])
+        self.assertEqual(crawl_manager.pending_items(), [])
 
     def test_a_blocked_retry_is_rescheduled_and_a_restart_schedules_one(self):
         """감사 R6-03: 재시도가 게이트·초기화에 막혀도 다시 걸리고, 서버 기동 때 남은 번호가 있으면 타이머 하나를 건다."""
@@ -877,6 +917,42 @@ class ExchangeRestoreTests(unittest.TestCase):
             release.set()
             self.assertTrue(self._until(lambda: not crawl_manager._request_worker_active))
         self.assertEqual(len(calls), 2, "진행 중 요청과, 그동안 들어온 요청들을 합친 한 번")
+
+    def test_a_request_right_after_the_worker_decides_to_stop_is_not_lost(self):
+        """감사 R7-02: 작업자가 '더 할 일 없음'을 확인하고 잠금을 푸는 순간 들어온 요청도 한 번 더 시도된다."""
+        import threading
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        real_lock = crawl_manager._state_lock
+        injected = threading.Event()
+
+        class Probe:  # 작업자 스레드가 잠금을 처음 풀 때(= 마지막 확인 직후) 새 요청을 끼워 넣는다
+            def __enter__(self):
+                return real_lock.__enter__()
+
+            def __exit__(self, *exc):
+                result = real_lock.__exit__(*exc)
+                if threading.current_thread().name == "crawl-pending-request" and not injected.is_set():
+                    injected.set()
+                    crawl_manager.request_pending_launch()
+                return result
+
+            def acquire(self, *a, **k):
+                return real_lock.acquire(*a, **k)
+
+            def release(self):
+                return real_lock.release()
+
+        calls = []
+        crawl_manager._state_lock = Probe()
+        self.addCleanup(setattr, crawl_manager, "_state_lock", real_lock)
+        with mock.patch.object(crawl_manager, "launch_pending_crawl", side_effect=lambda: calls.append(1) or False):
+            crawl_manager.request_pending_launch()
+            self.assertTrue(self._until(lambda: injected.is_set() and len(calls) >= 2 and not crawl_manager._request_worker_active))
+        self.assertTrue(injected.is_set())
+        self.assertEqual(len(calls), 2, "마지막 순간의 요청도 한 번 더 launch 된다")
+        self.assertFalse(crawl_manager._request_again)
 
     def test_a_malformed_report_or_hook_error_still_releases_the_reservation(self):
         """감사 R6-05: 형식이 틀린 보고(유효한 JSON)나 완료 훅 예외에도 예약이 풀리고 실행 파일이 지워진다."""

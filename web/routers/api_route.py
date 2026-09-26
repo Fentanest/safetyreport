@@ -400,7 +400,10 @@ def get_crawl_results(device_id: str | None = None, _: str = Depends(_require_ap
 
 @router.get("/crawl/status")
 def get_crawl_status(_: str = Depends(_require_api_key)):
-    return {"status": "success", "running": crawl_manager.is_crawling()}
+    from services import crawl_queue_report
+    # unresolved(추가 필드, 하위호환): 대기 큐에서 처리하지 못하고 뺀 번호 — 목록 전체에 없음(not_found)·여러 신고에 걸림(ambiguous)
+    return {"status": "success", "running": crawl_manager.is_crawling(),
+            "pending": crawl_manager.pending_count(), "unresolved": crawl_queue_report.unresolved()}
 
 
 @router.get("/server/version")

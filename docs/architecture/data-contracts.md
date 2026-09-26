@@ -108,6 +108,9 @@ by_law (법규별, 같은 필드 + law)
     남은 번호는 예약만 풀려 큐에 남고 1분부터 두 배씩(최대 30분) 늘어나는 간격으로 다시 시도한다 — 게이트·초기화에 막혀도 다시 걸고,
     서버 기동 때 남은 번호가 있으면 타이머 하나를 건다(R5-02·R6-03). 사용자 크롤 시작(`crawl_control`)도 같은 세대 확인·시작 뒤 로그 교체를 쓰고,
     번호를 대기 큐에 넣을 때마다 한 번 더 시작을 시도한다 — 요청은 작업자 하나로 합친다(R6-04).
+    미확인 번호는 목록 **전체를 한 번** 받아 찾는다(첫 페이지 1회 + 각 페이지 1회, R7-04). 처리하지 못하고 뺀 번호(없음·모호)는
+    `data/crawl_queue_unresolved.json`(최근 50개)·`/api/v1/crawl/status` 의 `unresolved`·WS `crawl_queue_unresolved` 로 알린다.
+    요청 시점에 이미 여러 신고에 걸리는 번호는 대기열에 넣지 않고 400 으로 거부한다(R7-03).
     시작 알림 실패·준비 실패는 예약이나 임시 파일을 남기지 않는다(R5-03·R5-04).
 - **API 값**: `/api/v1/reports/{traffic,parking,other}` 는 NULL 을 null, 정수 열(별점·synced_at·보완횟수·사진_촬영수)을 정수로 보낸다. 웹 화면 조회는 기존처럼 ''.
 - **변경 알림 payload**(`crawl_changes.json`): NULL 은 '' (표시용).
@@ -468,7 +471,7 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 | GET/POST | `/watchlist` | 감시 목록 조회/수정 |
 | POST | `/rating/start` | 모바일 Client 별점 배치 시작 (API 키 인증). 본문 `{report_numbers, score, cause?}` — `cause` 는 공통 사유(선택, 2026-09-25, 코드포인트 1000 초과면 400). 결과는 `logs/current_rating.log` 줄 형식이 계약(모바일이 정규식으로 읽음) |
 | POST | `/crawl/enqueue` | 신고번호 큐 등록 (알림 리스너 연동) |
-| GET | `/crawl/status` | 크롤링 실행 여부 |
+| GET | `/crawl/status` | 크롤링 실행 여부. 추가 필드(하위호환, 2026-09-26 감사 R7-03): `pending`(아직 맡지 않은 대기 번호 수), `unresolved`(대기 큐에서 처리하지 못하고 뺀 번호 최근 50개 — `{number, reason: not_found\|ambiguous, at}`) |
 | GET | `/crawl/done` | 완료 마커 조회 (읽으면 삭제) |
 | GET | `/crawl/results` | 변경 신고 목록 조회 (읽으면 삭제) |
 | GET | `/crawl/config` | crawl_type(늘 api), crawl_mode(늘 full), max_empty_pages — 구앱 호환 필드 |
