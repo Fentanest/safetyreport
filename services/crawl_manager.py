@@ -2,11 +2,21 @@ import subprocess
 import threading
 import sys
 import os
+from contextlib import contextmanager
 from typing import Optional, List
 
 from services import crawl_state_store
 from services.crawl_log_service import rotate_crawl_log
 from core.utils.runtime_mode import block_if_fixture
+
+
+class CrawlBlockedByRestore(RuntimeError):
+    """DB 복원이 진행 중이라 크롤러를 시작하지 않았다(2026-09-26 감사 SOL-04)."""
+
+
+class RestoreBlocked(RuntimeError):
+    """크롤링 중이거나 다른 복원이 진행 중이라 복원을 시작하지 않았다."""
+
 
 class CrawlManager:
     _instance = None
@@ -19,7 +29,28 @@ class CrawlManager:
                 cls._instance._active_process = None
                 cls._instance._state_lock = threading.Lock()
                 cls._instance._pending_queue: List[str] = []
+                cls._instance._restore_hold = False
         return cls._instance
+
+    @contextmanager
+    def hold_for_restore(self):
+        """복원 동안 크롤러 시작을 막는다. 크롤링 중이거나 다른 복원 중이면 RestoreBlocked.
+        검사와 표시를 start_crawl 과 같은 잠금 안에서 하므로, 검사 직후 크롤러가 끼어들 수 없다(SOL-04)."""
+        with self._state_lock:
+            if self._active_process is not None and self._active_process.poll() is None:
+                raise RestoreBlocked("크롤링이 진행 중입니다. 끝난 뒤 다시 복원하세요.")
+            if self._restore_hold:
+                raise RestoreBlocked("다른 복원이 진행 중입니다.")
+            self._restore_hold = True
+        try:
+            yield
+        finally:
+            with self._state_lock:
+                self._restore_hold = False
+
+    def restore_in_progress(self) -> bool:
+        with self._state_lock:
+            return self._restore_hold
 
     def is_crawling(self) -> bool:
         """크롤링이 현재 실행 중인지 반환"""
@@ -31,6 +62,8 @@ class CrawlManager:
         with self._state_lock:
             if self._active_process is not None and self._active_process.poll() is None:
                 return False
+            if self._restore_hold:
+                raise CrawlBlockedByRestore("DB 복원이 진행 중입니다. 끝난 뒤 다시 시작하세요.")
 
             block_if_fixture("crawl subprocess")
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
@@ -173,7 +206,14 @@ class CrawlManager:
             f.write('\n'.join(f"  - {r}" for r in pending) + '\n')
 
         work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        if self.start_crawl(cmd, cwd=work_dir, log_file=log_file):
+        try:
+            started = self.start_crawl(cmd, cwd=work_dir, log_file=log_file)
+        except CrawlBlockedByRestore:
+            # 복원과 겹쳤다 — 신고번호를 잃지 않게 대기 큐로 되돌린다(다음 크롤링 때 이어서).
+            for r in pending:
+                self.append_to_pending(str(r))
+            return
+        if started:
             ws_manager.broadcast_from_thread("crawl_started", {
                 "source": "pending_queue",
                 "count": len(pending),

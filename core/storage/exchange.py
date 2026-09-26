@@ -359,14 +359,19 @@ def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
     """kind='server' | 'mobile'. (백업 경로, 신고 수) 반환. 실패하면 현재 DB 는 그대로다."""
     from core.database.engine import get_engine
 
+    from services.crawl_manager import crawl_manager
+
     dst = settings.db_path
     ensure_restore_allowed(get_engine())
     snapshot = read_mobile_db(uploaded_path) if kind == "mobile" else None  # 모르는 열 검사 포함 — 장벽 전에
-    # 스테이징 복사부터 교체까지 다른 요청의 운영 DB 연결을 막는다(SOL-04). 이미 빌린 연결이 반납될 때까지 기다린다.
+    # (1) 크롤러(별도 프로세스라 쓰기 장벽 밖)는 검사와 같은 잠금 안에서 시작을 막는다 — 검사 직후 시작하는 경쟁 없음.
+    # (2) 스테이징 복사부터 교체까지 이 프로세스의 운영 DB 연결을 막는다. 이미 빌린 연결이 반납될 때까지 기다린다(SOL-04).
+    from services.crawl_manager import RestoreBlocked
+
     try:
-        with write_barrier.exclusive():
+        with crawl_manager.hold_for_restore(), write_barrier.exclusive():
             return _restore_exclusive(uploaded_path, kind, dst, snapshot)
-    except write_barrier.BarrierTimeout as exc:
+    except (RestoreBlocked, write_barrier.BarrierTimeout) as exc:
         raise RestoreRefused(str(exc)) from None
 
 

@@ -339,6 +339,66 @@ class ExchangeRestoreTests(unittest.TestCase):
             t.join(10)
         self.assertEqual(self._count(models.title_table), before)
 
+    # ── Sol 재검증 SOL-04: 복원 ↔ 크롤러 시작 경쟁 ─────────────────────────────
+
+    def test_crawler_cannot_start_while_a_restore_is_running(self):
+        import threading
+        from services.crawl_manager import CrawlBlockedByRestore, crawl_manager
+
+        _mobile_db(self.upload)
+        inside = threading.Event()
+        proceed = threading.Event()
+        real_swap = exchange._swap_in
+
+        def slow_swap(staged, dst):
+            inside.set()
+            proceed.wait(10)
+            real_swap(staged, dst)
+
+        popen = mock.MagicMock()
+        errors = []
+        with mock.patch.object(exchange, "_swap_in", slow_swap), \
+             mock.patch("services.crawl_manager.subprocess.Popen", popen), \
+             mock.patch("services.crawl_manager.block_if_fixture"):
+            r = threading.Thread(target=lambda: exchange.restore(str(self.upload), "mobile"))
+            r.start()
+            self.assertTrue(inside.wait(10))
+            self.assertTrue(crawl_manager.restore_in_progress())
+            try:
+                crawl_manager.start_crawl(["crawler"], cwd=".", log_file=os.path.join(settings.datapath, "logs", "t.log"))
+            except CrawlBlockedByRestore as exc:
+                errors.append(exc)
+            # 대기 큐 자동 시작이 겹치면 신고번호를 잃지 않고 큐로 되돌린다
+            crawl_manager.launch_pending_crawl(["SPP-1", "SPP-2"])
+            proceed.set()
+            r.join(20)
+            self.assertEqual(len(errors), 1)
+            popen.assert_not_called()
+            self.assertEqual(crawl_manager.pop_pending(), ["SPP-1", "SPP-2"])
+            self.assertFalse(crawl_manager.restore_in_progress())
+            # 복원이 끝나면 다시 시작할 수 있다
+            self.assertTrue(crawl_manager.start_crawl(["crawler"], cwd=".", log_file=os.path.join(settings.datapath, "logs", "t.log")))
+            popen.assert_called_once()
+        crawl_manager.clear_process()
+
+    def test_restore_is_refused_atomically_when_a_crawl_is_running(self):
+        from services.crawl_manager import crawl_manager
+
+        _mobile_db(self.upload)
+        running = mock.MagicMock()
+        running.poll.return_value = None
+        crawl_manager._active_process = running
+        before = self._count(models.title_table)
+        try:
+            # ensure_restore_allowed 의 사전 검사를 지나도(가짜로 False) hold 가 같은 잠금에서 다시 막는다
+            with mock.patch.object(crawl_manager, "is_crawling", return_value=False):
+                with self.assertRaises(exchange.RestoreRefused):
+                    exchange.restore(str(self.upload), "mobile")
+        finally:
+            crawl_manager.clear_process()
+        self.assertEqual(self._count(models.title_table), before)
+        self.assertFalse(crawl_manager.restore_in_progress())
+
 
 if __name__ == "__main__":
     unittest.main()

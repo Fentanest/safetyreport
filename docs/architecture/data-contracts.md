@@ -92,6 +92,8 @@ by_law (법규별, 같은 필드 + law)
     앱에 열이 있으면 앱 값이 원천(빈 문자열도 덮어씀), 열이 없는 구앱이면 서버 값 유지.
   - 복원 중 동시 쓰기: 스테이징 복사부터 파일 교체까지 `core/database/write_barrier.exclusive()` 가 운영 DB 연결을 막는다.
     이미 빌린 연결이 반납될 때까지 기다리고(20초 넘으면 409), 그동안 새 연결은 기다렸다가 교체된 새 파일로 다시 연다.
+    크롤러는 별도 프로세스라 이 장벽 밖이므로, 복원은 `crawl_manager.hold_for_restore()` 로 크롤 시작 검사와 **같은 잠금 안에서**
+    "복원 중" 을 표시한다. 그동안 크롤 시작은 `CrawlBlockedByRestore`(화면 문장), 대기 큐 자동 시작은 신고번호를 큐로 되돌린다(Sol 재검증 SOL-04).
 - **API 값**: `/api/v1/reports/{traffic,parking,other}` 는 NULL 을 null, 정수 열(별점·synced_at·보완횟수·사진_촬영수)을 정수로 보낸다. 웹 화면 조회는 기존처럼 ''.
 - **변경 알림 payload**(`crawl_changes.json`): NULL 은 '' (표시용).
 - 새 표: `mysafety_report_override`(사용자 수정값), `mysafety_duplicate_decision`(중복 판단), `mysafety_change_log`·`mysafety_change_cursor`(변경 기록) — 쓰기는 R2·R5 부터.
