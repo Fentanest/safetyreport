@@ -104,7 +104,7 @@ class ScheduleJobsTest(unittest.TestCase):
         from services import community_uploader as up
         with mock.patch.object(up, "_gate_check",
                                return_value={"state": "ok", "can_enter": True, "reasons": []}):
-            sched.catch_up_on_start(data_dir=self.tmp)
+            sched.catch_up_on_start(data_dir=self.tmp, wait=True)  # 서버 시작은 막지 않고 백그라운드에서 돈다
         row = self.store.connect().execute("SELECT COUNT(*) v FROM schedule_runs").fetchone()
         self.assertEqual(row["v"], 1)
 

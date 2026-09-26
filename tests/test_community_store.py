@@ -3,6 +3,7 @@ import hashlib
 import os
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from services.community_store import CommunityStore, project_namespace
@@ -38,9 +39,104 @@ class CommunityStoreTest(unittest.TestCase):
         for t in ("meta", "context", "source_journal", "outbox", "report_latest", "report_latest_staging", "detail_status",
                   "server_completed", "upload_runs", "schedule_runs", "leases", "rebuild_jobs", "rebuild_items"):
             self.assertIn(t, tables)
-        self.assertEqual(self.store.meta("schema_version"), "1")
+        self.assertEqual(self.store.meta("schema_version"), "2")
+        self.assertIn("upload_control", tables)
         self.assertTrue(self.store.local_dataset_id())
         self.assertEqual(self.store.connect().execute("PRAGMA journal_mode").fetchone()[0], "wal")
+
+    def test_v1_file_upgrades_to_v2_keeping_every_row(self):
+        """UC-1 v2 단계: 표 추가·upload_runs 재생성뿐 — 대기 사본·실행 기록·meta 는 그대로(community.db 를 지우지 않는다)."""
+        import sqlite3
+        from services import community_store as cs
+
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "community.db")
+        con = sqlite3.connect(path)
+        con.executescript(cs._SCHEMA)
+        con.execute("INSERT INTO meta VALUES ('schema_version','1'), ('local_dataset_id','ds-1'), ('next_revision','8'),"
+                    " ('dataset_history','[]')")
+        con.execute("INSERT INTO source_journal(event_id, project_namespace, local_dataset_id, source_report_id,"
+                    " source_revision, event_type, captured_at, capture_trigger, schema_version, parser_version,"
+                    " payload_json, payload_sha256, eligible) VALUES ('e1','ns','ds-1','R1',7,'completed_observation',"
+                    " '2026-09-26T00:00:00.000Z','realtime',1,'p','{\"a\":\"한글\"}','h',1)")
+        con.execute("INSERT INTO outbox(event_id, state, attempt_count, next_retry_at, enqueued_trigger, enqueued_at)"
+                    " VALUES ('e1','retry_wait',3,'2026-09-26T01:00:00.000Z','realtime','2026-09-26T00:00:00.000Z')")
+        con.execute("INSERT INTO upload_runs(run_id, trigger, started_at, finished_at, result)"
+                    " VALUES ('r1','realtime','2026-09-26T00:00:00.000Z','2026-09-26T00:00:01.000Z','deferred')")
+        con.commit()
+        con.close()
+        store = CommunityStore.open(tmp)
+        try:
+            self.assertEqual(store.meta("schema_version"), "2")
+            self.assertEqual(store.local_dataset_id(), "ds-1")
+            row = dict(store.connect().execute("SELECT * FROM outbox").fetchone())
+            self.assertEqual((row["state"], row["attempt_count"], row["next_retry_at"]),
+                             ("retry_wait", 3, "2026-09-26T01:00:00.000Z"))
+            self.assertEqual(store.connect().execute("SELECT payload_json FROM source_journal").fetchone()[0], '{"a":"한글"}')
+            self.assertEqual(store.connect().execute("SELECT result FROM upload_runs").fetchone()[0], "deferred")
+            with store.transaction() as tx:  # 새 결과 코드도 들어간다
+                tx.execute("INSERT INTO upload_runs(run_id, trigger, started_at, result) VALUES ('r2','recovery','t','cooldown')")
+        finally:
+            store.close()
+            CommunityStore._forget(path)
+
+    def test_a_second_process_upgrading_first_is_not_upgraded_again(self):
+        """이 프로세스가 버전 1 을 읽은 뒤 다른 프로세스가 먼저 v2 로 올리면, 단계 트랜잭션 안에서 다시 읽고 건너뛴다(Sol 구현 검토)."""
+        import contextlib
+        import sqlite3
+        from services import community_store as cs
+
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "community.db")
+        con = sqlite3.connect(path)
+        con.executescript(cs._SCHEMA)
+        con.execute("INSERT INTO meta VALUES ('schema_version','1'), ('local_dataset_id','ds-1'), ('next_revision','8'),"
+                    " ('dataset_history','[]')")
+        con.execute("INSERT INTO upload_runs(run_id, trigger, started_at, result) VALUES ('r1','realtime','t','deferred')")
+        con.commit()
+        con.close()
+
+        class Counting(dict):
+            used = 0
+
+            def __getitem__(self, key):
+                Counting.used += 1
+                return dict.__getitem__(self, key)
+
+        real_tx = cs.CommunityStore.transaction
+        calls = {"n": 0}
+        others = []
+
+        @contextlib.contextmanager
+        def racing_tx(store_self):
+            calls["n"] += 1
+            if calls["n"] == 2:  # 첫 단계 트랜잭션 직전 — 다른 프로세스가 먼저 전부 올린다
+                with mock.patch.object(cs.CommunityStore, "transaction", real_tx):
+                    others.append(cs.CommunityStore(path))
+            with real_tx(store_self) as c:
+                yield c
+
+        with mock.patch.object(cs, "_MIGRATIONS", Counting(cs._MIGRATIONS)), \
+                mock.patch.object(cs.CommunityStore, "transaction", racing_tx):
+            store = cs.CommunityStore(path)
+        try:
+            self.assertEqual(Counting.used, 1, "v2 단계는 먼저 올린 프로세스에서 한 번만")
+            self.assertEqual(store.meta("schema_version"), "2")
+            self.assertEqual(store.connect().execute("SELECT result FROM upload_runs").fetchone()[0], "deferred")
+        finally:
+            store.close()
+            for o in others:
+                o.close()
+
+    def test_lease_renew_only_by_its_owner(self):
+        self.assertTrue(self.store.acquire_lease("upload", "run:a", 60))
+        self.assertTrue(self.store.renew_lease("upload", "run:a", 60))
+        self.assertFalse(self.store.renew_lease("upload", "run:b", 60))
+        self.assertFalse(self.store.acquire_lease("upload", "run:b", 60))
+        self.store.release_lease("upload", "run:b")  # 남의 lease 는 풀리지 않는다
+        self.assertFalse(self.store.acquire_lease("upload", "run:b", 60))
+        self.store.release_lease("upload", "run:a")
+        self.assertTrue(self.store.acquire_lease("upload", "run:b", 60))
 
     def test_revision_is_file_wide_monotonic_across_rotation(self):
         with self.store.transaction() as tx:

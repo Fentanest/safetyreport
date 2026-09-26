@@ -209,6 +209,8 @@ by_law (법규별, 같은 필드 + law)
 | `/media/*` | 이제 관리자 세션 또는 API 키 + 게이트(이전: 인증 없음) |
 | 기존 필드 | `/api/v1/community-auth/status` 의 `upload_enabled` 유지(의미: 연결 + 게이트 통과) |
 | 로컬 저장 | `data/community.db`(개인 `data.db` 와 분리 — 서버↔모바일 DB 교환 대상 아님, PROJECT_RULES 3-1 영향 없음), `data/auth/community_writer.enc`(업로드 연결 비밀, 암호화) |
+| 업로드 결과(2026-09-27 UC-1) | `/api/v1/community/upload/run`·`status` 의 `result`/`last_result` 는 **기존 값 그대로**(success·no_change·partial·deferred·auth_required·consent_required·failed — 모바일 앱 호환). 새 결과 코드는 추가 필드 `outcome`/`last_outcome`(sent·no_pending·not_due·cooldown·busy_other_run·needs_auth·needs_consent·blocked_gate·failed·more_pending·partial), cooldown 이면 `next_attempt_kst`. status 추가 필드: `states`·`auth_required`·`quarantined`·`stored`·`oldest_unsent_kst`·`next_retry_kst`·`last_central_ack_kst`·`control{state,until_kst,reason}`·`last_request`(8자). 제거·변형 없음 |
+| `community.db` 스키마 | `meta.schema_version` **2**(모바일 같은 값): v2 = 영속 전송 제어 `upload_control(scope, state ready\|cooling_down\|probing, next_attempt_at, consecutive_failures, last_error_code, updated_at)` + `upload_runs.result` CHECK 확장(표 재생성·행 보존) + 인덱스. v1 파일은 열 때 번호 단계로 올린다(지우거나 초기화하지 않음). 교환 대상 아님(3-1 무관) |
 
 ## 이관 원문
 

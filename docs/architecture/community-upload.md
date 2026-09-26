@@ -49,12 +49,34 @@
   `context` 와 같은 행만이다. 계정이 바뀌면 이전 계정 행은 보내지 않는다(C04).
 - 한 요청에 같은 신고의 이벤트는 하나만 넣는다. 같은 신고의 다음 이벤트는 앞 요청의
   ACK 뒤 다음 요청으로 보낸다(revision 순서 유지).
-- durable ACK(`accepted/duplicate/no_change/stale_ignored/quarantined`)만 outbox 를
-  지운다. `conflict` → dead_letter(원본 불변), `rejected` → blocked 보존,
-  400/413/422 → dead_letter, 429 → Retry-After 대기, 5xx·timeout·busy → 지수 백오프
-  1초→최대 1시간 ±20%. 401 은 토큰 갱신 1회 후 재시도한다.
-- 403(consent_*/connection_*/writer_superseded/contributor_suspended/session_revoked)은
-  해당 행 blocked + 게이트 무효화(T3 `community_gate.invalidate`).
+- 업로드 제어는 두 앱 공통 규칙 **UC-1**(`contracts/upload-control/vectors.json` + MANIFEST, 모바일과 바이트 동일, 판정 코드
+  `services/community_upload_policy.py`). 설계·재현 표: `docs/plans/2026-09-27-upload-hardening-android.md`.
+  - **완료** = HTTP 200 ∧ protocol 1 ∧ request_id ∧ results ∧ 보낸 event_id 만·중복 없음 ∧ `durable === true` ∧ durable 상태 ∧
+    `receipt_id` UUID. 이때만 journal ack 기록 + outbox 삭제(한 트랜잭션). `conflict` → dead_letter, `rejected` → blocked 보존.
+  - 응답 전체 형식 오류(깨진 JSON·HTML·protocol·모르는/중복 id·durable 누락) → `invalid_ack`: 재시도(dead_letter 아님).
+    형식이 맞고 일부 id 만 빠지면 `ack_missing` 백오프(같은 실행에서 다시 보내지 않음). 본문 필드가 실제 HTTP 상태를 덮지 않는다.
+  - 오류 분류: offline·server_busy(5xx, 오류 envelope 없는 4xx·HTML 404, 3xx 리다이렉트)·invalid_ack → **서비스** cooldown,
+    429 → **계정** cooldown, 405/415 → 서비스 cooldown + `failed`, 413·로컬 초과 → 배치 이분(단건만 dead_letter),
+    `payload_hash_mismatch`/`event_type_mismatch` → 이분, 모호한 400 `invalid_request`/422 `schema_invalid` 는 단건 대조 요청으로
+    판정(다른 이벤트가 저장되면 그 건만 dead_letter, 모두 거절이면 버리지 않고 보류).
+  - 대기: 로컬 백오프 `min(300, 5·2^(n-1))·(0.5+0.5u)`, 서버 지시(헤더 Retry-After 초·HTTP-date — 응답 Date 기준, 본문
+    `retry_after_seconds`) 최댓값, 실제 = max(둘). 24시간 초과 지시는 24시간. 첫 일시 장애 뒤 남은 배치를 보내지 않는다.
+  - 영속 제어 `upload_control`: cooling_down 이면 모든 트리거(실시간·수동·자정·복구·재공유)가 보내지 않고 `cooldown`,
+    시각이 지나면 1건짜리 확인(probing) → 성공이면 ready 로 이어서 보낸다. 재시작·연타로 풀리지 않는다.
+  - `attempt_count` 는 실제 HTTP 요청마다 그 요청의 이벤트만 +1(게이트·cooldown·lease·토큰 없음·로컬 초과는 세지 않음).
+  - 실행 1개(lease `upload`, owner `run:<uuid>:<trigger>`), 요청 전 heartbeat(`renew_lease` — 소유권을 잃으면 멈춤),
+    요청 간격 ≥1.1초, 예산 요청 25개·90초(남으면 `more_pending` + 곧바로 다시 깨움), DB 는 200행씩 읽고 payload 는 보낼 배치만.
+    시작 때 만료·빈 lease 의 in_flight 만 되돌린다(attempt 유지). 신고마다 가장 앞 revision 하나만 후보(뒤 revision 이 먼저 가지 않음).
+  - envelope 크기는 최종 직렬화 UTF-8 바이트로 계산(≤256KiB). 재전송은 저장된 event_id·payload·**journal 의 writer_epoch** 그대로.
+  - 예전 코드가 영수증 없이 완료로 적은 행(receipt 없음·UUID 아님)은 manual/midnight/recovery 때 같은 event_id 로 다시 확인받는다.
+  - 401 은 거절된 토큰으로 **실제 강제 갱신** 1회 → 재전송. 갱신 네트워크 실패는 offline(cooldown), 갱신 토큰 폐기는 auth_required.
+  - 403 `kakao_required`/`session_revoked`·401 은 행을 `auth_required`(journal 차단 없음)로 두고 게이트 무효화 — 재로그인하면
+    같은 event_id 로 재개. `consent_*` → blocked + needs_consent, `connection_*`/`writer_superseded`/`contributor_suspended` → blocked.
+  - `upload_runs` 는 요청을 보냈거나 조치가 필요한 실행만 기록(최근 500행·30일). 미전송 사본은 정리하지 않는다.
+  - 같은 프로세스의 동시 호출은 진행 중 실행에 합류한다. 합류한 manual/midnight/recovery/reshare 는 앞선 실행이 끝난 뒤 **자기 실행**을 하고
+    그 결과를 돌려준다(자정 key 를 다른 실행의 결과로 끝내지 않는다). 401 재전송도 lease 연장·요청 간격을 다시 지킨다.
+  - 재시도 실행기: `start_background` 1초 루프가 wake·`data_version` 변화(실시간)와 **다음 깨울 시각**(가장 이른 next_retry_at·
+    cooldown 끝, 실행 뒤마다 다시 계산) 도달(복구)을 본다. 행마다 타이머를 두지 않는다. 종료 때 새 실행을 시작하지 않는다.
 - ACK `projection_status` 5종을 journal 에 저장하고 패널에 표시한다:
   published=지도 반영됨, removed=지도에서 빠짐(정정),
   held=중앙 저장 완료·지도 반영 대기, not_public=중앙 저장(지도 비표시),
@@ -72,7 +94,9 @@
 - 자정 업로드: KST 00:00 due, 키 범위
   (project_namespace, contributor_fingerprint, local_dataset_id, writer_epoch,
   schedule_key). 최신 키 1회만 보충하며 이전 날짜 누락은 따로 실행하지 않는다.
-  `success/no_change` 만 succeeded 로 기록한다(partial·실패·인증 필요는 아님).
+  그날 key 는 결과가 `sent`/`no_pending` 일 때만 succeeded. `not_due`·`cooldown`·`busy_other_run`·`needs_*`·`blocked_gate`·
+  `more_pending` 은 deferred(사유 저장), 그 밖은 failed. 자정 성공과 무관하게 미전송 복구는 재시도 실행기가 따로 한다.
+  cron `misfire_grace_time` 6시간·coalesce, 시작 보충(`catch_up_on_start`)은 백그라운드 스레드(시작을 막지 않음).
 - 파일 200MB 초과 시 경고만 하고 자동 삭제하지 않는다(`outbox_size_warning`).
 - `personal_save_state='pending'` 이고 10분 지난 행의 시작 시 정리는 미구현이다
   (표시용 reconcilation — T3 또는 후속 작업에서 `local-store.md` 규칙대로 추가한다).
@@ -83,4 +107,5 @@
 
 | 날짜 | 내용 |
 |---|---|
+| 2026-09-27 | UC-1 업로드 장애 대응: 이전 서술(400/413/422 → dead_letter, 1초→1시간 백오프, 401 은 캐시 토큰 재사용, 자정 success/no_change)은 코드와 달라졌다 — 위 규칙이 현재 코드. `community.db` v2(`upload_control`). API `result` 값은 호환 유지, 새 코드는 `outcome`. |
 | 2026-09-26 | `contracts/community-ingest/` 사본이 `.gitignore` 로 2개 파일만 추적되던 것을 857185d 로 21개 전부 추적. 이 문서의 규칙 서술은 코드·계약과 일치함을 벡터 테스트로 확인. |

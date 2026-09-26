@@ -111,8 +111,10 @@ def register_community_jobs(scheduler) -> None:
             scheduler.remove_job(job_id)
         except Exception:
             pass
+    # 잠자기·바쁜 풀로 00:00 을 놓쳐도 6시간 안이면 한 번 실행(coalesce — 여러 번 밀려도 1회). 기본 misfire 1초면 버려졌다.
     scheduler.add_job(run_midnight, CronTrigger(hour=0, minute=0, timezone=SEOUL),
-                      id=MIDNIGHT_JOB_ID, replace_existing=True, max_instances=1, coalesce=True)
+                      id=MIDNIGHT_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
+                      misfire_grace_time=6 * 3600)
 
     def _poll() -> None:
         try:
@@ -160,11 +162,17 @@ def run_midnight(now_utc: datetime | None = None, data_dir=None) -> dict:
              parts["writer_epoch"], key, scheduled_date, _iso(due_at_utc(key)), parts["project_namespace"],
              parts["contributor_fingerprint"], parts["local_dataset_id"], parts["writer_epoch"], key,
              _iso(now), owner, _iso(now + timedelta(minutes=10))))
-    outcome = _uploader.request_upload("midnight", data_dir=data_dir)
+    try:
+        outcome = _uploader.request_upload("midnight", data_dir=data_dir)
+    except Exception as exc:  # 예외여도 key 를 lease 만료까지 running 으로 두지 않는다(내 owner 일 때만 failed 기록)
+        outcome = {"result": "failed", "error_code": type(exc).__name__, "run_id": None}
     upload_result = outcome.get("result")
-    if upload_result in ("success", "no_change"):
+    # UC-1 §1-6: 그날 key 는 실제로 다 보냈거나(sent) 미전송이 없을(no_pending) 때만 succeeded.
+    # 재시도 시각 전·cooldown·다른 실행 중·권한 확인 필요는 deferred(사유 저장) — 미전송 복구는 재시도 실행기가 따로 한다.
+    if upload_result in ("sent", "no_pending"):
         state, reason = "succeeded", None
-    elif upload_result in ("deferred", "joined"):
+    elif upload_result in ("not_due", "cooldown", "busy_other_run", "needs_auth", "needs_consent", "blocked_gate",
+                           "more_pending"):
         state, reason = "deferred", outcome.get("error_code") or upload_result
     else:
         state, reason = "failed", outcome.get("error_code") or upload_result
@@ -172,18 +180,31 @@ def run_midnight(now_utc: datetime | None = None, data_dir=None) -> dict:
         tx.execute(
             "UPDATE schedule_runs SET state=?, finished_at=?, deferred_reason=?, lease_owner=NULL, lease_until=NULL,"
             " run_id=? WHERE project_namespace=? AND contributor_fingerprint=? AND local_dataset_id=?"
-            " AND writer_epoch=? AND schedule_key=?",
+            " AND writer_epoch=? AND schedule_key=? AND lease_owner=?",  # 다른 실행이 이어받았으면 덮지 않는다
             (state, _iso(datetime.now(timezone.utc)), reason, outcome.get("run_id"),
              parts["project_namespace"], parts["contributor_fingerprint"], parts["local_dataset_id"],
-             parts["writer_epoch"], key))
+             parts["writer_epoch"], key, owner))
     return {"result": state, "schedule_key": key, "upload": outcome,
             **({"deferred_reason": reason} if reason else {})}
 
 
-def catch_up_on_start(data_dir=None) -> None:
-    """서버 시작 시 should_run 보충 (run_midnight 과 같은 판단)."""
-    try:
-        outcome = run_midnight(data_dir=data_dir)
-        _log.info("[community] midnight catch-up: %s", outcome.get("result"))
-    except Exception:
-        _log.exception("[community] midnight catch-up failed")
+def catch_up_on_start(data_dir=None, *, wait: bool = False):
+    """서버 시작 시 should_run 보충 (run_midnight 과 같은 판단). 업로드가 네트워크를 쓰므로 서버 시작(lifespan)을 막지 않게
+    백그라운드 스레드에서 한다. wait=True 는 테스트용(끝날 때까지 기다리고 결과를 돌려준다)."""
+    import threading
+
+    result: dict = {}
+
+    def run() -> None:
+        try:
+            result.update(run_midnight(data_dir=data_dir))
+            _log.info("[community] midnight catch-up: %s", result.get("result"))
+        except Exception:
+            _log.exception("[community] midnight catch-up failed")
+
+    thread = threading.Thread(target=run, name="community-midnight-catch-up", daemon=True)
+    thread.start()
+    if wait:
+        thread.join()
+        return result
+    return None

@@ -54,7 +54,9 @@ class EventResult:
 
 @dataclass
 class IngestResponse:
-    ok: bool  # HTTP 2xx (+ ack 본문 검증 통과)
+    """전송 1회 결과. ok=True 는 ACK 형식이 유효한 200 응답(각 이벤트 확정 여부는 uploader 가 UC-1 로 다시 판정).
+    http_status 는 **실제** HTTP 상태(본문 필드가 덮지 않는다). not_sent=True 면 HTTP 요청을 보내지 않았다(attempt 미집계)."""
+    ok: bool
     http_status: int | None
     code: str | None  # 요청 단위 오류 코드 (ok 면 None)
     retryable: bool = False
@@ -62,6 +64,9 @@ class IngestResponse:
     request_id: str | None = None
     results: list[EventResult] = field(default_factory=list)
     raw_error_message: str | None = None
+    error_class: str | None = None  # UC-1 분류(offline, rate_limited, server_busy, invalid_ack, auth_required, ...)
+    not_sent: bool = False
+    token: str | None = None  # 이 요청에 쓴 access token(401 강제 갱신용, 로그·저장 금지)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -69,15 +74,18 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+MAX_RESPONSE_BYTES = 1024 * 1024
+
+
 def _http_post(url: str, headers: dict, body: bytes, timeout: float) -> tuple[int, bytes, dict]:
     opener = urllib.request.build_opener(_NoRedirect)
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
         with opener.open(request, timeout=timeout) as response:
-            return response.status, response.read(), dict(response.headers.items())
+            return response.status, response.read(MAX_RESPONSE_BYTES), dict(response.headers.items())
     except urllib.error.HTTPError as exc:
         try:
-            payload = exc.read()
+            payload = exc.read(MAX_RESPONSE_BYTES)
         except Exception:
             payload = b""
         return exc.code, payload, dict((exc.headers or {}).items())
@@ -100,38 +108,72 @@ def build_envelope(*, connection_id: str, consent_grant_id: str, policy_version:
     }
 
 
-def validate_ack(body: dict) -> IngestResponse:
-    """ack.schema.json 핵심(서버 계약) 검증. 실패하면 ok=False/code=schema_invalid."""
-    if not isinstance(body, dict):
-        return IngestResponse(ok=False, http_status=200, code="schema_invalid")
-    if "error" in body:
-        err = body.get("error") or {}
-        retry_after = err.get("retry_after_seconds")
-        return IngestResponse(ok=False, http_status=None, code=str(err.get("code") or "server_error"),
-                              retryable=bool(err.get("retryable")),
-                              retry_after=int(retry_after) if isinstance(retry_after, int) else None,
-                              request_id=err.get("request_id"))
-    if not isinstance(body.get("request_id"), str) or not isinstance(body.get("results"), list):
-        return IngestResponse(ok=False, http_status=200, code="schema_invalid")
-    if body.get("protocol") != 1:
-        return IngestResponse(ok=False, http_status=200, code="schema_invalid")
-    results = []
-    for item in body["results"]:
-        if not isinstance(item, dict) or item.get("status") not in _ACK_STATUSES:
-            return IngestResponse(ok=False, http_status=200, code="schema_invalid")
-        if not isinstance(item.get("event_id"), str) or not isinstance(item.get("durable"), bool):
-            return IngestResponse(ok=False, http_status=200, code="schema_invalid")
-        projection = item.get("projection_status")
-        if projection is not None and projection not in _PROJECTION:
-            return IngestResponse(ok=False, http_status=200, code="schema_invalid")
-        err = item.get("error")
-        results.append(EventResult(
-            event_id=item["event_id"], status=item["status"], durable=item["durable"],
-            receipt_id=item.get("receipt_id"), projection_status=projection,
-            error_code=(err or {}).get("code") if isinstance(err, dict) else None,
-            error_retryable=bool((err or {}).get("retryable")) if isinstance(err, dict) else False))
-    return IngestResponse(ok=True, http_status=200, code=None,
-                          request_id=body["request_id"], results=results)
+def envelope_bytes(envelope: dict) -> bytes:
+    """보내는 바이트 그대로(크기 계산·전송 공통)."""
+    return json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def _from_interpretation(interp, *, token: str | None) -> IngestResponse:
+    if interp.kind == "ack":
+        results = [EventResult(event_id=e.event_id, status=e.status, durable=e.outcome == "done",
+                               receipt_id=e.receipt_id, projection_status=e.projection_status,
+                               error_code=e.error_code, error_retryable=False) for e in interp.events.values()]
+        return IngestResponse(ok=True, http_status=200, code=None, request_id=interp.request_id,
+                              results=results, error_class=None, token=token)
+    return IngestResponse(ok=False, http_status=interp.http_status, code=interp.code,
+                          retryable=interp.scope is not None, retry_after=interp.hint, request_id=interp.request_id,
+                          error_class=interp.error_class, token=token)
+
+
+def post_envelope(envelope: dict, *, token: str | None = None, now=None) -> IngestResponse:
+    """envelope 전송 1회(재시도 없음 — 재시도는 outbox·전송 제어가 맡는다). 판정은 UC-1(community_upload_policy).
+    token 을 주지 않으면 여기서 받는다(받지 못하면 요청을 보내지 않고 not_sent)."""
+    from datetime import datetime, timezone
+
+    from services import community_auth_service as cas
+    from services import community_upload_policy as policy
+    try:
+        cfg = _config()
+    except cas.CommunityAuthError as exc:
+        return IngestResponse(ok=False, http_status=None, code=exc.code, error_class="auth_required",
+                              raw_error_message=exc.code, not_sent=True)
+    body = envelope_bytes(envelope)
+    if len(body) > MAX_BODY_BYTES:
+        return IngestResponse(ok=False, http_status=None, code="payload_too_large", error_class="request_too_large",
+                              not_sent=True)
+    if token is None:
+        try:
+            token = cas.get_access_token()
+        except cas.CommunityAuthError as exc:
+            cls = "offline" if exc.code == "auth_unavailable" else "auth_required"
+            return IngestResponse(ok=False, http_status=None, code=exc.code, error_class=cls,
+                                  retryable=cls == "offline", raw_error_message=exc.code, not_sent=True)
+    url = cfg.supabase_url.rstrip("/") + INGEST_PATH
+    headers = {"apikey": cfg.publishable_key, "Authorization": f"Bearer {token}",
+               "Content-Type": "application/json"}
+    sent_ids = [str(e.get("event_id")) for e in envelope.get("events") or []]
+    moment = now or datetime.now(timezone.utc)
+    try:
+        status, raw, resp_headers = _http_post(url, headers, body, CONNECT_TIMEOUT + READ_TIMEOUT)
+    except Exception as exc:
+        _log.info("[community] ingest 연결 실패: %s", type(exc).__name__)
+        return _from_interpretation(policy.interpret_response(sent_ids, None, {}, None, moment), token=token)
+    if status in (301, 302, 303, 307, 308):
+        status_for_policy = 502  # 리다이렉트는 따르지 않는다 → 서버 이상으로 재시도
+    else:
+        status_for_policy = status
+    interp = policy.interpret_response(sent_ids, status_for_policy, resp_headers, raw, moment)
+    response = _from_interpretation(interp, token=token)
+    response.http_status = status
+    return response
+
+
+def validate_ack(body: dict, sent_ids: list[str] | None = None) -> IngestResponse:
+    """(호환) 200 본문 검증. sent_ids 가 없으면 본문의 id 를 보낸 것으로 본다."""
+    from services import community_upload_policy as policy
+    ids = sent_ids if sent_ids is not None else [
+        str(r.get("event_id")) for r in (body.get("results") or []) if isinstance(r, dict)] if isinstance(body, dict) else []
+    return _from_interpretation(policy.interpret_ack(ids, body), token=None)
 
 
 def _config():
@@ -140,69 +182,6 @@ def _config():
     if not cfg.configured:
         raise cas.CommunityAuthError("community_unconfigured")
     return cfg
-
-
-def post_envelope(envelope: dict, *, timeout: float = READ_TIMEOUT) -> IngestResponse:
-    """envelope 전송 1회. 401 갱신 재시도는 uploader 가 담당한다."""
-    from services import community_auth_service as cas
-    try:
-        cfg = _config()
-    except cas.CommunityAuthError as exc:
-        return IngestResponse(ok=False, http_status=None, code="auth_required",
-                              raw_error_message=exc.code)
-    body = json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    if len(body) > MAX_BODY_BYTES:
-        return IngestResponse(ok=False, http_status=None, code="payload_too_large")
-    try:
-        token = cas.get_access_token()
-    except cas.CommunityAuthError as exc:
-        return IngestResponse(ok=False, http_status=None, code="auth_required",
-                              raw_error_message=exc.code)
-    url = cfg.supabase_url.rstrip("/") + INGEST_PATH
-    headers = {"apikey": cfg.publishable_key, "Authorization": f"Bearer {token}",
-               "Content-Type": "application/json"}
-    try:
-        status, raw, resp_headers = _http_post(url, headers, body, CONNECT_TIMEOUT + READ_TIMEOUT)
-    except Exception as exc:
-        _log.info("[community] ingest 연결 실패: %s", type(exc).__name__)
-        return IngestResponse(ok=False, http_status=None, code="offline", retryable=True)
-    if status in (301, 302, 303, 307, 308):
-        return IngestResponse(ok=False, http_status=status, code="server_error", retryable=True)
-    try:
-        parsed = json.loads(raw.decode("utf-8")) if raw else {}
-    except ValueError:
-        return IngestResponse(ok=False, http_status=status, code="server_error", retryable=True)
-    if status == 429:
-        err = parsed.get("error") if isinstance(parsed, dict) else None
-        retry_after = (err or {}).get("retry_after_seconds") if isinstance(err, dict) else None
-        header_after = resp_headers.get("Retry-After") or resp_headers.get("retry-after")
-        try:
-            header_after = int(str(header_after).strip())
-        except (TypeError, ValueError):
-            header_after = None
-        return IngestResponse(ok=False, http_status=429, code="rate_limited", retryable=True,
-                              retry_after=retry_after if isinstance(retry_after, int) else header_after,
-                              raw_error_message=None)
-    if status == 401:
-        return IngestResponse(ok=False, http_status=401, code="auth_required", retryable=True)
-    if status == 413:
-        return IngestResponse(ok=False, http_status=413, code="payload_too_large")
-    if status in (400, 422):
-        code = (parsed.get("error") or {}).get("code") if isinstance(parsed, dict) else None
-        return IngestResponse(ok=False, http_status=status, code=str(code or "schema_invalid"))
-    if status == 403:
-        code = (parsed.get("error") or {}).get("code") if isinstance(parsed, dict) else None
-        return IngestResponse(ok=False, http_status=403, code=str(code or "connection_unknown"))
-    if status in (500, 502, 503, 504):
-        code = (parsed.get("error") or {}).get("code") if isinstance(parsed, dict) else None
-        return IngestResponse(ok=False, http_status=status, code=str(code or "server_error"), retryable=True,
-                              retry_after=((parsed.get("error") or {}).get("retry_after_seconds")
-                                           if isinstance(parsed, dict) and isinstance(parsed.get("error"), dict) else None))
-    if status != 200:
-        return IngestResponse(ok=False, http_status=status, code="server_error", retryable=True)
-    ack = validate_ack(parsed)
-    ack.http_status = status
-    return ack
 
 
 _HEX24 = re.compile(r"^[0-9a-f]{24}$")

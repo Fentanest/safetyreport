@@ -27,11 +27,16 @@ INPUT = {"processing_status": "수용", "penalty_amount": "과태료: 40,000원"
          "penalty_points": "", "geocode": {"status": "ok", "lat": 37.5662952, "lng": 126.9779451}}
 
 
+RECEIPT = "11111111-1111-4111-8111-111111111111"
+
+
 def ack(event_id, status="accepted", projection="published", error_code=None):
-    return client.EventResult(event_id=event_id, status=status,
-                              durable=status in up.DURABLE_ACK,
-                              receipt_id="rcpt-1" if status in up.DURABLE_ACK else None,
-                              projection_status=projection if status in up.DURABLE_ACK else None,
+    durable = status in up.DURABLE_ACK
+    if not durable and error_code is None:
+        error_code = "event_id_conflict" if status == "conflict" else "deleted"
+    return client.EventResult(event_id=event_id, status=status, durable=durable,
+                              receipt_id=RECEIPT if durable else None,
+                              projection_status=projection if durable else None,
                               error_code=error_code, error_retryable=False)
 
 
@@ -56,10 +61,18 @@ class UploaderTest(unittest.TestCase):
         self._gate = mock.patch.object(up, "_gate_check",
                                        return_value={"state": "ok", "can_enter": True, "reasons": []})
         self._gate.start()
+        # 요청 전 토큰(실제 요청 수만 attempt 로 센다) — 기본은 유효 토큰, 강제 갱신은 새 토큰
+        self._token = mock.patch("services.community_auth_service.get_access_token",
+                                 side_effect=lambda rejected=None: "tok2" if rejected else "tok")
+        self._token.start()
+        self._sleep = mock.patch.object(up, "_sleep", lambda s: None)
+        self._sleep.start()
         self.posts = []
 
     def tearDown(self):
         self._gate.stop()
+        self._token.stop()
+        self._sleep.stop()
         up.stop_background()
         self.store.close()
         CommunityStore._forget(os.path.join(self.tmp, "community.db"))
@@ -77,14 +90,14 @@ class UploaderTest(unittest.TestCase):
 
     def _run_with(self, response, trigger="realtime"):
         with mock.patch.object(client, "post_envelope",
-                               side_effect=lambda env: (self.posts.append(env), response)[1]):
+                               side_effect=lambda env, **kw: (self.posts.append(env), response)[1]):
             return up.request_upload(trigger, data_dir=self.tmp)
 
     def test_b01_upload_right_after_capture(self):
         """B01: capture 직후 1초 안에 전송 시도 — 동기 request_upload 1회로 전송."""
         res = self._capture("R1")
         result = self._run_with(ok_resp([ack(res.event_id)]))
-        self.assertEqual(result["result"], "success")
+        self.assertEqual(result["result"], "sent")
         self.assertEqual(len(self.posts), 1)
         self.assertEqual(self._outbox(), [])
         row = self.store.connect().execute(
@@ -97,7 +110,7 @@ class UploaderTest(unittest.TestCase):
         """B02: 업로드 5xx 여도 capture 계속."""
         self._capture("R1")
         result = self._run_with(err_resp("server_error", 500))
-        self.assertEqual(result["result"], "deferred")
+        self.assertEqual(result["result"], "cooldown")
         res2 = self._capture("R2")
         self.assertEqual(res2.event_type, "completed_observation")
 
@@ -109,17 +122,18 @@ class UploaderTest(unittest.TestCase):
         self.store = CommunityStore.open(self.tmp)
         res_id = self.store.connect().execute("SELECT event_id FROM outbox").fetchone()["event_id"]
         result = self._run_with(ok_resp([ack(res_id)]), trigger="recovery")
-        self.assertEqual(result["result"], "success")
+        self.assertEqual(result["result"], "sent")
 
     def test_b04_lost_response_retransmit_duplicate(self):
         """B04: 응답 유실 → 재전송 → duplicate 도 durable."""
         res = self._capture("R1")
         first = self._run_with(err_resp("offline", None))
-        self.assertEqual(first["result"], "deferred")
+        self.assertEqual(first["result"], "cooldown")
         with self.store.transaction() as tx:
             tx.execute("UPDATE outbox SET next_retry_at='2000-01-01T00:00:00.000Z'")
+            tx.execute("UPDATE upload_control SET next_attempt_at='2000-01-01T00:00:00.000Z'")  # 대기 시간이 지남
         second = self._run_with(ok_resp([ack(res.event_id, status="duplicate")]), trigger="recovery")
-        self.assertEqual(second["result"], "success")
+        self.assertEqual(second["result"], "sent")
         count = self.store.connect().execute("SELECT COUNT(*) v FROM source_journal").fetchone()["v"]
         self.assertEqual(count, 1)
 
@@ -141,7 +155,7 @@ class UploaderTest(unittest.TestCase):
         import time as _t
         calls = []
 
-        def fake_post(env):
+        def fake_post(env, **kw):
             calls.append(1)
             _t.sleep(0.5)
             return ok_resp([ack(res.event_id)])
@@ -157,19 +171,22 @@ class UploaderTest(unittest.TestCase):
                 thread.join(timeout=30)
         self.assertEqual(len(results), 2)
         self.assertEqual(calls, [1])
-        self.assertEqual(results[0]["run_id"], results[1]["run_id"])
+        # 합류한 manual 은 앞선 실행이 끝난 뒤 자기 실행을 한다(결과를 빌리지 않음) — 보낼 것이 없어 중복 전송은 없다
+        self.assertNotEqual(results[0]["run_id"], results[1]["run_id"])
+        self.assertIn("no_pending", {r["result"] for r in results})
 
     def test_b11_status_branches(self):
         """B11: 401/403/409(conflict)/413/422/429/5xx/timeout 분기."""
         cases = [
-            ("auth_required", 401, "auth_required", "auth_required"),
-            ("consent_revoked", 403, "consent_required", "blocked"),
+            ("auth_required", 401, "needs_auth", "auth_required"),
+            ("consent_revoked", 403, "needs_consent", "blocked"),
             ("conflict-event", 200, "partial", "dead_letter"),
             ("payload_too_large", 413, "partial", "dead_letter"),
-            ("schema_invalid", 422, "partial", "dead_letter"),
-            ("rate_limited", 429, "deferred", "retry_wait"),
-            ("server_error", 500, "deferred", "retry_wait"),
-            ("offline", None, "deferred", "retry_wait"),
+            # 단건 schema_invalid 이고 대조할 다른 이벤트가 없으면 원인을 모르므로 버리지 않고 보류(UC-1)
+            ("schema_invalid", 422, "failed", "retry_wait"),
+            ("rate_limited", 429, "cooldown", "retry_wait"),
+            ("server_error", 500, "cooldown", "retry_wait"),
+            ("offline", None, "cooldown", "retry_wait"),
         ]
         for idx, (code, http_status, run_result, outbox_state) in enumerate(cases):
             with self.subTest(code=code):
@@ -179,10 +196,10 @@ class UploaderTest(unittest.TestCase):
                     resp = ok_resp([ack(res.event_id, status="conflict")])
                 else:
                     resp = err_resp(code, http_status, retry_after=1 if code == "rate_limited" else None)
+                with self.store.transaction() as tx:  # 앞 분기의 cooldown 이 다음 분기를 막지 않게(시간이 지난 것으로)
+                    tx.execute("DELETE FROM upload_control")
                 with mock.patch.object(client, "post_envelope", return_value=resp):
-                    with mock.patch("services.community_auth_service.get_access_token",
-                                    return_value="tok"):
-                        result = up.request_upload("realtime", data_dir=self.tmp)
+                    result = up.request_upload("realtime", data_dir=self.tmp)
                 self.assertEqual(result["result"], run_result, code)
                 row = self.store.connect().execute(
                     "SELECT state FROM outbox WHERE event_id=?", (res.event_id,)).fetchone()
@@ -194,7 +211,7 @@ class UploaderTest(unittest.TestCase):
         res1 = self._capture("R1")
         res2 = self._capture("R2")
 
-        def fake_post(env):
+        def fake_post(env, **kw):
             results = []
             for item in env["events"]:
                 if item["source_report_id"] == "R1":
@@ -224,7 +241,7 @@ class UploaderTest(unittest.TestCase):
         with mock.patch.object(client, "post_envelope") as poster:
             result = up.request_upload("manual", data_dir=self.tmp)
         poster.assert_not_called()
-        self.assertEqual(result["result"], "no_change")
+        self.assertEqual(result["result"], "no_pending")
 
     def test_h02_manual_does_not_read_personal_db(self):
         """H02: 수동 업로드가 개인 DB 를 읽지 않음."""
@@ -232,7 +249,7 @@ class UploaderTest(unittest.TestCase):
         with mock.patch("core.database.engine.get_engine",
                         side_effect=AssertionError("must not touch personal db")):
             result = self._run_with(ok_resp([ack(res.event_id)]), trigger="manual")
-        self.assertEqual(result["result"], "success")
+        self.assertEqual(result["result"], "sent")
 
     def test_h03_journal_kept_after_ack(self):
         """H03: ACK 후 journal 유지."""
@@ -246,11 +263,11 @@ class UploaderTest(unittest.TestCase):
         """H04: 재클릭 no_change."""
         res = self._capture("R1")
         first = self._run_with(ok_resp([ack(res.event_id)]), trigger="manual")
-        self.assertEqual(first["result"], "success")
+        self.assertEqual(first["result"], "sent")
         with mock.patch.object(client, "post_envelope") as poster:
             second = up.request_upload("manual", data_dir=self.tmp)
         poster.assert_not_called()
-        self.assertEqual(second["result"], "no_change")
+        self.assertEqual(second["result"], "no_pending")
 
     def test_sol01_stale_pending_row_of_acked_event_is_removed_not_sent(self):
         """SOL-01(2026-09-26 감사): ACK 된 journal 의 남은 대기 행은 보내지 않고 정리한다(모바일과 같은 단계)."""
@@ -271,7 +288,7 @@ class UploaderTest(unittest.TestCase):
         import time as _t
         calls = []
 
-        def fake_post(env):
+        def fake_post(env, **kw):
             calls.append(1)
             _t.sleep(0.5)
             return ok_resp([ack(res.event_id)])
@@ -296,9 +313,9 @@ class UploaderTest(unittest.TestCase):
         self.store.set_context(**CTX_B)
         self.assertEqual(up.reshare_candidates(data_dir=self.tmp), 1)
         with mock.patch.object(client, "post_envelope",
-                               side_effect=lambda env: ok_resp([ack(e["event_id"]) for e in env["events"]])):
+                               side_effect=lambda env, **kw: ok_resp([ack(e["event_id"]) for e in env["events"]])):
             result = up.request_reshare(data_dir=self.tmp)
-        self.assertEqual(result["result"], "success")
+        self.assertEqual(result["result"], "sent")
         self.assertEqual(result.get("reshared"), 1)
         row = self.store.connect().execute(
             "SELECT event_type, consent_grant_id, captured_at FROM source_journal"
@@ -322,7 +339,7 @@ class UploaderTest(unittest.TestCase):
                                return_value={"state": "blocked", "can_enter": False,
                                              "reasons": ["consent_revoked"], "verified_age": 99.0}):
             result = up.request_upload("manual", data_dir=self.tmp)
-        self.assertEqual(result["result"], "consent_required")
+        self.assertEqual(result["result"], "needs_consent")
 
     def test_refresh_server_completed_replaces(self):
         _check_manifest_contract(self)
@@ -353,7 +370,7 @@ class UploaderBranchesTest(UploaderTest):
     def tearDown(self):
         super().tearDown()
 
-    def _fake_post(self, envelope):
+    def _fake_post(self, envelope, **kw):
         self.post_count += 1
         self.sent.append(envelope)
         if self.next_response is not None:
@@ -375,19 +392,21 @@ class UploaderBranchesTest(UploaderTest):
         self.store = CommunityStore.open(self.tmp)
         with self.store.transaction() as tx:
             tx.execute("UPDATE outbox SET next_retry_at='2000-01-01T00:00:00.000Z'")
+            tx.execute("UPDATE upload_control SET next_attempt_at='2000-01-01T00:00:00.000Z'")  # 대기 시간이 지남
         result = up.request_upload("recovery", data_dir=self.tmp)
-        self.assertEqual(result["result"], "success")
+        self.assertEqual(result["result"], "sent")
 
     def test_b04_offline_then_duplicate_ack(self):
         self._capture()
         self.next_response = IngestResponse(ok=False, http_status=None, code="offline", retryable=True)
         first = up.request_upload("realtime", data_dir=self.tmp)
-        self.assertEqual(first["result"], "deferred")
+        self.assertEqual(first["result"], "cooldown")
         with self.store.transaction() as tx:
             tx.execute("UPDATE outbox SET next_retry_at='2000-01-01T00:00:00.000Z'")
+            tx.execute("UPDATE upload_control SET next_attempt_at='2000-01-01T00:00:00.000Z'")  # 대기 시간이 지남
         self.next_response = None
         second = up.request_upload("recovery", data_dir=self.tmp)
-        self.assertEqual(second["result"], "success")
+        self.assertEqual(second["result"], "sent")
         journal = self.store.connect().execute("SELECT COUNT(*) v FROM source_journal").fetchone()["v"]
         self.assertEqual(journal, 1)
 
@@ -396,7 +415,7 @@ class UploaderBranchesTest(UploaderTest):
             (IngestResponse(ok=False, http_status=401, code="auth_required", retryable=True), "auth_required"),
             (IngestResponse(ok=False, http_status=403, code="consent_revoked"), "blocked"),
             (IngestResponse(ok=False, http_status=413, code="payload_too_large"), "dead_letter"),
-            (IngestResponse(ok=False, http_status=422, code="schema_invalid"), "dead_letter"),
+            (IngestResponse(ok=False, http_status=422, code="schema_invalid"), "retry_wait"),
             (IngestResponse(ok=False, http_status=429, code="rate_limited", retryable=True, retry_after=1),
              "retry_wait"),
             (IngestResponse(ok=False, http_status=500, code="server_error", retryable=True), "retry_wait"),
@@ -407,8 +426,9 @@ class UploaderBranchesTest(UploaderTest):
                 report_id = f"B11-{index}"
                 self._capture(report_id)
                 self.next_response = resp
-                with mock.patch("services.community_auth_service.get_access_token", return_value="tok"):
-                    up.request_upload("realtime", data_dir=self.tmp)
+                with self.store.transaction() as tx:
+                    tx.execute("DELETE FROM upload_control")
+                up.request_upload("realtime", data_dir=self.tmp)
                 row = self.store.connect().execute(
                     "SELECT o.state FROM outbox o JOIN source_journal j ON j.event_id=o.event_id"
                     " WHERE j.source_report_id=?", (report_id,)).fetchone()
@@ -429,7 +449,7 @@ class UploaderBranchesTest(UploaderTest):
         sent_before = self.post_count
         self.store.set_context(**CTX_B)
         result = up.request_upload("manual", data_dir=self.tmp)
-        self.assertEqual(result["result"], "no_change")
+        self.assertEqual(result["result"], "no_pending")
         self.assertEqual(self.post_count, sent_before)
 
     def test_h02_manual_does_not_read_personal_db(self):
@@ -437,7 +457,7 @@ class UploaderBranchesTest(UploaderTest):
         with mock.patch("core.database.engine.get_engine",
                         side_effect=AssertionError("personal DB must not be read")):
             result = up.request_upload("manual", data_dir=self.tmp)
-        self.assertEqual(result["result"], "success")
+        self.assertEqual(result["result"], "sent")
 
     def test_h03_journal_kept_after_ack(self):
         event = self._capture("R1")
@@ -451,9 +471,9 @@ class UploaderBranchesTest(UploaderTest):
     def test_h04_reclick_is_no_change(self):
         self._capture("R1")
         first = up.request_upload("manual", data_dir=self.tmp)
-        self.assertEqual(first["result"], "success")
+        self.assertEqual(first["result"], "sent")
         second = up.request_upload("manual", data_dir=self.tmp)
-        self.assertEqual(second["result"], "no_change")
+        self.assertEqual(second["result"], "no_pending")
         self.assertEqual(self.post_count, 1)
 
     def test_h05_simultaneous_triggers_single_lease(self):
@@ -476,7 +496,7 @@ class UploaderBranchesTest(UploaderTest):
     def test_quarantined_is_durable_with_projection(self):
         event = self._capture("R1")
         self.next_response = ack_response(
-            [EventResult(event_id=event.event_id, status="quarantined", durable=True,
+            [EventResult(event_id=event.event_id, status="quarantined", durable=True, receipt_id=RECEIPT,
                          projection_status="held", error_code="status_mapping_mismatch")])
         result = up.request_upload("realtime", data_dir=self.tmp)
         self.assertEqual(result["counts"]["quarantined"], 1)
@@ -497,7 +517,7 @@ class UploaderBranchesTest(UploaderTest):
         self.store.set_context(**CTX_B)
         self.assertEqual(up.reshare_candidates(data_dir=self.tmp), 1)
         result = up.request_reshare(data_dir=self.tmp)
-        self.assertEqual(result["result"], "success")
+        self.assertEqual(result["result"], "sent")
         rows = self.store.connect().execute(
             "SELECT event_type, consent_grant_id FROM source_journal ORDER BY source_revision").fetchall()
         self.assertEqual(rows[-1]["event_type"], "reshare")
@@ -519,7 +539,7 @@ class UploaderBranchesTest(UploaderTest):
                                return_value={"state": "blocked", "can_enter": False,
                                              "reasons": ["consent_revoked"], "verified_age": 0.0}):
             result = up.request_upload("manual", data_dir=self.tmp)
-        self.assertEqual(result["result"], "consent_required")
+        self.assertEqual(result["result"], "needs_consent")
 
     def test_refresh_server_completed_replaces_atomically(self):
         _check_manifest_contract(self)

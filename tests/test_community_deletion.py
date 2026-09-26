@@ -84,7 +84,7 @@ class DeletionBlockTest(unittest.TestCase):
 
         self.route_delete(central)
         self.assertTrue(seen["pending"])
-        self.assertEqual((seen["upload"]["result"], seen["upload"].get("error_code")), ("deferred", "deletion_cleanup_pending"))
+        self.assertEqual((seen["upload"]["result"], seen["upload"].get("error_code")), ("blocked_gate", "deletion_cleanup_pending"))
         self.assertEqual(seen["reshare"]["error_code"], "deletion_cleanup_pending")
         self.assertEqual(seen["states"], ["prepared"], "중앙 결과 전에는 표시가 그대로")
         self.assertEqual(seen["journal"], {"R1": None, "R9": None}, "중앙 결과 전에는 적용하지 않는다")
