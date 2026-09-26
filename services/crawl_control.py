@@ -87,7 +87,12 @@ def _refuse_ambiguous(numbers) -> None:
     from core.database.engine import get_engine
     from services import report_number_resolver
 
-    bad = report_number_resolver.ambiguous_numbers(get_engine(), numbers)
+    try:
+        bad = report_number_resolver.ambiguous_numbers(get_engine(), numbers)
+    except Exception as exc:  # DB 가 아직 없거나 읽을 수 없으면 막지 않는다 — 크롤러가 목록을 받은 뒤 다시 판정·기록한다
+        from core.utils import logger
+        logger.LoggerFactory.logbot.warning(f"[crawl] 요청 번호 모호성 검사 생략: {type(exc).__name__}")
+        return
     if bad:
         raise ValueError(f"여러 신고에 걸리는 번호라 어느 신고인지 정할 수 없습니다. 정확한 신고번호로 요청하세요: {', '.join(bad[:10])}")
 
