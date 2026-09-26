@@ -204,18 +204,26 @@
         if (!window.confirm('동의를 철회할까요?\n철회하면 이 동의로 보낸 자료가 공개 지도에서 빠지고, 이 프로그램은 필수 설정 화면으로 돌아갑니다.\n다시 동의해도 이전 자료는 자동으로 다시 공개되지 않습니다.')) return;
         act('consent-revoke', { confirm: true }, this, function () { window.location.href = '/onboarding/community'; });
     });
+    // 삭제 응답 → 안내. 두 후처리 문제(대기 사본 정리·업로드 연결 파일)가 함께 생기면 둘 다 알린다.
+    function deletionResultMessage(data) {
+        var n = data.result && typeof data.result.deleted_facts === 'number' ? data.result.deleted_facts : null;
+        var head = '삭제를 요청했습니다' + (n === null ? '.' : ' (' + n + '건).');
+        var issues = [];
+        if (data.local_cleanup_pending) {
+            head = '중앙에서는 삭제했습니다' + (n === null ? '.' : ' (' + n + '건).');
+            issues.push('이 서버의 대기 사본 정리를 끝내지 못했습니다. 정리될 때까지 업로드하지 않으며 다음 업로드 때 다시 시도합니다.');
+        }
+        if (data.writer_reset_pending) {
+            issues.push('이 서버의 업로드 연결 파일을 지우지 못했습니다. 데이터 폴더의 쓰기 권한·여유 공간을 확인해 주세요.');
+        }
+        return issues.length ? { text: head + ' ' + issues.join(' '), level: 'warning' } : { text: head, level: 'success' };
+    }
     if ($('ccDeleteBtn')) $('ccDeleteBtn').addEventListener('click', function () {
         var typed = window.prompt('공유한 자료를 공개 지도·통계에서 삭제합니다. 삭제 전에 수집한 사본은 다시 올릴 수 없습니다.\n계속하려면 "삭제" 를 입력하세요.');
         if (typed !== '삭제') return;
         act('contributions-delete', { confirm: 'DELETE_MY_SHARED_REPORTS' }, this, function (data) {
-            var n = data.result && typeof data.result.deleted_facts === 'number' ? data.result.deleted_facts : null;
-            if (data.local_cleanup_pending) {
-                alertBox('중앙에서는 삭제했지만 이 서버의 대기 사본 정리를 끝내지 못했습니다. 정리될 때까지 업로드하지 않으며 다음 업로드 때 다시 시도합니다.', 'warning');
-            } else if (data.writer_reset_pending) {
-                alertBox('삭제를 요청했습니다' + (n === null ? '' : ' (' + n + '건)') + '. 다만 이 서버의 업로드 연결 파일을 지우지 못했습니다. 데이터 폴더의 쓰기 권한·여유 공간을 확인해 주세요.', 'warning');
-            } else {
-                alertBox('삭제를 요청했습니다' + (n === null ? '.' : ' (' + n + '건).'), 'success');
-            }
+            var r = deletionResultMessage(data);
+            alertBox(r.text, r.level);
         });
     });
 

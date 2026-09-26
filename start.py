@@ -96,20 +96,20 @@ def _prepare_database(engine, reset=False):
     # 크롤링 서브프로세스: 표·열·버전만 확인하고 무거운 정리는 서버 시작 때 한다(S-22). reset 직후엔 비어 있어 정리할 것도 없다.
     database.upgrade_schema(engine, maintenance=False, backup_dir=os.path.join(settings.datapath, "backups"))
 
+def _resolve_report_number_detail(conn, item):
+    """(ID 또는 None, 모호 여부) — services/report_number_resolver 와 같은 규칙(서버 요청 검사와 공유)."""
+    from services import report_number_resolver
+
+    return report_number_resolver.resolve_detail(conn, item)
+
+
 def _resolve_report_number(conn, item):
-    """큐 신고번호 → 내부 ID. 정확 일치 → 'SPP-' 를 붙인 정확 일치 → 부분 일치가 딱 1건일 때만(S-24).
-    예전엔 LIKE '%item%' 의 아무 첫 결과를 썼다."""
-    title = database.title_table
-    for candidate in dict.fromkeys([item, item if item.startswith("SPP-") else f"SPP-{item}"]):
-        found = conn.execute(select(title.c.ID).where(title.c.신고번호 == candidate)).scalar()
-        if found:
-            return found
-    matches = conn.execute(select(title.c.ID).where(title.c.신고번호.like(f"%{item}%")).limit(2)).scalars().all()
-    return matches[0] if len(matches) == 1 else None
+    """큐 신고번호 → 내부 ID(모호하거나 없으면 None). 예전엔 LIKE '%item%' 의 아무 첫 결과를 썼다."""
+    return _resolve_report_number_detail(conn, item)[0]
 
 
-def extract_ids_from_queue(engine, queuelist):
-    """Returns (resolved_ids, missing_report_numbers) tuple."""
+def extract_ids_from_queue(engine, queuelist, id_to_items=None):
+    """Returns (resolved_ids, missing_report_numbers) tuple. id_to_items 를 주면 ID → 큐에 적힌 번호들을 채운다(결과 보고용)."""
     resolved_ids = []
     missing_rnums = []
     with engine.connect() as conn:
@@ -117,15 +117,33 @@ def extract_ids_from_queue(engine, queuelist):
             item = item.strip()
             if not item: continue
             if item.startswith('SPP-') or '-' in item:
-                res = _resolve_report_number(conn, item)
+                # 여기서는 정확 일치만 믿는다. 부분 일치는 목록 전체를 받은 뒤에만 확정한다(감사 R8-01 — DB 에서
+                # 지금 유일해 보여도 최신 목록에 다른 후보가 있을 수 있다).
+                from services import report_number_resolver
+                res = report_number_resolver.resolve_exact(conn, item)
                 if res:
                     resolved_ids.append(res)
+                    if id_to_items is not None:
+                        id_to_items.setdefault(str(res), []).append(item)
                 else:
-                    logger.LoggerFactory.logbot.warning(f"큐 신고번호 {item}의 ID를 찾을 수 없습니다. 목록 크롤링 후 재검색합니다.")
+                    logger.LoggerFactory.logbot.warning(f"큐 신고번호 {item}이(가) 정확히 일치하지 않습니다. 목록 전체를 받은 뒤 다시 찾습니다.")
                     missing_rnums.append(item)
             else:
                 resolved_ids.append(item)
+                if id_to_items is not None:
+                    id_to_items.setdefault(str(item), []).append(item)
     return resolved_ids, missing_rnums
+
+
+def _write_queue_report(queue_file: str, processed, not_found, ambiguous=()) -> None:
+    """큐 번호별 결과 보고(감사 R5-01, services/crawl_queue_report). 못 쓰면 기록만 — 부모가 전부 다시 시도한다."""
+    from services import crawl_queue_report
+
+    try:
+        crawl_queue_report.write(queue_file, processed, not_found, ambiguous)
+    except OSError as exc:
+        logger.LoggerFactory.logbot.error(f"큐 결과 보고를 쓰지 못함(다음에 다시 시도됨): {exc}")
+
 
 def _capture_unavailable_class():
     """T4 services.community_capture.CaptureStoreUnavailable. 없으면 None."""
@@ -350,48 +368,65 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
                 subprocess.run([sys.executable, notifier_path], input=msg, text=True)
 
     # Prepare detail list
+    id_to_items = {}  # 큐 모드: ID → 큐 번호(번호별 결과 보고, R5-01)
+    missing_rnums = []
+    queue_not_found, queue_ambiguous = [], []  # 목록 전 페이지를 성공적으로 훑은 뒤에만 채운다(R6-01·R6-02)
     if args.get("queue_file"):
         with open(args["queue_file"], 'r', encoding='utf-8') as f:
             q_items = f.readlines()
-        detaillist, missing_rnums = extract_ids_from_queue(engine, q_items)
+        detaillist, missing_rnums = extract_ids_from_queue(engine, q_items, id_to_items)
 
-        # DB에 없는 신고번호가 있으면 목록 크롤링으로 탐색(API 방식은 브라우저 없이도 가능)
+        # DB에 없는 신고번호가 있으면 목록 전체를 **한 번** 받아 찾는다(첫 페이지 1회 + 각 페이지 1회, 감사 R7-04).
+        # '없음'·'모호함'은 목록 전 페이지를 성공적으로 받았을 때(list_ok)만 확정한다(R6-01·R7-01) — 호출 실패·잘린 페이지면
+        # 확정하지 않고 큐에 남겨 다음에 다시 찾는다.
         if missing_rnums:
             logger.LoggerFactory.logbot.info(
-                f"미확인 신고번호 {len(missing_rnums)}건을 목록 크롤링으로 탐색합니다."
+                f"미확인 신고번호 {len(missing_rnums)}건을 목록 전체에서 찾습니다."
             )
-            MAX_SEARCH_PAGES = 100
-            for page_num in range(1, MAX_SEARCH_PAGES + 1):
-                if not missing_rnums:
-                    break
-                logger.LoggerFactory.logbot.info(f"목록 탐색 중... 페이지 {page_num} (남은 미확인: {len(missing_rnums)}건)")
-                try:
-                    page_dfs, _ = crawltitle_api.crawl_titles(
-                        driver=driver,
-                        page_range=[page_num],
-                        browser_fallback=api_browser_fallback,
-                    )
-                except Exception as e:
-                    logger.LoggerFactory.logbot.warning(f"페이지 {page_num} 탐색 실패: {e}")
-                    break
-                if not page_dfs:
-                    logger.LoggerFactory.logbot.info(f"페이지 {page_num} 이후 데이터 없음. 탐색 종료.")
-                    break
+            progress = {}
+            try:
+                page_dfs, _ = crawltitle_api.crawl_titles(
+                    driver=driver,
+                    browser_fallback=api_browser_fallback,
+                    progress=progress,
+                )
+            except Exception as e:
+                logger.LoggerFactory.logbot.warning(f"목록 탐색 실패: {e}")
+                page_dfs, progress = [], {"list_ok": False, "first_error": str(e)}
+            search_complete = bool(progress.get("list_ok"))
+            if not search_complete:
+                logger.LoggerFactory.logbot.warning(f"목록 탐색을 끝내지 못했습니다: {progress.get('first_error')}")
+            if page_dfs:
                 database.title_to_sql(dataframes=page_dfs, engine=engine)
-                # 이번 페이지에서 미확인 신고번호 재검색
-                still_missing = []
-                with engine.connect() as conn:
-                    for rnum in missing_rnums:
-                        query = select(database.title_table.c.ID).where(database.title_table.c.신고번호.like(f"%{rnum}%"))
-                        res = conn.execute(query).scalar()
-                        if res:
-                            detaillist.append(res)
-                            logger.LoggerFactory.logbot.info(f"신고번호 {rnum} → ID {res} 발견 (페이지 {page_num})")
-                        else:
-                            still_missing.append(rnum)
-                missing_rnums = still_missing
-            if missing_rnums:
-                logger.LoggerFactory.logbot.warning(f"탐색 완료 후에도 찾지 못한 신고번호: {missing_rnums}")
+            # 받은 목록을 반영한 DB 에서 다시 해석한다. 목록 전체를 받았으면 정확 → 접두어 → 유일한 부분 일치(R6-02),
+            # 일부만 받았으면 **정확 일치만** — 부분 일치를 다른 신고로 확정하지 않고 다음에 다시 찾는다(R8-01).
+            from services import report_number_resolver
+            still_missing, ambiguous_now = [], []
+            with engine.connect() as conn:
+                for rnum in missing_rnums:
+                    if search_complete:
+                        res, ambiguous = _resolve_report_number_detail(conn, rnum)
+                    else:
+                        res, ambiguous = report_number_resolver.resolve_exact(conn, rnum), False
+                    if res:
+                        detaillist.append(res)
+                        id_to_items.setdefault(str(res), []).append(rnum)
+                        logger.LoggerFactory.logbot.info(f"신고번호 {rnum} → ID {res} 발견")
+                    else:
+                        still_missing.append(rnum)
+                        if ambiguous:
+                            ambiguous_now.append(rnum)
+            missing_rnums = still_missing
+            if missing_rnums and search_complete:
+                queue_ambiguous = [r for r in missing_rnums if r in ambiguous_now]
+                queue_not_found = [r for r in missing_rnums if r not in ambiguous_now]
+                if queue_ambiguous:
+                    logger.LoggerFactory.logbot.error(
+                        f"여러 신고에 걸리는 번호라 어느 신고인지 정할 수 없습니다 — 정확한 신고번호로 다시 요청하세요: {queue_ambiguous}")
+                if queue_not_found:
+                    logger.LoggerFactory.logbot.warning(f"목록 전체를 찾아도 없는 신고번호: {queue_not_found}")
+            elif missing_rnums:
+                logger.LoggerFactory.logbot.warning(f"목록 탐색을 끝내지 못해 다음에 다시 찾습니다: {missing_rnums}")
 
         logger.LoggerFactory.logbot.info(f"큐 파일에서 {len(detaillist)}개의 아이템 크롤링 시작.")
     elif args["page_range"]:
@@ -403,6 +438,8 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
 
     if not detaillist:
         logger.LoggerFactory.logbot.info("크롤링할 상세 내역 없음.")
+        if args.get("queue_file"):
+            _write_queue_report(args["queue_file"], [], queue_not_found, queue_ambiguous)
         return []
 
     logger.LoggerFactory.logbot.info(f"상세 크롤링 대상 ID: {len(detaillist)} 건 (순차 처리)")
@@ -417,7 +454,11 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
         browser_fallback=api_browser_fallback,
     )
 
-    changed_item_ids = _save_details_as_they_arrive(engine, detail_stream)
+    saved_ids = set()
+    changed_item_ids = _save_details_as_they_arrive(engine, detail_stream, saved_ids)
+    if args.get("queue_file"):
+        processed = [item for rid in saved_ids for item in id_to_items.get(str(rid), [])]
+        _write_queue_report(args["queue_file"], processed, queue_not_found, queue_ambiguous)
     if settings.telegram_enabled:
         msg = f"2/5. 상세 정보(Detail) 크롤링 {len(detaillist)}건 및 DB 저장을 완료했습니다. (내용 변경/신규 처리: {len(changed_item_ids)}건)"
         # changed_item_ids는 [{"id": ..., "change_type": "신규"/"변경"}] 형식
@@ -429,7 +470,7 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
     
     return changed_item_ids
 
-def _save_details_as_they_arrive(engine, detail_stream):
+def _save_details_as_they_arrive(engine, detail_stream, saved_ids=None):
     """상세를 받는 즉시 1건씩 저장한다(저장 계층 재설계 R2, S-9). 크롤러가 중간에 멈춰도 받은 만큼은 남는다.
     중복군 재계산은 뒤의 merge_final 에서 한 번만 한다."""
     from core.storage import reports_repo
@@ -442,6 +483,8 @@ def _save_details_as_they_arrive(engine, detail_stream):
             except ValueError:
                 continue
             result = reports_repo.save_crawled(engine, [record], refresh_duplicates=False)
+            if result.saved and saved_ids is not None:
+                saved_ids.add(str(record.id))
             changed.extend(result.changed)
             failed.extend(result.failed)
             saved += result.saved

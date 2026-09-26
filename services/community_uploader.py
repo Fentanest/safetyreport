@@ -79,6 +79,9 @@ def _enqueue_missing(trigger: str, data_dir=None) -> int:
         ctx = tx.execute("SELECT * FROM context WHERE id=1").fetchone()
         if ctx is None or ctx["state"] != "active":
             return 0
+        # durable ACK 를 받은 journal 의 대기 행은 정리한다(모바일과 같은 단계 — 2026-09-26 감사 SOL-01).
+        tx.execute("DELETE FROM outbox WHERE state IN ('pending','retry_wait') AND event_id IN"
+                   " (SELECT event_id FROM source_journal WHERE ack_status IS NOT NULL)")
         rows = tx.execute(
             "SELECT j.event_id FROM source_journal j LEFT JOIN outbox o ON o.event_id=j.event_id"
             " WHERE o.event_id IS NULL AND j.ack_status IS NULL"

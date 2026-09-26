@@ -84,6 +84,39 @@ by_law (법규별, 같은 필드 + law)
 - **감시목록**: 원천은 `mysafety_watchlist` 하나. title·merge 의 `감시목록` 열은 `database.refresh_watch_flags` 가 계산(merge_final·감시목록 변경 때). 서버 sync_meta 에는 'watchlist' 키를 두지 않는다(모바일은 sync_meta 'watchlist' 가 원천이라 교환 때 변환).
 - **복원**(`services/db_backup.py` → `core/storage/exchange.py`): 사본에 적용 → 무결성 검사 → 백업(`data/backups/`) → 원자적 교체. 크롤링·지도 좌표 변환 중에는 409.
   모바일 DB 로 복원해도 관리자·API 키·변경 기록은 유지되고 지오코딩 캐시는 합쳐진다. 구버전 앱 DB 에 수정값·중복 판단 표가 없으면 서버 것을 유지.
+- **2026-09-26 감사 보강(SOL-02·03·04, 모바일 레포와 함께 변경)**:
+  - 모르는 열: 변환 대상 표에 계약(`storage-contract.json`)에 없는 열이 있고 그 열에 NULL 아닌 값('' 포함)이 하나라도 있으면
+    교체 전에 거부한다(서버 `exchange.UnknownColumns` → 409 문장, 모바일 `UnknownColumnsException`). 값이 모두 NULL 인 열은 잃는 값이 없어 통과.
+    서버가 아는 모바일 열 목록은 `exchange.known_mobile_columns()` 이고 테스트가 계약과 같은지 검사한다.
+  - entry_value: 서버 `mysafety_entry_value` 행 없음 ↔ 모바일 `reports.entry_value` NULL, 행의 값(빈 문자열 포함) ↔ 같은 값.
+    앱에 열이 있으면 앱 값이 원천(빈 문자열도 덮어씀), 열이 없는 구앱이면 서버 값 유지.
+  - 복원 중 동시 쓰기: 스테이징 복사부터 파일 교체까지 `core/database/write_barrier.exclusive()` 가 운영 DB 연결을 막는다.
+    이미 빌린 연결이 반납될 때까지 기다리고(20초 넘으면 409), 그동안 새 연결은 기다렸다가 교체된 새 파일로 다시 연다.
+    크롤러는 별도 프로세스라 이 장벽 밖이므로, 복원은 `crawl_manager.hold_for_restore()` 로 크롤 시작 검사와 **같은 잠금 안에서**
+    "복원 중" 을 표시한다. 그동안 크롤 시작은 `CrawlBlockedByRestore`(화면 문장), 대기 큐 자동 시작은 신고번호를 큐로 되돌린다(Sol 재검증 SOL-04).
+    크롤 중지(`/crawl/kill`)는 종료 신호 뒤 **실제로 끝난 것을 확인한 다음에만** 프로세스 참조를 지운다(10초 뒤 kill, 그래도 살아 있으면 참조 유지 →
+    복원 계속 거부, 감사 R2-01). 대기 큐는 `data/crawl_pending_queue.json` 에도 남아 재시작 뒤에도 유지되고(시작 때 자동 크롤은 안 함),
+    파일에 쓰지 못하면 대기열에 넣지 않고 오류로 답한다(R3-03).
+    대기 큐 자동 시작(크롤 완료 뒤·복원 뒤)은 `crawl_manager.launch_pending_crawl()` 한 경계(한 번에 하나): 복원 세대를 먼저 읽고
+    일반 크롤과 같은 허용 검사(게이트·1회 초기화) → `start_crawl(prepare=…, restore_generation=…)` 가 **같은 잠금 안에서** 세대가 그대로인지 확인하고
+    (검사 뒤 복원이 있었으면 시작 안 함, R4-03) 시작이 확정된 뒤에만 로그 교체·실행별 큐 파일(`pending_queue_<uuid>.txt`)을 만든다(R4-02).
+    맡은 번호는 '예약'(다른 실행이 다시 맡지 않음)으로 둔다. 자식(`start.py`)은 큐 번호별 결과를 `<큐파일>.done.json`
+    (`services/crawl_queue_report.py`: `processed` = 상세 저장까지 끝남, `not_found`·`ambiguous` = 목록 **전 페이지를 성공적으로** 훑은 뒤에도
+    없음·여러 신고에 걸림 — 목록 호출 실패·잘린 페이지·탐색 상한(100쪽) 도달이면 확정하지 않음, 재해석도 정확→접두어→유일한 부분 일치 규칙,
+    감사 R6-01·R6-02)에 원자적으로 남기고, 부모는 **이 보고에 있는 번호만** 큐에서 뺀다(형식이 틀린 보고는 없는 것으로 봄, R6-05) —
+    종료 코드는 믿지 않는다(로그인 실패도 0 으로 끝날 수 있음, 감사 R5-01). 모호한 번호는 오류 로그로 "정확한 신고번호로 다시 요청" 을 알린다.
+    남은 번호는 예약만 풀려 큐에 남고 1분부터 두 배씩(최대 30분) 늘어나는 간격으로 다시 시도한다 — 게이트·초기화에 막혀도 다시 걸고,
+    서버 기동 때 남은 번호가 있으면 타이머 하나를 건다(R5-02·R6-03). 사용자 크롤 시작(`crawl_control`)도 같은 세대 확인·시작 뒤 로그 교체를 쓰고,
+    번호를 대기 큐에 넣을 때마다 한 번 더 시작을 시도한다 — 요청은 작업자 하나로 합친다(R6-04).
+    미확인 번호는 목록 **전체를 한 번** 받아 찾는다(첫 페이지 1회 + 각 페이지 1회, R7-04). 처리하지 못하고 뺀 번호(없음·모호)는
+    `data/crawl_queue_unresolved.json`(최근 50개)·`/api/v1/crawl/status` 의 `unresolved`·WS `crawl_queue_unresolved` 로 알린다.
+    요청 시점에 이미 여러 신고에 걸리는 번호는 대기열에 넣지 않고 400 으로 거부한다(R7-03) — `/crawl/enqueue`·웹 선택·웹 시작·모바일 `/crawl/start`
+    (실행 중 대기 분기 포함) 모두(R8-02). 큐의 번호는 **정확 일치만** 바로 믿고, 부분 일치는 목록 전체를 성공적으로 받은 뒤에만 확정한다(R8-01).
+    큐 지정 직접 시작도 실행마다 고유 큐 파일(`<queue|mobile_queue|web_selected_queue>_<uuid>.txt`)을 쓰고(R9-01), 시작하지 못하면 그 파일을
+    바로 지운다(R10-03). 끝나면 결과 보고를 읽어 없음·모호 번호를 기록하고 파일을 지운다 — 기록을 저장하지 못하면 보고 파일을 남긴다(R9-02).
+    직접 시작은 대기 큐가 아니므로 처리하지 못한 번호를 자동으로 다시 돌리지 않는다(사용자가 멈춘 크롤을 되살리지 않게, R10-02) — 결과는
+    크롤 로그와 `unresolved` 로 확인한다. 기동 때 남은 파일을 자동 회수하지 않는다(이름만 비슷한 다른 파일을 건드리지 않게, R10-01).
+    시작 알림 실패·준비 실패는 예약이나 임시 파일을 남기지 않는다(R5-03·R5-04).
 - **API 값**: `/api/v1/reports/{traffic,parking,other}` 는 NULL 을 null, 정수 열(별점·synced_at·보완횟수·사진_촬영수)을 정수로 보낸다. 웹 화면 조회는 기존처럼 ''.
 - **변경 알림 payload**(`crawl_changes.json`): NULL 은 '' (표시용).
 - 새 표: `mysafety_report_override`(사용자 수정값), `mysafety_duplicate_decision`(중복 판단), `mysafety_change_log`·`mysafety_change_cursor`(변경 기록) — 쓰기는 R2·R5 부터.
@@ -443,7 +476,7 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 | GET/POST | `/watchlist` | 감시 목록 조회/수정 |
 | POST | `/rating/start` | 모바일 Client 별점 배치 시작 (API 키 인증). 본문 `{report_numbers, score, cause?}` — `cause` 는 공통 사유(선택, 2026-09-25, 코드포인트 1000 초과면 400). 결과는 `logs/current_rating.log` 줄 형식이 계약(모바일이 정규식으로 읽음) |
 | POST | `/crawl/enqueue` | 신고번호 큐 등록 (알림 리스너 연동) |
-| GET | `/crawl/status` | 크롤링 실행 여부 |
+| GET | `/crawl/status` | 크롤링 실행 여부. 추가 필드(하위호환, 2026-09-26 감사 R7-03): `pending`(아직 맡지 않은 대기 번호 수), `unresolved`(대기 큐에서 처리하지 못하고 뺀 번호 최근 50개 — `{number, reason: not_found\|ambiguous, at}`) |
 | GET | `/crawl/done` | 완료 마커 조회 (읽으면 삭제) |
 | GET | `/crawl/results` | 변경 신고 목록 조회 (읽으면 삭제) |
 | GET | `/crawl/config` | crawl_type(늘 api), crawl_mode(늘 full), max_empty_pages — 구앱 호환 필드 |

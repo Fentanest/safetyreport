@@ -55,7 +55,7 @@ class FixtureBlocksSideEffectsTest(unittest.TestCase):
         with mock.patch.object(crawl_manager_module.subprocess, "Popen") as popen:
             with self.assertRaises(ExternalSideEffectBlocked):
                 manager.start_crawl(["python", "start.py"], cwd=".", log_file="unused.log")
-            popen.assert_not_called()
+            self.assertEqual(popen.call_count, 0)  # 호출 인자(환경 변수)를 실패 메시지에 찍지 않는다
         self.assertIn("crawl subprocess", runtime_mode.blocked_actions())
 
     def test_star_rating_thread_not_started(self):

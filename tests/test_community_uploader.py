@@ -252,6 +252,19 @@ class UploaderTest(unittest.TestCase):
         poster.assert_not_called()
         self.assertEqual(second["result"], "no_change")
 
+    def test_sol01_stale_pending_row_of_acked_event_is_removed_not_sent(self):
+        """SOL-01(2026-09-26 감사): ACK 된 journal 의 남은 대기 행은 보내지 않고 정리한다(모바일과 같은 단계)."""
+        res = self._capture("R1")
+        self._run_with(ok_resp([ack(res.event_id)]), trigger="manual")
+        with self.store.transaction() as tx:
+            tx.execute("INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at)"
+                       " VALUES (?, 'pending', 0, 'manual', '2026-09-26T00:00:00Z')", (res.event_id,))
+        for trigger in ("manual", "midnight", "recovery"):
+            with mock.patch.object(client, "post_envelope") as poster:
+                up.request_upload(trigger, data_dir=self.tmp)
+            poster.assert_not_called()
+        self.assertEqual(self._outbox(), [])
+
     def test_h05_simultaneous_triggers_single_lease(self):
         """H05: realtime·manual·midnight 동시 → lease 1개."""
         res = self._capture("R1")
