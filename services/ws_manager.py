@@ -47,8 +47,17 @@ class WsManager:
         logger.info(f"[WS] 클라이언트 종료: {client_id} (남은 {len(self._connections)}개)")
 
     async def broadcast(self, event_type: str, data: dict | None = None):
-        """연결된 모든 클라이언트에게 이벤트를 병렬로 전송합니다."""
+        """연결된 모든 클라이언트에게 이벤트를 병렬로 전송합니다.
+        커뮤니티 게이트가 닫혀 있으면(캐시 만료로 확인 필요 포함) 보내지 않고 연결을 4403 으로 닫는다."""
         if not self._connections:
+            return
+        try:
+            from services import community_gate
+            gate_open = bool(community_gate.evaluate()["can_enter"])
+        except Exception:
+            gate_open = False
+        if not gate_open:
+            await self.close_all(4403, "COMMUNITY_ONBOARDING_REQUIRED")
             return
 
         payload = json.dumps({

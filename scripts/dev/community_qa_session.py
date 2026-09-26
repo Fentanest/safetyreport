@@ -57,6 +57,8 @@ def main() -> int:
     p.add_argument("--consent", action="store_true", help="중앙에 동의도 저장한다(동의 완료 상태)")
     p.add_argument("--revoke", action="store_true", help="이 계정의 활성 동의를 철회한다(동의 필요 상태)")
     p.add_argument("--official-id", help="config.ini [LOGIN] username (writer dataset_key 용)")
+    p.add_argument("--rebuild-done", action="store_true",
+                   help="이 fixture 의 1회 초기화를 '완료'로 기록한다(초기화 게이트 뒤의 기존 동작을 검수할 때만)")
     a = p.parse_args()
 
     data = Path(a.data_dir).resolve()
@@ -111,6 +113,23 @@ def main() -> int:
                                 "via": "safetyreport_server", "accepted": True})
         if r["status"] != 200:
             sys.exit(f"consent failed: {r.get('error', {}).get('code')}")
+    if a.rebuild_done:
+        import uuid
+
+        import settings.settings as app_settings
+        from services import community_rebuild
+        from services.community_store import CommunityStore
+
+        if a.official_id:
+            app_settings._instance.username = a.official_id
+        version, dataset_id, namespace = community_rebuild._scope()
+        if not namespace:
+            sys.exit("--rebuild-done 에는 --official-id 가 필요합니다")
+        now = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
+        with CommunityStore.open(str(data)).transaction() as tx:
+            tx.execute("INSERT INTO rebuild_jobs(run_id, required_version, local_dataset_id, source_account_namespace, state,"
+                       " phase, updated_at, completed_at, list_complete) VALUES (?, ?, ?, ?, 'completed', 'done', ?, ?, 1)",
+                       (f"qa-{uuid.uuid4()}", version, dataset_id, namespace, now, now))
     st = account("status", {})
     print(json.dumps({"data_dir": str(data), "kakao": (st.get("gate") or {}).get("kakao"),
                       "consent": (st.get("consent") or {}).get("state")}, ensure_ascii=False))

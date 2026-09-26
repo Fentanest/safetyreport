@@ -20,7 +20,7 @@ const serve = `"${python}" scripts/dev/fixture_server.py serve --data-dir "${dat
 const serverCommand = communityKey
   ? `"${python}" scripts/dev/fixture_server.py seed --data-dir "${dataDir}" --reset && `
     + `"${python}" scripts/dev/community_qa_session.py --data-dir "${dataDir}" --publishable-key "${communityKey}" `
-    + `--choice ${process.env.SR_COMMUNITY_CHOICE ?? 'A'} --consent --official-id fixture-official && ${serve}`
+    + `--choice ${process.env.SR_COMMUNITY_CHOICE ?? 'A'} --consent --official-id fixture-official --rebuild-done && ${serve}`
   : `${serve} --reset`;
 
 export default defineConfig({

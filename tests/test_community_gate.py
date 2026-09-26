@@ -681,8 +681,38 @@ class GateAppTests(GateTestBase):
             self.main._on_community_gate_change({"state": "consent_required", "can_enter": False})
             close_all.assert_called_once_with(4403, "COMMUNITY_ONBOARDING_REQUIRED")
             close_all.reset_mock()
+            # Sol M-01: 캐시 만료·중앙 장애로 확인이 필요한 상태도 게이트 상실이다 → 닫는다.
             self.main._on_community_gate_change({"state": "verification_required", "can_enter": False})
-            close_all.assert_not_called()
+            close_all.assert_called_once_with(4403, "COMMUNITY_ONBOARDING_REQUIRED")
+
+    def test_broadcast_checks_the_gate_before_sending(self):
+        import asyncio
+
+        from services.ws_manager import WsManager
+
+        class FakeWs:
+            def __init__(self):
+                self.sent, self.closed = [], None
+
+            async def send_text(self, text):
+                self.sent.append(text)
+
+            async def close(self, code, reason=""):
+                self.closed = code
+
+        mgr = WsManager()
+        ws = FakeWs()
+        mgr._connections["t-open"] = ws
+        self.addCleanup(mgr._connections.pop, "t-open", None)
+        self.addCleanup(mgr._connection_meta.pop, "t-open", None)
+        with mock.patch.object(community_gate, "evaluate", return_value={"state": "ok", "can_enter": True}):
+            asyncio.run(mgr.broadcast("crawl_done", {"n": 1}))
+        self.assertEqual(len(ws.sent), 1)
+        with mock.patch.object(community_gate, "evaluate", return_value={"state": "verification_required", "can_enter": False}):
+            asyncio.run(mgr.broadcast("crawl_done", {"n": 2}))
+        self.assertEqual(len(ws.sent), 1, "게이트가 닫히면 보내지 않는다")
+        self.assertEqual(ws.closed, 4403)
+        self.assertNotIn("t-open", mgr._connections)
 
 
 if __name__ == "__main__":

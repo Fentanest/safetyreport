@@ -437,6 +437,10 @@ def _run_upload(run_id: str, trigger: str, data_dir=None) -> dict:
         return {"run_id": run_id, "result": result, "counts": counts, "request_ids": request_ids,
                 "error_code": error_code}
 
+    from services import community_capture as _cap
+    if _cap.deletion_cleanup_pending(data_dir):  # 삭제 뒤 로컬 차단이 끝나기 전에는 아무것도 보내지 않는다(Sol H-03)
+        error_code = "deletion_cleanup_pending"
+        return finish("deferred")
     gate = _gate_check()
     if isinstance(gate, dict) and not gate.get("can_enter", True):
         reasons = gate.get("reasons") or []
@@ -672,6 +676,9 @@ def reshare_candidates(data_dir=None) -> int:
 def request_reshare(data_dir=None) -> dict:
     """최신 eligible 행을 새 event_id·revision·reshare 로 재발급 후 업로드."""
     from services.community_capture import canonical_json as _cj
+    from services import community_capture as _cap
+    if _cap.deletion_cleanup_pending(data_dir):
+        return {"result": "blocked", "count": 0, "error_code": "deletion_cleanup_pending"}
     store = _store(data_dir)
     ctx = store.active_context()
     if ctx is None:
@@ -786,9 +793,9 @@ def refresh_server_completed(data_dir=None, limit: int = 5000) -> bool:
             pass
 
 
-def on_contributions_deleted(data_dir=None) -> None:
+def on_contributions_deleted(data_dir=None, deletion_id: str | None = None) -> None:
     from services import community_capture as _cap
-    _cap.on_contributions_deleted(data_dir)
+    _cap.on_contributions_deleted(data_dir, deletion_id=deletion_id)
 
 
 def outbox_size_warning(data_dir=None, limit_bytes: int = 200 * 1024 * 1024) -> bool:

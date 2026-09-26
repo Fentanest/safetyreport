@@ -114,6 +114,12 @@ class PcLiveStackTest(unittest.TestCase):
         from services.community_store import CommunityStore
         from services.community_gate import CONSENT_TEXT_SHA256, REQUIRED_POLICY_VERSION
 
+        # 관리자 화면의 "카카오 계정으로 연결": 실제 relay(합성 스택의 community-auth-relay)에 연결 요청을 만든다
+        pending = self.service.start()
+        self.assertEqual(pending["state"], "pending", pending)
+        self.assertRegex(pending["pending"]["display_code"], r"^[A-Z0-9]{4}-[A-Z0-9]{4}$")
+        self.assertTrue(pending["pending"]["bootstrap_url"].startswith("http://127.0.0.1:56480/"))
+        self.service.cancel()
         user = self.login("A")
         store = CommunityStore.open(self.tmp)
         # 동의 전: 로그인만으로는 통과하지 않는다

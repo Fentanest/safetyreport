@@ -258,17 +258,16 @@ def _takeover() -> dict:
 def _contributions_delete() -> dict:
     community_gate.invalidate("deletion_requested")
     res = _account_call(lambda c, t: c.delete_contributions(t))
-    try:  # 로컬 대기 행은 지우지 않고 blocked:deleted_by_user 로 바꾼다(T4 제공, 없으면 건너뜀)
+    cas.get_service().store.save_writer(None)  # 중앙이 연결을 모두 폐기했다 → 다음 확인 때 새로 등록
+    local_ok = True
+    try:  # 삭제 시점까지의 로컬 사본을 행 순번 기준으로 영구 제외(Sol H-03). 실패해도 표시가 남아 업로드를 막는다.
         from services import community_uploader
 
-        mark = getattr(community_uploader, "mark_deleted_by_user", None)
-        if mark:
-            mark()
+        community_uploader.on_contributions_deleted(deletion_id=res.get("deletion_id"))
     except Exception:
-        pass
-    cas.get_service().store.save_writer(None)  # 중앙이 연결을 모두 폐기했다 → 다음 확인 때 새로 등록
+        local_ok = False
     return {"result": {k: res.get(k) for k in ("deletion_id", "deleted_facts", "revoked_connections", "deleted_at")},
-            "gate": _regate("deletion_completed")}
+            "local_cleanup_pending": not local_ok, "gate": _regate("deletion_completed")}
 
 
 @router.get("/policy")

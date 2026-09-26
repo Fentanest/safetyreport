@@ -371,8 +371,8 @@ async def community_gate_middleware(request: Request, call_next):
 
 
 def _on_community_gate_change(result: dict) -> None:
-    """게이트를 잃으면 이벤트 WS 를 4403 으로 닫는다(로그 WS 는 자체 GateWatch)."""
-    if not result.get("can_enter") and result.get("state") != "verification_required":
+    """게이트를 잃으면(확인 필요 포함 — Sol M-01) 이벤트 WS 를 4403 으로 닫는다(로그 WS 는 자체 GateWatch)."""
+    if not result.get("can_enter"):
         from services.ws_manager import ws_manager
         ws_manager.close_all_from_thread(4403, "COMMUNITY_ONBOARDING_REQUIRED")
 
