@@ -10,6 +10,19 @@
 
 ## 2026-09-26 (dev, 미배포)
 
+### 커뮤니티 통합 검수 반영 (Opus 통합 + GPT-6-Sol 1~4차 검토)
+
+- 병렬 작업 사이의 fail-open 제거: 업로드·초기화 라우터 등록, 게이트 모듈이 없거나 오류일 때 통과하던 경로(초기화 서비스·크롤 시작·업로더·Client 업로드/초기화)를 fail-closed 로.
+  Client 업로드 실행·초기화 시작은 서버 커뮤니티 사용자와 같은 `X-Community-User-Token` 필요.
+- manifest 를 계약 형식(POST `protocol`·`connection_id`, `key_prefixes`/`next_after`)으로 바꾸고 모든 페이지를 검증, 교체 동안 업로드 lease 를 잡는다.
+- 이벤트 WebSocket 은 게이트를 잃으면(`verification_required` 포함) 4403 으로 닫고, broadcast 도 보내기 전에 게이트를 확인(스레드에서 평가).
+- 공유 자료 삭제: 중앙 요청 **전** community.db 에 `prepared` 표시 → 중앙 성공 뒤에만 `confirmed` 로 바꿔 한 트랜잭션에서 적용
+  (그 시점 journal 최대 rowid 까지 `deleted_by_user`, outbox 차단, `server_completed` 비움). 표시가 있는 동안 업로드·reshare 는 보내지 않는다.
+  4xx 거절이면 자기 표시만 취소, 응답 불명(네트워크·5xx)이면 표시 유지 + 503 `deletion_unconfirmed`(다시 요청 — 여러 번 안전).
+  writer 연결 파일은 로컬 확정 **뒤**에 지우고, 실패하면 `writer_reset_pending`(설정 카드 경고).
+- 테스트: `tests/test_community_deletion.py`(8), `tests/test_community_live_stack.py`(`COMMUNITY_STACK=1`, 합성 로컬 Supabase 스택), 화면 QA 세션 도우미 `scripts/dev/community_qa_session.py`.
+  전체 371 OK(skip 4). 검토 기록: 커뮤니티 지도 저장소 `docs/integration/community-ingest/integration-review-*.md`.
+
 ### 커뮤니티 공개 설정·동의문 패키징 (T8)
 
 - 실행파일(PyInstaller)에 동의문 사본(`contracts/community-ingest/consent/`)과 빌드 때 만든 공개 설정 `community_public.json` 을 넣는다.
