@@ -250,6 +250,27 @@ class LegacyServerDbTests(unittest.TestCase):
         self.assertIsNotNone(database.legacy_reset_info(self.engine))
         self.assertEqual(self._q("SELECT username FROM admin_users"), [("admin",)])
 
+    def test_an_old_db_with_virtual_tables_is_backed_up_and_emptied(self):
+        """Sol 재검증 6: FTS 가상 표를 지우면 그 보조 표도 지워진다 — 뒤이은 보조 표 DROP 이 'no such table' 로 멈추지 않는다."""
+        con = sqlite3.connect(self.path)
+        modules = []
+        for module in ("fts4", "fts5"):
+            try:
+                con.execute(f"CREATE VIRTUAL TABLE old_{module} USING {module}(body)")
+                con.execute(f"INSERT INTO old_{module} (body) VALUES ('옛 검색 색인')")
+                modules.append(module)
+            except sqlite3.OperationalError:
+                pass
+        con.commit()
+        con.close()
+        self.assertTrue(modules, "이 SQLite 에 FTS 모듈이 없음")
+        info = database.reset_legacy_database(self.engine, str(self.backups))
+        self.assertEqual(self._version(), database.SCHEMA_VERSION)
+        self.assertEqual(self._q("SELECT name FROM sqlite_master WHERE name LIKE 'old_fts%'"), [])
+        for module in modules:
+            self.assertEqual(self._q(f"SELECT body FROM old_{module} WHERE old_{module} MATCH '검색'", info["backup"]), [("옛 검색 색인",)])
+        self.assertEqual(self._q("SELECT username FROM admin_users"), [("admin",)])
+
     def test_newer_database_is_refused(self):
         con = sqlite3.connect(self.path)
         con.execute(f"PRAGMA user_version = {database.SCHEMA_VERSION + 1}")

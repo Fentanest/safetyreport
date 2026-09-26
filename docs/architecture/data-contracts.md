@@ -168,7 +168,7 @@ by_law (법규별, 같은 필드 + law)
   이전 버전이면 먼저 쓰기 잠금(명시적 `BEGIN IMMEDIATE`, 최대 `LEGACY_RESET_LOCK_TIMEOUT` 300초 대기)을 잡고 **그 안에서 버전·표를 다시 확인**한다
   (다른 프로세스가 먼저 끝냈으면 ROLLBACK 하고 아무것도 안 함 — 동시 기동 때 비운 뒤 수집한 신고를 다시 지우지 않게, Sol 검토 1).
   → sqlite backup API 로 `data/backups/legacy_v<옛 버전>_<시각>.db` + `integrity_check`(잠금 중에도 읽기는 됨) → 선회전 → 같은 트랜잭션에서
-  남길 표 외 전부 DROP(보기 포함) → 지금 스키마 CREATE·인덱스 → `sync_meta[legacy_reset]` 기록 → `user_version=SCHEMA_VERSION` → COMMIT.
+  남길 표 외 전부 DROP(보기 포함, 가상 표(FTS)를 먼저 지우고 나머지는 IF EXISTS — 보조 표가 함께 지워진다) → 지금 스키마 CREATE·인덱스 → `sync_meta[legacy_reset]` 기록 → `user_version=SCHEMA_VERSION` → COMMIT.
   백업·선회전이 실패하면 아무것도 지우지 않고 서버 시작이 멈춘다. 트랜잭션 안에서 실패하면 전부 되돌아간다.
 - 크롤러(`start.py _prepare_database`)는 이전 버전 DB 면 `--reset` 을 포함해 무엇이든 바꾸기 전에 `LegacyDatabase` 로 멈춘다(비우기는 서버 시작만, Sol 검토 3).
   `--reset` 은 `sync_meta` 를 지울 때 `watchlist` 와 함께 `legacy_reset` 기록도 남긴다.

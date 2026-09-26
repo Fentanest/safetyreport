@@ -552,8 +552,14 @@ def reset_legacy_database(engine, backup_dir: str, *, before_reset=None) -> dict
             views = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='view'")]
             for name in views:
                 conn.execute(f'DROP VIEW "{name}"')
+            # 가상 표(FTS 등)를 먼저 지운다 — 그 보조(shadow) 표가 함께 지워지므로 나머지는 IF EXISTS(Sol 재검증 6, 모바일과 같음).
+            virtual = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE 'CREATE VIRTUAL TABLE%'")]
+            for name in virtual:
+                if name in dropped:
+                    conn.execute(f'DROP TABLE "{name}"')
             for name in dropped:
-                conn.execute(f'DROP TABLE "{name}"')
+                conn.execute(f'DROP TABLE IF EXISTS "{name}"')
             for table in metadata.sorted_tables:
                 if table.name in kept:
                     continue
