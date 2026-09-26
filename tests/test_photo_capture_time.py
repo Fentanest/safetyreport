@@ -131,22 +131,29 @@ class DetailToSqlPhotoTest(unittest.TestCase):
 
 
 class UpgradeSchemaPhotoColumnsTest(unittest.TestCase):
-    def test_old_db_gets_photo_columns(self):
+    def test_old_db_is_not_altered_and_the_reset_db_has_photo_columns(self):
+        """2026-09-26 초기화 크롤링 릴리스: 이전 DB 에 열을 더하지 않는다(업데이트 비활성). 비운 뒤 새로 만든 표에 사진 열이 있다."""
         logger.LoggerFactory.create_logger(mode="crawl")
-        fd, path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "old.db")
+        con = sqlite3.connect(path)
+        con.execute("CREATE TABLE mysafetydetail_parking (ID TEXT PRIMARY KEY, 처리상태 TEXT)")
+        con.commit(); con.close()
+        engine = create_engine(f"sqlite:///{path}")
         try:
-            con = sqlite3.connect(path)
-            con.execute("CREATE TABLE mysafetydetail_parking (ID TEXT PRIMARY KEY, 처리상태 TEXT)")
-            con.commit(); con.close()
-            engine = create_engine(f"sqlite:///{path}")
-            database.upgrade_schema(engine)
+            with self.assertRaises(database.LegacyDatabase):
+                database.upgrade_schema(engine)
             with engine.connect() as conn:
                 cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mysafetydetail_parking)")}
-            engine.dispose()
+            self.assertEqual(cols, {"ID", "처리상태"})
+            database.reset_legacy_database(engine, os.path.join(tmp, "backups"))
+            with engine.connect() as conn:
+                cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mysafetydetail_parking)")}
             self.assertTrue({"사진_첫촬영", "사진_끝촬영", "사진_촬영수"} <= cols)
         finally:
-            os.remove(path)
+            engine.dispose()
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

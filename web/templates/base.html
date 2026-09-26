@@ -255,6 +255,8 @@
             if (!d) return;
             if (ACTIVE[d.state]) {
                 document.getElementById('srRebuildText').textContent = '초기화 크롤링이 진행 중입니다(' + d.state + '). 끝날 때까지 일반 수집이 잠시 막힙니다.';
+            } else if (d.required && d.legacy_reset) {
+                document.getElementById('srRebuildText').textContent = '이전 버전 DB 는 이번 업데이트에서 옮기지 않고 백업한 뒤 비웠습니다. 초기화 크롤링으로 신고를 다시 수집해 주세요.';
             }
             banner.hidden = !(d.required || ACTIVE[d.state]);
         }).catch(function () {});

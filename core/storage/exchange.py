@@ -38,6 +38,39 @@ class RestoreRefused(RuntimeError):
     """지금은 복원할 수 없음(크롤링·지도 변환 중 등). 사용자에게 그대로 보여 줄 문장."""
 
 
+# 모바일 앱 DB 스키마 버전(openDatabase version). contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
+MOBILE_SCHEMA_VERSION = 15
+
+
+class LegacyDatabaseRefused(RestoreRefused):
+    """이번 버전보다 낮은(또는 모르는 새) 스키마의 DB — 2026-09-26 초기화 크롤링 릴리스는 이전 DB 를 가져오지 않는다."""
+
+
+def _file_user_version(path: str) -> int:
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        return int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
+    finally:
+        conn.close()
+
+
+def refuse_other_version(path: str, kind: str) -> None:
+    """가져올 DB 의 스키마 버전이 이 프로그램과 정확히 같아야 한다. 낮으면(이전 버전 DB) 이번 릴리스는 옮기지 않고 거절하고,
+    높으면 모르는 구조라 거절한다. 모바일 LocalDbService 의 가져오기 검사와 같은 규칙."""
+    from core.database import database
+
+    expected = database.SCHEMA_VERSION if kind == "server" else MOBILE_SCHEMA_VERSION
+    label = "서버" if kind == "server" else "모바일 앱"
+    version = _file_user_version(path)
+    if version < expected:
+        raise LegacyDatabaseRefused(
+            f"이전 버전 {label} DB(스키마 {version})는 가져올 수 없습니다(지금 {expected}). "
+            "이번 업데이트는 이전 DB 를 옮기지 않습니다 — 초기화 크롤링으로 안전신문고에서 다시 수집하세요.")
+    if version > expected:
+        raise LegacyDatabaseRefused(
+            f"더 새 버전 {label} DB(스키마 {version})는 가져올 수 없습니다(지금 {expected}). 프로그램을 먼저 업데이트하세요.")
+
+
 # ── 모바일 DB 읽기 ──────────────────────────────────────────────────────────
 
 @dataclass
@@ -363,6 +396,8 @@ def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
 
     dst = settings.db_path
     ensure_restore_allowed(get_engine())
+    if kind in ("server", "mobile"):
+        refuse_other_version(uploaded_path, kind)  # 이전(또는 더 새) 버전 DB 는 가져오지 않는다 — 무엇이든 바꾸기 전에
     snapshot = read_mobile_db(uploaded_path) if kind == "mobile" else None  # 모르는 열 검사 포함 — 장벽 전에
     # (1) 크롤러(별도 프로세스라 쓰기 장벽 밖)는 검사와 같은 잠금 안에서 시작을 막는다 — 검사 직후 시작하는 경쟁 없음.
     # (2) 스테이징 복사부터 교체까지 이 프로세스의 운영 DB 연결을 막는다. 이미 빌린 연결이 반납될 때까지 기다린다(SOL-04).

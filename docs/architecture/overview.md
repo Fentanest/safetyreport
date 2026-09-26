@@ -226,8 +226,10 @@ PyInstaller 단일 바이너리 배포 시 서브프로세스가 `sys.executable
 - Frozen: `sys._MEIPASS` 또는 `os.path.dirname(sys.executable)` 기준
 - Dev: 프로젝트 루트 기준
 
-### DB 자동 마이그레이션
-`upgrade_schema()` — 앱 시작 시 누락 컬럼 자동 `ALTER TABLE`.
+### DB 자동 마이그레이션 (2026-09-27 초기화 크롤링 릴리스: 비활성)
+`upgrade_schema()` — 새 DB 는 지금 스키마로 만들고, 이전 버전 DB 는 옮기지 않는다(열 추가·마이그레이션 코드는 주석으로 남김).
+서버 시작 때 `reset_legacy_database()` 가 이전 버전 DB 를 `data/backups/legacy_v*.db` 로 백업한 뒤 비우고 초기화 크롤링으로 다시 채운다.
+상세: `data-contracts.md` "2026-09-27 이전 버전 DB 처리".
 
 
 <!-- legacy CLAUDE.md 665-682 -->

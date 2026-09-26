@@ -18,7 +18,11 @@
     <div class="card card-custom mb-3">
         <div class="card-body small">
             <ul class="mb-2 ps-3">
-                <li><strong>내 신고 데이터는 지우지 않습니다.</strong> 시작 전에 개인 DB 백업을 <code>data/backups/</code> 에 만들고, 이미 있는 신고는 새 값으로만 갱신합니다.</li>
+                <li id="rbKeepNote"><strong>내 신고 데이터는 지우지 않습니다.</strong> 시작 전에 개인 DB 백업을 <code>data/backups/</code> 에 만들고, 이미 있는 신고는 새 값으로만 갱신합니다.</li>
+                <li id="rbLegacyNote" class="d-none"><strong>이전 버전 DB 는 이번 업데이트에서 새 구조로 옮기지 않았습니다.</strong>
+                    이전 DB 전체를 <code id="rbLegacyBackup">data/backups/</code> 에 백업한 뒤 신고 자료를 비웠습니다.
+                    관리자 계정·API 키·감시목록·지도 좌표 캐시는 그대로 두었고, 신고는 초기화 크롤링으로 안전신문고에서 다시 수집합니다.
+                    예전에 직접 수정한 값·중복 판단·메모는 옮겨지지 않으니 필요하면 다시 지정해 주세요. 이전 DB 는 이 버전에서 가져올 수 없습니다.</li>
                 <li>종결된 신고를 포함해 목록 전체의 상세를 다시 읽습니다. 신고 수에 따라 오래 걸릴 수 있고, 중간에 멈추거나 프로그램을 다시 켜도 이어서 진행합니다.</li>
                 <li>한 번 끝나면 다시 실행하지 않습니다. 개인 DB 를 복원하거나 안전신문고 계정을 바꾸면 다시 필요할 수 있습니다.</li>
                 <li>진행 중에는 일반 수집(수동·예약)만 잠시 막히고, 다른 화면은 그대로 쓸 수 있습니다.</li>
@@ -62,7 +66,8 @@
         awaiting_confirmation: ['확인 대기', 'text-bg-info'], preparing_backup: ['백업 중', 'text-bg-info'],
         running: ['진행 중', 'text-bg-info'], paused: ['일시 중지', 'text-bg-secondary'], validating: ['확인 중', 'text-bg-info'],
         committing: ['마무리 중', 'text-bg-info'], completed: ['완료', 'text-bg-success'],
-        completed_with_gaps: ['완료(일부 제외)', 'text-bg-success'], failed: ['실패', 'text-bg-danger'], abandoned: ['중단됨', 'text-bg-secondary']
+        completed_with_gaps: ['완료(일부 제외)', 'text-bg-success'], failed: ['실패', 'text-bg-danger'], abandoned: ['중단됨', 'text-bg-secondary'],
+        not_required: ['필요 없음', 'text-bg-success']
     };
     var REASON = { official_account_missing: '먼저 설정 화면에서 안전신문고 계정을 저장해 주세요.', gate: '카카오 인증·공유 동의 확인이 필요합니다.',
                    manifest_unavailable: '커뮤니티 서버에서 이미 공유한 목록을 받지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.' };
@@ -97,6 +102,9 @@
         });
         $('rbCounts').textContent = parts.length ? parts.join(' · ') : '-';
         $('rbBackup').textContent = last.backup_ref || '-';
+        var legacy = last.legacy_reset;
+        show('rbLegacyNote', !!legacy); show('rbKeepNote', !legacy);
+        if (legacy && legacy.backup) $('rbLegacyBackup').textContent = legacy.backup;
         $('rbError').textContent = last.last_error || (last.reason ? (REASON[last.reason] || last.reason) : '-');
         var st = last.state;
         show('rbStartBtn', st === 'required' || st === 'failed' || st === 'prerequisites_required');

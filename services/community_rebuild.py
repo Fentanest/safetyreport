@@ -165,17 +165,84 @@ def _phase_for(job: dict | None) -> str:
     return "idle"
 
 
+FRESH_INSTALL_BASELINE = "fresh_install"
+
+
+def _personal_db_facts() -> tuple[int | None, dict | None]:
+    """(개인 DB 신고 수, 이전 DB 를 비운 기록). 파일이 없으면 (0, None), 읽지 못하면 신고 수 None(새 설치로 보지 않음)."""
+    import json
+    import settings.settings as app_settings
+
+    path = app_settings.db_path
+    if not path or not os.path.exists(path):
+        return 0, None
+    title = getattr(app_settings, "table_title", "mysafety")
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return None, None
+    try:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        count = int(conn.execute(f'SELECT count(*) FROM "{title}"').fetchone()[0]) if title in tables else 0
+        legacy = None
+        if "mysafety_sync_meta" in tables:
+            row = conn.execute("SELECT value FROM mysafety_sync_meta WHERE key='legacy_reset'").fetchone()
+            if row and row[0]:
+                try:
+                    legacy = json.loads(row[0])
+                except ValueError:
+                    legacy = {"raw": str(row[0])[:200]}
+        return count, legacy if isinstance(legacy, dict) else None
+    except sqlite3.Error:
+        return None, None
+    finally:
+        conn.close()
+
+
+def _is_fresh_install() -> bool:
+    """새 설치: 개인 DB 에 신고가 없고, 이전 버전 DB 를 비운 기록도 없다(2026-09-26 결정 — 처음 실행은 안내 없이 평소대로).
+    비운 기록이 있으면 신고가 0건이어도 기존 사용자라 안내한다."""
+    count, legacy = _personal_db_facts()
+    return count == 0 and legacy is None
+
+
+def _record_fresh_baseline(version: str, dataset_id: str, namespace: str) -> None:
+    """새 설치: 다시 읽을 기존 신고가 없으니 이 범위 키를 완료로 적는다(빈 목록 완료와 같은 뜻). 첫 수집은 일반 크롤이 한다."""
+    import json as _json
+
+    now = _iso(_now())
+    store = _store()
+    with store.transaction() as tx:
+        exists = tx.execute(
+            "SELECT 1 FROM rebuild_jobs WHERE required_version=? AND local_dataset_id=? AND source_account_namespace=? LIMIT 1",
+            (version, dataset_id, namespace)).fetchone()
+        if exists is not None:
+            return  # 이미 시작한 run 이 있으면 건드리지 않는다
+        tx.execute(
+            "INSERT INTO rebuild_jobs(run_id, required_version, local_dataset_id, source_account_namespace, state, phase,"
+            " confirmed_at, started_at, updated_at, completed_at, list_complete, counts_json)"
+            " VALUES (?, ?, ?, ?, 'completed', 'done', ?, ?, ?, ?, 1, ?)",
+            (uuid.uuid4().hex, version, dataset_id, namespace, FRESH_INSTALL_BASELINE, now, now, now,
+             _json.dumps({"baseline": FRESH_INSTALL_BASELINE})))
+
+
 def required() -> bool:
-    """이 범위 키에 completed/completed_with_gaps 행이 없으면 True."""
+    """이 범위 키에 completed/completed_with_gaps 행이 없으면 True. 새 설치(_is_fresh_install)는 False — 공식 계정이 있으면
+    그 자리에서 완료 기준선을 적어, 첫 일반 크롤로 신고가 생긴 뒤에도 다시 필요해지지 않는다."""
     version, dataset_id, namespace = _scope()
     if not namespace:
-        return True  # 공식 계정 없이는 초기화 자체가 필요 상태
+        return not _is_fresh_install()  # 공식 계정 없이는 초기화 자체가 필요 상태(새 설치는 안내하지 않음)
     store = _store()
     row = store.connect().execute(
         "SELECT 1 FROM rebuild_jobs WHERE required_version=? AND local_dataset_id=?"
         " AND source_account_namespace=? AND state IN ('completed','completed_with_gaps') LIMIT 1",
         (version, dataset_id, namespace)).fetchone()
-    return row is None
+    if row is not None:
+        return False
+    if _active_job() is None and _is_fresh_install():
+        _record_fresh_baseline(version, dataset_id, namespace)
+        return False
+    return True
 
 
 def blocking_state() -> dict | None:
@@ -188,27 +255,42 @@ def blocking_state() -> dict | None:
     return None
 
 
+def _legacy_reset_summary() -> dict | None:
+    """이전 버전 DB 를 비운 기록(안내 화면용): 이전 스키마 버전·백업 경로·남긴 표·시각."""
+    _, legacy = _personal_db_facts()
+    if not legacy:
+        return None
+    return {k: legacy.get(k) for k in ("from_version", "backup", "kept", "at")}
+
+
 def status() -> dict:
-    """비밀·토큰 없는 화면 표시용 상태."""
+    """비밀·토큰 없는 화면 표시용 상태. `legacy_reset` 은 이전 버전 DB 를 비웠을 때만 값이 있다(추가 필드)."""
+    needed = required()  # 새 설치면 여기서 완료 기준선을 적는다
+    legacy = _legacy_reset_summary()
     job = _active_job() or _latest_job()
     if job is None:
         version, _, namespace = _scope()
+        if not needed:
+            return {"required": False, "state": "not_required", "phase": "idle",
+                    "run_id": None, "counts": _counts("__none__"),
+                    "backup_ref": None, "last_error": None,
+                    "required_version": version, "legacy_reset": legacy}
         if not namespace:
             return {"required": True, "state": "prerequisites_required",
                     "phase": "idle", "run_id": None, "counts": _counts("__none__"),
                     "backup_ref": None, "last_error": None,
                     "reason": "official_account_missing",
-                    "required_version": version}
+                    "required_version": version, "legacy_reset": legacy}
         return {"required": True, "state": "required", "phase": "idle",
                 "run_id": None, "counts": _counts("__none__"),
                 "backup_ref": None, "last_error": None,
-                "required_version": version}
+                "required_version": version, "legacy_reset": legacy}
     run_id = job["run_id"]
-    return {"required": required(), "state": job["state"],
+    return {"required": needed, "state": job["state"],
             "phase": _phase_for(job), "run_id": run_id,
             "counts": _counts(run_id), "backup_ref": job.get("backup_ref"),
             "last_error": job.get("last_error"),
-            "required_version": job.get("required_version")}
+            "required_version": job.get("required_version"), "legacy_reset": legacy}
 
 
 # ── 쓰기 ─────────────────────────────────────────────────────────────────────

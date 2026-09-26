@@ -8,7 +8,16 @@
 `REQUIRED_VERSION = "source-rebuild-2026-09-26.1"`,
 `source_account_namespace = sha256("safetyreport-dataset|v1|" + 공식 로그인 ID 소문자·trim)`
 (설정 `[LOGIN] username` = `settings.username`, 없으면 `prerequisites_required`).
-완료 판정은 이 키의 `completed`/`completed_with_gaps` 행 유무. 새 설치도 같은 job 하나로 첫 전체 수집을 겸한다.
+완료 판정은 이 키의 `completed`/`completed_with_gaps` 행 유무.
+
+## 새 설치·이전 버전 DB (2026-09-27)
+
+- 새 설치(`_is_fresh_install`: 개인 DB `mysafety` 0건 ∧ `sync_meta[legacy_reset]` 없음)는 초기화가 필요 없다. `required()` 가 공식 계정이 있으면
+  완료 기준선 행(`state=completed`, `confirmed_at='fresh_install'`, `counts_json={"baseline":"fresh_install"}`)을 한 번 적는다 — 첫 일반 크롤로 신고가 생겨도
+  다시 필요해지지 않는다. 공식 계정이 없으면 적지 않고 `status()` 가 `state=not_required`. 개인 DB 를 읽지 못하면 새 설치로 보지 않는다.
+  첫 수집은 일반 크롤이 하고 capture 는 평소대로 `report_latest` 에 쓴다. 배너·크롤 409 가 나오지 않는다.
+- 이전 버전 DB 를 비운 기존 사용자(`legacy_reset` 있음)는 신고가 0건이어도 필요. `status()` 의 `legacy_reset`(`from_version`·`backup`·`kept`·`at`, 추가 필드)으로
+  `/onboarding/rebuild` 가 "이전 DB 는 옮기지 않고 백업 뒤 비움" 안내를, `base.html` 배너가 같은 뜻의 문구를 보인다. 비우기는 `data-contracts.md` "2026-09-27 이전 버전 DB 처리".
 
 ## 상태 보관
 

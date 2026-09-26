@@ -28,8 +28,10 @@ def _title_df(rows):
 class RebuildEnv:
     """게이트 통과·manifest 통과·런처 기록. 개별 테스트에서 can_enter 등을 바꾼다."""
 
-    def __init__(self, testcase, *, login="Tester@Example.com"):
+    def __init__(self, testcase, *, login="Tester@Example.com", existing_reports=True):
         self.testcase = testcase
+        # 기본은 기존 사용자(개인 DB 에 신고가 있음) — 초기화 크롤링이 필요하다. False 면 새 설치(빈 개인 DB).
+        self.existing_reports = existing_reports
         self.tmp = tempfile.mkdtemp(prefix="rebuild-")
         self.launches = []
         self.gate_state = {"state": "linked", "can_enter": True, "reasons": []}
@@ -70,10 +72,28 @@ class RebuildEnv:
         # 개인 DB 엔진(목록 반영용).
         fd, self.personal_db = tempfile.mkstemp(suffix=".db", prefix="personal-")
         os.close(fd)
+        os.remove(self.personal_db)  # 빈 파일이 아니라 새 DB 로 만든다(빈 파일은 표 없는 새 DB 와 같다)
         self.engine = create_engine(f"sqlite:///{self.personal_db}")
         database.upgrade_schema(self.engine)
+        if self.existing_reports:
+            self.add_report("900")
+        # 새 설치 판정(community_rebuild._personal_db_facts)이 이 개인 DB 를 보게 한다.
+        p4 = mock.patch.object(app_settings, "db_path", self.personal_db)
+        p4.start()
+        self._patches.append(p4)
         t.addCleanup(self.uninstall)
         return self
+
+    def add_report(self, report_id):
+        with self.engine.begin() as conn:
+            conn.execute(database.title_table.insert().values(ID=report_id, 신고번호=f"SPP-{report_id}"))
+
+    def mark_legacy_reset(self, backup="/tmp/legacy_v0_x.db"):
+        import json
+        with self.engine.begin() as conn:
+            conn.execute(database.sync_meta_table.insert().values(
+                key=database.LEGACY_RESET_META_KEY,
+                value=json.dumps({"from_version": 0, "backup": backup, "kept": ["admin_users"], "dropped": [], "at": "t"})))
 
     def _inject(self, name, module):
         # 실제 모듈이 이미 import 됐으면 `from services import x` 는 패키지 속성을 먼저 본다 → 둘 다 바꾼다.
@@ -87,6 +107,11 @@ class RebuildEnv:
     def uninstall(self):
         for p in reversed(self._patches):
             p.stop()
+        # db_path 를 바꿔 둔 동안 처음 만들어진 전역 엔진(lru_cache)이 이 개인 DB 를 가리키면 비운다(다음 테스트로 새지 않게).
+        from core.database.engine import get_engine
+        if get_engine.cache_info().currsize and get_engine().url.database == self.personal_db:
+            get_engine().dispose()
+            get_engine.cache_clear()
         CommunityStore._forget(os.path.join(self.tmp, "community.db"))
         try:
             self.engine.dispose()
@@ -147,6 +172,71 @@ class RebuildEnv:
 def _setUp_env(t, **kwargs):
     env = RebuildEnv(t, **kwargs).install()
     return env
+
+
+class FreshInstallAndLegacyResetTest(unittest.TestCase):
+    """2026-09-26: 처음 실행(빈 개인 DB)은 초기화 안내 없이 평소대로, 이전 버전 DB 를 비운 기존 사용자는 안내한다."""
+
+    def _rows(self):
+        return CommunityStore.open().connect().execute(
+            "SELECT state, confirmed_at, counts_json FROM rebuild_jobs").fetchall()
+
+    def test_fresh_install_needs_no_rebuild_and_records_a_baseline_once(self):
+        env = _setUp_env(self, existing_reports=False)
+        self.assertFalse(rebuild.required())
+        rows = self._rows()
+        self.assertEqual([(r["state"], r["confirmed_at"]) for r in rows], [("completed", rebuild.FRESH_INSTALL_BASELINE)])
+        payload = rebuild.status()
+        self.assertFalse(payload["required"])
+        self.assertIsNone(payload["legacy_reset"])
+        self.assertIsNone(rebuild.blocking_state())
+        # 첫 일반 크롤로 신고가 생겨도 다시 필요해지지 않는다(기준선이 남아 있음).
+        env.add_report("901")
+        self.assertFalse(rebuild.required())
+        self.assertEqual(len(self._rows()), 1)
+        again = rebuild.start("tester")
+        self.assertEqual(again["state"], "completed")
+        self.assertEqual(env.launches, [])
+
+    def test_fresh_install_without_official_account_is_not_announced(self):
+        env = _setUp_env(self, existing_reports=False)
+        with mock.patch.object(app_settings, "username", None):
+            self.assertFalse(rebuild.required())
+            payload = rebuild.status()
+            self.assertEqual((payload["required"], payload["state"]), (False, "not_required"))
+        self.assertEqual(self._rows(), [])  # 범위 키를 모르니 기록하지 않는다
+        self.assertFalse(rebuild.required())  # 계정을 저장하면 그때 기준선
+        self.assertEqual(len(self._rows()), 1)
+        self.assertEqual(env.launches, [])
+
+    def test_existing_reports_still_require_the_rebuild(self):
+        _setUp_env(self)
+        self.assertTrue(rebuild.required())
+        self.assertEqual(rebuild.status()["state"], "required")
+        self.assertEqual(self._rows(), [])
+
+    def test_legacy_reset_user_is_guided_even_with_an_empty_db(self):
+        env = _setUp_env(self, existing_reports=False)
+        env.mark_legacy_reset(backup="/data/backups/legacy_v0_20260926_000000.db")
+        self.assertTrue(rebuild.required())
+        payload = rebuild.status()
+        self.assertEqual(payload["state"], "required")
+        self.assertEqual(payload["legacy_reset"]["backup"], "/data/backups/legacy_v0_20260926_000000.db")
+        self.assertEqual(payload["legacy_reset"]["from_version"], 0)
+        with mock.patch.object(app_settings, "username", None):
+            self.assertTrue(rebuild.required())
+        started = rebuild.start("tester")
+        self.assertEqual(started["state"], "running")
+        self.assertEqual(started["legacy_reset"]["from_version"], 0)
+        self.assertEqual(env.launches, [started["run_id"]])
+
+    def test_unreadable_personal_db_is_not_treated_as_a_fresh_install(self):
+        env = _setUp_env(self, existing_reports=False)
+        env.engine.dispose()
+        with open(env.personal_db, "wb") as fh:
+            fh.write(b"not a database")
+        self.assertTrue(rebuild.required())
+        self.assertEqual(self._rows(), [])
 
 
 class NamespaceTest(unittest.TestCase):

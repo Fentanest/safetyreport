@@ -265,12 +265,18 @@ def migrate_by_entry_value(engine):
 
 
 def upgrade_schema(engine, *, maintenance: bool = True, backup_dir: str | None = None):
-    """표·열 추가와 번호 붙은 마이그레이션은 항상, 무거운 정리 작업(entry_value 재분류·synced_at 백필·상태 정규화·중복군 재계산)은
-    maintenance=True 일 때만(서버 시작·복원). 크롤링 서브프로세스는 maintenance=False 로 가볍게 부른다(S-22).
-    backup_dir 을 주면, DB 스키마 버전이 코드보다 낮을 때 무엇이든 바꾸기 전에 그 폴더로 DB 를 복사해 둔다(업데이트 직후 첫 기동)."""
+    """표 만들기(새 DB)·빠진 표 만들기·인덱스, 그리고 maintenance=True 일 때(서버 시작·복원) 중복군 재계산.
+    크롤링 서브프로세스는 maintenance=False 로 가볍게 부른다(S-22).
+
+    이번 릴리스(초기화 크롤링 `source-rebuild-2026-09-26.1`)는 **이전 DB 업데이트 로직을 끈다**: 열 추가(ALTER), 번호 붙은 마이그레이션,
+    감시목록 열 이관, entry_value 재분류, synced_at 백필, 상태 정규화, 업그레이드 전 백업은 아래에 주석으로 남겼다.
+    이 버전보다 낮은 DB 는 여기서 고치지 않고 LegacyDatabase 로 멈춘다 — 서버 시작은 reset_legacy_database() 로 백업 뒤 비우고
+    초기화 크롤링이 다시 채운다. 복원(가져오기)은 거절한다. backup_dir 은 호출 호환용으로만 받는다."""
     _refuse_newer_schema(engine)
-    if backup_dir:
-        backup_before_upgrade(engine, backup_dir)
+    _refuse_legacy_schema(engine)
+    # [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스]
+    # if backup_dir:
+    #     backup_before_upgrade(engine, backup_dir)
     inspector = inspect(engine)
     with engine.connect() as connection:
         try:
@@ -278,48 +284,58 @@ def upgrade_schema(engine, *, maintenance: bool = True, backup_dir: str | None =
             logger.LoggerFactory.logbot.debug("SQLite WAL 모드 활성화됨 (동시성 최적화)")
         except Exception:
             pass
-            
+
         existing_tables = inspector.get_table_names()
         for table in metadata.sorted_tables:
             if table.name not in existing_tables:
                 logger.LoggerFactory.logbot.info(f"테이블 '{table.name}' 생성 중...")
                 table.create(connection)
-                if table.name == 'mysafety_watchlist':
-                    if settings.table_merge_traffic in existing_tables and settings.table_merge_other in existing_tables:
-                        try:
-                            migrate_query = text(f"""
-                                INSERT OR IGNORE INTO mysafety_watchlist (신고번호)
-                                SELECT 신고번호 FROM {settings.table_merge_traffic} WHERE 감시목록 = 'Y'
-                                UNION
-                                SELECT 신고번호 FROM {settings.table_merge_other} WHERE 감시목록 = 'Y'
-                            """)
-                            connection.execute(migrate_query)
-                            logger.LoggerFactory.logbot.info("기존 감시목록 데이터를 완벽하게 이관했습니다.")
-                        except Exception as e:
-                            logger.LoggerFactory.logbot.error(f"감시목록 데이터 이관 중 오류 발생: {e}")
-            else:
-                existing_columns = [col['name'] for col in inspector.get_columns(table.name)]
-                for column in table.columns:
-                    if column.name not in existing_columns:
-                        logger.LoggerFactory.logbot.warning(f"'{table.name}' 테이블에 '{column.name}' 컬럼을 추가합니다.")
-                        column_type = column.type.compile(engine.dialect)
-                        alter_query = text(f'ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}')
-                        try:
-                            connection.execute(alter_query)
-                        except Exception as e:
-                            logger.LoggerFactory.logbot.error(f"스키마 업그레이드 오류: {e}")
+                # [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 옛 merge 표의 감시목록 열 → 감시목록 표 이관
+                # if table.name == 'mysafety_watchlist':
+                #     if settings.table_merge_traffic in existing_tables and settings.table_merge_other in existing_tables:
+                #         try:
+                #             migrate_query = text(f"""
+                #                 INSERT OR IGNORE INTO mysafety_watchlist (신고번호)
+                #                 SELECT 신고번호 FROM {settings.table_merge_traffic} WHERE 감시목록 = 'Y'
+                #                 UNION
+                #                 SELECT 신고번호 FROM {settings.table_merge_other} WHERE 감시목록 = 'Y'
+                #             """)
+                #             connection.execute(migrate_query)
+                #             logger.LoggerFactory.logbot.info("기존 감시목록 데이터를 완벽하게 이관했습니다.")
+                #         except Exception as e:
+                #             logger.LoggerFactory.logbot.error(f"감시목록 데이터 이관 중 오류 발생: {e}")
+            # [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 있는 표에 빠진 열 추가
+            # else:
+            #     existing_columns = [col['name'] for col in inspector.get_columns(table.name)]
+            #     for column in table.columns:
+            #         if column.name not in existing_columns:
+            #             logger.LoggerFactory.logbot.warning(f"'{table.name}' 테이블에 '{column.name}' 컬럼을 추가합니다.")
+            #             column_type = column.type.compile(engine.dialect)
+            #             alter_query = text(f'ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}')
+            #             try:
+            #                 connection.execute(alter_query)
+            #             except Exception as e:
+            #                 logger.LoggerFactory.logbot.error(f"스키마 업그레이드 오류: {e}")
+        for statement in _index_statements():
+            connection.execute(text(statement))
+        if not existing_tables:
+            # 새 DB: 지금 스키마로 만들었으니 버전만 적는다(마이그레이션을 돌리지 않는다).
+            connection.execute(text(f"PRAGMA user_version = {SCHEMA_VERSION}"))
         connection.commit()
 
-    _apply_versioned_migrations(engine)
+    # [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스]
+    # _apply_versioned_migrations(engine)
     if not maintenance:
         return
-    migrate_by_entry_value(engine)
-    backfill_synced_at(engine)
-    normalized_rows = _normalize_processing_layers(engine)
-    if normalized_rows:
-        merge_final(engine)
-    else:
-        _refresh_duplicate_groups(engine)
+    # [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 옛 형식 자료 정리(재분류·synced_at 백필·상태 정규화)
+    # migrate_by_entry_value(engine)
+    # backfill_synced_at(engine)
+    # normalized_rows = _normalize_processing_layers(engine)
+    # if normalized_rows:
+    #     merge_final(engine)
+    # else:
+    #     _refresh_duplicate_groups(engine)
+    _refresh_duplicate_groups(engine)
 
 
 # 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다.
@@ -355,8 +371,9 @@ def _migration_3_duplicate_decisions(conn):
     ))
 
 
-def _migration_4_indexes(conn):
-    """R2d: 자주 거르는 열에 인덱스(S-33). 신고번호(감시목록·별점·큐), 종결여부(재크롤링 대상), 중복 멤버의 신고 ID."""
+def _index_statements() -> list[str]:
+    """자주 거르는 열의 인덱스(S-33). 신고번호(감시목록·별점·큐), 종결여부(재크롤링 대상), 중복 멤버의 신고 ID.
+    스키마의 일부라 새 DB·--reset 뒤에도 upgrade_schema 가 매번(IF NOT EXISTS) 만든다."""
     statements = [
         'CREATE INDEX IF NOT EXISTS ix_mysafety_report_number ON mysafety ("신고번호")',
         'CREATE INDEX IF NOT EXISTS ix_duplicate_member_report ON mysafety_duplicate_member (report_id)',
@@ -364,7 +381,12 @@ def _migration_4_indexes(conn):
     for category in ("traffic", "parking", "other"):
         statements.append(f'CREATE INDEX IF NOT EXISTS ix_merge_{category}_report_number ON mysafetymerge_{category} ("신고번호")')
         statements.append(f'CREATE INDEX IF NOT EXISTS ix_detail_{category}_closed ON mysafetydetail_{category} ("종결여부")')
-    for statement in statements:
+    return statements
+
+
+def _migration_4_indexes(conn):
+    """R2d: 인덱스(_index_statements)."""
+    for statement in _index_statements():
         conn.execute(text(statement))
 
 
@@ -400,6 +422,164 @@ def _refuse_newer_schema(engine):
     if current > SCHEMA_VERSION:
         # 더 새 서버가 만든 DB. 모르는 구조를 건드리지 않도록 upgrade 전에 멈춘다.
         raise RuntimeError(f"DB 스키마 버전 {current} 은 이 서버({SCHEMA_VERSION})보다 새 버전입니다. 서버를 업데이트하세요.")
+
+
+# ── 이전 버전 DB (2026-09-26 초기화 크롤링 릴리스) ─────────────────────────────
+# 이번 릴리스는 이전 DB 를 새 구조로 옮기지 않는다(upgrade_schema 의 업데이트 로직 주석 처리). 이 버전보다 낮은 DB 는
+# 서버 시작 때 reset_legacy_database() 가 통째로 백업한 뒤 신고 자료를 비우고, 초기화 크롤링이 안전신문고에서 다시 채운다.
+# 가져오기(복원)는 거절한다(core/storage/exchange.py). 모바일 LocalDbService.resetLegacyDatabase 와 같은 규칙이다.
+
+#: 구조가 그대로라 옮기는 코드 없이 남기는 표. admin_users·api_keys 는 서버 전용(관리자 로그인·모바일 연결),
+#: 감시목록·지오코딩 캐시는 모바일과 같다(모바일은 sync_meta 의 watchlist 값과 geocode_cache 표).
+LEGACY_KEEP_TABLES = ("admin_users", "api_keys", "mysafety_watchlist", "mysafety_geocode_cache")
+#: 없어지면 서버에 들어갈 수 없거나 모바일 연결이 끊기는 표 — 구조가 다르면 비우지 않고 멈춘다.
+LEGACY_REQUIRED_KEEP = ("admin_users", "api_keys")
+LEGACY_RESET_META_KEY = "legacy_reset"
+LEGACY_BACKUP_PREFIX = "legacy_v"
+
+
+class LegacyDatabase(RuntimeError):
+    """이번 버전보다 낮은 스키마의 DB. 이번 릴리스는 옮기지 않는다."""
+
+
+def _user_tables(conn) -> list[str]:
+    return [row[0] for row in conn.execute(text(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"))]
+
+
+def is_legacy_database(engine) -> bool:
+    """표가 하나라도 있는데 스키마 버전이 이 서버보다 낮으면 True(새 DB·이미 최신은 False)."""
+    with engine.connect() as conn:
+        version = int(conn.execute(text("PRAGMA user_version")).scalar() or 0)
+        return version < SCHEMA_VERSION and bool(_user_tables(conn))
+
+
+def _refuse_legacy_schema(engine):
+    if is_legacy_database(engine):
+        raise LegacyDatabase(
+            f"DB 스키마 버전 {get_schema_version(engine)} 은 이 서버({SCHEMA_VERSION})보다 이전 버전입니다. "
+            "이번 업데이트는 이전 DB 를 옮기지 않습니다 — 초기화 크롤링으로 다시 수집하세요.")
+
+
+def _keepable(conn, name: str) -> bool:
+    """남길 표의 열(이름·타입·NOT NULL·기본키)이 지금 스키마와 정확히 같을 때만 True."""
+    table = metadata.tables[name]
+    actual = [(r[1], str(r[2]).upper(), bool(r[3]), bool(r[5]))
+              for r in conn.exec_driver_sql(f'PRAGMA table_info("{name}")')]
+    expected = [(c.name, str(c.type.compile(dialect=conn.dialect)).upper(), not c.nullable or c.primary_key, c.primary_key)
+                for c in table.columns]
+    return actual == expected
+
+
+def _backup_file_db(db_path: str, target: str) -> None:
+    """sqlite backup API 로 복사(WAL 에만 있던 내용 포함) + integrity_check. 실패하면 사본을 지우고 예외."""
+    import sqlite3
+
+    source = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    dest = sqlite3.connect(target)
+    try:
+        source.backup(dest)
+    finally:
+        dest.close()
+        source.close()
+    check = sqlite3.connect(target)
+    try:
+        result = check.execute("PRAGMA integrity_check").fetchone()[0]
+    finally:
+        check.close()
+    if result != "ok":
+        try:
+            os.remove(target)
+        except OSError:
+            pass
+        raise RuntimeError(f"이전 DB 백업 무결성 검사 실패: {result}")
+
+
+def reset_legacy_database(engine, backup_dir: str, *, before_reset=None) -> dict | None:
+    """이전 버전 DB 면: 통째로 백업 → (before_reset 호출) → 한 트랜잭션으로 남길 표 외 전부 지우고 지금 스키마로 다시 만든다.
+    반환: {from_version, backup, kept, dropped, at} (이전 버전 DB 가 아니면 None). 백업이 실패하면 아무것도 지우지 않고 예외.
+
+    남기는 표는 LEGACY_KEEP_TABLES 중 구조가 지금과 같은 것. 관리자·API 키 표의 구조가 다르면 지우지 않고 멈춘다.
+    결과는 sync_meta[legacy_reset] 에 남겨 초기화 크롤링 안내 화면이 보여 준다."""
+    import json
+    import sqlite3
+    from sqlalchemy.schema import CreateIndex, CreateTable
+
+    _refuse_newer_schema(engine)
+    if not is_legacy_database(engine):
+        return None
+    db_path = engine.url.database
+    if not db_path or db_path == ":memory:" or not os.path.exists(db_path):
+        raise LegacyDatabase("파일이 아닌 이전 버전 DB 는 비울 수 없습니다.")
+    from_version = get_schema_version(engine)
+    with engine.connect() as conn:
+        tables = _user_tables(conn)
+        kept = [name for name in LEGACY_KEEP_TABLES if name in tables and _keepable(conn, name)]
+    broken = [name for name in LEGACY_REQUIRED_KEEP if name in tables and name not in kept]
+    if broken:
+        raise LegacyDatabase(f"이전 DB 의 {', '.join(broken)} 표 구조가 달라 비우지 않았습니다. DB 를 그대로 두고 멈춥니다.")
+
+    os.makedirs(backup_dir, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup = os.path.join(backup_dir, f"{LEGACY_BACKUP_PREFIX}{from_version}_{stamp}.db")
+    _backup_file_db(db_path, backup)
+    logger.LoggerFactory.logbot.info(f"[schema] 이전 버전 DB(v{from_version}) 백업: {backup}")
+    if before_reset is not None:
+        before_reset()
+
+    dropped = [name for name in tables if name not in kept]
+    at = datetime.now().isoformat(timespec="seconds")
+    info = {"from_version": from_version, "backup": backup, "kept": kept, "dropped": dropped, "at": at}
+    engine.dispose()
+    dialect = engine.dialect
+    conn = sqlite3.connect(db_path, isolation_level=None)  # 명시적 BEGIN — DDL 까지 한 트랜잭션(중간에 멈춰 반쯤 지운 DB 없음)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            views = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='view'")]
+            for name in views:
+                conn.execute(f'DROP VIEW "{name}"')
+            for name in dropped:
+                conn.execute(f'DROP TABLE "{name}"')
+            for table in metadata.sorted_tables:
+                if table.name in kept:
+                    continue
+                conn.execute(str(CreateTable(table).compile(dialect=dialect)))
+                for index in table.indexes:
+                    conn.execute(str(CreateIndex(index).compile(dialect=dialect)))
+            for statement in _index_statements():
+                conn.execute(statement)
+            conn.execute(f"INSERT INTO {sync_meta_table.name} (key, value) VALUES (?, ?)",
+                         (LEGACY_RESET_META_KEY, json.dumps(info, ensure_ascii=False)))
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            conn.execute("COMMIT")
+        except BaseException:
+            conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
+    logger.LoggerFactory.logbot.warning(
+        f"[schema] 이전 버전 DB(v{from_version})를 옮기지 않고 비웠습니다. 남긴 표: {kept}. 초기화 크롤링으로 다시 수집합니다.")
+    return info
+
+
+def legacy_reset_info(engine) -> dict | None:
+    """reset_legacy_database 가 남긴 기록(없으면 None)."""
+    import json
+
+    try:
+        with engine.connect() as conn:
+            value = conn.execute(select(sync_meta_table.c.value).where(
+                sync_meta_table.c.key == LEGACY_RESET_META_KEY)).scalar()
+    except Exception:
+        return None
+    if not value:
+        return None
+    try:
+        info = json.loads(value)
+    except ValueError:
+        return None
+    return info if isinstance(info, dict) else None
 
 
 PRE_UPGRADE_BACKUP_PREFIX = "before_schema_v"

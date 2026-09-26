@@ -135,6 +135,7 @@ class SchedulerSplitTest(unittest.TestCase):
 
 def _mobile_db(path: Path):
     con = sqlite3.connect(path)
+    con.execute(f"PRAGMA user_version = {exchange.MOBILE_SCHEMA_VERSION}")  # 지금 앱 버전(이전 버전 앱 DB 는 거절된다)
     con.executescript(
         """
         CREATE TABLE reports (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT, 만족도조사여부 TEXT, 별점 INTEGER,
