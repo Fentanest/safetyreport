@@ -49,6 +49,32 @@ def _build_command(*, crawl_mode: str = "full", queue_file: str | None = None):
     return command
 
 
+def _build_rebuild_command(run_id: str):
+    """초기화 크롤 명령. --reset 은 절대 붙지 않는다."""
+    command = _build_command()
+    command.extend(["--force", "--rebuild", str(run_id)])
+    return command
+
+
+def _check_crawl_allowed():
+    """일반 크롤 시작 전 게이트·초기화 확인(fail-closed: 확인 중 오류도 시작하지 않는다)."""
+    from services import community_gate as gate
+    from services import community_rebuild as rebuild
+
+    try:
+        fresh = gate.require_fresh(max_age=60.0)
+    except Exception:
+        raise RuntimeError("COMMUNITY_ONBOARDING_REQUIRED") from None
+    if not fresh.get("can_enter"):
+        raise RuntimeError("COMMUNITY_ONBOARDING_REQUIRED")
+    try:
+        blocked = rebuild.required() or rebuild.blocking_state() is not None
+    except Exception:
+        raise RuntimeError("COMMUNITY_REBUILD_REQUIRED") from None
+    if blocked:
+        raise RuntimeError("COMMUNITY_REBUILD_REQUIRED")
+
+
 def _write_queue_file(filename: str, queue_content: str):
     path = os.path.join(settings.datapath, filename)
     with open(path, "w", encoding="utf-8") as file_obj:
@@ -78,6 +104,28 @@ def _start_after_crawl_hook(log_file: str):
 
 
 @_serialized
+def start_rebuild(run_id: str):
+    """초기화 크롤 시작. 기존 락·로그·after hook 을 재사용한다."""
+    from services.crawl_manager import crawl_manager as _manager
+
+    if _manager.is_crawling():
+        raise RuntimeError("크롤링이 이미 실행 중입니다.")
+    command = _build_rebuild_command(run_id)
+    log_file = _write_log_header(
+        f"=== [초기화 크롤링] run {run_id} ===",
+        rotate_existing=True,
+    )
+    if not _manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file):
+        raise RuntimeError("크롤링 프로세스를 시작하지 못했습니다.")
+    ws_manager.broadcast_from_thread(
+        "crawl_started",
+        {"source": "community_rebuild", "run_id": str(run_id), "crawl_type": "api"},
+    )
+    _start_after_crawl_hook(log_file)
+    return log_file
+
+
+@_serialized
 def start_crawl(
     *,
     crawl_mode: str,
@@ -88,6 +136,8 @@ def start_crawl(
 ):
     if crawl_manager.is_crawling():
         raise RuntimeError("크롤링이 이미 실행 중입니다.")
+
+    _check_crawl_allowed()
 
     crawl_mode = normalize_crawl_mode(crawl_mode)
     configure_crawl_settings(crawl_mode=crawl_mode)
@@ -121,6 +171,8 @@ def enqueue_report(report_number: str):
     normalized = str(report_number).strip()
     if not normalized:
         raise ValueError("report_number is required")
+
+    _check_crawl_allowed()
 
     if crawl_manager.is_crawling():
         queue_size = crawl_manager.append_to_pending(normalized)
@@ -161,6 +213,8 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
 
     if not normalized:
         raise ValueError("report_numbers is required")
+
+    _check_crawl_allowed()
 
     if crawl_manager.is_crawling():
         queue_size = 0

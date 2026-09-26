@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Request, Form, WebSocket, WebSocketDisconnect
+from core.utils import ws_auth
+from services import community_gate
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import asyncio
@@ -29,11 +31,18 @@ def crawl_dashboard(request: Request):
     })
 
 
+def _community_blocked(status: int, code: str) -> JSONResponse:
+    return JSONResponse({"status": "error", "code": code, "message": community_gate.BLOCK_MESSAGES[code]}, status_code=status)
+
+
 @router.post("/start")
 def start_crawl(
     queue_list: str = Form(""),
     crawl_mode: str = Form("full"),
 ):
+    blocked = community_gate.crawl_block()
+    if blocked:
+        return _community_blocked(*blocked)
     try:
         crawl_control.start_crawl(
             crawl_mode=crawl_mode,
@@ -42,7 +51,10 @@ def start_crawl(
             header="=== 크롤링 작업 시작 ===",
             broadcast_source="web_start",
         )
-    except RuntimeError:
+    except RuntimeError as exc:
+        if community_gate.block_code(exc):
+            return _community_blocked(409 if community_gate.block_code(exc) == community_gate.REBUILD_REQUIRED else 403,
+                                      community_gate.block_code(exc))
         return JSONResponse({"status": "error", "message": "크롤링이 이미 실행 중입니다. (수동 또는 스케줄러)."})
     except Exception as exc:
         return JSONResponse({"status": "error", "message": f"오류: {exc}"})
@@ -61,6 +73,9 @@ def kill_crawl():
 def enqueue_selected_crawl(req: QueueCrawlReq):
     if not req.report_numbers:
         return JSONResponse({"status": "error", "message": "신고번호를 하나 이상 선택해주세요."})
+    blocked = community_gate.crawl_block()
+    if blocked:
+        return _community_blocked(*blocked)
     try:
         result = crawl_control.enqueue_reports(req.report_numbers, source="web_selected")
     except ValueError as exc:
@@ -100,7 +115,10 @@ def export_sheet():
 
 @router.websocket("/ws/logs")
 async def websocket_logs(websocket: WebSocket):
+    if not await ws_auth.authorize(websocket):  # 관리자 세션 또는 API 키 + 커뮤니티 게이트
+        return
     await websocket.accept()
+    watch = ws_auth.GateWatch()
     log_file = os.path.join(settings.datapath, "logs", "current_crawl.log")
 
     try:
@@ -108,6 +126,9 @@ async def websocket_logs(websocket: WebSocket):
             await websocket.send_text("로그 파일을 대기 중입니다...\n")
             while not os.path.exists(log_file):
                 await asyncio.sleep(1)
+                if await watch.lost():
+                    await websocket.close(code=ws_auth.CLOSE_GATE)
+                    return
 
         if os.path.exists(log_file):
             with open(log_file, "r", encoding="utf-8", errors="replace") as file_obj:
@@ -119,6 +140,9 @@ async def websocket_logs(websocket: WebSocket):
 
         while True:
             await asyncio.sleep(0.5)
+            if await watch.lost():
+                await websocket.close(code=ws_auth.CLOSE_GATE)
+                return
             if not os.path.exists(log_file):
                 continue
 

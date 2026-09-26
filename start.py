@@ -21,9 +21,17 @@ def _parse_args():
         "force": '--force' in sys.argv,
         "reset": '--reset' in sys.argv,
         "queue_file": None,
-        "page_range": None
+        "page_range": None,
+        "rebuild": None,
     }
-    
+
+    if '--rebuild' in sys.argv:
+        try:
+            r_index = sys.argv.index('--rebuild')
+            args["rebuild"] = sys.argv[r_index + 1]
+        except (ValueError, IndexError):
+            pass
+
     if '--queue' in sys.argv:
         try:
             q_index = sys.argv.index('--queue')
@@ -119,8 +127,192 @@ def extract_ids_from_queue(engine, queuelist):
                 resolved_ids.append(item)
     return resolved_ids, missing_rnums
 
+def _capture_unavailable_class():
+    """T4 services.community_capture.CaptureStoreUnavailable. 없으면 None."""
+    try:
+        from services.community_capture import CaptureStoreUnavailable
+        return CaptureStoreUnavailable
+    except ImportError:
+        return None
+
+
+def _rebuild_list_labels(titlelist):
+    """이번 목록의 ID → 상태(C_NOW 라벨). 영구 실패 pointer(last_list_label)용."""
+    labels = {}
+    for df in titlelist or []:
+        try:
+            if "ID" in df.columns and "상태" in df.columns:
+                for row in df[["ID", "상태"]].itertuples(index=False):
+                    labels[str(row[0])] = row[1]
+        except Exception:
+            continue
+    return labels
+
+
+def _rebuild_register_list(engine, run_id, titlelist, *, list_ok, note="list_incomplete"):
+    """목록 전 페이지 성공 때만 ID 전부 등록 + list_complete=1. 실패면 job failed."""
+    from services import community_rebuild as rebuild
+
+    if not list_ok:
+        logger.LoggerFactory.logbot.error(f"[rebuild] 목록 수집 실패 — job failed ({note})")
+        rebuild.mark_list_failed(run_id, note)
+        return False
+    report_ids = []
+    for df in titlelist or []:
+        try:
+            report_ids.extend(str(value) for value in df["ID"].tolist())
+        except Exception:
+            continue
+    # 개인 DB 목록 반영(실패 경로는 손대지 않는다). 빈 목록이면 아무 것도 안 한다.
+    new_report_numbers = database.title_to_sql(dataframes=titlelist, engine=engine) if report_ids else []
+    rebuild.register_list(run_id, report_ids)
+    logger.LoggerFactory.logbot.info(
+        f"[rebuild] 목록 등록 완료: {len(report_ids)}건 (신규 {len(new_report_numbers)}건)")
+    return True
+
+
+def _rebuild_consume_details(engine, run_id, target_ids, detail_stream, sink, list_labels):
+    """상세를 받는 즉시 저장 + rebuild_items 갱신. 반환: changed 목록."""
+    from core.storage import reports_repo
+    from services import community_rebuild as rebuild
+
+    CaptureUnavailable = _capture_unavailable_class()
+    changed = []
+    saved = 0
+    parser_errors = 0
+    auth_seen = False
+
+    def _note_parser_error(item):
+        nonlocal parser_errors
+        parser_errors += 1
+        guess = None
+        try:
+            first = list(item)[0]
+            rows = first.to_dict("records")
+            if rows:
+                guess = str(rows[0].get("ID"))
+        except Exception:
+            guess = None
+        if guess:
+            rebuild.record_item(run_id, guess, "retryable", note="parse_error")
+
+    try:
+        for item in detail_stream:
+            try:
+                record = reports_repo.CrawledDetail.from_legacy_tuple(item)
+            except ValueError:
+                _note_parser_error(item)
+                continue
+            try:
+                result = reports_repo.save_crawled(engine, [record], refresh_duplicates=False)
+            except Exception as exc:
+                if CaptureUnavailable is not None and isinstance(exc, CaptureUnavailable):
+                    raise
+                logger.LoggerFactory.logbot.error(f"[rebuild] ID {record.id} 저장 예외: {exc}")
+                rebuild.record_item(run_id, record.id, "retryable", note=str(exc)[:200])
+                continue
+            saved += result.saved
+            failed_ids = {rid for rid, _ in result.failed}
+            if record.id in failed_ids:
+                note = next((msg for rid, msg in result.failed if rid == record.id), "save_failed")
+                rebuild.record_item(run_id, record.id, "retryable", note=str(note)[:200])
+            else:
+                rebuild.record_item(run_id, record.id, "fetched")
+            changed.extend(result.changed)
+            # 방금 도달한 상세에서 auth 실패가 보이면 run 전체 paused(auth).
+            for rid, (outcome, _note) in sink.items():
+                if outcome == "auth":
+                    auth_seen = True
+                    break
+            if auth_seen:
+                break
+    except Exception as exc:
+        if CaptureUnavailable is not None and isinstance(exc, CaptureUnavailable):
+            logger.LoggerFactory.logbot.error(f"[rebuild] capture 저장소 불가 — 수집 중단: {exc}")
+            rebuild.mark_store_unavailable(run_id)
+            return []
+        logger.LoggerFactory.logbot.error(f"[rebuild] 상세 크롤링이 중간에 멈췄습니다({saved}건까지 저장됨): {exc}")
+
+    # 스트림에 안 나온 ID 는 sink 분류대로. auth 로 중단됐으면 손대지 않은 건 pending 유지.
+    for target in target_ids:
+        if target not in sink:
+            if auth_seen:
+                continue
+            rebuild.record_item(run_id, target, "retryable", note="not_fetched")
+            continue
+        outcome, note = sink[target]
+        if outcome == "ok":
+            continue
+        if outcome == "auth":
+            auth_seen = True
+            continue
+        rebuild.record_item(run_id, target, outcome, note=str(note)[:200],
+                            list_label=list_labels.get(target))
+    if parser_errors:
+        rebuild.note_counts(run_id, parser_errors=parser_errors)
+        logger.LoggerFactory.logbot.warning(f"[rebuild] 파서 오류 {parser_errors}건")
+    if auth_seen:
+        logger.LoggerFactory.logbot.warning("[rebuild] 로그인 만료 — run paused(auth)")
+        rebuild.mark_paused_auth(run_id)
+    logger.LoggerFactory.logbot.info(f"[rebuild] 상세 저장 {saved}건 (변경/신규 {len(changed)}건)")
+    return changed
+
+
+def _run_rebuild_process(driver, engine, args, api_browser_fallback=False):
+    """초기화 크롤: 전 페이지 성공 때만 목록 등록 → 미완료 items 만 상세 → 상태 갱신."""
+    from services import community_rebuild as rebuild
+
+    run_id = args.get("rebuild")
+    store_job = rebuild._get_job(run_id)
+    if store_job is None:
+        logger.LoggerFactory.logbot.error(f"[rebuild] run {run_id} 없음 — 초기화 크롤을 시작하지 않습니다.")
+        return []
+
+    logger.LoggerFactory.logbot.info(f"[rebuild] 목록 수집 시작 (run {run_id})")
+    progress: dict = {}
+    try:
+        titlelist, _last_page = crawltitle_api.crawl_titles(
+            driver=driver,
+            browser_fallback=api_browser_fallback,
+            progress=progress,
+        )
+    except Exception as exc:
+        logger.LoggerFactory.logbot.error(f"[rebuild] 목록 수집 예외: {exc}")
+        rebuild.mark_list_failed(run_id, f"list_error: {exc}")
+        return []
+    list_ok = progress.get("list_ok")
+    if list_ok is None:
+        # progress 를 모르는 가짜 크롤러 대비: 비어 있으면 실패, 있으면 성공으로 본다.
+        list_ok = bool(titlelist)
+        note = progress.get("first_error") or "list_incomplete"
+    else:
+        note = progress.get("first_error") or "list_incomplete"
+    list_ok = bool(list_ok)
+    if not _rebuild_register_list(engine, run_id, titlelist, list_ok=list_ok, note=str(note)):
+        return []
+
+    list_labels = _rebuild_list_labels(titlelist)
+    targets = rebuild.pending_detail_ids(run_id)
+    if not targets:
+        logger.LoggerFactory.logbot.info("[rebuild] 상세 대상 없음 (빈 목록 또는 전부 fetched)")
+        return []
+
+    logger.LoggerFactory.logbot.info(f"[rebuild] 상세 크롤링 대상 {len(targets)}건 (checkpoint: 미완료만)")
+    sink: dict = {}
+    detail_stream = crawldetail_api.crawl_details(
+        driver=driver,
+        report_ids=targets,
+        browser_fallback=api_browser_fallback,
+        status_sink=sink,
+    )
+    return _rebuild_consume_details(engine, run_id, targets, detail_stream, sink, list_labels)
+
+
 def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
     """API 방식 크롤링(레거시 Selenium HTML 크롤링은 2026-09-25 제거). driver 는 브라우저 비상 경로에서만 있다."""
+    if args.get("rebuild"):
+        return _run_rebuild_process(driver, engine, args, api_browser_fallback)
+
     last_page = 0
     titlelist = []
     
@@ -333,6 +525,11 @@ def main():
     engine = get_engine()
     _prepare_database(engine, reset=args["reset"])
 
+    rebuild_run_id = args.get("rebuild")
+    if rebuild_run_id:
+        # T4 capture 가 run id 를 알 수 있게 환경변수로 전달한다.
+        os.environ["SAFETYREPORT_REBUILD_RUN_ID"] = str(rebuild_run_id)
+
     driver = None
     api_browser_fallback = False
     try:
@@ -367,6 +564,14 @@ def main():
         )
     except Exception as e:
         logger.LoggerFactory.logbot.error(f"실행 중 치명적 오류 발생: {e}")
+        if rebuild_run_id:
+            # 로그인 실패·403 등은 성공이 아니다 — job failed 로 기록한다(0건 성공 금지).
+            try:
+                from services import community_rebuild as _rebuild
+
+                _rebuild.mark_login_failed(rebuild_run_id, f"login_failed: {e}")
+            except Exception:
+                pass
         changed_item_ids = []
     finally:
         if driver:

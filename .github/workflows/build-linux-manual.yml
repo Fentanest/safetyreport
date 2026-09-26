@@ -73,6 +73,10 @@ jobs:
         echo "upx_path=$UPX_PATH" >> "$GITHUB_OUTPUT"
 
     - name: Build Linux executable with PyInstaller
+      env:
+        COMMUNITY_SUPABASE_URL: ${{ vars.COMMUNITY_SUPABASE_URL }}  # 공개값(저장소 Variables) — 비밀 금지
+        COMMUNITY_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_PUBLISHABLE_KEY }}  # 공개값(저장소 Variables) — 비밀 금지
+        COMMUNITY_SITE_URL: ${{ vars.COMMUNITY_SITE_URL }}  # 공개값(저장소 Variables) — 비밀 금지
       run: ./venv/bin/python scripts/build/build_exe.py
 
     - name: Compress Linux executable with UPX

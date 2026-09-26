@@ -19,6 +19,8 @@
 | 설정·DB·API·WS·완료 마커 계약 | [docs/architecture/data-contracts.md](docs/architecture/data-contracts.md) |
 | 크롤러·파서·처리 규칙 | [docs/architecture/crawling-and-processing.md](docs/architecture/crawling-and-processing.md) |
 | 현재 웹UI 동작 규칙 | [docs/architecture/web-ui.md](docs/architecture/web-ui.md) |
+| 커뮤니티 계정·필수 게이트·초기화·공유 업로드 | [community-account](docs/architecture/community-account.md) · [community-gate](docs/architecture/community-gate.md) · [community-rebuild](docs/architecture/community-rebuild.md) · [community-upload](docs/architecture/community-upload.md), 계약 사본 `contracts/community-ingest/` |
+| 커뮤니티 계정 연결(safeauth) | [docs/architecture/community-account.md](docs/architecture/community-account.md) |
 | 원래 CLAUDE.md 원문과 이관 대응표 | [docs/architecture/README.md](docs/architecture/README.md) |
 | 웹UI 리뉴얼 설계 정본 | [docs/design/ui-renewal-spec.md](docs/design/ui-renewal-spec.md) |
 | 기능 보존표 / 참고 이미지 목록 | [docs/design/feature-matrix.csv](docs/design/feature-matrix.csv) · [docs/design/asset-manifest.csv](docs/design/asset-manifest.csv) |

@@ -1,0 +1,137 @@
+{
+  "contract": "schedule-v1",
+  "keys": [
+    {
+      "name": "just_before_midnight_kst",
+      "now": "2026-09-26T14:59:59Z",
+      "due_key": "midnight:2026-09-26",
+      "next_due_at": "2026-09-26T15:00:00Z"
+    },
+    {
+      "name": "exactly_midnight_kst",
+      "now": "2026-09-26T15:00:00Z",
+      "due_key": "midnight:2026-09-27",
+      "next_due_at": "2026-09-27T15:00:00Z"
+    },
+    {
+      "name": "utc_midday",
+      "now": "2026-09-26T03:00:00Z",
+      "due_key": "midnight:2026-09-26",
+      "next_due_at": "2026-09-26T15:00:00Z"
+    },
+    {
+      "name": "kst_morning_is_previous_utc_day",
+      "now": "2026-09-25T23:30:00Z",
+      "due_key": "midnight:2026-09-26",
+      "next_due_at": "2026-09-26T15:00:00Z"
+    },
+    {
+      "name": "month_end",
+      "now": "2026-09-30T15:00:01Z",
+      "due_key": "midnight:2026-10-01",
+      "next_due_at": "2026-10-01T15:00:00Z"
+    },
+    {
+      "name": "year_end",
+      "now": "2026-12-31T14:59:59.999Z",
+      "due_key": "midnight:2026-12-31",
+      "next_due_at": "2026-12-31T15:00:00Z"
+    },
+    {
+      "name": "new_year",
+      "now": "2026-12-31T15:00:00Z",
+      "due_key": "midnight:2027-01-01",
+      "next_due_at": "2027-01-01T15:00:00Z"
+    },
+    {
+      "name": "leap_day",
+      "now": "2028-02-28T15:00:00Z",
+      "due_key": "midnight:2028-02-29",
+      "next_due_at": "2028-02-29T15:00:00Z"
+    }
+  ],
+  "decisions": [
+    {
+      "name": "first_run_today",
+      "now": "2026-09-26T03:00:00Z",
+      "runs": {},
+      "should_run": true
+    },
+    {
+      "name": "already_succeeded",
+      "now": "2026-09-26T03:00:00Z",
+      "runs": {
+        "midnight:2026-09-26": {
+          "state": "succeeded"
+        }
+      },
+      "should_run": false
+    },
+    {
+      "name": "deferred_retries",
+      "now": "2026-09-26T03:00:00Z",
+      "runs": {
+        "midnight:2026-09-26": {
+          "state": "deferred"
+        }
+      },
+      "should_run": true
+    },
+    {
+      "name": "failed_retries",
+      "now": "2026-09-26T03:00:00Z",
+      "runs": {
+        "midnight:2026-09-26": {
+          "state": "failed"
+        }
+      },
+      "should_run": true
+    },
+    {
+      "name": "running_with_live_lease_joins",
+      "now": "2026-09-26T03:00:00Z",
+      "runs": {
+        "midnight:2026-09-26": {
+          "state": "running",
+          "lease_until": "2026-09-26T03:05:00Z"
+        }
+      },
+      "should_run": false
+    },
+    {
+      "name": "running_with_expired_lease_reclaims",
+      "now": "2026-09-26T03:00:00Z",
+      "runs": {
+        "midnight:2026-09-26": {
+          "state": "running",
+          "lease_until": "2026-09-26T02:59:00Z"
+        }
+      },
+      "should_run": true
+    },
+    {
+      "name": "days_missed_runs_only_latest",
+      "now": "2026-09-29T01:00:00Z",
+      "runs": {
+        "midnight:2026-09-26": {
+          "state": "succeeded"
+        }
+      },
+      "should_run": true,
+      "key": "midnight:2026-09-29"
+    },
+    {
+      "name": "clock_rollback_keeps_succeeded",
+      "now": "2026-09-25T16:00:00Z",
+      "runs": {
+        "midnight:2026-09-26": {
+          "state": "succeeded"
+        },
+        "midnight:2026-09-27": {
+          "state": "succeeded"
+        }
+      },
+      "should_run": false
+    }
+  ]
+}

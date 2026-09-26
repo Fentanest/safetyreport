@@ -341,6 +341,24 @@ async def api_start_batch_rating(request: Request, _: str = Depends(_require_api
     }
 
 
+def _raise_if_community_blocked() -> None:
+    """크롤 시작·큐 전: 커뮤니티 게이트(403)·초기화 필요/진행 중(409). detail 은 코드 문자열(모바일이 분기)."""
+    from services import community_gate
+
+    blocked = community_gate.crawl_block()
+    if blocked:
+        raise HTTPException(status_code=blocked[0], detail=blocked[1])
+
+
+def _community_runtime_error(exc: RuntimeError) -> HTTPException | None:
+    from services import community_gate
+
+    code = community_gate.block_code(exc)
+    if code:
+        return HTTPException(status_code=409 if code == community_gate.REBUILD_REQUIRED else 403, detail=code)
+    return None
+
+
 @router.post("/crawl/enqueue")
 async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
     body = await request.json()
@@ -348,12 +366,13 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
     if not report_number:
         raise HTTPException(status_code=400, detail="report_number is required")
 
+    await run_in_threadpool(_raise_if_community_blocked)
     try:
         result = await run_in_threadpool(crawl_control.enqueue_report, str(report_number))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise _community_runtime_error(exc) or HTTPException(status_code=500, detail=str(exc))
 
     if result["status"] == "queued":
         return {
@@ -455,6 +474,7 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
     crawl_mode = body.get("crawl_mode", "full")
     queue_list = body.get("queue_list", "").strip()
 
+    await run_in_threadpool(_raise_if_community_blocked)
     if crawl_manager.is_crawling():
         if queue_list:
             for report_number in queue_list.splitlines():
@@ -477,7 +497,7 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
             broadcast_source="mobile_start",
         )
     except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise _community_runtime_error(exc) or HTTPException(status_code=500, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -580,7 +600,8 @@ def get_app_config(_: str = Depends(_require_api_key)):
             "auto_export_excel": settings.config.getboolean("SETTINGS", "auto_export_excel", fallback=True),
             "auto_export_sheet": settings.config.getboolean("SETTINGS", "auto_export_sheet", fallback=False),
             # 앱이 서버 기능을 알아보는 목록. rating_cause: /rating/start 가 공통 사유(cause)를 받는다(2026-09-25).
-            "capabilities": ["rating_cause"],
+            # community_account: /api/v1/community-auth/* (서버의 커뮤니티 계정 연결, 2026-09-25).
+            "capabilities": ["rating_cause", "community_account"],
             "rating_cause_max": rating_eligibility.RATING_CAUSE_MAX,
         },
     }

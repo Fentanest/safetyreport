@@ -139,6 +139,20 @@ by_law (법규별, 같은 필드 + law)
 - 진행 표시: 모든 화면 하단 `#srJobBar`(base.html, 작업 있을 때만), `GET /maintenance/status`(웹), `GET /api/v1/maintenance/status`(Client 앱). 지도 좌표 채우기(geocode 백필) 진행도 같이 보인다.
   응답: `{active, jobs:[{key,label,state(running|paused|completed),total,done,current,message}]}`.
 
+## 2026-09-26 커뮤니티 필수 게이트·공유 업로드 계약 (하위호환 추가 + 인증 강화)
+정본: `contracts/community-ingest/`(map 레포 원본의 사본), 설명: `community-gate.md`·`community-upload.md`·`community-rebuild.md`.
+
+| 항목 | 내용 |
+|---|---|
+| 게이트 미충족 | `/api/v1/**`(allowlist 제외)·관리자 화면 AJAX → 403 `{"detail":"COMMUNITY_ONBOARDING_REQUIRED","code":…,"gate":{state,reasons}}`. 키가 틀리면 여전히 401 이 먼저 |
+| allowlist(API 키) | `GET /api/v1/app/config`, `/api/v1/community-auth/*`, `GET /api/v1/community/gate`, `GET/POST /api/v1/community/rebuild[/start|/resume]` |
+| 새 API | `GET /api/v1/community/gate`(서버 게이트 요약, 토큰·UUID 없음), `/api/v1/community/upload/{status,run}`, `/api/v1/community/rebuild[...]` — 실행·시작은 manager 키 + `X-Community-User-Token`(폰 사용자 = 서버 연결 사용자) |
+| 크롤 시작 | `/api/v1/crawl/start`·`/crawl/enqueue`: 게이트 60초 재검증 실패 403 `detail=COMMUNITY_ONBOARDING_REQUIRED`, 초기화 필요·진행 중 409 `detail=COMMUNITY_REBUILD_REQUIRED` |
+| WebSocket | `/ws/events` 게이트 미충족·상실 시 4403(인증 실패는 기존 4001). **`/crawl/ws/logs`·`/rating/ws/rating_logs` 는 이제 API 키(`?api_key=`/`X-API-Key`) 또는 관리자 세션 필요** |
+| `/media/*` | 이제 관리자 세션 또는 API 키 + 게이트(이전: 인증 없음) |
+| 기존 필드 | `/api/v1/community-auth/status` 의 `upload_enabled` 유지(의미: 연결 + 게이트 통과) |
+| 로컬 저장 | `data/community.db`(개인 `data.db` 와 분리 — 서버↔모바일 DB 교환 대상 아님, PROJECT_RULES 3-1 영향 없음), `data/auth/community_writer.enc`(업로드 연결 비밀, 암호화) |
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 199-307 -->
@@ -173,6 +187,8 @@ session_max_age / log_level / TZ / trusted_proxies
               session_max_age / log_level / TZ / trusted_proxies
 [Crawler]     crawl_type
 [GOOGLESHEET] sheet_key
+[COMMUNITY]   enabled / supabase_url / publishable_key / site_url / device_label / api_key_managers / upload_enabled
+              (2026-09-25, 상세 docs/architecture/community-account.md)
 ```
 
 ### DB 컬럼명
@@ -331,6 +347,15 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 | `use_representative_records` | `SETTINGS` | 대표건 기준 canonical 집계를 전역 기본값으로 사용 | `True` |
 | `auto_export_excel` | `SETTINGS` | 크롤링 후 엑셀 자동 저장 | `True` |
 | `auto_export_sheet` | `SETTINGS` | 크롤링 후 구글 시트 자동 업로드 | `True` |
+| `enabled` | `COMMUNITY` | 커뮤니티 계정 연결 켜기 (env `SAFETYREPORT_COMMUNITY_ENABLED` 우선) | `false` |
+| `supabase_url` | `COMMUNITY` | Supabase 프로젝트 https origin, 공개값 (env `SAFETYREPORT_COMMUNITY_SUPABASE_URL`) | 빈 값 |
+| `publishable_key` | `COMMUNITY` | 공개(publishable/anon) 키. `sb_secret_`·service_role 거부 (env `SAFETYREPORT_COMMUNITY_PUBLISHABLE_KEY`) | 빈 값 |
+| `site_url` | `COMMUNITY` | 중앙 연결 페이지 (env `SAFETYREPORT_COMMUNITY_SITE_URL`) | `https://safeauth.worklazy.net/` |
+| `device_label` | `COMMUNITY` | 중앙 페이지에 보일 서버 이름 | 빈 값("이 PC"/"Docker 서버") |
+| `api_key_managers` | `COMMUNITY` | 커뮤니티 계정 관리를 허용한 API 키의 SHA-256 목록(쉼표) | 빈 값 |
+| `upload_enabled` | `COMMUNITY` | 업로드 허용(아직 업로더 없음, 화면에서 안 바꿈) | `false` |
+
+커뮤니티 세션·토큰·PKCE 대기값은 config.ini·data.db 가 아니라 `data/auth/community_session.enc`(키 `data/auth/.community_key`)에만 있다 — 백업·모바일 DB 변환 대상 아님.
 
 ---
 
@@ -429,7 +454,9 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 - `/summary` 의 취하 필드 규칙
   - `exclude_withdraw=True` 이면 그래프/모바일 카드 기준 `withdrawCount=0`, `withdraw_pct=0`
   - 실제 원본 취하 건수는 `withdrawRawCount` 로 별도 전달
-| GET | `/app/config` | 앱 설정 (`exclude_withdraw`, `normalize_police`, `use_representative_records` 등). `capabilities`(기능 목록, 예 `rating_cause`)·`rating_cause_max` — 앱이 서버 기능을 알아본다(2026-09-25) |
+| GET | `/app/config` | 앱 설정 (`exclude_withdraw`, `normalize_police`, `use_representative_records` 등). `capabilities`(기능 목록: `rating_cause`, `community_account`)·`rating_cause_max` — 앱이 서버 기능을 알아본다(2026-09-25) |
+| GET | `/community-auth/status` | 서버의 커뮤니티 계정 상태 DTO(`{"data": …}`). 모든 키 가능, 관리 권한 없는 키는 `can_manage=false`·연결 링크 없음 (2026-09-25) |
+| POST | `/community-auth/start` · `/confirm` · `/cancel` · `/disconnect` | 커뮤니티 계정 연결 관리. `[COMMUNITY] api_key_managers` 에 허용된 키만(아니면 403 `permission_required`). 본문·오류 코드는 `community-account.md` |
 | POST | `/settings` | 필터 설정 저장 (`normalize_police`, `exclude_withdraw`, `use_representative_records`) |
 | GET | `/files?path=` | 서버 파일 브라우저 (logs/results 한정) |
 | GET | `/files/download?path=&api_key=` | 파일 다운로드 (헤더 또는 쿼리 파라미터 인증) |

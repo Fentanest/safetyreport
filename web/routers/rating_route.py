@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, Form, WebSocket, WebSocketDisconnect
+from core.utils import ws_auth
 from fastapi.responses import JSONResponse
 import settings.settings as app_settings
 import os
@@ -38,7 +39,10 @@ def start_batch_rating(request: Request, ids: str = Form(""), score: int = Form(
 
 @router.websocket("/ws/rating_logs")
 async def websocket_rating_logs(websocket: WebSocket):
+    if not await ws_auth.authorize(websocket):  # 관리자 세션 또는 API 키 + 커뮤니티 게이트
+        return
     await websocket.accept()
+    watch = ws_auth.GateWatch()
     log_file = os.path.join(app_settings.datapath, 'logs', 'current_rating.log')
     
     try:
@@ -46,6 +50,9 @@ async def websocket_rating_logs(websocket: WebSocket):
             await websocket.send_text("별점 로그 파일을 대기 중입니다...\n")
             while not os.path.exists(log_file):
                 await asyncio.sleep(1)
+                if await watch.lost():
+                    await websocket.close(code=ws_auth.CLOSE_GATE)
+                    return
                 
         # Initial read
         if os.path.exists(log_file):
@@ -58,6 +65,9 @@ async def websocket_rating_logs(websocket: WebSocket):
         
         while True:
             await asyncio.sleep(0.5)
+            if await watch.lost():
+                await websocket.close(code=ws_auth.CLOSE_GATE)
+                return
             if not os.path.exists(log_file):
                 continue
                 

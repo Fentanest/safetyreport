@@ -8,7 +8,111 @@
 
 ---
 
+## 2026-09-26 (dev, 미배포)
+
+### 커뮤니티 통합 검수 반영 (Opus 통합 + GPT-6-Sol 1~4차 검토)
+
+- 병렬 작업 사이의 fail-open 제거: 업로드·초기화 라우터 등록, 게이트 모듈이 없거나 오류일 때 통과하던 경로(초기화 서비스·크롤 시작·업로더·Client 업로드/초기화)를 fail-closed 로.
+  Client 업로드 실행·초기화 시작은 서버 커뮤니티 사용자와 같은 `X-Community-User-Token` 필요.
+- manifest 를 계약 형식(POST `protocol`·`connection_id`, `key_prefixes`/`next_after`)으로 바꾸고 모든 페이지를 검증, 교체 동안 업로드 lease 를 잡는다.
+- 이벤트 WebSocket 은 게이트를 잃으면(`verification_required` 포함) 4403 으로 닫고, broadcast 도 보내기 전에 게이트를 확인(스레드에서 평가).
+- 공유 자료 삭제: 중앙 요청 **전** community.db 에 `prepared` 표시 → 중앙 성공 뒤에만 `confirmed` 로 바꿔 한 트랜잭션에서 적용
+  (그 시점 journal 최대 rowid 까지 `deleted_by_user`, outbox 차단, `server_completed` 비움). 표시가 있는 동안 업로드·reshare 는 보내지 않는다.
+  4xx 거절이면 자기 표시만 취소, 응답 불명(네트워크·5xx)이면 표시 유지 + 503 `deletion_unconfirmed`(다시 요청 — 여러 번 안전).
+  writer 연결 파일은 로컬 확정 **뒤**에 지우고, 실패하면 `writer_reset_pending`(설정 카드 경고).
+- 테스트: `tests/test_community_deletion.py`(8), `tests/test_community_live_stack.py`(`COMMUNITY_STACK=1`, 합성 로컬 Supabase 스택), 화면 QA 세션 도우미 `scripts/dev/community_qa_session.py`.
+  전체 371 OK(skip 4). 검토 기록: 커뮤니티 지도 저장소 `docs/integration/community-ingest/integration-review-*.md`.
+
+### 커뮤니티 공개 설정·동의문 패키징 (T8)
+
+- 실행파일(PyInstaller)에 동의문 사본(`contracts/community-ingest/consent/`)과 빌드 때 만든 공개 설정 `community_public.json` 을 넣는다.
+  공개 설정은 CI 저장소 Variables(`COMMUNITY_SUPABASE_URL`·`COMMUNITY_PUBLISHABLE_KEY`·`COMMUNITY_SITE_URL`)에서만 받고, https 가 아니거나
+  비밀 키·자리표시자면 빌드를 멈춘다(값이 없으면 번들하지 않고 경고). 워크플로 5개의 PyInstaller 단계에 변수를 연결(편집만, 실행 안 함).
+- Docker: `.dockerignore` 의 `*.md` 가 동의문 사본까지 빼던 것을 예외 처리(Docker 는 실행 때 `COMMUNITY_*` 환경변수로 설정).
+- 확인: 깨끗한 archive 에서 로컬 PyInstaller 빌드 → 번들에 동의문·해시·공개 설정 포함, 비밀 문자열 없음. 실행파일을 `--network none` 컨테이너에서 기동:
+  관리자 설정·로그인 → `/settings/` 가 필수 설정 화면으로 이동, 동의문 해시 일치, 잘못된 API 키 401. Docker 빌드 컨텍스트에 동의문 포함 확인.
+
+### 커뮤니티 필수 진입 게이트 — 카카오 인증 + 신고내용 공유 동의 (T3a)
+
+- 관리자 로그인 뒤 `[필수] 카카오 인증`과 `[필수] 신고내용 공유 동의`(정책 2026-09-26.1)가 모두 있어야 화면·API·WS·예약 작업을 쓸 수 있다.
+  판정은 중앙 `community-account/status`(10분 캐시, 새 작업은 60초 이내 재검증, 온라인 60초 주기 재확인). 로그인만으로는 동의가 아니다.
+  `[COMMUNITY] enabled=false`·`upload_enabled` 는 더 이상 적용되지 않는다(경고만). `COMMUNITY_*` 환경변수 별칭(값이 다르면 설정 오류)·빌드 번들 공개값 지원.
+- 새 화면 `/onboarding/community`(두 필수 카드, 설정 화면 카드 재사용), `/onboarding/rebuild`(1회 초기화 안내), 초기화 필요 배너.
+  설정 화면에 "5. 신고내용 공유 동의"(상태·문서·철회·공유 자료 삭제 요청·업로드 연결 전환).
+- 게이트 미들웨어(관리자 인증 안쪽), 정확한 allowlist 외 전부 차단(HTML → 온보딩 이동, 그 밖 403 `COMMUNITY_ONBOARDING_REQUIRED`).
+  **보안 강화**: 예전에 인증 없이 열려 있던 `/media/*`, `/crawl/ws/logs`, `/rating/ws/rating_logs` 에 관리자 세션 또는 API 키를 요구(모바일 크롤 로그 화면은 `api_key` 필요).
+  WS 는 게이트 미충족·상실 시 4403.
+- 크롤 시작·큐(웹·모바일 API)는 게이트 60초 재검증 실패 403, 초기화 필요·진행 중 409 `COMMUNITY_REBUILD_REQUIRED`. 별점 일괄도 게이트 재검증.
+- 업로드 연결(writer): 공식 계정 기준 `dataset_key`, 연결 비밀은 `data/auth/community_writer.enc`(암호화, 로그아웃해도 유지 → 같은 사용자 재로그인은 rebind),
+  다른 기기가 쓰는 중이면 업로드만 멈추고 전환 버튼. 게이트 통과 때만 `community.db` context 활성화.
+- 새 로컬 API: `/settings/community/{gate,policy,consent,consent-revoke,writer,contributions-delete}`, `/api/v1/community/gate`.
+- 테스트: `tests/test_community_gate.py` 31건(판정 순서, 동의문 해시=계약 사본, 캐시 60초/10분, 장애 시 캐시, 원격 철회, writer 등록·rebind·충돌·전환,
+  Client 토큰 검증, 미들웨어 순서, 라우트 전수 차단, allowlist 실재, API 키 401 우선, media·WS 4001/4403, 동의·철회·로그아웃 흐름, 설정 복구, 크롤 409/403).
+  기존 테스트 중 `enabled`/`upload_enabled` 의미를 쓰던 4건과 게이트와 무관한 경로 3건은 새 전제에 맞게 수정(의도된 동작 변경). 전체 235건 OK(skip 3).
+- 문서 `docs/architecture/community-gate.md`.
+
+### PC 1회 초기화 크롤링·증분 선정·스케줄러 분리 (T3b)
+
+- `services/community_rebuild.py`(신규): 범위 키 `(REQUIRED_VERSION, local_dataset_id, source_account_namespace)` 의
+  `rebuild_jobs`·`rebuild_items` 상태기계(`required → … → running → validating → committing → completed[_with_gaps]`,
+  `paused`/`failed` 는 같은 run 재개). 사전 백업(sqlite backup API + integrity_check, 실패면 개인 DB 무변경),
+  manifest 전 페이지 갱신 실패면 `prerequisites_required` 로 크롤 미시작, staging→`report_latest` upsert 병합 cutover.
+  게이트(T3a)·업로더(T4)는 함수 안 import + 부재 시 통과(가짜 모듈로 검증).
+- `start.py --rebuild <run_id>`: 전 페이지 성공 때만 목록 ID 전부 등록 + `list_complete=1`(부분 실패·로그인 실패는 `failed`),
+  상세는 미완료 items 만(checkpoint), 결과별 item 갱신(5xx retryable 최대 5회·404 permanent + 당시 라벨 보존·401 paused(auth)),
+  `CaptureStoreUnavailable` 이면 중단. 목록 진행 보고(`crawltitle_api progress`)·상세 결과 통지(`crawldetail_api status_sink`) 추가.
+- `crawl_control.start_rebuild(run_id)`(`--force --rebuild`, `--reset` 없음). 일반 `start_crawl`·`enqueue_*` 는
+  초기화 필요·진행 중이면 `COMMUNITY_REBUILD_REQUIRED`, 게이트 미충족이면 `COMMUNITY_ONBOARDING_REQUIRED`.
+  `crawl_manager.run_after_crawl` 이 `--rebuild` 명령에 `on_crawl_finished` 훅 한 줄.
+- 증분 선정: 기존 후보 ∪ `vectors/list_refetch.json` 규칙(13건, override 무시) — `database.should_refetch_list_item`.
+- `scheduler.update_jobs()` 는 크롤 job 만 교체하고 커뮤니티 job 은 유지(disabled 포함) + 끝에서
+  `register_community_jobs` 재확인. `exchange.restore()` 는 `_swap_in` 직전에 `rotate_dataset(f"restore_{kind}")`.
+- 라우터 `web/routers/community_rebuild_route.py`(신규): 관리자 `/settings/community/rebuild/*`,
+  모바일 `/api/v1/community/rebuild/*` (관리 키 + 사용자 토큰, no-store). `main.py` 등록은 T3a.
+- 문서 `docs/architecture/community-rebuild.md`. 금지 파일(main.py·게이트·capture·uploader·schedule·reports_repo·
+  community_route·community_store·contracts·requirements) 미변경 — 필요 없음이라 `REQUESTS.md` 없음.
+- 테스트: `test_community_rebuild`(29: G01·G02·G03·G05·G06·G07·G11·G12·G13·G14·cutover·accept_gaps·router),
+  `test_community_selection`(5: 벡터 13건·override A07·통합),
+  `test_community_scheduler_split`(6: S-08·교체·rotate). 전체 243 passed(skip 3, 기존과 동일).
+
+### 커뮤니티 공유 업로드 — PC 데이터 경로 (T4)
+
+- 공식 상세 응답 순간의 값으로 공유 DTO 를 확정해 `community.db` 에 불변 저장하고(source journal + outbox),
+  그 사본만으로 실시간·수동·자정(00:00 KST) 업로드를 `community-ingest` 로 보내는 PC 쪽 데이터 경로 전체를 구현.
+  신규: `services/community_capture.py`(관측 확정·event 결정·journal/outbox 기록),
+  `services/community_ingest_client.py`(envelope 전송·ACK 검증),
+  `services/community_uploader.py`(`request_upload` 단일 진입·drain·ACK 적용·manifest 교체·reshare),
+  `services/community_schedule.py`(KST 자정 스케줄·job 등록),
+  `web/routers/community_upload_route.py`(관리자 `/community/upload/*` + API 키 `/api/v1/community/upload/*`).
+  수정: `core/storage/reports_repo.py`(capture 호출 1곳·실패 시 개인 저장 건너뜀·연속 3회 중단),
+  `web/templates/report_map.html`(지도 위 "커뮤니티 공유" 패널), `web/routers/stats.py`(패널 POST 용 CSRF 토큰 1줄 — T3 확인 필요).
+- 계약(`contracts/community-ingest/`, 21개) 벡터 전부 통과: observations 32 case·event_decisions 10종·canonical-json·schedule.
+  테스트 신규 84건(`test_community_contract_vectors/capture/uploader/schedule`), 전체 `unittest discover` 287건 OK(skip 3).
+  상세: `docs/architecture/community-upload.md`, T3 요청사항 `.agent-runs/T4/REQUESTS.md`, 결과 `.agent-runs/T4/RESULT.md`.
+  미구현: 시작 시 `personal_save_state` pending 정리(표시용 reconcilation), `main.py` 라우터 등록·게이트·초기화 job(T3 소유).
+
 ## 2026-09-25 (dev, 미배포)
+
+### 커뮤니티 계정 연결 (safeauth.worklazy.net)
+
+- 설정 화면에 "4. 커뮤니티 계정" 카드(메인 설정 폼 밖, 안전신문고 로그인과 별개). 카카오 계정(Supabase Auth)을 이 서버에 연결한다:
+  비교코드·1회용 연결 링크(새 탭, `noopener noreferrer`, 복사 시 공유 금지 안내) → 중앙 페이지에서 카카오 로그인 → 이 서버가 결과를 받아 계정 이름을 보여 주고
+  관리자가 "이 계정으로 연결"을 눌러야 확정. 다른 계정이면 교체 경고, 취소해도 기존 연결 유지. 연결됨/다시 로그인 필요/설정되지 않음/읽기 실패 상태와 연결 해제.
+  업로드는 없다 — "업로드: 꺼짐 — 별도 동의 필요" 로만 표시.
+- 서버: `services/community_auth_service.py`(+`_client`, `_store`). 프로토콜 1(safetyreport-community-auth `docs/protocol.md`)대로 PKCE verifier 는 이 서버만 갖고,
+  중계 poll(5초±20%, 만료까지만, 429 `Retry-After` 준수)·코드 교환(한 번만)·`complete`·refresh(회전 원자 저장, 동시 호출 1회)·`logout?scope=local` 을 한다.
+  토큰·대기값은 `data/auth/community_session.enc`(별도 키 `.community_key`, 0600, 원자적 교체, 파일 락)에만 — data.db·config.ini·백업·로그·URL 에 없음.
+- 로컬 API: 관리자 `/settings/community/*`(세션 + CSRF 토큰·JSON·Origin 확인 — 저장소 첫 CSRF 확인, `core/utils/csrf.py`),
+  모바일 `/api/v1/community-auth/*`(API 키, 관리 동작은 설정 화면에서 허용한 키만 — 기본 거부). `/api/v1/app/config` `capabilities` 에 `community_account` 추가(하위 호환).
+- 설정 `[COMMUNITY]`(기본 꺼짐) + Docker 용 환경변수 `SAFETYREPORT_COMMUNITY_{ENABLED,SUPABASE_URL,PUBLISHABLE_KEY,SITE_URL}`. 공개값만 받고 `sb_secret_`·service_role 키는 거부.
+  fixture 모드에서는 `127.0.0.1` 스택에만 연결. 부팅 때는 만료 전 대기 요청의 poll 만 재개.
+- 문서 `docs/architecture/community-account.md`, `data-contracts.md` 설정·API 표.
+- 테스트: `tests/test_community_auth.py` 51건(가짜 중계+GoTrue HTTP 서버·앱 전체 TestClient: 저장소 암호화/0600/원자 교체/손상, RFC 7636 벡터, 교환 1회·응답 유실 재시도,
+  확정·취소·교체·해제의 `scope=local`, refresh 회전·동시성·철회·일시 오류, CSRF/Origin/권한, DTO·설정 화면·백업·로그·app/config 비밀값 없음) 통과.
+  전체 `unittest discover` 196건 OK(skip 3 = 선택 실행 라이브 테스트). 로컬 Supabase 스택(실제 GoTrue v2.197.0 + 실제 중계 + 가짜 카카오)
+  `tests/test_community_auth_live.py` 3건 PASS(전체 흐름·refresh·해제 후 refresh 400, 두 설치 동시 연결 교차 없음, 다른 계정 거부 시 기존 유지).
+  fixture 서버 + 실제 중앙 페이지 + Chromium 으로 연결/교체 경고/거부/해제·다크·390px 확인, 서버 재시작 뒤 대기 요청 poll 재개·연결 유지 확인.
+  **실제 카카오·호스팅 Supabase E2E 는 하지 않음.**
 
 ### 서버↔모바일 DB·로직 동등성 검수 (G17)
 

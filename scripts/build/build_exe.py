@@ -1,8 +1,45 @@
-import PyInstaller.__main__
+import json
 import sys
 import os
 import shutil
 import platform
+
+BUNDLED_PUBLIC = os.path.join("build", "community_public.json")
+
+
+def write_community_public(env=None) -> str | None:
+    """커뮤니티 공개 설정(Supabase URL·publishable key·site URL)을 번들용 JSON 으로 만든다.
+
+    값은 CI 저장소 Variables(COMMUNITY_SUPABASE_URL·COMMUNITY_PUBLISHABLE_KEY·COMMUNITY_SITE_URL)에서 온다. 공개값만 받는다:
+    비밀 키(sb_secret_·service_role JWT)나 자리표시자(<...>, YOUR_, example)면 빌드를 멈춘다. 값이 없으면 번들하지 않고
+    경고한다(실행 때 환경변수·config.ini 로 설정하지 않으면 필수 설정 화면이 '설정 확인 필요'를 보인다).
+    """
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if root not in sys.path:  # `python scripts/build/build_exe.py` 로 실행하면 저장소 루트가 경로에 없다
+        sys.path.insert(0, root)
+    from services.community_auth_service import normalize_site_url, normalize_supabase_url, validate_publishable_key
+
+    env = os.environ if env is None else env
+    url = (env.get("COMMUNITY_SUPABASE_URL") or "").strip()
+    key = (env.get("COMMUNITY_PUBLISHABLE_KEY") or "").strip()
+    site = (env.get("COMMUNITY_SITE_URL") or "https://safeauth.worklazy.net/").strip()
+    if not url and not key:
+        print("WARNING: COMMUNITY_SUPABASE_URL/COMMUNITY_PUBLISHABLE_KEY 없음 — 공개 설정을 번들하지 않습니다.")
+        return None
+    for value in (url, key, site):
+        low = value.lower()
+        if "<" in value or "your_" in low or "example" in low or "project_ref" in low:
+            raise SystemExit("community public config looks like a placeholder")
+    if not normalize_supabase_url(url) or not url.startswith("https://"):
+        raise SystemExit("COMMUNITY_SUPABASE_URL must be an https Supabase URL")
+    if not validate_publishable_key(key):
+        raise SystemExit("COMMUNITY_PUBLISHABLE_KEY must be a publishable/anon key (secret keys are refused)")
+    if not normalize_site_url(site):
+        raise SystemExit("COMMUNITY_SITE_URL is not valid")
+    os.makedirs(os.path.dirname(BUNDLED_PUBLIC), exist_ok=True)
+    with open(BUNDLED_PUBLIC, "w", encoding="utf-8") as fh:
+        json.dump({"supabase_url": url, "publishable_key": key, "site_url": site}, fh)
+    return BUNDLED_PUBLIC
 
 
 def _resolve_icon_option() -> list[str]:
@@ -45,6 +82,8 @@ def build():
         f'--add-data=web/templates{sep}web/templates',
         f'--add-data=web/static{sep}web/static',
         f'--add-data=VERSION{sep}.',
+        # 신고내용 공유 동의문 사본(게이트가 해시와 함께 보여 준다) — 빠지면 동의할 수 없다
+        f'--add-data=contracts/community-ingest/consent{sep}contracts/community-ingest/consent',
         # Include hidden imports for dynamic loading frameworks
         '--hidden-import=uvicorn',
         '--hidden-import=fastapi',
@@ -82,9 +121,15 @@ def build():
         # '--windowed'
     ] + _resolve_icon_option() + _resolve_target_arch_option()
 
+    bundled = write_community_public()
+    if bundled:
+        options.append(f'--add-data={bundled}{sep}.')
+
     # readline은 Linux 번들에서만 제외
     if sys.platform.startswith('linux'):
         options.append('--exclude-module=readline')
+
+    import PyInstaller.__main__  # 빌드 때만 필요(테스트는 공개 설정 검증만 import 한다)
 
     PyInstaller.__main__.run(options)
 

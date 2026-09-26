@@ -55,7 +55,17 @@ def _fetch_api_page_via_browser(driver, start_row, end_row):
     return driver.execute_async_script(script)
 
 
-def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False):
+def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, progress: dict | None = None):
+    """반환은 그대로 ([df...], 마지막 페이지). progress dict 를 주면 수집 경과를 채운다.
+
+    progress 키: total(총 건수·첫 페이지 실패면 None), pages_expected(예상 페이지 수),
+    pages_ok(성공 페이지), pages_failed(실패·잘린 페이지), first_error, list_ok(전 페이지 성공).
+    초기화 크롤(start.py --rebuild)이 전 페이지 성공 판정에 쓴다.
+    """
+    def _note(**fields):
+        if progress is not None:
+            progress.update(fields)
+
     if browser_fallback:
         logger.LoggerFactory.logbot.info("API 방식으로 목록 데이터를 호출합니다. (Selenium 브라우저 fallback)")
         ensure_browser_context(driver)
@@ -70,21 +80,34 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False):
 
     all_title_dfs = []
     page_size = 200
-    first_payload = fetch_page(1, page_size)
+    try:
+        first_payload = fetch_page(1, page_size)
+    except Exception as exc:
+        logger.LoggerFactory.logbot.error(f"API 목록 첫 페이지 호출 실패: {exc}")
+        _note(total=None, pages_expected=0, pages_ok=[], pages_failed=[1],
+              first_error=f"network: {exc}", list_ok=False)
+        return [], 0
     if "error" in first_payload or "result" not in first_payload:
         logger.LoggerFactory.logbot.error(f"API 목록 호출 실패: {first_payload.get('error', 'No result')}")
+        _note(total=None, pages_expected=0, pages_ok=[], pages_failed=[1],
+              first_error=str(first_payload.get("error", "No result")), list_ok=False)
         return [], 0
 
     tot_cnt = first_payload.get("totalCnt", 0)
     if tot_cnt == 0:
         logger.LoggerFactory.logbot.warning("조회된 신고 내역이 없습니다.")
+        _note(total=0, pages_expected=0, pages_ok=[], pages_failed=[],
+              first_error=None, list_ok=True)
         return [], 0
 
     last_page_num = (tot_cnt + page_size - 1) // page_size
     logger.LoggerFactory.logbot.info(f"API 확인됨: 총 {tot_cnt}건 ({last_page_num}페이지 분량)")
 
     last_crawled_page = 0
-    pages_to_crawl = page_range if page_range else range(1, last_page_num + 1)
+    pages_to_crawl = list(page_range) if page_range else list(range(1, last_page_num + 1))
+    pages_ok: list[int] = []
+    pages_failed: list[int] = []
+    first_error: str | None = None
 
     for page_num in pages_to_crawl:
         last_crawled_page = page_num
@@ -93,10 +116,22 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False):
 
         logger.LoggerFactory.logbot.info(f"API 목록 로드 중: {page_num} 페이지 ({start_row}~{end_row}건)")
 
-        payload = fetch_page(start_row, end_row)
+        try:
+            payload = fetch_page(start_row, end_row)
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f"페이지 {page_num} 호출 실패: {exc}")
+            pages_failed.append(page_num)
+            if first_error is None:
+                first_error = f"network: {exc}"
+            continue
         results = payload.get("result", [])
 
         if not results:
+            if page_num != pages_to_crawl[-1]:
+                # 끝이 아닌데 비었으면 잘린 것이다(실패로 친다).
+                pages_failed.append(page_num)
+                if first_error is None:
+                    first_error = payload.get("error") or "empty page"
             break
 
         page_dfs = []
@@ -137,6 +172,15 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False):
             )
 
         all_title_dfs.extend(page_dfs)
+        pages_ok.append(page_num)
         sleep(0.5)
 
+    if page_range:
+        expected = list(page_range)
+        list_ok = not pages_failed and pages_ok == expected
+    else:
+        expected = list(range(1, last_page_num + 1))
+        list_ok = not pages_failed and pages_ok == expected
+    _note(total=tot_cnt, pages_expected=expected, pages_ok=pages_ok,
+          pages_failed=pages_failed, first_error=first_error, list_ok=list_ok)
     return all_title_dfs, last_crawled_page

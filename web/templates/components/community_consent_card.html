@@ -1,0 +1,231 @@
+{# [필수] 신고내용 공유 동의 카드 — 설정 화면과 /onboarding/community 공용. community_account_card.html 뒤에 include 한다(CSRF 공유).
+   동의는 기본 해제 체크박스 + 버튼으로만 저장하고, 서버 성공 응답을 받은 뒤에만 완료로 표시한다(카카오 로그인 ≠ 동의). #}
+<div class="row">
+    <div class="col-12">
+        <div class="card card-custom mb-4" id="consentCard" data-mode="{{ cm_mode or 'settings' }}">
+            <div class="card-header fw-bold d-flex align-items-center flex-wrap gap-2">
+                <span>{% if cm_mode == 'onboarding' %}<span class="badge text-bg-danger me-2">필수</span>2. 신고내용 공유 동의{% else %}<i class="fas fa-share-nodes me-2 sr-accent-icon"></i>5. 신고내용 공유 동의{% endif %}</span>
+                <span class="badge text-bg-secondary" id="ccStateBadge">확인 중</span>
+            </div>
+            <div class="card-body">
+                <div id="ccAlert" class="alert alert-warning d-none small" role="status" aria-live="polite"></div>
+                <div id="ccNeedKakao" class="alert alert-secondary small d-none" role="note">먼저 위에서 카카오 인증을 마쳐 주세요.</div>
+
+                <details id="ccDocWrap" {% if cm_mode == 'onboarding' %}open{% endif %}>
+                    <summary class="small fw-bold">동의 문서 보기 (정책 버전 <span id="ccPolicyVersion">-</span>)</summary>
+                    <div id="ccDoc" class="small mt-2 p-3 rounded sr-panel-muted" style="max-height:22rem;overflow:auto;" tabindex="0" aria-label="신고내용 공유 동의 문서"></div>
+                </details>
+
+                <!-- 동의 전 -->
+                <div id="ccPanelAsk" class="mt-3 d-none">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" id="ccAccept">
+                        <label class="form-check-label" for="ccAccept">위 문서를 읽었고, 답변 완료된 내 신고 내용을 커뮤니티 지도에 공유하는 데 동의합니다.</label>
+                    </div>
+                    <button type="button" class="btn btn-primary btn-sm" id="ccAgreeBtn" disabled>동의하고 계속</button>
+                    <div class="small text-muted mt-2" id="ccOutdatedNote" hidden>동의 문서가 새 버전으로 바뀌었습니다. 새 문서에 다시 동의하면 이미 공유한 자료는 계속 공개됩니다.</div>
+                    <div class="small text-muted mt-2" id="ccRevokedNote" hidden>이전에 철회했습니다. 다시 동의해도 이전 자료는 자동으로 다시 공개되지 않습니다(신고 지도 탭에서 다시 공유를 눌러야 합니다).</div>
+                </div>
+
+                <!-- 동의함 -->
+                <div id="ccPanelActive" class="mt-3 d-none">
+                    <dl class="row small mb-2">
+                        <dt class="col-sm-3 col-lg-2">동의 시각</dt><dd class="col-sm-9 col-lg-10" id="ccGrantedAt">-</dd>
+                        <dt class="col-sm-3 col-lg-2">업로드 연결</dt><dd class="col-sm-9 col-lg-10" id="ccWriter">-</dd>
+                    </dl>
+                    <div id="ccWriterConflict" class="alert alert-warning small d-none" role="note">
+                        다른 기기(<span id="ccActiveWriter"></span>)가 이 안전신문고 계정의 업로드를 맡고 있습니다. 이 서버로 바꾸면 그 기기의 업로드는 멈춥니다.
+                        <div class="mt-2"><button type="button" class="btn btn-outline-primary btn-sm" id="ccTakeoverBtn">이 서버로 업로드 전환</button></div>
+                    </div>
+                    {% if cm_mode != 'onboarding' %}
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-outline-danger btn-sm" id="ccRevokeBtn">동의 철회</button>
+                        <button type="button" class="btn btn-outline-danger btn-sm" id="ccDeleteBtn">공유한 자료 삭제 요청</button>
+                    </div>
+                    <div class="small text-muted mt-2">
+                        철회하면 이 동의로 보낸 자료가 공개 지도에서 빠지고, 이 프로그램은 필수 설정 화면으로 돌아갑니다. 삭제 요청은 철회와 별개이며 공개 지도·통계에서 자료를 지웁니다.
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    'use strict';
+    var card = document.getElementById('consentCard');
+    if (!card) return;
+    var mode = card.getAttribute('data-mode');
+    var account = document.getElementById('communityCard');
+    var csrfToken = account ? (account.getAttribute('data-csrf') || '') : '';
+    var $ = function (id) { return document.getElementById(id); };
+    var gate = null, policy = null, busy = false, kakaoConnected = false;
+    var STATE = {
+        active: ['동의함', 'text-bg-success'], none: ['동의 필요', 'text-bg-warning'],
+        revoked: ['철회됨', 'text-bg-secondary'], outdated: ['새 문서 동의 필요', 'text-bg-warning']
+    };
+
+    function show(id, on) { var el = $(id); if (el) el.classList.toggle('d-none', !on); }
+    function alertBox(message, kind) {
+        var box = $('ccAlert');
+        if (!message) { box.classList.add('d-none'); box.textContent = ''; return; }
+        box.className = 'alert small alert-' + (kind || 'warning');
+        box.textContent = message;
+    }
+    function fmtTime(iso) {
+        if (!iso) return '-';
+        var d = new Date(iso);
+        return isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
+    }
+    // 동의 문서(Markdown 일부 문법)를 textContent 로만 그린다 — HTML 을 해석하지 않는다.
+    function inline(parent, line) {
+        line.split(/(\*\*[^*]+\*\*)/).forEach(function (part) {
+            if (!part) return;
+            if (/^\*\*[^*]+\*\*$/.test(part)) {
+                var b = document.createElement('strong'); b.textContent = part.slice(2, -2); parent.appendChild(b);
+            } else { parent.appendChild(document.createTextNode(part)); }
+        });
+    }
+    function renderDoc(text) {
+        var root = $('ccDoc'); root.textContent = '';
+        var list = null;
+        text.split('\n').forEach(function (raw) {
+            var line = raw.replace(/\s+$/, '');
+            if (!line) { list = null; return; }
+            var el;
+            if (/^# /.test(line)) { list = null; el = document.createElement('h6'); el.className = 'fw-bold'; inline(el, line.slice(2)); root.appendChild(el); return; }
+            if (/^## /.test(line)) { list = null; el = document.createElement('div'); el.className = 'fw-bold mt-3 mb-1'; inline(el, line.slice(3)); root.appendChild(el); return; }
+            if (/^- /.test(line)) {
+                if (!list) { list = document.createElement('ul'); list.className = 'mb-1 ps-3'; root.appendChild(list); }
+                el = document.createElement('li'); inline(el, line.slice(2)); list.appendChild(el); return;
+            }
+            list = null; el = document.createElement('p'); el.className = 'mb-1'; inline(el, line); root.appendChild(el);
+        });
+    }
+
+    function request(method, path, body) {
+        var opts = { method: method, credentials: 'same-origin', headers: { 'Accept': 'application/json' } };
+        if (method === 'POST') {
+            opts.headers['Content-Type'] = 'application/json';
+            opts.headers['X-CSRF-Token'] = csrfToken;
+            opts.body = JSON.stringify(body || {});
+        }
+        return fetch('/settings/community/' + path, opts).then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (data) {
+                if (r.status === 401 && data.detail === 'session_expired') { window.location.href = '/login'; throw new Error('login'); }
+                if (!r.ok) { var e = new Error(data.detail || ('요청 실패 (' + r.status + ')')); e.data = data; throw e; }
+                return data;
+            });
+        });
+    }
+
+    function writerText(w) {
+        if (!w) return '-';
+        var map = { ok: '이 서버가 업로드합니다', writer_conflict: '다른 기기가 사용 중', connection_superseded: '다른 기기로 전환됨',
+                    connection_suspended: '중지됨', official_account_required: '안전신문고 계정 설정 뒤 연결됩니다' };
+        return map[w.code] || ('확인 필요 (' + w.code + ')');
+    }
+
+    function render(g) {
+        gate = g;
+        var c = (g && g.consent) || {};
+        var st = c.state || 'none';
+        var badge = STATE[st] || ['확인 필요', 'text-bg-secondary'];
+        if (g && g.state === 'verification_required') badge = ['확인 중', 'text-bg-secondary'];
+        $('ccStateBadge').textContent = badge[0];
+        $('ccStateBadge').className = 'badge ' + badge[1];
+        var needKakao = !kakaoConnected || (g && (g.state === 'kakao_required' || g.state === 'kakao_reauth_required' || g.state === 'config_invalid' || g.state === 'session_unreadable'));
+        show('ccNeedKakao', needKakao);
+        var active = g && g.state === 'ok';
+        show('ccPanelActive', !!active);
+        show('ccPanelAsk', !active && !needKakao && g && g.state === 'consent_required');
+        $('ccOutdatedNote').hidden = st !== 'outdated';
+        $('ccRevokedNote').hidden = st !== 'revoked';
+        $('ccAgreeBtn').disabled = busy || !$('ccAccept').checked;
+        if (active) {
+            $('ccGrantedAt').textContent = fmtTime(c.granted_at);
+            $('ccWriter').textContent = writerText(g.writer);
+            var conflict = g.writer && (g.writer.code === 'writer_conflict' || g.writer.code === 'connection_superseded');
+            show('ccWriterConflict', !!conflict);
+            var aw = g.writer && g.writer.active_writer;
+            $('ccActiveWriter').textContent = aw ? [aw.device_label, aw.platform].filter(Boolean).join(', ') : '알 수 없는 기기';
+        }
+        if (g && g.deletion === 'unconfirmed') {
+            alertBox('공유한 자료 삭제 요청의 결과를 확인하지 못해 업로드를 멈춘 상태입니다. 네트워크를 확인한 뒤 “공유한 자료 삭제 요청”을 다시 눌러 주세요.', 'warning');
+        } else if (g && g.deletion === 'cleanup_pending') {
+            alertBox('삭제 뒤 이 서버의 대기 사본 정리가 남아 업로드를 멈춘 상태입니다. 다음 업로드 때 다시 정리합니다.', 'warning');
+        }
+        try { document.dispatchEvent(new CustomEvent('sr:community-gate', { detail: g })); } catch (e) {}
+    }
+
+    function loadGate() {
+        return request('GET', 'gate').then(function (res) { render(res.data); }).catch(function (e) {
+            if (e.message !== 'login') alertBox('동의 상태를 불러오지 못했습니다: ' + e.message, 'danger');
+        });
+    }
+    function loadPolicy() {
+        return request('GET', 'policy').then(function (res) {
+            policy = res.data;
+            $('ccPolicyVersion').textContent = policy.policy_version;
+            renderDoc(policy.text || '');
+        }).catch(function (e) { if (e.message !== 'login') alertBox('동의 문서를 불러오지 못했습니다: ' + e.message, 'danger'); });
+    }
+
+    function act(path, body, button, done) {
+        if (busy) return;
+        busy = true; if (button) button.disabled = true;
+        alertBox('');
+        return request('POST', path, body).then(function (res) {
+            if (res.data && res.data.gate) render(res.data.gate);
+            if (done) done(res.data || {});
+        }).catch(function (e) {
+            if (e.message !== 'login') alertBox(e.message, 'danger');
+            loadGate();
+        }).then(function () { busy = false; if (button) button.disabled = false; if (gate) render(gate); });
+    }
+
+    $('ccAccept').addEventListener('change', function () { $('ccAgreeBtn').disabled = busy || !this.checked; });
+    $('ccAgreeBtn').addEventListener('click', function () {
+        if (!policy || !$('ccAccept').checked) return;
+        act('consent', { accepted: true, policy_version: policy.policy_version, consent_text_sha256: policy.consent_text_sha256 }, this,
+            function (data) {
+                if (data.gate && data.gate.state === 'ok') alertBox('동의를 저장했습니다.', 'success');
+                else alertBox('동의는 저장했지만 확인이 끝나지 않았습니다. 잠시 뒤 다시 확인합니다.', 'warning');
+                $('ccAccept').checked = false;
+            });
+    });
+    if ($('ccTakeoverBtn')) $('ccTakeoverBtn').addEventListener('click', function () {
+        if (!window.confirm('이 서버로 업로드를 전환할까요? 지금 업로드를 맡은 기기는 더 이상 업로드하지 않습니다.')) return;
+        act('writer', { takeover: true }, this);
+    });
+    if ($('ccRevokeBtn')) $('ccRevokeBtn').addEventListener('click', function () {
+        if (!window.confirm('동의를 철회할까요?\n철회하면 이 동의로 보낸 자료가 공개 지도에서 빠지고, 이 프로그램은 필수 설정 화면으로 돌아갑니다.\n다시 동의해도 이전 자료는 자동으로 다시 공개되지 않습니다.')) return;
+        act('consent-revoke', { confirm: true }, this, function () { window.location.href = '/onboarding/community'; });
+    });
+    if ($('ccDeleteBtn')) $('ccDeleteBtn').addEventListener('click', function () {
+        var typed = window.prompt('공유한 자료를 공개 지도·통계에서 삭제합니다. 삭제 전에 수집한 사본은 다시 올릴 수 없습니다.\n계속하려면 "삭제" 를 입력하세요.');
+        if (typed !== '삭제') return;
+        act('contributions-delete', { confirm: 'DELETE_MY_SHARED_REPORTS' }, this, function (data) {
+            var n = data.result && typeof data.result.deleted_facts === 'number' ? data.result.deleted_facts : null;
+            if (data.local_cleanup_pending) {
+                alertBox('중앙에서는 삭제했지만 이 서버의 대기 사본 정리를 끝내지 못했습니다. 정리될 때까지 업로드하지 않으며 다음 업로드 때 다시 시도합니다.', 'warning');
+            } else if (data.writer_reset_pending) {
+                alertBox('삭제를 요청했습니다' + (n === null ? '' : ' (' + n + '건)') + '. 다만 이 서버의 업로드 연결 파일을 지우지 못했습니다. 데이터 폴더의 쓰기 권한·여유 공간을 확인해 주세요.', 'warning');
+            } else {
+                alertBox('삭제를 요청했습니다' + (n === null ? '.' : ' (' + n + '건).'), 'success');
+            }
+        });
+    });
+
+    document.addEventListener('sr:community-status', function (ev) {
+        var was = kakaoConnected;
+        kakaoConnected = !!(ev.detail && ev.detail.state === 'connected');
+        if (was !== kakaoConnected) loadGate(); else if (gate) render(gate);
+    });
+    loadPolicy();
+    loadGate();
+    if (mode === 'settings') setInterval(function () { if (!document.hidden) loadGate(); }, 60000);
+})();
+</script>

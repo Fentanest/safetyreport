@@ -108,6 +108,16 @@ class CrawlManager:
         if proc:
             proc.wait()
         self.clear_process()
+        # 초기화 크롤 후처리 훅(T3b): --rebuild <run_id> 로 시작한 크롤이면 같은 run 으로 종결 판정.
+        try:
+            from services import community_rebuild as _rebuild
+
+            cmd_args = list(getattr(proc, "args", None) or [])
+            if "--rebuild" in cmd_args:
+                _run_id = str(cmd_args[cmd_args.index("--rebuild") + 1])
+                _rebuild.on_crawl_finished(_run_id)
+        except Exception:
+            pass
         time.sleep(1)
 
         if os.path.exists(log_file):

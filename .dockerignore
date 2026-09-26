@@ -11,6 +11,8 @@ docker-compose*.yml
 
 # 문서
 *.md
+# 신고내용 공유 동의문 사본은 제품 데이터다(게이트가 원문·해시를 보여 준다) — 제외하지 않는다
+!contracts/community-ingest/consent/*.md
 LICENSE
 GEMINI.md
 

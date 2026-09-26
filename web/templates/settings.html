@@ -235,6 +235,10 @@
 </div>
 </form>
 
+{% set cm_mode = 'settings' %}
+{% include "components/community_account_card.html" %}
+{% include "components/community_consent_card.html" %}
+
 <script>
     document.getElementById('chromeModeSelect').addEventListener('change', function () {
         document.getElementById('hubUrlDiv').classList.add('d-none');

@@ -187,46 +187,115 @@ def _update_title(conn, rec: CrawledDetail) -> None:
         conn.execute(update(title).where(title.c.ID == rec.id).values(**values))
 
 
+class _CaptureFailed(RuntimeError):
+    """공유 DTO 확정 실패 — 그 신고의 개인 저장을 건너뛰라는 신호."""
+
+
+def _community_capture_for(rec: CrawledDetail, derived: dict):
+    """개인 저장 트랜잭션 전에 공유 DTO 를 확정한다. 실패하면 예외를 올려 호출자가 저장하지 않게 한다."""
+    import os as _os
+
+    from services import community_capture as _cap
+
+    geo = {c: derived.get(c) for c in GEO_COLUMNS}
+    detail = dict(rec.detail or {})
+    title_fields = dict(rec.title_fields or {}) if rec.title_fields else None
+    adapter = _cap.build_adapter_input(detail, title_fields, rec.entry_value, geo, rec.progress_status)
+    trigger = _os.environ.get("SAFETYREPORT_REBUILD_RUN_ID") and "rebuild" or "realtime"
+    run_id = _os.environ.get("SAFETYREPORT_REBUILD_RUN_ID") or None
+    try:
+        _cap.add_retry_id(rec.id, "capture_started")
+    except Exception as exc:
+        raise _cap.CaptureStoreUnavailable(f"capture retry intent unwritable: {exc}") from exc
+    try:
+        result = _cap.capture(adapter, source_report_id=str(rec.id), trigger=trigger, rebuild_run_id=run_id)
+    except Exception:
+        raise
+    else:
+        try:
+            _cap.remove_retry_id(rec.id)
+        except Exception:
+            pass
+        return result
+
+
 def _save_one(engine, rec: CrawledDetail) -> dict | None:
     table = DETAIL_TABLES[rec.category]
     with engine.connect() as read:
         _, existing_before = _find_existing(read, rec.id)
     derived = _prefetch_derived(engine, rec, existing_before)
+    try:
+        capture_result = _community_capture_for(rec, derived)
+    except Exception as exc:
+        from services import community_capture as _cap
 
-    with engine.begin() as conn:
-        now_ms = _now_ms()
-        existing_category, existing = _find_existing(conn, rec.id)
-        site = {c: _clean(rec.detail.get(c)) for c in DETAIL_SITE_COLUMNS}
-        raw_changed = _save_raw(conn, rec, now_ms)
-        entry_changed = _save_entry_value(conn, rec)
+        if isinstance(exc, _cap.CaptureStoreUnavailable):
+            raise
+        raise _CaptureFailed("community_capture_failed") from exc
 
-        if existing is None:
-            change = {"id": rec.id, "change_type": "신규"}
-        elif (existing_category != rec.category or raw_changed or entry_changed
-              or any(comparable(existing.get(c)) != comparable(site[c]) for c in CHANGE_TRACKED_COLUMNS)):
-            change = {"id": rec.id, "change_type": "변경"}
-        else:
-            change = None
+    from services import community_capture as _cap
 
-        row = {"ID": rec.id, **site, **derived, "synced_at": now_ms if change else existing.get("synced_at")}
-        if existing_category and existing_category != rec.category:
-            conn.execute(delete(DETAIL_TABLES[existing_category]).where(DETAIL_TABLES[existing_category].c.ID == rec.id))
-        stmt = insert(table).values(**row)
-        conn.execute(stmt.on_conflict_do_update(index_elements=["ID"], set_={k: v for k, v in row.items() if k != "ID"}))
-        _update_title(conn, rec)
-        refresh_merge_rows(conn, [rec.id])
+    try:
+        with engine.begin() as conn:
+            now_ms = _now_ms()
+            existing_category, existing = _find_existing(conn, rec.id)
+            site = {c: _clean(rec.detail.get(c)) for c in DETAIL_SITE_COLUMNS}
+            raw_changed = _save_raw(conn, rec, now_ms)
+            entry_changed = _save_entry_value(conn, rec)
+
+            if existing is None:
+                change = {"id": rec.id, "change_type": "신규"}
+            elif (existing_category != rec.category or raw_changed or entry_changed
+                  or any(comparable(existing.get(c)) != comparable(site[c]) for c in CHANGE_TRACKED_COLUMNS)):
+                change = {"id": rec.id, "change_type": "변경"}
+            else:
+                change = None
+
+            row = {"ID": rec.id, **site, **derived, "synced_at": now_ms if change else existing.get("synced_at")}
+            if existing_category and existing_category != rec.category:
+                conn.execute(delete(DETAIL_TABLES[existing_category]).where(DETAIL_TABLES[existing_category].c.ID == rec.id))
+            stmt = insert(table).values(**row)
+            conn.execute(stmt.on_conflict_do_update(index_elements=["ID"], set_={k: v for k, v in row.items() if k != "ID"}))
+            _update_title(conn, rec)
+            refresh_merge_rows(conn, [rec.id])
+    except Exception:
+        try:
+            _cap.mark_personal_save(capture_result.event_id, False)
+        except Exception:
+            pass
+        raise
+    try:
+        _cap.mark_personal_save(capture_result.event_id, True)
+        _cap.remove_retry_id(rec.id)
+    except Exception:
+        pass
     return change
 
 
 def save_crawled(engine, records, *, refresh_duplicates: bool = True) -> SaveResult:
+    from services import community_capture as _cap
+
     result = SaveResult()
+    consecutive_capture_failures = 0
     for rec in records:
         try:
             change = _save_one(engine, rec)
+        except _CaptureFailed as exc:
+            result.failed.append((rec.id, "community_capture_failed"))
+            logger.LoggerFactory.logbot.error(f"ID {rec.id} 저장 실패: {exc}")
+            consecutive_capture_failures += 1
+            if consecutive_capture_failures >= 3:
+                raise _cap.CaptureStoreUnavailable(
+                    "community capture failed 3 times in a row; stopping crawl") from exc
+            continue
+        except _cap.CaptureStoreUnavailable:
+            raise
         except Exception as exc:
             result.failed.append((rec.id, repr(exc)))
             logger.LoggerFactory.logbot.error(f"ID {rec.id} 저장 실패: {exc}")
+            consecutive_capture_failures = 0
             continue
+        consecutive_capture_failures = 0
         result.saved += 1
         if change:
             result.changed.append(change)
