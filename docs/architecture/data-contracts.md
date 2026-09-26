@@ -96,7 +96,10 @@ by_law (법규별, 같은 필드 + law)
     "복원 중" 을 표시한다. 그동안 크롤 시작은 `CrawlBlockedByRestore`(화면 문장), 대기 큐 자동 시작은 신고번호를 큐로 되돌린다(Sol 재검증 SOL-04).
     크롤 중지(`/crawl/kill`)는 종료 신호 뒤 **실제로 끝난 것을 확인한 다음에만** 프로세스 참조를 지운다(10초 뒤 kill, 그래도 살아 있으면 참조 유지 →
     복원 계속 거부, 감사 R2-01). 대기 큐는 `data/crawl_pending_queue.json` 에도 남아 재시작 뒤에도 유지되고(시작 때 자동 크롤은 안 함),
-    복원이 끝나면 일반 크롤 허용 검사(게이트·초기화)를 통과할 때 한 번 이어서 처리한다(R2-02).
+    파일에 쓰지 못하면 대기열에 넣지 않고 오류로 답한다(R3-03).
+    대기 큐 자동 시작(크롤 완료 뒤·복원 뒤)은 `crawl_manager.launch_pending_crawl()` 한 경계: 일반 크롤과 같은 허용 검사(게이트·1회 초기화)
+    → 실행마다 고유 큐 파일(`pending_queue_<uuid>.txt`, 크롤이 끝나면 삭제) → 시작에 **성공한 뒤에만** 그 항목을 큐에서 뺀다.
+    막히거나 시작하지 못하면 큐에 그대로 남는다(R3-01·R3-02).
 - **API 값**: `/api/v1/reports/{traffic,parking,other}` 는 NULL 을 null, 정수 열(별점·synced_at·보완횟수·사진_촬영수)을 정수로 보낸다. 웹 화면 조회는 기존처럼 ''.
 - **변경 알림 payload**(`crawl_changes.json`): NULL 은 '' (표시용).
 - 새 표: `mysafety_report_override`(사용자 수정값), `mysafety_duplicate_decision`(중복 판단), `mysafety_change_log`·`mysafety_change_cursor`(변경 기록) — 쓰기는 R2·R5 부터.

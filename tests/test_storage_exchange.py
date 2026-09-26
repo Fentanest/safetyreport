@@ -15,6 +15,9 @@ import settings.settings as settings
 from core.database import database, models
 from core.database.engine import get_engine
 from core.storage import exchange
+from services.crawl_manager import CrawlManager
+
+real_run_after_crawl = CrawlManager.run_after_crawl  # 테스트가 완료 훅을 가짜로 바꿔도 직접 부를 수 있게
 from core.utils import logger
 from scripts.dev import fixture_server
 
@@ -364,10 +367,16 @@ class ExchangeRestoreTests(unittest.TestCase):
         popen = mock.MagicMock()
         errors = []
         log = os.path.join(settings.datapath, "logs", "t.log")
+        gate = {"ok": False}
+
+        def check():
+            if not gate["ok"]:
+                raise RuntimeError("COMMUNITY_REBUILD_REQUIRED")
+
         with mock.patch.object(exchange, "_swap_in", slow_swap), \
              mock.patch("services.crawl_manager.subprocess.Popen", popen), \
              mock.patch("services.crawl_manager.block_if_fixture"), \
-             mock.patch("services.crawl_control._check_crawl_allowed", side_effect=RuntimeError("COMMUNITY_REBUILD_REQUIRED")):
+             mock.patch("services.crawl_control._check_crawl_allowed", side_effect=check):
             r = threading.Thread(target=lambda: exchange.restore(str(self.upload), "mobile"))
             r.start()
             try:
@@ -377,8 +386,13 @@ class ExchangeRestoreTests(unittest.TestCase):
                     crawl_manager.start_crawl(["crawler"], cwd=".", log_file=log)
                 except CrawlBlockedByRestore as exc:
                     errors.append(exc)
-                # 대기 큐 자동 시작이 겹치면 신고번호를 잃지 않고 큐로 되돌린다
-                crawl_manager.launch_pending_crawl(["SPP-1", "SPP-2"])
+                # 대기 큐 자동 시작이 복원과 겹치면(검사는 통과해도) 시작하지 않고 큐를 그대로 둔다
+                crawl_manager.append_to_pending("SPP-1")
+                crawl_manager.append_to_pending("SPP-2")
+                gate["ok"] = True
+                self.assertFalse(crawl_manager.launch_pending_crawl())
+                gate["ok"] = False
+                self.assertEqual(crawl_manager.pending_items(), ["SPP-1", "SPP-2"])
             finally:
                 proceed.set()
                 r.join(20)
@@ -471,6 +485,39 @@ class ExchangeRestoreTests(unittest.TestCase):
         self.assertTrue(crawl_manager.stop_crawl())
         self.assertIsNone(crawl_manager.get_process())
 
+    def _launch_env(self, gate_ok=True):
+        """실제 launch_pending_crawl 경로를 돌리되 프로세스만 가짜로(Popen), 게이트 검사는 gate_ok 로."""
+        proc = mock.MagicMock()
+        proc.poll.return_value = None
+        proc.args = []
+        self._launched = []
+
+        def fake_popen(cmd, **kwargs):  # 자식이 읽을 큐 파일 내용을 시작 순간에 기록한다
+            path = cmd[cmd.index("--queue") + 1] if "--queue" in cmd else None
+            if path:
+                with open(path, encoding="utf-8") as f:
+                    self._launched.append((path, f.read().split("\n")))
+            return proc
+
+        popen = mock.MagicMock(side_effect=fake_popen)
+        patches = [
+            mock.patch("services.crawl_manager.subprocess.Popen", popen),
+            mock.patch("services.crawl_manager.block_if_fixture"),
+            mock.patch("services.crawl_manager.CrawlManager.run_after_crawl"),  # 가짜 프로세스의 완료 훅은 돌리지 않는다
+            mock.patch("services.crawl_control._check_crawl_allowed",
+                       side_effect=None if gate_ok else RuntimeError("COMMUNITY_REBUILD_REQUIRED")),
+            mock.patch("services.ws_manager.ws_manager.broadcast_from_thread"),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        return popen
+
+    def _queue_arg(self, call):
+        cmd = call.args[0]
+        path = cmd[cmd.index("--queue") + 1]
+        return next((p, items) for p, items in self._launched if p == path)
+
     def test_pending_queue_resumes_once_after_restore_and_survives_a_restart(self):
         """감사 R2-02: 복원이 끝나면 허용 검사 뒤 대기 큐를 한 번 이어서 처리하고, 큐는 파일로 남아 재시작에도 유지된다."""
         import time
@@ -478,21 +525,79 @@ class ExchangeRestoreTests(unittest.TestCase):
 
         self.addCleanup(self._crawl_reset)
         crawl_manager.append_to_pending("SPP-7")
-        # 재시작 흉내: 메모리 큐를 비우고 다시 읽는다
-        crawl_manager._pending_queue.clear()
+        crawl_manager._pending_queue.clear()  # 재시작 흉내: 메모리 큐를 비우고 파일에서 다시 읽는다
         crawl_manager._pending_loaded = False
         self.assertEqual(crawl_manager.pending_count(), 1)
         _mobile_db(self.upload)
-        launched = []
-        with mock.patch("services.crawl_control._check_crawl_allowed"), \
-             mock.patch.object(crawl_manager, "launch_pending_crawl", side_effect=lambda p: launched.append(list(p))):
-            exchange.restore(str(self.upload), "mobile")
-            deadline = time.monotonic() + 5
-            while not launched and time.monotonic() < deadline:
-                time.sleep(0.05)
-        self.assertEqual(launched, [["SPP-7"]])
-        self.assertEqual(crawl_manager.pending_count(), 0)
+        popen = self._launch_env(gate_ok=True)
+        exchange.restore(str(self.upload), "mobile")
+        deadline = time.monotonic() + 5
+        while not popen.called and time.monotonic() < deadline:
+            time.sleep(0.05)
+        popen.assert_called_once()
+        self.assertEqual(self._queue_arg(popen.call_args)[1], ["SPP-7"])
+        self.assertEqual(crawl_manager.pending_count(), 0, "시작에 성공한 뒤에만 큐에서 뺀다")
         self.assertFalse(os.path.exists(os.path.join(settings.datapath, crawl_manager.PENDING_FILE)))
+
+    def test_pending_items_stay_when_the_start_fails_and_each_run_gets_its_own_queue_file(self):
+        """감사 R3-01: 다른 크롤이 먼저 시작해 이번 시작이 실패하면 항목·파일을 그대로 둔다. 실행마다 큐 파일이 다르다."""
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        popen = self._launch_env(gate_ok=True)
+        crawl_manager.append_to_pending("SPP-RACE")
+        busy = mock.MagicMock()
+        busy.poll.return_value = None
+        crawl_manager._active_process = busy  # 다른 요청이 먼저 크롤러를 시작함
+        self.assertFalse(crawl_manager.launch_pending_crawl())
+        popen.assert_not_called()
+        self.assertEqual(crawl_manager.pending_items(), ["SPP-RACE"])
+        self.assertTrue(os.path.exists(os.path.join(settings.datapath, crawl_manager.PENDING_FILE)))
+        crawl_manager.clear_process()
+        self.assertTrue(crawl_manager.launch_pending_crawl())
+        first_path, first = self._queue_arg(popen.call_args)
+        self.assertEqual(first, ["SPP-RACE"])
+        crawl_manager.clear_process()
+        crawl_manager.append_to_pending("SPP-SECOND")
+        self.assertTrue(crawl_manager.launch_pending_crawl())
+        second_path, second = self._queue_arg(popen.call_args)
+        self.assertNotEqual(first_path, second_path)
+        self.assertEqual(second, ["SPP-SECOND"])
+        self.assertEqual(self._launched[0], (first_path, ["SPP-RACE"]), "앞 실행의 큐 파일을 덮어쓰지 않는다")
+
+    def test_crawl_completion_does_not_start_the_queue_while_a_rebuild_is_required(self):
+        """감사 R3-02: 완료 훅의 대기 큐 시작도 게이트·초기화 검사를 거친다 — 막히면 시작 0, 큐 보존."""
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        popen = self._launch_env(gate_ok=False)
+        crawl_manager.append_to_pending("SPP-9")
+        finished = mock.MagicMock()
+        finished.wait.return_value = 0
+        finished.poll.return_value = 0
+        finished.args = []
+        with mock.patch("time.sleep"), mock.patch.object(crawl_manager, "_resume_geocode_backfill"):
+            real_run_after_crawl(crawl_manager, finished, os.path.join(settings.datapath, "logs", "none.log"))
+        popen.assert_not_called()
+        self.assertEqual(crawl_manager.pending_items(), ["SPP-9"])
+
+    def test_a_queue_that_cannot_be_saved_is_reported_not_silently_kept_in_memory(self):
+        """감사 R3-03: 파일에 남기지 못하면 대기열에 넣었다고 답하지 않는다."""
+        from services import crawl_control
+        from services.crawl_manager import crawl_manager
+
+        self.addCleanup(self._crawl_reset)
+        with mock.patch("services.crawl_manager.os.replace", side_effect=OSError("disk full")):
+            with self.assertRaises(RuntimeError):
+                crawl_manager.append_to_pending("SPP-LOST")
+            self.assertEqual(crawl_manager.pending_items(), [])
+            running = mock.MagicMock()
+            running.poll.return_value = None
+            crawl_manager._active_process = running
+            with mock.patch("services.crawl_control._check_crawl_allowed"):
+                with self.assertRaises(RuntimeError):
+                    crawl_control.enqueue_report("SPP-LOST")
+        self.assertEqual(crawl_manager.pending_items(), [])
 
 
 if __name__ == "__main__":
