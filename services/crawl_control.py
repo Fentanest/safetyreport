@@ -183,6 +183,8 @@ def enqueue_report(report_number: str):
 
     if crawl_manager.is_crawling():
         queue_size = crawl_manager.append_to_pending(normalized)
+        # 실행 중이던 크롤이 막 끝나 완료 훅이 번호 추가 전에 지나갔을 수 있다 — 한 번 더 시도(R5-02)
+        crawl_manager.request_pending_launch()
         return {"status": "queued", "queue_size": queue_size}
 
     queue_file = _write_queue_file("mobile_queue.txt", normalized)
@@ -190,8 +192,10 @@ def enqueue_report(report_number: str):
     command = _build_command(queue_file=queue_file)
     if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
                                      restore_generation=generation):
-        # 그 사이 다른 크롤(대기 큐 자동 시작 등)이 먼저 시작했다 — 번호를 대기 큐에 넣는다
+        # 그 사이 다른 크롤(대기 큐 자동 시작 등)이 먼저 시작했다 — 번호를 대기 큐에 넣고, 그 크롤의 완료 훅이 이미
+        # 지나갔을 수 있으니 한 번 더 시작을 시도한다(R5-02 — 실행 중이면 그 크롤이 끝날 때 이어서 처리)
         queue_size = crawl_manager.append_to_pending(normalized)
+        crawl_manager.request_pending_launch()
         return {"status": "queued", "queue_size": queue_size}
 
     ws_manager.broadcast_from_thread(
@@ -235,7 +239,9 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
         }
 
     if crawl_manager.is_crawling():
-        return _queue_all()
+        result = _queue_all()
+        crawl_manager.request_pending_launch()  # R5-02
+        return result
 
     queue_file = _write_queue_file("web_selected_queue.txt", "\n".join(normalized))
     log_file, prepare = _log_header(
@@ -245,7 +251,9 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
     command = _build_command(queue_file=queue_file)
     if not crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
                                      restore_generation=generation):
-        return _queue_all()  # 그 사이 다른 크롤이 먼저 시작했다 — 대기 큐로
+        result = _queue_all()  # 그 사이 다른 크롤이 먼저 시작했다 — 대기 큐로(R5-02: 한 번 더 시작 시도)
+        crawl_manager.request_pending_launch()
+        return result
 
     ws_manager.broadcast_from_thread(
         "crawl_started",

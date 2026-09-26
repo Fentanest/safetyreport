@@ -108,8 +108,8 @@ def _resolve_report_number(conn, item):
     return matches[0] if len(matches) == 1 else None
 
 
-def extract_ids_from_queue(engine, queuelist):
-    """Returns (resolved_ids, missing_report_numbers) tuple."""
+def extract_ids_from_queue(engine, queuelist, id_to_items=None):
+    """Returns (resolved_ids, missing_report_numbers) tuple. id_to_items 를 주면 ID → 큐에 적힌 번호들을 채운다(결과 보고용)."""
     resolved_ids = []
     missing_rnums = []
     with engine.connect() as conn:
@@ -120,12 +120,27 @@ def extract_ids_from_queue(engine, queuelist):
                 res = _resolve_report_number(conn, item)
                 if res:
                     resolved_ids.append(res)
+                    if id_to_items is not None:
+                        id_to_items.setdefault(str(res), []).append(item)
                 else:
                     logger.LoggerFactory.logbot.warning(f"큐 신고번호 {item}의 ID를 찾을 수 없습니다. 목록 크롤링 후 재검색합니다.")
                     missing_rnums.append(item)
             else:
                 resolved_ids.append(item)
+                if id_to_items is not None:
+                    id_to_items.setdefault(str(item), []).append(item)
     return resolved_ids, missing_rnums
+
+
+def _write_queue_report(queue_file: str, processed, not_found) -> None:
+    """큐 번호별 결과 보고(감사 R5-01, services/crawl_queue_report). 못 쓰면 기록만 — 부모가 전부 다시 시도한다."""
+    from services import crawl_queue_report
+
+    try:
+        crawl_queue_report.write(queue_file, processed, not_found)
+    except OSError as exc:
+        logger.LoggerFactory.logbot.error(f"큐 결과 보고를 쓰지 못함(다음에 다시 시도됨): {exc}")
+
 
 def _capture_unavailable_class():
     """T4 services.community_capture.CaptureStoreUnavailable. 없으면 None."""
@@ -350,10 +365,12 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
                 subprocess.run([sys.executable, notifier_path], input=msg, text=True)
 
     # Prepare detail list
+    id_to_items = {}  # 큐 모드: ID → 큐 번호(번호별 결과 보고, R5-01)
+    missing_rnums = []
     if args.get("queue_file"):
         with open(args["queue_file"], 'r', encoding='utf-8') as f:
             q_items = f.readlines()
-        detaillist, missing_rnums = extract_ids_from_queue(engine, q_items)
+        detaillist, missing_rnums = extract_ids_from_queue(engine, q_items, id_to_items)
 
         # DB에 없는 신고번호가 있으면 목록 크롤링으로 탐색(API 방식은 브라우저 없이도 가능)
         if missing_rnums:
@@ -386,6 +403,7 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
                         res = conn.execute(query).scalar()
                         if res:
                             detaillist.append(res)
+                            id_to_items.setdefault(str(res), []).append(rnum)
                             logger.LoggerFactory.logbot.info(f"신고번호 {rnum} → ID {res} 발견 (페이지 {page_num})")
                         else:
                             still_missing.append(rnum)
@@ -403,6 +421,8 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
 
     if not detaillist:
         logger.LoggerFactory.logbot.info("크롤링할 상세 내역 없음.")
+        if args.get("queue_file"):
+            _write_queue_report(args["queue_file"], [], missing_rnums)
         return []
 
     logger.LoggerFactory.logbot.info(f"상세 크롤링 대상 ID: {len(detaillist)} 건 (순차 처리)")
@@ -417,7 +437,11 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
         browser_fallback=api_browser_fallback,
     )
 
-    changed_item_ids = _save_details_as_they_arrive(engine, detail_stream)
+    saved_ids = set()
+    changed_item_ids = _save_details_as_they_arrive(engine, detail_stream, saved_ids)
+    if args.get("queue_file"):
+        processed = [item for rid in saved_ids for item in id_to_items.get(str(rid), [])]
+        _write_queue_report(args["queue_file"], processed, missing_rnums)
     if settings.telegram_enabled:
         msg = f"2/5. 상세 정보(Detail) 크롤링 {len(detaillist)}건 및 DB 저장을 완료했습니다. (내용 변경/신규 처리: {len(changed_item_ids)}건)"
         # changed_item_ids는 [{"id": ..., "change_type": "신규"/"변경"}] 형식
@@ -429,7 +453,7 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
     
     return changed_item_ids
 
-def _save_details_as_they_arrive(engine, detail_stream):
+def _save_details_as_they_arrive(engine, detail_stream, saved_ids=None):
     """상세를 받는 즉시 1건씩 저장한다(저장 계층 재설계 R2, S-9). 크롤러가 중간에 멈춰도 받은 만큼은 남는다.
     중복군 재계산은 뒤의 merge_final 에서 한 번만 한다."""
     from core.storage import reports_repo
@@ -442,6 +466,8 @@ def _save_details_as_they_arrive(engine, detail_stream):
             except ValueError:
                 continue
             result = reports_repo.save_crawled(engine, [record], refresh_duplicates=False)
+            if result.saved and saved_ids is not None:
+                saved_ids.add(str(record.id))
             changed.extend(result.changed)
             failed.extend(result.failed)
             saved += result.saved

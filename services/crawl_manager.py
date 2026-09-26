@@ -35,6 +35,8 @@ class CrawlManager:
                 cls._instance._restore_generation = 0
                 cls._instance._reserved: set = set()  # 실행 중인 대기 큐 크롤이 맡은 번호(R4-01)
                 cls._instance._launch_lock = threading.Lock()  # 대기 큐 시작 직렬화(R4-02)
+                cls._instance._retry_timer = None  # 남은 번호 재시도(R5-02)
+                cls._instance._retry_delay = cls.RETRY_FIRST_SECONDS
         return cls._instance
 
     def restore_generation(self) -> int:
@@ -196,20 +198,58 @@ class CrawlManager:
         self._load_pending_locked()
         return [r for r in self._pending_queue if r not in self._reserved]
 
-    def _settle_pending(self, items: List[str], processed: bool) -> None:
-        """대기 큐 크롤이 끝난 뒤: 정상 종료(exit 0)면 그 번호를 큐에서 빼고, 아니면 예약만 풀어 큐에 남긴다(R4-01 —
-        자식이 큐 파일을 읽기 전에 실패해도 번호를 잃지 않는다). 파일 저장 실패는 기록만(재시작 뒤 한 번 더 조회될 뿐)."""
+    @staticmethod
+    def _read_queue_report(queue_file: str) -> set:
+        from services import crawl_queue_report
+
+        done, not_found = crawl_queue_report.read(queue_file)
+        if not_found:
+            from core.utils import logger
+            logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐에서 찾을 수 없는 신고번호 제외: {not_found[:20]}")
+        return done
+
+    def _settle_pending(self, items: List[str], done: set) -> List[str]:
+        """대기 큐 크롤이 끝난 뒤: 자식이 끝냈다고 보고한 번호만 큐에서 빼고, 나머지는 예약만 풀어 큐에 남긴다(R4-01·R5-01).
+        남은 번호 목록을 돌려준다. 파일 저장 실패는 기록만(재시작 뒤 한 번 더 조회될 뿐)."""
         with self._state_lock:
             self._load_pending_locked()
             self._reserved.difference_update(items)
-            if not processed:
-                return
-            self._pending_queue[:] = [r for r in self._pending_queue if r not in set(items)]
+            finished = set(items) & done
+            if not finished:
+                return list(items)
+            self._pending_queue[:] = [r for r in self._pending_queue if r not in finished]
             try:
                 self._save_pending_locked()
             except OSError as exc:
                 from core.utils import logger
                 logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐 파일 갱신 실패: {type(exc).__name__}")
+            return [r for r in items if r not in finished]
+
+    # ── 남은 번호 다시 시도(감사 R5-02) — 실패한 번호로 곧바로 다시 돌지 않게 늘어나는 간격으로 ──────────────
+    RETRY_FIRST_SECONDS = 60.0
+    RETRY_MAX_SECONDS = 1800.0
+
+    def request_pending_launch(self) -> None:
+        """대기 번호를 넣은 쪽이 실행 중인 크롤·완료 훅에 기댈 수 없을 때(시작 경쟁에서 짐) 바로 한 번 시도한다."""
+        threading.Thread(target=self.launch_pending_crawl, daemon=True, name="crawl-pending-request").start()
+
+    def _schedule_retry(self) -> None:
+        with self._state_lock:
+            if self._retry_timer is not None:
+                return
+            delay = self._retry_delay
+            self._retry_delay = min(delay * 2, self.RETRY_MAX_SECONDS)
+            timer = threading.Timer(delay, self._retry_fire)
+            timer.daemon = True
+            timer.name = "crawl-pending-retry"
+            self._retry_timer = timer
+        timer.start()
+
+    def _retry_fire(self) -> None:
+        with self._state_lock:
+            self._retry_timer = None
+        if not self.is_crawling() and self.pending_count():
+            self.launch_pending_crawl()
 
     def pop_pending(self) -> List[str]:
         """대기 큐 전체를 반환하고 초기화(테스트·수동 정리용 — 자동 시작은 launch_pending_crawl 이 시작 성공 뒤에만 뺀다)."""
@@ -324,7 +364,7 @@ class CrawlManager:
             cmd.extend(["--queue", queue_file])
             log_file = os.path.join(s.datapath, 'logs', 'current_crawl.log')
 
-            def prepare():  # start_crawl 잠금 안: 시작이 확정된 뒤에만 파일을 만든다
+            def prepare():  # start_crawl 잠금 안: 시작이 확정된 뒤에만 파일을 만든다(실패하면 아래 except 가 파일을 지운다)
                 with open(queue_file, 'w', encoding='utf-8') as f:
                     f.write('\n'.join(str(r) for r in pending))
                 rotate_crawl_log(log_file)
@@ -341,46 +381,64 @@ class CrawlManager:
                 logger.LoggerFactory.logbot.info(f"[crawl] 대기 큐 {len(pending)}건 보류: {exc}")
                 started = False
             except Exception:
-                # prepare 나 Popen 이 실패했다 — 예약을 풀고 큐에 남긴다
+                # prepare 나 Popen 이 실패했다 — 예약을 풀고 큐에 남긴다. 번호가 담긴 임시 파일도 지운다(R5-04)
                 with self._state_lock:
                     self._reserved.difference_update(pending)
+                self._remove_run_files(queue_file)
                 raise
             if not started:
                 with self._state_lock:
                     self._reserved.difference_update(pending)
-                try:
-                    os.remove(queue_file)
-                except OSError:
-                    pass
+                self._remove_run_files(queue_file)
                 return False
             proc = self.get_process()
 
-        ws_manager.broadcast_from_thread("crawl_started", {
-            "source": "pending_queue",
-            "count": len(pending),
-            "crawl_mode": s.crawl_mode,
-            "crawl_type": s.crawl_type,
-        })
-
         def _after():
-            code = None
             try:
-                code = proc.wait() if proc else None
+                if proc:
+                    proc.wait()
             except Exception:
                 pass
-            # 결과를 먼저 정리한 뒤(정상 종료면 제거, 아니면 예약 해제 — 실패한 번호로 곧바로 다시 돌지 않게 run_after_crawl 뒤에 해제)
-            if code == 0:
-                self._settle_pending(pending, processed=True)
+            done = self._read_queue_report(queue_file)
+            # 끝낸 번호는 먼저 빼고, 남은 번호의 예약은 완료 훅 뒤에 푼다 — 실패한 번호로 곧바로 다시 돌지 않게.
+            with self._state_lock:
+                finished_now = set(pending) & done
+            if finished_now:
+                self._settle_pending(list(finished_now), done)
+            left = [r for r in pending if r not in done]
             try:
                 self.run_after_crawl(proc, log_file)
             finally:
-                if code != 0:
-                    self._settle_pending(pending, processed=False)
-                try:
-                    os.remove(queue_file)
-                except OSError:
-                    pass
-        threading.Thread(target=_after, daemon=True, name="crawl-pending-after").start()
+                if left:
+                    self._settle_pending(left, done)
+                    self._schedule_retry()  # 남은 번호는 늘어나는 간격으로 다시(R5-02)
+                else:
+                    with self._state_lock:
+                        self._retry_delay = self.RETRY_FIRST_SECONDS
+                self._remove_run_files(queue_file)
+
+        # 감시 스레드를 먼저 붙인다 — 알림이 실패해도 예약이 풀리게(R5-03). 스레드를 못 띄우면 예약을 풀고 알린다.
+        try:
+            threading.Thread(target=_after, daemon=True, name="crawl-pending-after").start()
+        except Exception:
+            with self._state_lock:
+                self._reserved.difference_update(pending)
+            raise
+        try:
+            ws_manager.broadcast_from_thread("crawl_started", {
+                "source": "pending_queue",
+                "count": len(pending),
+                "crawl_mode": s.crawl_mode,
+                "crawl_type": s.crawl_type,
+            })
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐 시작 알림 실패: {type(exc).__name__}")
         return True
+
+    @staticmethod
+    def _remove_run_files(queue_file: str) -> None:
+        from services import crawl_queue_report
+
+        crawl_queue_report.remove_files(queue_file)
 
 crawl_manager = CrawlManager()
