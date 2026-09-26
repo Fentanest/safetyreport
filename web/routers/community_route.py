@@ -256,14 +256,26 @@ def _takeover() -> dict:
 
 
 def _contributions_delete() -> dict:
+    from services import community_capture
+
+    # 1) 로컬 삭제 대기 표시를 먼저(community.db, 트랜잭션). 못 쓰면 중앙 삭제를 요청하지 않는다(Sol 2차 H-03a).
+    try:
+        local_id = community_capture.begin_deletion()
+    except Exception:
+        raise CommunityAuthError("invalid_state", "이 서버의 공유 저장소에 기록할 수 없어 삭제를 요청하지 않았습니다. 잠시 뒤 다시 시도해 주세요.") from None
     community_gate.invalidate("deletion_requested")
-    res = _account_call(lambda c, t: c.delete_contributions(t))
+    try:
+        res = _account_call(lambda c, t: c.delete_contributions(t))
+    except CommunityAuthError:
+        try:  # 중앙 삭제가 확실히 실패했으면 이 표시만 지운다(지우지 못하면 업로드가 막힌 채로 남는다 — fail-closed)
+            community_capture.cancel_deletion(local_id)
+        except Exception:
+            pass
+        raise
     cas.get_service().store.save_writer(None)  # 중앙이 연결을 모두 폐기했다 → 다음 확인 때 새로 등록
     local_ok = True
-    try:  # 삭제 시점까지의 로컬 사본을 행 순번 기준으로 영구 제외(Sol H-03). 실패해도 표시가 남아 업로드를 막는다.
-        from services import community_uploader
-
-        community_uploader.on_contributions_deleted(deletion_id=res.get("deletion_id"))
+    try:  # 2) 표시를 한 트랜잭션에서 적용(그 시점까지의 journal 전부 차단). 실패해도 표시가 남아 업로드·reshare 를 막는다.
+        community_capture.apply_pending_deletion()
     except Exception:
         local_ok = False
     return {"result": {k: res.get(k) for k in ("deletion_id", "deleted_facts", "revoked_connections", "deleted_at")},

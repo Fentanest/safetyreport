@@ -468,64 +468,55 @@ def remove_retry_id(source_report_id: str, data_dir: str | None = None) -> None:
 
 # ── 삭제 알림 (T3 라우트가 contributions-delete 성공 뒤 호출) ──────────────────
 
-DELETION_MARKER = "community_deletion_pending.json"
+DELETION_KEY_PREFIX = "deletion_pending:"
 
 
-def _deletion_marker_path(data_dir: str | None = None) -> str:
-    import settings.settings as app_settings
+def begin_deletion(data_dir: str | None = None) -> str:
+    """중앙 삭제를 요청하기 **전에** community.db 에 삭제 대기 표시를 트랜잭션으로 남긴다(journal 과 같은 DB — 따로 잃지 않는다).
+    표시를 못 쓰면 예외 → 호출자는 중앙 삭제를 요청하지 않는다(Sol 2차 H-03a). 표시마다 고유 id 라 동시 삭제가 서로를 지우지 않는다(H-03b)."""
+    deletion_id = str(uuid.uuid4())
+    store = _store(data_dir)
+    with store.transaction() as tx:
+        store.set_meta(DELETION_KEY_PREFIX + deletion_id, json.dumps({"requested_at": _now_iso()}), tx)
+    return deletion_id
 
-    return os.path.join(data_dir or app_settings.datapath, DELETION_MARKER)
 
-
-def on_contributions_deleted(data_dir: str | None = None, deletion_id: str | None = None) -> None:
-    """중앙 삭제 성공 뒤: 그 시점에 있던 journal 행 전부(행 순번 경계 — 시계와 무관)를 영구 제외하고
-    outbox 대기 행을 막고 server_completed 를 비운다. 먼저 영속 표시(파일)를 남기고, 적용이 끝나면 지운다.
-    적용이 실패하면 예외를 올리고 표시는 남는다 → 업로드·reshare 는 표시를 먼저 처리할 때까지 보내지 않는다(Sol H-03)."""
-    boundary = None
-    try:
-        row = _store(data_dir).connect().execute("SELECT max(rowid) AS m FROM source_journal").fetchone()
-        boundary = row["m"] if row else None
-    except Exception:
-        boundary = None  # 읽을 수 없으면 적용 시점의 전체 행을 막는다(보수적)
-    path = _deletion_marker_path(data_dir)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump({"deletion_id": deletion_id, "journal_rowid_max": boundary, "recorded_at": _now_iso()}, fh)
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.replace(tmp, path)
-    apply_pending_deletion(data_dir)
+def cancel_deletion(deletion_id: str, data_dir: str | None = None) -> None:
+    """중앙 삭제가 확실히 실패했을 때만: 그 표시 하나를 지운다(다른 삭제의 표시는 건드리지 않는다)."""
+    store = _store(data_dir)
+    with store.transaction() as tx:
+        tx.execute("DELETE FROM meta WHERE key=?", (DELETION_KEY_PREFIX + deletion_id,))
 
 
 def apply_pending_deletion(data_dir: str | None = None) -> bool:
-    """남은 삭제 표시가 없으면 True. 있으면 적용하고 표시를 지운다. 적용 실패는 예외."""
-    path = _deletion_marker_path(data_dir)
-    if not os.path.exists(path):
-        return True
-    try:
-        with open(path, encoding="utf-8") as fh:
-            marker = json.load(fh)
-        if not isinstance(marker, dict):
-            raise ValueError
-    except ValueError:
-        marker = {}  # 손상된 표시: 경계 없이 적용 시점의 전체 행을 막는다(영구 잠김 대신 보수적 복구)
+    """남은 삭제 표시가 있으면 **한 트랜잭션에서** 적용하고 지운다: 그 시점까지의 journal 행 전부(행 순번 — 시계 무관)를
+    deleted_by_user 로, 그 outbox 를 blocked 로, server_completed 를 비운다. 표시가 없으면 아무것도 하지 않는다. 실패는 예외.
+    경계는 적용 시점이라 중앙 삭제 직후 몇 초 사이의 새 관측도 막힐 수 있다(보수적 — 옛 사본이 새 연결로 나가는 것보다 안전)."""
     store = _store(data_dir)
     with store.transaction() as tx:
-        boundary = marker.get("journal_rowid_max")
-        if boundary is None:
-            boundary = (tx.execute("SELECT max(rowid) AS m FROM source_journal").fetchone() or {"m": 0})["m"] or 0
+        keys = [r["key"] for r in tx.execute("SELECT key FROM meta WHERE key LIKE ?", (DELETION_KEY_PREFIX + "%",))]
+        if not keys:
+            return True
+        boundary = (tx.execute("SELECT max(rowid) AS m FROM source_journal").fetchone()["m"]) or 0
         tx.execute("UPDATE source_journal SET blocked_reason='deleted_by_user'"
                    " WHERE rowid <= ? AND (blocked_reason IS NULL OR blocked_reason != 'deleted_by_user')", (boundary,))
         tx.execute("UPDATE outbox SET state='blocked', last_error_code='deleted_by_user'"
                    " WHERE state != 'dead_letter' AND event_id IN (SELECT event_id FROM source_journal WHERE rowid <= ?)",
                    (boundary,))
         tx.execute("DELETE FROM server_completed")
-    os.remove(path)
+        tx.executemany("DELETE FROM meta WHERE key=?", [(k,) for k in keys])
     return True
 
 
+def on_contributions_deleted(data_dir: str | None = None, deletion_id: str | None = None) -> None:
+    """중앙 삭제 성공 뒤(표시는 begin_deletion 이 이미 남겼다). 표시 없이 불린 경우(구 호출)도 보수적으로 표시를 만든 뒤 적용한다."""
+    if deletion_id is None:
+        begin_deletion(data_dir)
+    apply_pending_deletion(data_dir)
+
+
 def deletion_cleanup_pending(data_dir: str | None = None) -> bool:
-    """삭제 뒤 로컬 차단이 아직 끝나지 않았으면 다시 적용해 본다. 여전히 못 하면 True(업로드 금지)."""
+    """삭제 표시가 남아 있으면 적용을 다시 시도한다. 여전히 못 하면(또는 저장소를 읽을 수 없으면) True — 업로드·reshare 금지."""
     try:
         return not apply_pending_deletion(data_dir)
     except Exception:
