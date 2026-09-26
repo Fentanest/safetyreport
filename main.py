@@ -107,7 +107,14 @@ async def lifespan(app: FastAPI):
 
     from services.ws_manager import ws_manager as _ws_manager
     _ws_manager.set_main_loop(asyncio.get_event_loop())
-    # 업데이트 직후 첫 기동이면 스키마를 올리기 전에 data/backups/ 에 DB 사본을 남긴다.
+    # 이전 버전 DB 는 옮기지 않는다(2026-09-26 초기화 크롤링 릴리스): data/backups/legacy_v*.db 로 통째로 백업한 뒤
+    # 신고 자료를 비우고(관리자·API 키·감시목록·지오코딩 캐시만 남김) 초기화 크롤링 안내로 다시 채운다. 새 설치는 해당 없음.
+    def _rotate_community_dataset():
+        # 개인 DB 를 비우기 직전 community.db 데이터셋 선회전(복원과 같은 보수적 순서, S-20).
+        from services.community_store import CommunityStore
+        CommunityStore.open().rotate_dataset("legacy_reset")
+
+    database.reset_legacy_database(engine, os.path.join(settings.datapath, "backups"), before_reset=_rotate_community_dataset)
     database.upgrade_schema(engine, backup_dir=os.path.join(settings.datapath, "backups"))
     from core.utils.runtime_mode import skip_in_fixture
     if not skip_in_fixture("startup geocode backfill"):

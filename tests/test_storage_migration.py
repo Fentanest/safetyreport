@@ -1,13 +1,16 @@
-"""구버전 서버 DB → 현재 스키마 업그레이드 (저장 계층 재설계 R0).
+"""구버전 서버 DB 처리 — 2026-09-26 초기화 크롤링 릴리스(이전 DB 업데이트 로직 비활성).
 
 견본 `tests/fixtures/db/server-2026-05-16.schema.sql` 은 2026-05-16 운영 DB 의 표 구조만 뽑은 것이다(데이터 없음).
-합성 행을 넣고 `upgrade_schema` 를 돌린 뒤: 계약과 스키마가 일치하는지, 기존 값이 그대로인지, 새 열은 비어 있는지 확인한다.
+이번 릴리스는 이전 DB 를 새 구조로 옮기지 않는다: upgrade_schema 는 이전 DB 를 건드리지 않고 멈추고,
+reset_legacy_database 가 통째로 백업한 뒤 신고 자료를 비우고(관리자·API 키·감시목록·지오코딩 캐시만 남김) 지금 스키마로 다시 만든다.
 """
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from sqlalchemy import create_engine
 
@@ -23,13 +26,16 @@ DETAIL = {"ID": "70000001", "처리상태": "수용", "차량번호": "12가3456
           "처리기관": "서울특별시 강서경찰서 교통과", "담당자": "김담당", "답변일": "2026-05-10", "발생일자": "2026-05-01", "발생시각": "08:00",
           "위반장소": "서울특별시 강서구 마곡동 1", "종결여부": "Y", "신고내용": "본문\n둘째 줄", "처리내용": "처리 내용", "지도": "", "첨부사진": "", "첨부파일": "",
           "synced_at": 1778400000000, "보완횟수": 0, "보완_미응답": "N"}
+REPORT_TABLES = ("mysafety", "mysafetydetail_traffic", "mysafetydetail_parking", "mysafetydetail_other",
+                 "mysafetymerge_traffic", "mysafetymerge_parking", "mysafetymerge_other")
 
 
-class ServerMigrationTests(unittest.TestCase):
+class LegacyServerDbTests(unittest.TestCase):
     def setUp(self):
         logger.LoggerFactory.create_logger(mode="crawl")
         self._dir = tempfile.TemporaryDirectory()
         self.path = Path(self._dir.name) / "old.db"
+        self.backups = Path(self._dir.name) / "backups"
         con = sqlite3.connect(self.path)
         con.executescript(SCHEMA.read_text(encoding="utf-8"))
         cols = [r[1] for r in con.execute('pragma table_info("mysafetydetail_traffic")')]
@@ -40,6 +46,8 @@ class ServerMigrationTests(unittest.TestCase):
         merged = {k: v for k, v in {**TITLE, **DETAIL}.items() if k in mcols}
         con.execute(f'INSERT INTO mysafetymerge_traffic ({",".join(merged)}) VALUES ({",".join("?" * len(merged))})', list(merged.values()))
         con.execute("INSERT INTO mysafety_watchlist (신고번호) VALUES ('SPP-2605-7000001')")
+        con.execute("INSERT INTO admin_users VALUES ('admin', 'hash', 'salt')")
+        con.execute("INSERT INTO api_keys VALUES ('k-1', '내 폰', '2026-05-01')")
         con.commit()
         con.close()
         self.engine = create_engine(f"sqlite:///{self.path}")
@@ -48,84 +56,220 @@ class ServerMigrationTests(unittest.TestCase):
         self.engine.dispose()
         self._dir.cleanup()
 
-    def _columns(self, table):
-        con = sqlite3.connect(self.path)
+    def _q(self, sql, path=None):
+        con = sqlite3.connect(path or self.path)
         try:
-            return [r[1] for r in con.execute(f'pragma table_info("{table}")')]
+            return con.execute(sql).fetchall()
         finally:
             con.close()
 
-    def test_old_db_is_backed_up_before_upgrade_and_only_once(self):
-        """업데이트 직후 첫 기동: 스키마를 올리기 전 DB 사본(옛 버전 그대로)을 남기고, 다음 기동부터는 만들지 않는다."""
-        backups = Path(self._dir.name) / "backups"
-        database.upgrade_schema(self.engine, backup_dir=str(backups))
-        files = sorted(backups.glob("before_schema_v0_*.db"))
-        self.assertEqual(len(files), 1)
-        con = sqlite3.connect(files[0])
-        try:
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], 0)  # 바꾸기 전 그대로
-            self.assertEqual(con.execute("SELECT 신고번호 FROM mysafety").fetchall(), [("SPP-2605-7000001",)])
-            self.assertEqual(con.execute("SELECT count(*) FROM sqlite_master WHERE name = 'mysafety_report_override'").fetchone()[0], 0)
-        finally:
-            con.close()
-        self.assertEqual(database.get_schema_version(self.engine), database.SCHEMA_VERSION)
-        database.upgrade_schema(self.engine, backup_dir=str(backups))
-        self.assertEqual(len(list(backups.glob("before_schema_v*.db"))), 1)
+    def _columns(self, table, path=None):
+        return [r[1] for r in self._q(f'pragma table_info("{table}")', path)]
 
-    def test_pre_upgrade_backups_keep_only_the_latest(self):
-        backups = Path(self._dir.name) / "backups"
-        backups.mkdir()
-        for i in range(7):
-            (backups / f"before_schema_v0_2026010{i}_000000.db").write_bytes(b"")
-        (backups / "data_before_restore_20260101_000000.db").write_bytes(b"")  # 다른 백업은 건드리지 않는다
-        database.upgrade_schema(self.engine, backup_dir=str(backups))
-        kept = sorted(p.name for p in backups.glob("before_schema_v*.db"))
-        self.assertEqual(len(kept), database.PRE_UPGRADE_BACKUP_KEEP)
-        self.assertNotIn("before_schema_v0_20260100_000000.db", kept)
-        self.assertTrue((backups / "data_before_restore_20260101_000000.db").exists())
-
-    def test_new_empty_db_is_not_backed_up(self):
-        backups = Path(self._dir.name) / "backups"
-        engine = create_engine(f"sqlite:///{Path(self._dir.name) / 'new.db'}")
-        database.upgrade_schema(engine, backup_dir=str(backups))
-        self.assertFalse(backups.exists() and any(backups.iterdir()))
-        engine.dispose()
+    def _version(self, path=None):
+        return self._q("PRAGMA user_version", path)[0][0]
 
     def test_fixture_is_really_old(self):
         self.assertNotIn("주소정규화", self._columns("mysafetydetail_traffic"))
         self.assertEqual(self._columns("mysafety_geocode_cache"), [])
+        self.assertTrue(database.is_legacy_database(self.engine))
 
-    def test_upgrade_reaches_contract_and_keeps_values(self):
-        database.upgrade_schema(self.engine)
+    def test_upgrade_refuses_an_old_db_and_changes_nothing(self):
+        """이전 DB 업데이트 로직은 꺼져 있다: 열 추가·마이그레이션·업그레이드 전 백업 없이 멈춘다."""
+        with self.assertRaises(database.LegacyDatabase):
+            database.upgrade_schema(self.engine, backup_dir=str(self.backups))
+        with self.assertRaises(database.LegacyDatabase):
+            database.upgrade_schema(self.engine, maintenance=False)
+        self.assertEqual(self._version(), 0)
+        self.assertNotIn("주소정규화", self._columns("mysafetydetail_traffic"))
+        self.assertEqual(self._columns("mysafety_report_override"), [])
+        self.assertEqual(self._q("SELECT count(*) FROM mysafety")[0][0], 1)
+        self.assertFalse(self.backups.exists())
+
+    def test_reset_backs_up_the_whole_old_db_then_empties_reports_and_keeps_account_tables(self):
+        seen = {}
+
+        def before_reset():
+            backups = sorted(self.backups.glob(f"{database.LEGACY_BACKUP_PREFIX}0_*.db"))
+            seen["backups"] = backups
+            seen["rows_still_there"] = self._q("SELECT count(*) FROM mysafety")[0][0]
+
+        info = database.reset_legacy_database(self.engine, str(self.backups), before_reset=before_reset)
+        # 백업: 비우기 전에, 이전 DB 그대로(버전·행)
+        self.assertEqual(len(seen["backups"]), 1)
+        self.assertEqual(seen["rows_still_there"], 1)
+        backup = str(seen["backups"][0])
+        self.assertEqual(info["backup"], backup)
+        self.assertEqual(self._version(backup), 0)
+        self.assertEqual(self._q("SELECT 신고번호 FROM mysafety", backup), [("SPP-2605-7000001",)])
+        self.assertEqual(self._q("SELECT username FROM admin_users", backup), [("admin",)])
+        # 비운 DB: 지금 스키마·계약 버전, 신고 자료 없음
+        self.assertEqual(self._version(), CONTRACT["schema_version"]["server"])
+        self.assertFalse(database.is_legacy_database(self.engine))
+        for table in REPORT_TABLES:
+            with self.subTest(table=table):
+                self.assertEqual(self._q(f'SELECT count(*) FROM "{table}"')[0][0], 0)
         report = next(e for e in CONTRACT["entities"] if e["entity"] == "report")
         for placement, tables in (("detail", report["server_tables"]["detail"]), ("merge", report["server_tables"]["merge"])):
             expected = {c["name"] for c in report["columns"] if placement in c["server"]}
             for table in tables:
                 with self.subTest(table=table):
                     self.assertEqual(set(self._columns(table)), expected)
+        # 남긴 표: 관리자·API 키·감시목록(구조 그대로라 옮기는 코드 없음). 지오코딩 캐시는 옛 DB 에 없어 새로 만듦.
+        self.assertEqual(self._q("SELECT username, password_hash, salt FROM admin_users"), [("admin", "hash", "salt")])
+        self.assertEqual(self._q("SELECT key, name, created_at FROM api_keys"), [("k-1", "내 폰", "2026-05-01")])
+        self.assertEqual(self._q("SELECT 신고번호 FROM mysafety_watchlist"), [("SPP-2605-7000001",)])
+        self.assertEqual(info["kept"], ["admin_users", "api_keys", "mysafety_watchlist"])
+        self.assertIn("mysafety", info["dropped"])
         self.assertTrue(self._columns("mysafety_geocode_cache"))
-
-        con = sqlite3.connect(self.path)
-        con.row_factory = sqlite3.Row
-        detail = dict(con.execute("SELECT * FROM mysafetydetail_traffic WHERE ID='70000001'").fetchone())
-        merge = dict(con.execute("SELECT * FROM mysafetymerge_traffic WHERE ID='70000001'").fetchone())
-        con.close()
-        for key, value in DETAIL.items():
-            with self.subTest(column=key):
-                self.assertEqual(detail[key], value)
-                self.assertEqual(merge[key], value)
-        for key in ("상태", "신고번호", "만족도조사여부", "별점"):
-            self.assertEqual(merge[key], TITLE[key])
-        for key in ("위도", "경도", "사진_첫촬영", "사진_끝촬영", "사진_촬영수"):
-            self.assertIsNone(detail[key], key)
-
-    def test_upgrade_sets_schema_version_from_contract(self):
-        self.assertEqual(database.get_schema_version(self.engine), 0)
+        for table in ("mysafety_report_override", "mysafety_duplicate_decision", "mysafety_change_log", "mysafety_change_cursor"):
+            self.assertTrue(self._columns(table), table)
+        indexes = {r[0] for r in self._q("SELECT name FROM sqlite_master WHERE type='index'")}
+        self.assertTrue({"ix_mysafety_report_number", "ix_detail_traffic_closed", "ix_merge_other_report_number",
+                         "ix_duplicate_member_report"} <= indexes)
+        # 안내 화면용 기록
+        stored = database.legacy_reset_info(self.engine)
+        self.assertEqual((stored["from_version"], stored["backup"]), (0, backup))
+        # 이제 평소 시작 경로가 돈다. 다시 불러도 아무 일 없음.
         database.upgrade_schema(self.engine)
-        self.assertEqual(database.get_schema_version(self.engine), CONTRACT["schema_version"]["server"])
-        self.assertEqual(database.SCHEMA_VERSION, CONTRACT["schema_version"]["server"])
-        database.upgrade_schema(self.engine)  # 두 번 돌려도 같다
-        self.assertEqual(database.get_schema_version(self.engine), database.SCHEMA_VERSION)
+        self.assertIsNone(database.reset_legacy_database(self.engine, str(self.backups)))
+        self.assertEqual(len(list(self.backups.glob("*.db"))), 1)
+        self.assertEqual(self._q("SELECT username FROM admin_users"), [("admin",)])
+
+    def test_a_kept_table_with_another_structure_is_rebuilt_empty(self):
+        con = sqlite3.connect(self.path)
+        con.execute("CREATE TABLE mysafety_geocode_cache (주소 TEXT PRIMARY KEY, 위도 REAL)")
+        con.execute("INSERT INTO mysafety_geocode_cache VALUES ('옛 주소', 37.0)")
+        con.commit()
+        con.close()
+        info = database.reset_legacy_database(self.engine, str(self.backups))
+        self.assertNotIn("mysafety_geocode_cache", info["kept"])
+        self.assertIn("주소정규화", self._columns("mysafety_geocode_cache"))
+        self.assertEqual(self._q("SELECT count(*) FROM mysafety_geocode_cache")[0][0], 0)
+
+    def test_a_compatible_geocode_cache_is_kept(self):
+        con = sqlite3.connect(self.path)
+        con.execute("CREATE TABLE mysafety_geocode_cache (주소정규화 VARCHAR NOT NULL, 원본주소 VARCHAR, 행정구역 VARCHAR, 위도 FLOAT, 경도 FLOAT,"
+                    " 상태 VARCHAR NOT NULL, source VARCHAR NOT NULL, error_message VARCHAR, updated_at INTEGER, PRIMARY KEY (주소정규화))")
+        con.execute("INSERT INTO mysafety_geocode_cache VALUES ('서울 강서구 1', NULL, '서울 강서구', 37.5, 126.8, 'ok', 'kakao', NULL, 1)")
+        con.commit()
+        con.close()
+        info = database.reset_legacy_database(self.engine, str(self.backups))
+        self.assertIn("mysafety_geocode_cache", info["kept"])
+        self.assertEqual(self._q("SELECT 주소정규화, 위도 FROM mysafety_geocode_cache"), [("서울 강서구 1", 37.5)])
+
+    def test_an_admin_table_with_another_structure_stops_without_touching_anything(self):
+        con = sqlite3.connect(self.path)
+        con.execute("DROP TABLE admin_users")
+        con.execute("CREATE TABLE admin_users (username VARCHAR NOT NULL PRIMARY KEY, password VARCHAR)")
+        con.commit()
+        con.close()
+        with self.assertRaises(database.LegacyDatabase):
+            database.reset_legacy_database(self.engine, str(self.backups))
+        self.assertEqual(self._version(), 0)
+        self.assertEqual(self._q("SELECT count(*) FROM mysafety")[0][0], 1)
+        self.assertFalse(self.backups.exists())
+
+    def test_a_failure_inside_the_reset_rolls_everything_back(self):
+        with mock.patch.object(database, "_index_statements", return_value=["CREATE INDEX broken ON no_such_table (x)"]):
+            with self.assertRaises(sqlite3.OperationalError):
+                database.reset_legacy_database(self.engine, str(self.backups))
+        self.assertEqual(self._version(), 0)
+        self.assertEqual(self._q("SELECT count(*) FROM mysafety")[0][0], 1)
+        self.assertEqual(self._q("SELECT count(*) FROM mysafetymerge_traffic")[0][0], 1)
+        self.assertEqual(self._columns("mysafety_report_override"), [])
+        self.assertEqual(self._q("SELECT count(*) FROM sqlite_master WHERE name='mysafety_sync_meta'")[0][0], 1)
+        self.assertEqual(len(list(self.backups.glob("*.db"))), 1)  # 백업은 남는다
+
+    def test_a_failing_before_reset_hook_drops_nothing(self):
+        with self.assertRaises(RuntimeError):
+            database.reset_legacy_database(self.engine, str(self.backups), before_reset=mock.Mock(side_effect=RuntimeError("x")))
+        self.assertEqual(self._version(), 0)
+        self.assertEqual(self._q("SELECT count(*) FROM mysafety")[0][0], 1)
+
+    def test_a_second_start_that_decided_before_the_first_finished_changes_nothing(self):
+        """Sol 검토 1: 두 프로세스가 모두 '이전 버전' 으로 판정한 뒤 A 가 먼저 비우고 수집을 시작했으면, B 는 잠금 안에서 다시 확인해 아무것도 하지 않는다."""
+        database.reset_legacy_database(self.engine, str(self.backups))  # A
+        con = sqlite3.connect(self.path)
+        con.execute("INSERT INTO mysafety (ID, 신고번호) VALUES ('90000001', 'SPP-NEW')")  # A 가 그 뒤 수집한 신고
+        con.commit()
+        con.close()
+        rotated = mock.Mock()
+        with mock.patch.object(database, "is_legacy_database", return_value=True):  # B 의 낡은 판정
+            self.assertIsNone(database.reset_legacy_database(self.engine, str(self.backups), before_reset=rotated))
+        rotated.assert_not_called()
+        self.assertEqual(self._q("SELECT ID FROM mysafety"), [("90000001",)])
+        self.assertEqual(len(list(self.backups.glob("*.db"))), 1, "B 는 백업도 만들지 않는다")
+
+    def test_a_reset_waits_for_the_one_already_running_and_then_does_nothing(self):
+        import threading
+
+        holder = sqlite3.connect(self.path, isolation_level=None)
+        holder.execute("BEGIN IMMEDIATE")  # A 가 비우는 중(쓰기 잠금)
+        result = {}
+
+        def second():
+            try:
+                result["info"] = database.reset_legacy_database(self.engine, str(self.backups))
+            except BaseException as exc:  # pragma: no cover - 실패 원인 보고용
+                result["error"] = exc
+
+        with mock.patch.object(database, "LEGACY_RESET_LOCK_TIMEOUT", 30.0):
+            t = threading.Thread(target=second)
+            t.start()
+            t.join(0.5)
+            self.assertTrue(t.is_alive(), "B 는 A 의 잠금을 기다린다")
+            holder.execute("DELETE FROM mysafety")  # A 가 비우고 버전을 올린 것처럼
+            holder.execute(f"PRAGMA user_version = {database.SCHEMA_VERSION}")
+            holder.execute("INSERT INTO mysafety (ID, 신고번호) VALUES ('90000002', 'SPP-AFTER')")
+            holder.execute("COMMIT")
+            holder.close()
+            t.join(30)
+        self.assertNotIn("error", result)
+        self.assertIsNone(result["info"])
+        self.assertEqual(self._q("SELECT ID FROM mysafety"), [("90000002",)])
+        self.assertFalse(self.backups.exists() and any(self.backups.iterdir()))
+
+    def test_crawler_reset_refuses_an_old_db_before_deleting_anything(self):
+        """Sol 검토 3: start.py --reset 이 이전 버전 DB 의 신고를 백업 없이 지우지 않는다."""
+        import start
+
+        with self.assertRaises(database.LegacyDatabase):
+            start._prepare_database(self.engine, reset=True)
+        self.assertEqual(self._version(), 0)
+        self.assertEqual(self._q("SELECT count(*) FROM mysafety")[0][0], 1)
+        self.assertEqual(self._q("SELECT count(*) FROM mysafetymerge_traffic")[0][0], 1)
+        with self.assertRaises(database.LegacyDatabase):
+            start._prepare_database(self.engine, reset=False)
+
+    def test_crawler_reset_on_a_reset_db_keeps_the_legacy_record(self):
+        import start
+
+        database.reset_legacy_database(self.engine, str(self.backups))
+        start._prepare_database(self.engine, reset=True)
+        self.assertIsNotNone(database.legacy_reset_info(self.engine))
+        self.assertEqual(self._q("SELECT username FROM admin_users"), [("admin",)])
+
+    def test_an_old_db_with_virtual_tables_is_backed_up_and_emptied(self):
+        """Sol 재검증 6: FTS 가상 표를 지우면 그 보조 표도 지워진다 — 뒤이은 보조 표 DROP 이 'no such table' 로 멈추지 않는다."""
+        con = sqlite3.connect(self.path)
+        modules = []
+        for module in ("fts4", "fts5"):
+            try:
+                con.execute(f"CREATE VIRTUAL TABLE old_{module} USING {module}(body)")
+                con.execute(f"INSERT INTO old_{module} (body) VALUES ('옛 검색 색인')")
+                modules.append(module)
+            except sqlite3.OperationalError:
+                pass
+        con.commit()
+        con.close()
+        self.assertTrue(modules, "이 SQLite 에 FTS 모듈이 없음")
+        info = database.reset_legacy_database(self.engine, str(self.backups))
+        self.assertEqual(self._version(), database.SCHEMA_VERSION)
+        self.assertEqual(self._q("SELECT name FROM sqlite_master WHERE name LIKE 'old_fts%'"), [])
+        for module in modules:
+            self.assertEqual(self._q(f"SELECT body FROM old_{module} WHERE old_{module} MATCH '검색'", info["backup"]), [("옛 검색 색인",)])
+        self.assertEqual(self._q("SELECT username FROM admin_users"), [("admin",)])
 
     def test_newer_database_is_refused(self):
         con = sqlite3.connect(self.path)
@@ -134,17 +278,82 @@ class ServerMigrationTests(unittest.TestCase):
         con.close()
         with self.assertRaises(RuntimeError):
             database.upgrade_schema(self.engine)
+        with self.assertRaises(RuntimeError):
+            database.reset_legacy_database(self.engine, str(self.backups))
         self.assertNotIn("주소정규화", self._columns("mysafetydetail_traffic"))  # 거부 전에 아무것도 바꾸지 않음
+        self.assertFalse(self.backups.exists())
 
-    def test_light_upgrade_for_crawler_applies_versions_and_indexes(self):
-        database.upgrade_schema(self.engine, maintenance=False)
-        self.assertEqual(database.get_schema_version(self.engine), database.SCHEMA_VERSION)
+    def test_every_version_below_the_current_one_is_legacy(self):
+        for version in range(0, database.SCHEMA_VERSION):
+            con = sqlite3.connect(self.path)
+            con.execute(f"PRAGMA user_version = {version}")
+            con.commit()
+            con.close()
+            with self.subTest(version=version):
+                self.assertTrue(database.is_legacy_database(self.engine))
+
+
+class NewServerDbTests(unittest.TestCase):
+    def setUp(self):
+        logger.LoggerFactory.create_logger(mode="crawl")
+        self._dir = tempfile.TemporaryDirectory()
+        self.path = Path(self._dir.name) / "new.db"
+        self.engine = create_engine(f"sqlite:///{self.path}")
+
+    def tearDown(self):
+        self.engine.dispose()
+        self._dir.cleanup()
+
+    def _indexes(self):
         con = sqlite3.connect(self.path)
         try:
-            indexes = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='index'")}
+            return {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='index'")}
         finally:
             con.close()
-        self.assertTrue({"ix_mysafety_report_number", "ix_detail_traffic_closed", "ix_duplicate_member_report"} <= indexes)
+
+    def test_new_db_is_created_at_the_contract_version_without_backup_or_reset(self):
+        backups = Path(self._dir.name) / "backups"
+        self.assertIsNone(database.reset_legacy_database(self.engine, str(backups)))
+        database.upgrade_schema(self.engine, backup_dir=str(backups))
+        self.assertEqual(database.get_schema_version(self.engine), CONTRACT["schema_version"]["server"])
+        self.assertEqual(database.SCHEMA_VERSION, CONTRACT["schema_version"]["server"])
+        self.assertFalse(database.is_legacy_database(self.engine))
+        self.assertIsNone(database.legacy_reset_info(self.engine))
+        self.assertFalse(backups.exists() and any(backups.iterdir()))
+        database.upgrade_schema(self.engine)  # 두 번 돌려도 같다
+        self.assertEqual(database.get_schema_version(self.engine), database.SCHEMA_VERSION)
+
+    def test_light_upgrade_for_crawler_creates_tables_version_and_indexes(self):
+        database.upgrade_schema(self.engine, maintenance=False)
+        self.assertEqual(database.get_schema_version(self.engine), database.SCHEMA_VERSION)
+        self.assertTrue({"ix_mysafety_report_number", "ix_detail_traffic_closed", "ix_duplicate_member_report"} <= self._indexes())
+
+    def test_dropped_report_tables_come_back_with_indexes_on_a_current_db(self):
+        """start.py --reset 처럼 지금 버전 DB 의 신고 표를 지운 뒤에도 표·인덱스가 돌아온다(버전은 그대로)."""
+        database.upgrade_schema(self.engine)
+        con = sqlite3.connect(self.path)
+        con.execute("DROP TABLE mysafetymerge_traffic")
+        con.commit()
+        con.close()
+        database.upgrade_schema(self.engine, maintenance=False)
+        self.assertIn("ix_merge_traffic_report_number", self._indexes())
+        self.assertEqual(database.get_schema_version(self.engine), database.SCHEMA_VERSION)
+
+    def test_the_old_update_steps_are_not_called(self):
+        """주석 처리한 업데이트 로직(번호 붙은 마이그레이션·열 추가·옛 자료 정리·업그레이드 전 백업)이 다시 불리지 않는다."""
+        names = ("_apply_versioned_migrations", "backup_before_upgrade", "migrate_by_entry_value",
+                 "backfill_synced_at", "_normalize_processing_layers")
+        patches = [mock.patch.object(database, name) for name in names]
+        mocks = [p.start() for p in patches]
+        try:
+            database.upgrade_schema(self.engine, backup_dir=str(Path(self._dir.name) / "backups"))
+            database.upgrade_schema(self.engine)
+        finally:
+            for p in patches:
+                p.stop()
+        for name, m in zip(names, mocks):
+            with self.subTest(step=name):
+                m.assert_not_called()
 
 
 if __name__ == "__main__":

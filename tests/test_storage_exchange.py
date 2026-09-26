@@ -22,8 +22,10 @@ from core.utils import logger
 from scripts.dev import fixture_server
 
 
-def _mobile_db(path: Path, *, watchlist="SPP-2609-9000011", with_override=True):
+def _mobile_db(path: Path, *, watchlist="SPP-2609-9000011", with_override=True, version=None):
+    """지금 앱 버전(스키마 exchange.MOBILE_SCHEMA_VERSION)의 모바일 DB. version 으로 이전·더 새 버전 앱 DB 를 흉내 낸다."""
     con = sqlite3.connect(path)
+    con.execute(f"PRAGMA user_version = {exchange.MOBILE_SCHEMA_VERSION if version is None else version}")
     con.executescript(
         """
         CREATE TABLE reports (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT, 만족도조사여부 TEXT, 별점 INTEGER,
@@ -90,6 +92,7 @@ class ExchangeRestoreTests(unittest.TestCase):
 
     def test_broken_upload_leaves_live_db_untouched(self):
         con = sqlite3.connect(self.upload)
+        con.execute(f"PRAGMA user_version = {exchange.MOBILE_SCHEMA_VERSION}")
         con.execute("CREATE TABLE something_else (x)")
         con.commit()
         con.close()
@@ -117,13 +120,46 @@ class ExchangeRestoreTests(unittest.TestCase):
             self.assertNotIn("watchlist", keys_meta)  # 서버에는 감시목록 사본을 두지 않음
             self.assertEqual(conn.execute(select(models.report_override_table.c.value)).scalar(), "앱에서 고침")
 
-    def test_old_app_without_override_table_keeps_server_overrides(self):
+    def test_old_app_db_is_refused_and_server_overrides_stay(self):
+        """2026-09-26 초기화 크롤링 릴리스: 이전 버전 앱 DB(수정값 표가 없던 v11 등)는 옮기지 않고 거절한다. 서버 DB 는 그대로."""
         with get_engine().begin() as conn:
             conn.execute(models.report_override_table.insert().values(ID="m1", column_name="처리내용", value="서버에서 고침", updated_at=1))
-        _mobile_db(self.upload, with_override=False)
-        exchange.restore(str(self.upload), "mobile")
+        _mobile_db(self.upload, with_override=False, version=11)
+        before = self._count(models.title_table)
+        with self.assertRaises(exchange.LegacyDatabaseRefused) as ctx:
+            exchange.restore(str(self.upload), "mobile")
+        self.assertIn("이전 버전 모바일 앱 DB(스키마 11)", str(ctx.exception))
+        self.assertIsInstance(ctx.exception, exchange.RestoreRefused)  # 라우트가 409 문장으로 보여 준다
+        self.assertEqual(self._count(models.title_table), before)
         with get_engine().connect() as conn:
             self.assertEqual(conn.execute(select(models.report_override_table.c.value)).scalar(), "서버에서 고침")
+
+    def test_every_older_or_newer_db_version_is_refused_before_touching_live_db(self):
+        before = self._count(models.title_table)
+        for version in (0, 1, 10, exchange.MOBILE_SCHEMA_VERSION - 1, exchange.MOBILE_SCHEMA_VERSION + 1):
+            with self.subTest(kind="mobile", version=version):
+                path = Path(self._tmp.name) / f"mobile_v{version}.db"
+                _mobile_db(path, version=version)
+                with self.assertRaises(exchange.LegacyDatabaseRefused):
+                    exchange.restore(str(path), "mobile")
+        for version in range(0, database.SCHEMA_VERSION):
+            with self.subTest(kind="server", version=version):
+                path = Path(self._tmp.name) / f"server_v{version}.db"
+                exchange._copy_sqlite(settings.db_path, str(path))
+                con = sqlite3.connect(path)
+                con.execute(f"PRAGMA user_version = {version}")
+                con.commit()
+                con.close()
+                with self.assertRaises(exchange.LegacyDatabaseRefused) as ctx:
+                    exchange.restore(str(path), "server")
+                self.assertIn(f"이전 버전 서버 DB(스키마 {version})", str(ctx.exception))
+        self.assertEqual(self._count(models.title_table), before)
+        self.assertEqual([p for p in os.listdir(settings.datapath) if p.startswith(".restore_staging_")], [])
+
+    def test_mobile_schema_version_matches_the_contract(self):
+        import json
+        contract = json.loads((Path(__file__).resolve().parents[1] / "contracts" / "storage-contract.json").read_text(encoding="utf-8"))
+        self.assertEqual(exchange.MOBILE_SCHEMA_VERSION, contract["schema_version"]["mobile"])
 
     def _add_legacy_duplicate(self, *, decisions=True):
         """앱 DB 에 같은 본문 신고 2건 + 옛(레거시) id 중복군 + 그 id 로 남긴 사용자 판단."""
@@ -163,7 +199,7 @@ class ExchangeRestoreTests(unittest.TestCase):
         self.assertEqual([(d["group_id"], d["status"], d["representative_id"]) for d in decisions], [(canonical, "not_duplicate", "m2")])
 
     def test_empty_decision_table_from_the_app_clears_server_decisions(self):
-        """G11-2: 앱에 판단 표가 있고 비어 있으면 그것이 원천(서버 판단도 비움). 표가 없는 구앱은 서버 것 유지(위 테스트와 같은 규칙)."""
+        """G11-2: 앱에 판단 표가 있고 비어 있으면 그것이 원천(서버 판단도 비움)."""
         with get_engine().begin() as conn:
             conn.execute(models.duplicate_decision_table.insert().values(
                 group_id="server-only", status="confirmed_duplicate", representative_mode="auto", apply_globally=1, updated_at=1))
@@ -244,7 +280,7 @@ class ExchangeRestoreTests(unittest.TestCase):
         con.close()
         exchange.restore(str(self.upload), "mobile")
         self.assertEqual(self._entry_value(), [])
-        # 열이 없는 구앱이면 서버 값 유지
+        # 열이 없는 구앱 DB 는 이번 릴리스에서 가져오지 않는다(거절, 서버 값 유지)
         self._set_server_entry("이전 값")
         old = Path(self._tmp.name) / "old.db"
         con = sqlite3.connect(old)
@@ -255,7 +291,8 @@ class ExchangeRestoreTests(unittest.TestCase):
         """)
         con.commit()
         con.close()
-        exchange.restore(str(old), "mobile")
+        with self.assertRaises(exchange.LegacyDatabaseRefused):
+            exchange.restore(str(old), "mobile")
         self.assertEqual(self._entry_value(), ["이전 값"])
 
     def test_write_committed_while_restore_waits_is_kept(self):

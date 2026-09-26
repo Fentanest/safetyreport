@@ -158,7 +158,31 @@ by_law (법규별, 같은 필드 + law)
 - `duplicate_group_service.get_duplicate_groups()`(웹 관리 화면, `/api/v1/duplicates/groups`) 그룹마다 `user_decided`(판단 표에 행이 있음), `decided_at`(epoch ms), `decided_at_text`("YYYY-MM-DD HH:MM") 추가. 기존 필드는 그대로.
 - 판단 표는 그룹별 **마지막** 사용자 판단만 보관한다. 여러 번의 변경 이력은 저장하지 않는다(필요하면 서버·앱 계약에 이력 표를 새로 넣어야 함).
 
-## 2026-09-25 업데이트 때 DB 처리 (서버)
+## 2026-09-27 이전 버전 DB 처리 — 초기화 크롤링 릴리스 (서버·모바일 함께)
+이번 릴리스는 이전 DB 를 새 구조로 옮기지 않는다. 아래 "2026-09-25 업데이트 때 DB 처리" 의 업그레이드 로직(업그레이드 전 백업, 열 추가 ALTER,
+번호 붙은 마이그레이션, 감시목록 열 이관, entry_value 재분류, synced_at 백필, 상태 정규화)은 `core/database/database.py upgrade_schema` 안에 **주석으로 남겨 비활성**했다.
+함수 본체(`_apply_versioned_migrations`·`_migration_*`·`backup_before_upgrade` 등)는 다음 스키마 변경 때 다시 켜려고 남겼다.
+- `upgrade_schema`: 새 DB(표 없음)는 지금 스키마로 만들고 `user_version=SCHEMA_VERSION` 을 적는다. 지금 버전 DB 는 빠진 표만 만들고 인덱스(`_index_statements`, IF NOT EXISTS)를 매번 확인한다.
+  이전 버전 DB(`is_legacy_database`: 표가 있고 `user_version < SCHEMA_VERSION`)는 건드리지 않고 `LegacyDatabase` 로 멈춘다. 더 새 버전은 전처럼 거부.
+- 서버 시작(`main.py`): `upgrade_schema` 전에 `reset_legacy_database(engine, data/backups, before_reset=community dataset 선회전)`.
+  이전 버전이면 먼저 쓰기 잠금(명시적 `BEGIN IMMEDIATE`, 최대 `LEGACY_RESET_LOCK_TIMEOUT` 300초 대기)을 잡고 **그 안에서 버전·표를 다시 확인**한다
+  (다른 프로세스가 먼저 끝냈으면 ROLLBACK 하고 아무것도 안 함 — 동시 기동 때 비운 뒤 수집한 신고를 다시 지우지 않게, Sol 검토 1).
+  → sqlite backup API 로 `data/backups/legacy_v<옛 버전>_<시각>.db` + `integrity_check`(잠금 중에도 읽기는 됨) → 선회전 → 같은 트랜잭션에서
+  남길 표 외 전부 DROP(보기 포함, 가상 표(FTS)를 먼저 지우고 나머지는 IF EXISTS — 보조 표가 함께 지워진다) → 지금 스키마 CREATE·인덱스 → `sync_meta[legacy_reset]` 기록 → `user_version=SCHEMA_VERSION` → COMMIT.
+  백업·선회전이 실패하면 아무것도 지우지 않고 서버 시작이 멈춘다. 트랜잭션 안에서 실패하면 전부 되돌아간다.
+- 크롤러(`start.py _prepare_database`)는 이전 버전 DB 면 `--reset` 을 포함해 무엇이든 바꾸기 전에 `LegacyDatabase` 로 멈춘다(비우기는 서버 시작만, Sol 검토 3).
+  `--reset` 은 `sync_meta` 를 지울 때 `watchlist` 와 함께 `legacy_reset` 기록도 남긴다.
+- 남기는 표(`LEGACY_KEEP_TABLES`, 구조가 지금과 같을 때만): `admin_users`·`api_keys`(관리자 로그인·모바일 연결, 구조가 다르면 비우지 않고 멈춤),
+  `mysafety_watchlist`, `mysafety_geocode_cache`. 그 밖(신고·상세·병합·원문·entry_value·중복군·sync_meta·수정값·중복 판단·변경 기록)은 비운다.
+  예전에 직접 고친 값·중복 판단·메모는 옮기지 않는다(백업 파일에만 남음).
+- 기록 `mysafety_sync_meta[legacy_reset]` = JSON `{from_version, backup, kept, dropped, at}` (`legacy_reset_info`). 초기화 크롤링 판정과 안내 화면이 쓴다.
+- 가져오기 거절(`core/storage/exchange.refuse_other_version`, `restore()` 첫 단계): 서버 DB 는 `user_version == SCHEMA_VERSION`, 모바일 DB 는
+  `user_version == MOBILE_SCHEMA_VERSION`(계약 `schema_version.mobile`, 테스트가 확인)만 받는다. 아니면 `LegacyDatabaseRefused`(RestoreRefused → 라우트 409):
+  `이전 버전 {서버|모바일 앱} DB(스키마 N)는 가져올 수 없습니다(지금 M). …` / `더 새 버전 … 프로그램을 먼저 업데이트하세요.` — 쓰기 장벽·스테이징 전에 멈춘다.
+- 모바일은 같은 규칙(`LocalDbService.resetLegacyDatabase`·`_refuseOtherVersion`, 모바일 레포 `docs/architecture/data-contracts.md`). 계약: `contracts/community-ingest/rebuild.md` "이전 버전 개인 DB".
+- 되돌리기: 서버를 멈추고 `data/data.db`(와 `-wal`/`-shm`)를 `legacy_v*` 백업으로 바꾼 뒤 **이전 버전 서버**로 띄운다(이번 서버로 띄우면 다시 비운다).
+
+## 2026-09-25 업데이트 때 DB 처리 (서버) — 2026-09-27 부터 비활성(위 절)
 - 서버 기동(`main.py`)·크롤러(`start.py`)가 `upgrade_schema(..., backup_dir=data/backups)` 를 부른다. DB 의 `PRAGMA user_version` 이 코드(`SCHEMA_VERSION`)보다 낮으면,
   표·열 추가를 포함해 **무엇이든 바꾸기 전에** `data/backups/before_schema_v<옛 버전>_<시각>.db` 로 SQLite backup API 복사(WAL 포함). 이 접두어 파일은 최근 5개만 남긴다.
 - 그 뒤 단계별 마이그레이션(v1~)은 단계마다 트랜잭션 — 실패하면 그 단계는 되돌아가고 버전도 오르지 않는다. 코드보다 새 버전 DB 는 거부.
