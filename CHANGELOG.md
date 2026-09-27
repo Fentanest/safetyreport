@@ -10,6 +10,11 @@
 
 ## 2026-09-27 (dev, 미배포)
 
+### 동의문 복제본 정리
+
+- 동의문을 중앙에서 받게 되어 이 저장소의 사본(`contracts/community-ingest/consent/`)을 지웠다. 정본은 지도 저장소 `contracts/consent/`(복사하지 않음)와 중앙 DB 다.
+  실행 파일(PyInstaller `--add-data`)과 Docker 이미지(`.dockerignore` 예외)에 동의문을 넣던 설정도 뺐다. 패키징 시험은 이제 동의문이 어디에도 들어가지 않는지 확인한다.
+
 ### 공유 동의문을 중앙에서 받는다 (모바일과 같은 규칙, 계약 `contracts/community-ingest/account-api.md` `policy`)
 
 - 동의 정책 버전·동의문 해시·동의문 파일을 서버에 넣어 두지 않는다(`REQUIRED_POLICY_VERSION`·`CONSENT_TEXT_SHA256`·`CONSENT_TEXT_FILE` 제거).

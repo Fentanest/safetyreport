@@ -93,8 +93,6 @@ def build():
         f'--add-data=web/templates{sep}web/templates',
         f'--add-data=web/static{sep}web/static',
         f'--add-data=VERSION{sep}.',
-        # 신고내용 공유 동의문 사본(게이트가 해시와 함께 보여 준다) — 빠지면 동의할 수 없다
-        f'--add-data=contracts/community-ingest/consent{sep}contracts/community-ingest/consent',
         # Include hidden imports for dynamic loading frameworks
         '--hidden-import=uvicorn',
         '--hidden-import=fastapi',
