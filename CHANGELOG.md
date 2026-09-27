@@ -10,6 +10,13 @@
 
 ## 2026-09-27 (dev, 미배포)
 
+### 공유한 자료 전체 삭제 기능 보류(주석 처리)
+
+- 설정 커뮤니티 카드의 `공유한 자료 삭제 요청` 버튼·확인 창·안내 문장과 `POST /settings/community/contributions-delete` 경로(필수 게이트 허용 목록 포함)를
+  주석 처리했다. 이 기능은 아직 구현하지 않는다(2026-09-27 결정). 동의 철회는 그대로다.
+- 로컬 삭제 표시(업로드 차단) 처리와 그 테스트는 남겨 두었다. 이 기능은 dev 에만 있었고 main·릴리스(v2.5.3)에는 없어 설치본에 남은 표시는 없다.
+- 확인: `SAFETYREPORT_DATA_DIR=$(mktemp -d) .venv/bin/python -m unittest discover -s tests -p "test_*.py"` 475개 통과(skip 4, 변경 전 dev 와 같음).
+
 ### 커뮤니티 업로드 장애 대응 UC-1 (모바일과 같은 규칙, 계약 `contracts/upload-control/`)
 
 - 중앙이 일시적으로 요청을 못 받을 때 대기 사본을 잃거나 요청을 퍼붓지 않게 업로드 제어를 다시 만들었다(재현 표·설계: `docs/plans/2026-09-27-upload-hardening-android.md`).

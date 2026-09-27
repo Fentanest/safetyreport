@@ -322,7 +322,7 @@ _GATE_ALLOW = frozenset({
     ("GET", "/onboarding/community"), ("GET", "/onboarding/rebuild"),
     ("GET", "/settings/community/status"), ("GET", "/settings/community/policy"), ("GET", "/settings/community/gate"),
     *(("POST", f"/settings/community/{a}") for a in ("start", "confirm", "cancel", "disconnect", "settings", "consent",
-                                                      "consent-revoke", "writer", "contributions-delete")),
+                                                      "consent-revoke", "writer")),  # "contributions-delete": 미구현 기능이라 경로를 주석 처리(community_route.py)
     ("GET", "/settings/community/rebuild"),
     *(("POST", f"/settings/community/rebuild/{a}") for a in ("start", "resume", "pause")),
     ("GET", "/api/v1/app/config"), ("GET", "/api/v1/community-auth/status"),
