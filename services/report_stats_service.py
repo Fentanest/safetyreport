@@ -44,6 +44,11 @@ _MAP_COLUMNS = [
     "처리상태",
     "범칙금_과태료",
     "위반장소",
+    # 통계 화면과 같은 조건(법규·발생일시·담당자)으로 지도를 좁힐 때 쓰는 열(2026-09-28)
+    "위반법규",
+    "발생일자",
+    "발생시각",
+    "담당자",
     "주소정규화",
     "행정구역",
     "위도",
@@ -339,6 +344,23 @@ def _load_available_years(conn):
     return sorted(available_years, reverse=True)
 
 
+def get_last_sync_label(engine) -> str:
+    """마지막 크롤링(동기화) 시각. 없으면 '기록 없음'.
+
+    서버는 크롤링 종료 시 mysafety_sync_meta.last_sync 에 ISO8601 시각을 저장한다.
+    모바일도 같은 키/형식으로 기록하므로 서버↔모바일 DB import 시 round-trip 으로 보존된다.
+    """
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(database.sync_meta_table.c.value).where(
+                database.sync_meta_table.c.key == "last_sync"
+            )
+        ).fetchone()
+    if row and row[0]:
+        return datetime.fromisoformat(row[0]).strftime("%Y-%m-%d %H:%M:%S")
+    return "기록 없음"
+
+
 def get_dashboard_stats(engine, mode: str = "canonical"):
     total = 0
     accept_count = 0
@@ -355,17 +377,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
     recent_answers = []
     watchlist_items = []
 
-    # 서버는 크롤링 종료 시 mysafety_sync_meta.last_sync 에 ISO8601 시각을 저장한다.
-    # 모바일도 같은 키/형식으로 기록하므로 서버↔모바일 DB import 시 round-trip 으로 보존된다.
-    last_crawl_time = "기록 없음"
-    with engine.connect() as conn:
-        row = conn.execute(
-            select(database.sync_meta_table.c.value).where(
-                database.sync_meta_table.c.key == "last_sync"
-            )
-        ).fetchone()
-    if row and row[0]:
-        last_crawl_time = datetime.fromisoformat(row[0]).strftime("%Y-%m-%d %H:%M:%S")
+    last_crawl_time = get_last_sync_label(engine)
 
     today = datetime.now().date()
     three_days_ago = today - timedelta(days=3)
@@ -577,7 +589,8 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
     return available_years, df_t, df_p, df_o
 
 
-def _calc_avg_days(group_df):
+def _calc_avg_days_with_count(group_df):
+    """(평균 처리일, 유효 표본 수). 표본 = 완료 신고 중 두 날짜가 모두 유효하고 차이 ≥ 0 인 행."""
     # S-10: 처리기간은 처리가 끝난 신고만. 이송 답변일이 붙은 처리중 신고·취하는 넣지 않는다.
     group_df = group_df[_stats_status_series(group_df).isin(_OVERVIEW_COMPLETED_STATUSES)]
     try:
@@ -587,9 +600,13 @@ def _calc_avg_days(group_df):
         d_start = pd.to_datetime(group_df["신고일"].astype(str).str.slice(0, 10), errors="coerce", format="%Y-%m-%d")
         days = (d_end - d_start).dt.days.dropna()
         days = days[days >= 0]
-        return _round_half_up(float(days.mean()), 1) if len(days) > 0 else None
+        return (_round_half_up(float(days.mean()), 1) if len(days) > 0 else None), int(len(days))
     except Exception:
-        return None
+        return None, 0
+
+
+def _calc_avg_days(group_df):
+    return _calc_avg_days_with_count(group_df)[0]
 
 
 def _calc_avg_rating(group_df):
@@ -622,9 +639,12 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
         def _pct(key):
             return _round_half_up((counts[key] / total) * 100, 1) if total > 0 else 0
 
+        avg_days, avg_days_count = _calc_avg_days_with_count(group)
         return {
             "total": total,
-            "avg_days": _calc_avg_days(group),
+            "avg_days": avg_days,
+            # 2026-09-28 추가: 평균 처리기간 표본 수. 표 합계 행이 행 평균을 이 수로 가중해 전체 평균을 낸다(행 수·총 건수 가중 아님).
+            "avg_days_count": avg_days_count,
             "total_fine_amount": int(group["범칙금_과태료"].apply(_extract_fine_amount).sum()),
             "fine_amount_unknown": _count_fine_amount_unknown(group),
             **_estimated_fine_totals(group),
@@ -657,7 +677,21 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
 
 def get_agency_stats(engine, filters=None, mode: str = "canonical"):
     available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
+    return _compute_agency_stats(available_years, df_t, df_p, df_o, filters, mode)
 
+
+def get_stats_page(engine, filters=None, mode: str = "canonical"):
+    """웹 통계 화면: 표(`get_agency_stats`)와 요약·차트(`get_stats_overview`)를 한 번 읽은 같은 프레임으로 만든다.
+
+    두 결과는 각 공개 함수와 같다(테스트 `test_stats_page_matches_separate_calls`). 표 계산이 프레임 열을 고치므로 복사본을 넘긴다.
+    """
+    available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
+    overview = _compute_stats_overview(available_years, df_t, df_p, df_o, filters, mode)
+    records = _compute_agency_stats(available_years, df_t.copy(), df_p.copy(), df_o.copy(), filters, mode)
+    return records, overview
+
+
+def _compute_agency_stats(available_years, df_t, df_p, df_o, filters=None, mode: str = "canonical"):
     def calc_stats(df, category):
         empty_payload = {
             "by_agency": [],
@@ -789,6 +823,17 @@ def _summarize_overview_frame(df: pd.DataFrame) -> dict:
     def _count(predicate) -> int:
         return int(sum(1 for status in statuses if predicate(status)))
 
+    # 2026-09-28 통계 개편(추가 필드). 모바일 `LocalDbService.summarizeOverviewRows` 와 같은 정의.
+    fine_texts = (
+        df["범칙금_과태료"].fillna("").astype(str).tolist() if "범칙금_과태료" in df.columns else [""] * total
+    )
+    # 답변월 기준 과태료 건수: 월별 처리 추이의 보조 계열(같은 답변일 기준). 과태료 = 처분 문구에 '과태료'.
+    answered_fine_by_month: dict[str, int] = {}
+    for answered, fine_text in zip(answer_dates, fine_texts):
+        if answered is not None and "과태료" in fine_text:
+            key = answered.strftime("%Y-%m")
+            answered_fine_by_month[key] = answered_fine_by_month.get(key, 0) + 1
+
     return {
         "total": total,
         "completed": _count(lambda s: s in _OVERVIEW_COMPLETED_STATUSES),
@@ -804,7 +849,62 @@ def _summarize_overview_frame(df: pd.DataFrame) -> dict:
         "undated_report_count": int(sum(1 for d in report_dates if d is None)),
         "monthly_reported": [{"month": k, "count": v} for k, v in sorted(reported_by_month.items())],
         "monthly_answered": [{"month": k, "count": v} for k, v in sorted(answered_by_month.items())],
+        "monthly_answered_fine": [{"month": k, "count": v} for k, v in sorted(answered_fine_by_month.items())],
+        "disposition": _overview_disposition(df),
+        "fine_amount": _overview_fine_amount(df),
+        "report_types": _overview_report_types(df),
     }
+
+
+def _overview_disposition(df: pd.DataFrame) -> dict[str, int]:
+    """카테고리 전체(기관 유무와 무관) 처분 분류. 통계표 행과 같은 규칙(`_stats_row_disposition_counts`).
+
+    과태료·경고/범칙금·불수용/기타는 한 신고에 겹칠 수 있다(문구에 과태료와 범칙금이 함께 있는 등).
+    `overlap` = 세 항목 합 − 셋 중 하나 이상에 해당하는 신고 수. 0 이 아니면 세 항목 합이 신고 수보다 크다.
+    """
+    keys = ("fines", "warnings", "rejects", "unconfirmed", "in_progress", "disposition_unknown", "no_penalty", "unclassified")
+    if df.empty:
+        return {**{key: 0 for key in keys}, "overlap": 0}
+    counts = _stats_row_disposition_counts(df)
+    fine_series = df.get("범칙금_과태료", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str)
+    status_series = _stats_status_series(df)
+    decided = int((
+        fine_series.str.contains("과태료", na=False)
+        | fine_series.str.contains("경고|범칙금", na=False)
+        | status_series.isin(["불수용", "기타"])
+    ).sum())
+    result = {key: int(counts.get(key, 0)) for key in keys}
+    result["overlap"] = result["fines"] + result["warnings"] + result["rejects"] - decided
+    return result
+
+
+def _overview_fine_amount(df: pd.DataFrame) -> dict[str, int]:
+    """확정(원문 금액)과 추정(법정 최저 기준) 과태료를 따로 센다. 둘을 더한 값은 내려주지 않는다(PROJECT_RULES §3-2)."""
+    if df.empty or "범칙금_과태료" not in df.columns:
+        return {"confirmed_amount": 0, "confirmed_count": 0, "unknown_count": 0, "estimated_amount": 0, "estimated_count": 0}
+    fine_series = df["범칙금_과태료"].fillna("")
+    amounts = fine_series.apply(_extract_fine_amount)
+    has_fine = fine_series.astype(str).str.contains("과태료", na=False)
+    estimates = _estimated_fine_totals(df)
+    return {
+        "confirmed_amount": int(amounts.sum()),
+        # 확정 건수 = 금액을 읽은 과태료 건(모바일 기관 카드 `과태료 − 금액 미확인` 과 같은 값)
+        "confirmed_count": int((has_fine & (amounts > 0)).sum()),
+        "unknown_count": _count_fine_amount_unknown(df),
+        "estimated_amount": estimates["estimated_fine_amount"],
+        "estimated_count": estimates["estimated_fine_count"],
+    }
+
+
+def _overview_report_types(df: pd.DataFrame) -> list[dict]:
+    """위반 유형(신고명 원문, 앞뒤 공백 제거) 건수. 전체 목록을 건수 내림차순·이름 오름차순으로. 빈 신고명은 name ''."""
+    if df.empty or "신고명" not in df.columns:
+        return []
+    names = df["신고명"].fillna("").astype(str).str.strip()
+    counts: dict[str, int] = {}
+    for name in names:
+        counts[name] = counts.get(name, 0) + 1
+    return [{"name": name, "count": count} for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
 
 
 def get_stats_overview(engine, filters=None, mode: str = "canonical"):
@@ -814,7 +914,10 @@ def get_stats_overview(engine, filters=None, mode: str = "canonical"):
     평균 처리일은 기관 평균을 합치지 않고 원자료에서 직접 계산하며 표본 수(`avg_days_count`)를 함께 내려준다.
     """
     available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
+    return _compute_stats_overview(available_years, df_t, df_p, df_o, filters, mode)
 
+
+def _compute_stats_overview(available_years, df_t, df_p, df_o, filters=None, mode: str = "canonical"):
     def _filtered(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df
@@ -1009,6 +1112,9 @@ def _is_finite_number(value) -> bool:
         return False
 
 
+_MAP_TARGET_KEYS = ("targetAgency", "targetPerson")
+
+
 def _load_map_records_frame(
     engine,
     *,
@@ -1016,8 +1122,17 @@ def _load_map_records_frame(
     category: str = "all",
     mode: str = "canonical",
     column_names: list[str] | None = None,
+    filters: dict | None = None,
 ):
-    filters = {}
+    """지도용 행. `filters` 는 통계 화면과 같은 조건(법규·상세 검색)이며 같은 순서로 적용한다(2026-09-28 추가, 없으면 예전과 같음).
+
+    `targetAgency`/`targetPerson` 은 통계 상세 패널의 '지도에서 보기' 대상이다. 통계표의 기관명은 경찰서 정규화 뒤 이름이므로
+    정규화 뒤 정확히 일치로 거른다(목록 `/data` 의 agencyExact 와 같은 순서).
+    """
+    stats_filters = {key: value for key, value in (filters or {}).items() if key not in _MAP_TARGET_KEYS and value not in (None, "", False)}
+    target_agency = _text_or_empty((filters or {}).get("targetAgency"))
+    target_person = _text_or_empty((filters or {}).get("targetPerson"))
+    filters = dict(stats_filters)
     if year and year not in ("all", "", None):
         filters["year"] = str(year)
 
@@ -1052,7 +1167,11 @@ def _load_map_records_frame(
 
     combined_df = _ensure_id_column(combined_df)
     combined_df = _project_stats_frame(engine, combined_df, mode=mode)
+    if stats_filters and not combined_df.empty:
+        combined_df = _apply_stats_row_filters(combined_df, filters)
     combined_df = _exclude_withdraw_rows(combined_df)
+    if stats_filters and not combined_df.empty:
+        combined_df = _apply_stats_law_filter(combined_df, filters)
 
     if combined_df.empty:
         return normalized_category, available_years, combined_df
@@ -1064,6 +1183,10 @@ def _load_map_records_frame(
         combined_df["처리기관"] = (
             combined_df["처리기관"].fillna("").astype(str).apply(database.normalize_police_agency)
         )
+    if target_agency and "처리기관" in combined_df.columns:
+        combined_df = combined_df[combined_df["처리기관"].fillna("").astype(str).str.strip() == target_agency].copy()
+    if target_person and "담당자" in combined_df.columns:
+        combined_df = combined_df[combined_df["담당자"].fillna("").astype(str).str.strip() == target_person].copy()
 
     combined_df["위반장소"] = combined_df.get("위반장소", pd.Series(dtype="object")).fillna("").astype(str)
     combined_df["주소정규화"] = combined_df.get("주소정규화", pd.Series(dtype="object")).fillna("").astype(str)
@@ -1076,13 +1199,14 @@ def _load_map_records_frame(
     return normalized_category, available_years, combined_df
 
 
-def get_report_map_stats(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical"):
+def get_report_map_stats(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None):
     category, available_years, combined_df = _load_map_records_frame(
         engine,
         year=year,
         category=category,
         mode=mode,
         column_names=_MAP_COLUMNS,
+        filters=filters,
     )
 
     if combined_df.empty:
@@ -1152,13 +1276,14 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
     })
 
 
-def get_report_map_missing_groups(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical"):
+def get_report_map_missing_groups(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None):
     category, available_years, combined_df = _load_map_records_frame(
         engine,
         year=year,
         category=category,
         mode=mode,
         column_names=_MAP_MISSING_COLUMNS,
+        filters=filters,
     )
 
     if combined_df.empty:

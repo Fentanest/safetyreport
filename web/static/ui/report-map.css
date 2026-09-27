@@ -1,0 +1,344 @@
+/* 신고 지도 마커·클러스터·툴팁·팝업(`/stats/map` 과 `/stats` 작은 지도 공용, 2026-09-28 report_map.html 에서 분리).
+   마커·클러스터 색은 처분 비율을 뜻하는 데이터 색이라 테마와 무관하다. 툴팁·팝업은 앱 토큰을 따른다(통계 개편 요구). */
+.report-map-point {
+    width: var(--marker-size);
+    height: var(--marker-size);
+    border-radius: 999px;
+    background: radial-gradient(
+        circle at 30% 30%,
+        var(--marker-top, #fff4cf) 0%,
+        var(--marker-mid, #f59e0b) 32%,
+        var(--marker-bottom, #dc2626) 100%
+    );
+    border: 3px solid rgba(255, 255, 255, 0.92);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    box-shadow: 0 12px 24px var(--marker-shadow, rgba(220, 38, 38, 0.26));
+    letter-spacing: -0.03em;
+}
+
+.report-map-point span {
+    font-size: clamp(0.8rem, 1.4vw, 1rem);
+}
+
+.report-map-cluster {
+    width: var(--cluster-size);
+    height: var(--cluster-size);
+    border-radius: 999px;
+    background: linear-gradient(145deg, #1d4ed8 0%, #0f766e 100%);
+    border: 4px solid rgba(255, 255, 255, 0.92);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    box-shadow: 0 16px 36px rgba(15, 118, 110, 0.24);
+}
+
+.report-map-tooltip {
+    background: var(--sr-surface);
+    color: var(--sr-text);
+    border: 1px solid var(--sr-border);
+    border-radius: 1rem;
+    padding: 0;
+    box-shadow: var(--sr-shadow);
+    overflow: visible;
+}
+
+.report-map-tooltip.leaflet-tooltip-top::before {
+    content: "";
+    position: absolute;
+    left: 28px;
+    bottom: -16px;
+    width: 2px;
+    height: 16px;
+    background: var(--sr-border);
+}
+
+.report-map-tooltip.leaflet-tooltip-top::after {
+    content: "";
+    position: absolute;
+    left: 12px;
+    bottom: -16px;
+    width: 18px;
+    height: 2px;
+    background: var(--sr-border);
+}
+
+.report-map-tooltip.leaflet-tooltip-bottom::before {
+    content: "";
+    position: absolute;
+    left: 28px;
+    top: -16px;
+    width: 2px;
+    height: 16px;
+    background: var(--sr-border);
+}
+
+.report-map-tooltip.leaflet-tooltip-bottom::after {
+    content: "";
+    position: absolute;
+    left: 12px;
+    top: -16px;
+    width: 18px;
+    height: 2px;
+    background: var(--sr-border);
+}
+
+.report-map-tooltip.leaflet-tooltip-right::before {
+    content: "";
+    position: absolute;
+    left: -16px;
+    top: 22px;
+    width: 16px;
+    height: 2px;
+    background: var(--sr-border);
+}
+
+.report-map-tooltip.leaflet-tooltip-right::after {
+    content: "";
+    position: absolute;
+    left: -16px;
+    top: 22px;
+    width: 2px;
+    height: 16px;
+    background: var(--sr-border);
+}
+
+.report-map-tooltip.leaflet-tooltip-left::before {
+    content: "";
+    position: absolute;
+    right: -16px;
+    top: 22px;
+    width: 16px;
+    height: 2px;
+    background: var(--sr-border);
+}
+
+.report-map-tooltip.leaflet-tooltip-left::after {
+    content: "";
+    position: absolute;
+    right: -16px;
+    top: 22px;
+    width: 2px;
+    height: 16px;
+    background: var(--sr-border);
+}
+
+.report-map-tooltip .leaflet-tooltip-content {
+    margin: 0;
+    max-height: min(68vh, 440px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+
+.report-map-tooltip .leaflet-tooltip-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.report-map-tooltip .leaflet-tooltip-content::-webkit-scrollbar-track {
+    background: rgba(148, 163, 184, 0.14);
+    border-radius: 999px;
+}
+
+.report-map-tooltip .leaflet-tooltip-content::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.56);
+    border-radius: 999px;
+}
+
+.map-tooltip-card {
+    min-width: 252px;
+    max-width: 324px;
+    padding: 0.82rem 0.84rem 0.74rem;
+}
+
+.map-tooltip-title {
+    font-size: 0.9rem;
+    font-weight: 800;
+    color: var(--sr-text);
+    margin-bottom: 0.08rem;
+    line-height: 1.25;
+}
+
+.map-tooltip-address {
+    color: var(--sr-text-muted);
+    font-size: 0.72rem;
+    line-height: 1.35;
+    margin-bottom: 0.58rem;
+    white-space: normal;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+}
+
+.map-tooltip-total {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    padding: 0.18rem 0.48rem;
+    border-radius: 999px;
+    background: var(--sr-primary-soft);
+    color: var(--sr-primary);
+    font-weight: 700;
+    font-size: 0.72rem;
+    margin-bottom: 0.58rem;
+}
+
+.map-tooltip-section {
+    margin-top: 0.56rem;
+}
+
+.map-tooltip-section-title {
+    color: var(--sr-text);
+    font-size: 0.72rem;
+    font-weight: 700;
+    margin-bottom: 0.34rem;
+}
+
+.map-tooltip-row {
+    display: grid;
+    grid-template-columns: 70px minmax(82px, 1fr) 78px;
+    gap: 0.42rem;
+    align-items: center;
+    margin-bottom: 0.3rem;
+}
+
+.map-tooltip-label {
+    color: var(--sr-text-muted);
+    font-size: 0.7rem;
+    line-height: 1.2;
+    white-space: normal;
+    word-break: keep-all;
+}
+
+.map-tooltip-bar {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--sr-surface-3);
+    overflow: hidden;
+}
+
+.map-tooltip-fill {
+    height: 100%;
+    border-radius: inherit;
+    background: var(--sr-primary);
+}
+
+.map-tooltip-value {
+    color: var(--sr-text);
+    font-size: 0.67rem;
+    line-height: 1.15;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.map-tooltip-agencies {
+    color: var(--sr-text-muted);
+    font-size: 0.71rem;
+    line-height: 1.35;
+    margin-bottom: 0.54rem;
+    word-break: break-word;
+}
+
+.report-map-popup .leaflet-popup-content-wrapper {
+    padding: 0;
+    border: none;
+    border-radius: 1rem;
+    box-shadow: var(--sr-shadow);
+    background: var(--sr-surface);
+    color: var(--sr-text);
+}
+
+.report-map-popup .leaflet-popup-content {
+    margin: 0;
+}
+
+.report-map-popup .leaflet-popup-tip {
+    background: var(--sr-surface);
+    box-shadow: var(--sr-shadow);
+}
+
+.map-popup-card {
+    min-width: 236px;
+    max-width: 304px;
+    padding: 0.88rem 0.94rem 0.86rem;
+    background: var(--sr-surface);
+    color: var(--sr-text);
+    --popup-accent: #f59e0b;
+    --popup-accent-soft: rgba(245, 158, 11, 0.12);
+}
+
+.map-popup-title {
+    font-size: 0.9rem;
+    font-weight: 800;
+    line-height: 1.28;
+    margin-bottom: 0.12rem;
+}
+
+.map-popup-address {
+    color: var(--sr-text-muted);
+    font-size: 0.73rem;
+    line-height: 1.4;
+    white-space: normal;
+    word-break: keep-all;
+    overflow-wrap: anywhere;
+}
+
+.map-popup-total {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-top: 0.58rem;
+    padding: 0.22rem 0.54rem;
+    border-radius: 999px;
+    background: var(--popup-accent-soft);
+    color: var(--popup-accent);
+    font-size: 0.72rem;
+    font-weight: 800;
+}
+
+.map-popup-summary {
+    margin-top: 0.56rem;
+    color: var(--sr-text-muted);
+    font-size: 0.73rem;
+    line-height: 1.45;
+    word-break: break-word;
+}
+
+.map-popup-summary b {
+    color: var(--sr-text);
+}
+
+.map-popup-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    margin-top: 0.74rem;
+    color: var(--popup-accent);
+    font-size: 0.76rem;
+    font-weight: 800;
+    text-decoration: none;
+}
+
+.map-popup-link:hover {
+    color: var(--popup-accent);
+    text-decoration: underline;
+}
+
+/* 팝업 닫기 버튼·확대 버튼도 토큰(다크에서 흰 박스가 뜨지 않게) */
+.report-map-popup a.leaflet-popup-close-button { color: var(--sr-text-muted); }
+.leaflet-container .leaflet-bar a { background-color: var(--sr-surface); color: var(--sr-text); border-bottom-color: var(--sr-border); }
+.leaflet-container .leaflet-bar a:hover { background-color: var(--sr-surface-2); }
+.leaflet-container .leaflet-bar { border-color: var(--sr-border); }
+.leaflet-container .leaflet-control-attribution { background: color-mix(in srgb, var(--sr-surface) 82%, transparent); color: var(--sr-text-muted); }
+.leaflet-container .leaflet-control-attribution a { color: var(--sr-primary); }
+
+@media (max-width: 767.98px) {
+    .map-tooltip-card { min-width: 214px; max-width: 280px; }
+    .map-tooltip-row { grid-template-columns: 60px minmax(72px, 1fr) 72px; }
+    .map-popup-card { min-width: 210px; max-width: 276px; }
+}

@@ -87,7 +87,12 @@ test('summary cards match the mobile overview API for each category', async ({ p
     await expect(box.locator('[data-v="completed"]')).toHaveText(`${s.completed}건`);
     await expect(box.locator('[data-v="processing"]')).toHaveText(`${s.processing}건`);
     await expect(box.locator('[data-v="avg"]')).toHaveText(s.avg_days == null ? '—' : `${s.avg_days.toFixed(1)}일`);
-    const bars = await box.locator('rect.sr-bar-reported').count();
-    expect(bars).toBeGreaterThanOrEqual(s.monthly_reported.length);
+    // 2026-09-28: 카드 6개(과태료·경고/범칙금·확정 금액 추가), 월별 추이는 답변일 기준 처리 건수(신고일 계열은 API 에만 남김)
+    await expect(box.locator('[data-v="fines"]')).toHaveText(`${s.disposition.fines.toLocaleString('ko-KR')}건`);
+    await expect(box.locator('[data-v="warnings"]')).toHaveText(`${s.disposition.warnings.toLocaleString('ko-KR')}건`);
+    await expect(box.locator('[data-v="confirmedAmount"]')).toHaveText(`${s.fine_amount.confirmed_amount.toLocaleString('ko-KR')}원`);
+    await expect(box.locator('[data-v="estimated"]')).toHaveText(`${s.fine_amount.estimated_amount.toLocaleString('ko-KR')}원 · ${s.fine_amount.estimated_count}건`);
+    const bars = await page.locator('#statsMonthlyChart rect.sr-bar').count();
+    expect(bars).toBeGreaterThanOrEqual(s.monthly_answered.length);
   }
 });

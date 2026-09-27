@@ -55,6 +55,25 @@ by_law (법규별, 같은 필드 + law)
 `get_agency_stats` 와 같은 행(로딩·대표건·행 필터·취하 제외·법규)을 쓴다 — 공통 헬퍼 `_load_stats_frames` / `_apply_stats_row_filters` / `_apply_stats_law_filter`.
 평균 처리일은 기관 평균을 합치지 않고 원자료에서 직접 계산(완료 상태 + 두 날짜 유효 + 차이 ≥ 0), 표본 수 함께 제공. 모바일 Standalone `LocalDbService.summarizeOverviewRows` 와 같은 정의 — 한쪽을 바꾸면 양쪽 테스트를 함께 고친다.
 
+## 2026-09-28 통계 화면 개편 — 추가형 필드·경로 (기존 필드 삭제·의미 변경 없음)
+
+- **stats/overview** 각 분류 요약에 추가(서버 `_summarize_overview_frame`, 모바일 `LocalDbService.summarizeOverviewRows`):
+  - `monthly_answered_fine[{month,count}]`: 답변월 기준 과태료 건수(`범칙금_과태료` 에 '과태료'). `monthly_answered` 와 같은 답변일 기준 보조 계열.
+  - `disposition{fines warnings rejects unconfirmed in_progress disposition_unknown no_penalty unclassified overlap}`: 기관 유무와 무관한 분류 전체의 처분 분류.
+    기관표 행과 같은 규칙(`_stats_row_disposition_counts`). `overlap` = 과태료+경고/범칙금+불수용 − 셋 중 하나 이상인 신고 수(한 신고에 겹친 수). 일곱 항목 합 = `total + overlap`.
+  - `fine_amount{confirmed_amount confirmed_count unknown_count estimated_amount estimated_count}`: 확정(원문 금액)·추정(법정 최저)을 따로. 합친 값은 없다(PROJECT_RULES §3-2).
+  - `report_types[{name,count}]`: 신고명(trim) 건수, 건수 내림차순·이름 오름차순, 빈 신고명은 `name:''`. 전체 목록.
+  - 구서버(필드 없음)는 모바일이 null 로 읽고 '미지원'으로 보인다.
+- **stats** 행(기관·담당자·법규)에 `avg_days_count` 추가: 평균 처리기간 표본 수. 표 합계는 행 평균을 이 수로 가중한다(행 수·총 건수 가중이 아님).
+- 같은 입력·기대값: `contracts/stats-overview-vectors.json`(두 레포 바이트 동일) — 서버 `tests/test_stats_overview_vectors.py`, 모바일 `test/services/stats_overview_vectors_test.dart`.
+  실제 fixture DB 로 `scripts/dev/logic_parity_check.py` 48개 조합 차이 0(2026-09-28).
+- 웹 전용(세션 인증): `GET /stats/map/points?category=&year=&<통계 조건>&targetAgency=&targetPerson=` → `get_report_map_stats` 와 같은 `{points, meta}`.
+  `/stats/map`·`/stats/map/missing` 도 같은 통계 조건 이름(`law reportName location reportDate* occurDate* responseDate* occurTime* agency agencyExact excludePolice onlyPolice`)과
+  `targetAgency`(경찰서 정규화 뒤 정확히 일치)·`targetPerson`(정확히 일치)을 선택적으로 받는다. 없으면 예전과 같은 전체 지도. `/api/v1/stats/map` 은 바꾸지 않았다.
+  지도 모집단은 통계와 같은 순서(SQL 조건 → 대표건 → 행 조건 → 취하 제외 → 법규)라 `meta.total_reports` 가 요약 `total` 과 같다(분류를 고른 경우. 테스트 `test_map_uses_same_population_as_stats`).
+  예외: 대표건 projection 을 지도는 고른 분류의 행만으로, 통계는 세 분류를 합쳐서 한다 — 분류를 넘나드는 중복군이 있으면 달라질 수 있다(기존 동작, 바꾸지 않음).
+- 목록 `/data/<분류>` 는 통계에서 넘어온 `reportName reportDateStart/End occurDateStart/End responseDateStart/End occurTimeStart/End` 를 같은 이름의 상세 검색칸에 채운다(연도 → 답변일 범위).
+
 ## 2026-09-24 사진 촬영 시각 컬럼 (주정차 과태료 추정용)
 
 - detail/merge 3개 테이블에 `사진_첫촬영`(TEXT `YYYY-MM-DD HH:MM:SS`), `사진_끝촬영`(TEXT), `사진_촬영수`(INTEGER) 추가. `upgrade_schema()` 가 자동 ALTER.

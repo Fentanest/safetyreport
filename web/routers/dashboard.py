@@ -23,8 +23,7 @@ def dashboard(request: Request):
             "recent_answers": [], "watchlist": []
         }
 
-    stats["sunwi"] = sunwi_service.get_dashboard_payload()
-
+    # 전국 안전신고 현황(Sunwi)은 2026-09-28 통계 화면으로 옮겼다(/stats 하단). /sunwi/* 경로는 그대로 쓴다.
     return templates.TemplateResponse(request, "index.html", {
         "title": "대시보드",
         **stats

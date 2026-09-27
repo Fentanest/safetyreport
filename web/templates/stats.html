@@ -1,247 +1,58 @@
 {% extends "base.html" %}
 
 {% block extra_css %}
-<style>
-    /* 건수 + 비율 한 칸 (좌우 스크롤 방지) */
-    .sr-metric { white-space: nowrap; line-height: 1.15; }
-    .sr-metric .sr-metric-n { display: block; }
-    .sr-metric .sr-metric-pct { display: block; font-size: 0.78em; color: var(--sr-text-muted); font-weight: 400; }
-    .stats-pane table.dataTable th { white-space: normal; word-break: keep-all; vertical-align: middle; }
-    .stats-pane table.dataTable { font-size: 0.9rem; }
-    .sr-law-filter #statsLawSidebar { max-height: 7.5rem; overflow-y: auto; }
-    .stats-pane table.dataTable td { vertical-align: middle; }
-    .stats-pane tr.sr-drill { cursor: pointer; }
-    .stats-pane table.dataTable td:first-child { white-space: normal; word-break: keep-all; min-width: 8rem; }
-    .stats-pane table.dataTable th, .stats-pane table.dataTable td { padding-left: 0.4rem; padding-right: 0.4rem; }
-    /* 정렬 화살표 자리(기본 26px)를 줄인다 */
-    .stats-pane table.dataTable thead > tr > th.sorting,
-    .stats-pane table.dataTable thead > tr > th.sorting_asc,
-    .stats-pane table.dataTable thead > tr > th.sorting_desc { padding-right: 0.95rem; }
-    .stats-pane table.dataTable thead > tr > th.sorting:before, .stats-pane table.dataTable thead > tr > th.sorting:after,
-    .stats-pane table.dataTable thead > tr > th.sorting_asc:before, .stats-pane table.dataTable thead > tr > th.sorting_asc:after,
-    .stats-pane table.dataTable thead > tr > th.sorting_desc:before, .stats-pane table.dataTable thead > tr > th.sorting_desc:after { right: 3px; }
-    /* ── P2 상단: 조건 요약·과태료 요약·세그먼트 탭·법규 칩·열 선택 패널 ── */
-    .sr-stats-top { display: flex; flex-direction: column; gap: 0.9rem; margin-bottom: 1rem; }
-    .sr-stats-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; }
-    .sr-stats-head .sr-hint { color: var(--sr-text-muted); font-size: 0.85rem; }
-    .sr-filter-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
-    .sr-filter-chip {
-        display: inline-flex; align-items: center; gap: 0.35rem; max-width: 100%;
-        padding: 0.2rem 0.65rem; border-radius: 999px; font-size: 0.82rem;
-        background: var(--sr-primary-soft); color: var(--sr-text); border: 1px solid var(--sr-border);
-    }
-    .sr-filter-chip .sr-k { color: var(--sr-text-muted); }
-    .sr-filter-chip .sr-v { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 16rem; }
-    .sr-fine-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; }
-    .sr-fine-tile { padding: 0.75rem 1rem; border: 1px solid var(--sr-border); border-radius: var(--sr-radius); background: var(--sr-surface-2); }
-    .sr-fine-tile .sr-fine-label { font-size: 0.8rem; color: var(--sr-text-muted); }
-    .sr-fine-tile .sr-fine-value { font-size: 1.35rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.3; }
-    .sr-fine-tile.is-confirmed .sr-fine-value { color: var(--sr-status-fine); }
-    .sr-fine-tile .sr-fine-note { font-size: 0.78rem; color: var(--sr-text-muted); }
-    .sr-seg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; }
-    .sr-seg-label { font-size: 0.8rem; font-weight: 600; color: var(--sr-text-muted); min-width: 4.5rem; }
-    .sr-seg-row .sr-seg { display: flex; } /* 공통 .sr-seg 는 theme.css */
-    #statsCatGroup .btn[data-cat="traffic"] { --sr-seg-accent: var(--sr-primary); }
-    #statsCatGroup .btn[data-cat="parking"] { --sr-seg-accent: var(--sr-status-supplement); }
-    #statsCatGroup .btn[data-cat="other"]   { --sr-seg-accent: var(--sr-status-accept); }
-    #statsCatGroup .btn.active { box-shadow: inset 0 -3px 0 var(--sr-seg-accent), var(--sr-shadow); }
-    #statsLawSidebar .btn { border-radius: 999px; font-size: 0.8rem; padding: 0.15rem 0.65rem; }
-    #statsLawSidebar .btn.active { background: var(--sr-primary-fill); border-color: var(--sr-primary-fill); color: #fff; }
-    #statsLawSidebar .btn.sr-law-none.active { background: var(--sr-status-supplement); border-color: var(--sr-status-supplement); }
-    .stats-column-controls { border: 1px solid var(--sr-border); border-radius: var(--sr-radius); background: var(--sr-surface-2); }
-    .stats-column-controls .sr-col-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
-        padding: 0.55rem 0.9rem; background: transparent; border: 0; color: var(--sr-text); font-weight: 600; text-align: left; }
-    .stats-column-controls .sr-col-toggle .fa-chevron-down { transition: transform 0.15s; }
-    .stats-column-controls .sr-col-toggle[aria-expanded="true"] .fa-chevron-down { transform: rotate(180deg); }
-    .stats-column-controls .sr-col-body { padding: 0 0.9rem 0.8rem; }
-    .stats-column-list { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-    .stats-column-item { display: inline-flex; align-items: center; gap: 0.35rem; margin: 0; padding: 0.2rem 0.65rem 0.2rem 0.5rem;
-        border: 1px solid var(--sr-border); border-radius: 999px; background: var(--sr-surface); font-size: 0.85rem; }
-    .stats-column-item .form-check-input { float: none; margin: 0; }
-    .stats-column-item .form-check-label { cursor: pointer; }
-    /* P2b 요약 카드·월별 추이 */
-    .sr-overview { border: 1px solid var(--sr-border); border-radius: var(--sr-radius); background: var(--sr-surface); padding: 0.9rem 1rem; }
-    .sr-overview-title { font-weight: 700; margin-bottom: 0.6rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.6rem; }
-    .sr-overview-title small { font-weight: 400; color: var(--sr-text-muted); }
-    .sr-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.6rem; margin-bottom: 0.8rem; }
-    @media (max-width: 767px) { .sr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    .sr-kpi { padding: 0.6rem 0.8rem; border-radius: var(--sr-radius-sm); background: var(--sr-surface-2); border-left: 4px solid var(--sr-kpi-accent, var(--sr-primary)); }
-    .sr-kpi .sr-kpi-label { font-size: 0.78rem; color: var(--sr-text-muted); }
-    .sr-kpi .sr-kpi-value { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-    .sr-kpi .sr-kpi-note { font-size: 0.75rem; color: var(--sr-text-muted); min-height: 1em; }
-    .sr-kpi[data-kpi="total"] { --sr-kpi-accent: var(--sr-primary); }
-    .sr-kpi[data-kpi="completed"] { --sr-kpi-accent: var(--sr-status-accept); }
-    .sr-kpi[data-kpi="processing"] { --sr-kpi-accent: var(--sr-status-processing); }
-    .sr-kpi[data-kpi="avg"] { --sr-kpi-accent: var(--sr-status-partial); }
-    .sr-chart-legend { display: flex; gap: 1rem; font-size: 0.8rem; color: var(--sr-text-muted); margin-bottom: 0.3rem; }
-    .sr-chart-legend i { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 2px; margin-right: 0.3rem; vertical-align: -1px; }
-    .sr-chart-scroll { overflow-x: auto; }
-    .sr-chart-scroll svg { display: block; }
-    .sr-chart-scroll svg text { fill: var(--sr-text-muted); font-size: 11px; font-family: inherit; }
-    .sr-chart-scroll svg .sr-grid { stroke: var(--sr-border); stroke-width: 1; }
-    .sr-chart-scroll svg .sr-bar-reported { fill: var(--sr-primary); }
-    .sr-chart-scroll svg .sr-bar-answered { fill: var(--sr-status-accept); }
-    .sr-overview-notes { font-size: 0.75rem; color: var(--sr-text-muted); margin-top: 0.4rem; }
-    @media (max-width: 575px) {
-        .dataTables_wrapper .dataTables_filter label { display: flex; align-items: center; gap: 0.5rem; width: 100%; }
-        .dataTables_wrapper .dataTables_filter input { flex: 1 1 auto; min-width: 0; width: auto; margin-left: 0 !important; }
-    }
-
-    .stats-pane .table th,
-    .stats-pane .table td {
-        font-size: 14px;
-        font-family: inherit;
-        vertical-align: middle;
-    }
-
-    .stats-pane .table th *,
-    .stats-pane .table td *,
-    .stats-pane .table small {
-        font-size: inherit;
-        font-family: inherit;
-    }
-</style>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<link rel="stylesheet" href="/static/ui/report-map.css?v={{ request.state.app_version }}">
+<link rel="stylesheet" href="/static/ui/stats.css?v={{ request.state.app_version }}">
 {% endblock %}
 
 {% block content %}
-<div class="row g-3 align-items-start">
-<div class="col-12">
-<div class="card card-custom">
-    <div class="card-body">
-        {% set chip_defs = [
-    ('처리기관', f.agency), ('신고명', f.reportName), ('위반장소', f.location), ('위반법규', ('없음' if f.law == '__없음__' else f.law)),
-    ('신고일', ((f.reportDateStart or '') ~ ' ~ ' ~ (f.reportDateEnd or '')) if (f.reportDateStart or f.reportDateEnd) else None),
-    ('발생일', ((f.occurDateStart or '') ~ ' ~ ' ~ (f.occurDateEnd or '')) if (f.occurDateStart or f.occurDateEnd) else None),
-    ('답변일', ((f.responseDateStart or '') ~ ' ~ ' ~ (f.responseDateEnd or '')) if (f.responseDateStart or f.responseDateEnd) else None),
-    ('발생시간', ((f.occurTimeStart or '') ~ ' ~ ' ~ (f.occurTimeEnd or '')) if (f.occurTimeStart or f.occurTimeEnd) else None),
-    ('경찰기관', '제외' if f.excludePolice else ('만' if f.onlyPolice else None)),
+{#- 통계 화면(2026-09-28 개편). 모든 수치는 서버 집계(get_stats_page)에서 오고 브라우저는 표시만 한다(statistics-spec §9). -#}
+{% set chip_defs = [
+    ('agency', '처리기관', f.agency), ('reportName', '신고명', f.reportName), ('location', '위반장소', f.location),
+    ('law', '위반법규', ('없음' if f.law == '__없음__' else f.law)),
+    ('reportDate', '신고일', ((f.reportDateStart or '') ~ ' ~ ' ~ (f.reportDateEnd or '')) if (f.reportDateStart or f.reportDateEnd) else None),
+    ('occurDate', '발생일', ((f.occurDateStart or '') ~ ' ~ ' ~ (f.occurDateEnd or '')) if (f.occurDateStart or f.occurDateEnd) else None),
+    ('responseDate', '답변일', ((f.responseDateStart or '') ~ ' ~ ' ~ (f.responseDateEnd or '')) if (f.responseDateStart or f.responseDateEnd) else None),
+    ('occurTime', '발생시간', ((f.occurTimeStart or '') ~ ' ~ ' ~ (f.occurTimeEnd or '')) if (f.occurTimeStart or f.occurTimeEnd) else None),
+    ('police', '경찰기관', '제외' if f.excludePolice else ('만' if f.onlyPolice else None)),
 ] %}
-{% set active_chips = chip_defs | selectattr(1) | list %}
+{% set active_chips = chip_defs | selectattr(2) | list %}
+{# 칩 하나를 지울 때 함께 지울 쿼리 이름 #}
+{% set chip_params = {
+    'agency': ['agency', 'agencyExact'], 'reportName': ['reportName'], 'location': ['location'], 'law': ['law'],
+    'reportDate': ['reportDateStart', 'reportDateEnd'], 'occurDate': ['occurDateStart', 'occurDateEnd'],
+    'responseDate': ['responseDateStart', 'responseDateEnd'], 'occurTime': ['occurTimeStart', 'occurTimeEnd'],
+    'police': ['excludePolice', 'onlyPolice'],
+} %}
+{% set query_items = request.query_params.multi_items() %}
 
-        <div class="sr-stats-top">
-            <div class="sr-stats-head">
-                <div class="sr-filter-chips" id="statsFilterSummary">
-                    <span class="fw-bold me-1">조건</span>
-                    <span class="sr-filter-chip"><span class="sr-k">답변 연도</span><span class="sr-v">{{ '전체' if current_year == 'all' else current_year }}</span></span>
-                    {% for label, value in active_chips %}
-                    <span class="sr-filter-chip"><span class="sr-k">{{ label }}</span><span class="sr-v" title="{{ value }}">{{ value }}</span></span>
-                    {% endfor %}
-                    {% if active_chips %}<a href="/stats" class="small ms-1">조건 초기화</a>{% endif %}
+<div class="sr-stats-page">
+<div class="sr-stats" id="statsRoot">
+
+    <!-- 갱신 정보와 설정에서 정한 집계 기준(여기서 따로 바꾸지 않는다) -->
+    <div class="sr-stats-meta">
+        <span><i class="fas fa-clock me-1"></i>최근 크롤링 <strong>{{ last_crawl_time }}</strong></span>
+        <span class="sr-meta-chip" title="연도·월별 추이는 답변일로 나눕니다"><i class="fas fa-calendar-check"></i>답변일 기준</span>
+        <span class="sr-meta-chip">{{ '취하 제외' if exclude_withdraw else '취하 포함' }}</span>
+        <span class="sr-meta-chip">{{ '중복 신고 대표건만' if dedupe_mode == 'canonical' else '중복 신고 원본 모두' }}</span>
+        <a href="/settings" class="small">설정에서 변경</a>
+    </div>
+
+    <!-- 공통 조건: 요약·지도·차트·상세표에 모두 적용 -->
+    <section class="sr-card sr-cond" id="statsConditions" aria-label="통계 조건">
+        <div class="sr-cond-row">
+            <div class="sr-cond-group">
+                <span class="sr-seg-label">분류</span>
+                <div class="sr-seg" id="statsCatGroup" role="group" aria-label="분류">
+                    <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="traffic"><i class="fas fa-road me-1"></i>교통위반</button>
+                    <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="parking"><i class="fas fa-parking me-1"></i>주정차위반</button>
+                    <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="other"><i class="fas fa-list me-1"></i>기타위반</button>
                 </div>
-                <span class="sr-hint"><i class="fas fa-hand-pointer me-1"></i>행을 누르면 해당 기관·담당자의 신고 목록으로 이동합니다.</span>
             </div>
-
-            <!-- 교통위반 과태료 요약: 현재 조건(연도·필터·법규·취하 제외)이 반영된 값 — 결정 D-STAT-1(2026-09-24) -->
-            <div class="sr-fine-summary" id="statsFineSummary">
-                <div class="sr-fine-tile is-confirmed">
-                    <div class="sr-fine-label"><i class="fas fa-won-sign me-1"></i>확정 과태료 · 교통위반</div>
-                    <div class="sr-fine-value">{{ "{:,}".format(traffic_total_fine) }}원</div>
-                    <div class="sr-fine-note">답변에 금액이 적힌 건만 · 현재 조건 적용</div>
-                </div>
-                {% if traffic_estimated_fine_count %}
-                <div class="sr-fine-tile">
-                    <div class="sr-fine-label"><i class="fas fa-calculator me-1"></i>추정 과태료 · 교통위반</div>
-                    <div class="sr-fine-value">{{ "{:,}".format(traffic_estimated_fine) }}원 <small class="fs-6 fw-normal text-muted">{{ traffic_estimated_fine_count }}건</small></div>
-                    <div class="sr-fine-note">금액 없는 과태료의 법정 최저 기준 · 확정 금액에 포함 안 함</div>
-                </div>
-                {% endif %}
-            </div>
-        </div>
-
-<!-- 플로팅 상세 검색 버튼 -->
-        <button class="btn btn-primary floating-search-btn shadow-lg" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasSearch">
-            <i class="fas fa-filter me-2"></i>상세 조건 검색
-        </button>
-
-        <!-- 상세 검색 사이드바 (Offcanvas) -->
-        <div class="offcanvas offcanvas-end" tabindex="-1" id="offcanvasSearch" aria-labelledby="offcanvasSearchLabel" style="width: 400px;">
-            <div class="offcanvas-header bg-primary text-white">
-                <h5 class="offcanvas-title fw-bold" id="offcanvasSearchLabel"><i class="fas fa-filter me-2"></i>상세 조건 검색</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-            </div>
-            <div class="offcanvas-body">
-                <form method="get" action="/stats" class="row g-3">
-                    <!-- 현재 선택된 연도 유지 -->
-                    <input type="hidden" name="year" value="{{ current_year if current_year != 'all' else '' }}">
-                    <div class="col-12">
-                        <div class="alert alert-light border mb-0 small">
-                            <span class="fw-bold">안내:</span> <code>&amp;</code>는 AND, <code>,</code>는 OR 조건입니다.
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-bold">처리기관</label>
-                        <input type="text" class="form-control" name="agency" value="{{ f.agency or '' }}" placeholder="예: 강남경찰서">
-                        <div class="form-check mt-1">
-                            <input class="form-check-input" type="checkbox" name="agencyExact" id="agencyExact" {% if f.agencyExact %}checked{% endif %} value="true">
-                            <label class="form-check-label small text-muted" for="agencyExact">단일어 입력 시 정확히 일치</label>
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-bold">신고명</label>
-                        <input type="text" class="form-control" name="reportName" value="{{ f.reportName or '' }}">
-                    </div>
-                    {% if f.law %}<input type="hidden" name="law" value="{{ f.law }}">{% endif %}
-                    <div class="col-12">
-                        <label class="form-label fw-bold">위반장소</label>
-                        <input type="text" class="form-control" name="location" value="{{ f.location or '' }}">
-                    </div>
-                    <div class="col-12">
-                        <div class="form-check form-switch mb-1">
-                            <input class="form-check-input filter-police" type="checkbox" name="excludePolice" id="excludePolice" {% if f.excludePolice %}checked{% endif %} value="true">
-                            <label class="form-check-label" for="excludePolice">경찰기관 제외</label>
-                        </div>
-                        <div class="form-check form-switch">
-                            <input class="form-check-input filter-police" type="checkbox" name="onlyPolice" id="onlyPolice" {% if f.onlyPolice %}checked{% endif %} value="true">
-                            <label class="form-check-label" for="onlyPolice">경찰기관만 포함</label>
-                        </div>
-                    </div>
-
-                    <hr class="my-3">
-
-                    <div class="col-12">
-                        <label class="form-label fw-bold text-primary">신고일 범위</label>
-                        <div class="input-group input-group-sm">
-                            <input type="date" class="form-control" name="reportDateStart" value="{{ f.reportDateStart or '' }}">
-                            <span class="input-group-text">~</span>
-                            <input type="date" class="form-control" name="reportDateEnd" value="{{ f.reportDateEnd or '' }}">
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-bold text-success">발생일 범위</label>
-                        <div class="input-group input-group-sm">
-                            <input type="date" class="form-control" name="occurDateStart" value="{{ f.occurDateStart or '' }}">
-                            <span class="input-group-text">~</span>
-                            <input type="date" class="form-control" name="occurDateEnd" value="{{ f.occurDateEnd or '' }}">
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-bold text-warning">답변일 범위</label>
-                        <div class="input-group input-group-sm">
-                            <input type="date" class="form-control" name="responseDateStart" value="{{ f.responseDateStart or '' }}">
-                            <span class="input-group-text">~</span>
-                            <input type="date" class="form-control" name="responseDateEnd" value="{{ f.responseDateEnd or '' }}">
-                        </div>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-bold text-secondary">발생시간 범위</label>
-                        <div class="input-group input-group-sm">
-                            <input type="text" class="form-control" name="occurTimeStart" value="{{ f.occurTimeStart or '' }}" placeholder="14:30">
-                            <span class="input-group-text">~</span>
-                            <input type="text" class="form-control" name="occurTimeEnd" value="{{ f.occurTimeEnd or '' }}" placeholder="15:00">
-                        </div>
-                    </div>
-
-                    <div class="col-12 mt-4 d-grid gap-2">
-                        <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-search me-1"></i> 통계 재산출</button>
-                        <a href="/stats" class="btn btn-outline-secondary">필터 초기화</a>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- Stats navigation (id·클래스·data-* 는 DOM 계약 — pilot-dom-contracts.md) -->
-        <div class="d-flex flex-column gap-2 mb-3">
-            <div class="sr-seg-row">
+            <div class="sr-cond-group" style="min-width:0">
                 <span class="sr-seg-label">답변 연도</span>
                 <div class="sr-seg" id="statsYearGroup" role="group" aria-label="답변 연도">
                     <button type="button" class="btn btn-sm stats-year-btn {{ 'active' if current_year == 'all' }}" aria-pressed="{{ 'true' if current_year == 'all' else 'false' }}" data-year="all">전체</button>
@@ -250,726 +61,399 @@
                     {% endfor %}
                 </div>
             </div>
-            <div class="sr-seg-row">
-                <span class="sr-seg-label">분류</span>
-                <div class="sr-seg" id="statsCatGroup" role="group" aria-label="분류">
-                    <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="traffic"><i class="fas fa-road me-1"></i>교통위반</button>
-                    <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="parking"><i class="fas fa-parking me-1"></i>주정차위반</button>
-                    <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="other"><i class="fas fa-list me-1"></i>기타위반</button>
+            <div class="sr-cond-group dropdown sr-law-picker">
+                <span class="sr-seg-label" id="statsLawLabel"><i class="fas fa-gavel me-1"></i>위반법규</span>
+                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" id="statsLawToggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-labelledby="statsLawLabel statsLawToggle">
+                    <span class="sr-law-current" id="statsLawCurrent">{{ '없음' if f.law == '__없음__' else (f.law or '전체') }}</span>
+                </button>
+                <div class="dropdown-menu sr-law-menu" aria-labelledby="statsLawToggle">
+                    <input type="search" class="form-control form-control-sm" id="statsLawSearch" placeholder="법규 이름으로 찾기" aria-label="위반법규 찾기" autocomplete="off">
+                    <div id="statsLawSidebar" role="group" aria-label="위반법규 선택"><!-- JS 로 채움(현재 분류의 법규) --></div>
                 </div>
             </div>
-            <div class="sr-seg-row">
-                <span class="sr-seg-label">묶는 기준</span>
-                <div class="sr-seg" id="statsTypeGroup" role="group" aria-label="묶는 기준">
-                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="agency"><i class="fas fa-building me-1"></i>기관별</button>
-                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="person"><i class="fas fa-user-tie me-1"></i>담당자별</button>
-                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="police-agency"><i class="fas fa-shield-alt me-1"></i>경찰 기관</button>
-                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="police-person"><i class="fas fa-user-shield me-1"></i>경찰 담당자</button>
-                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="other-agency"><i class="fas fa-building me-1"></i>비경찰 기관</button>
-                    <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="other-person"><i class="fas fa-user-tie me-1"></i>비경찰 담당자</button>
-                </div>
+            <div class="sr-cond-actions">
+                <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasSearch" id="statsOpenSearch">
+                    <i class="fas fa-sliders me-1"></i>상세 조건
+                </button>
             </div>
         </div>
+        <div class="sr-filter-chips" id="statsFilterSummary">
+            <span class="sr-chips-label">적용 조건</span>
+            <span class="sr-filter-chip is-fixed"><span class="sr-k">답변 연도</span><span class="sr-v">{{ '전체' if current_year == 'all' else current_year }}</span></span>
+            {% for key, label, value in active_chips %}
+            {% set drop = chip_params[key] %}
+            {% set rest = query_items | rejectattr(0, 'in', drop) | list %}
+            <span class="sr-filter-chip"><span class="sr-k">{{ label }}</span><span class="sr-v" title="{{ value }}">{{ value }}</span><a class="sr-x" href="/stats{{ ('?' ~ (rest | urlencode)) if rest else '' }}" aria-label="{{ label }} 조건 해제" title="이 조건 해제"><i class="fas fa-xmark"></i></a></span>
+            {% endfor %}
+            {% if active_chips %}<a href="/stats" class="small ms-1">조건 초기화</a>{% endif %}
+        </div>
+    </section>
 
-        <!-- P2b 요약(현재 분류, 표와 같은 조건). 값은 서버 get_stats_overview 결과(아래 tojson)로 그린다. -->
-        <section class="sr-overview mb-3" id="statsOverview" aria-live="polite">
-            <div class="sr-overview-title"><span id="statsOverviewTitle">요약</span><small>현재 조건 · 취하 {{ '제외' if overview.exclude_withdraw else '포함' }}</small></div>
-            <div class="sr-kpis">
-                <div class="sr-kpi" data-kpi="total"><div class="sr-kpi-label">총 신고</div><div class="sr-kpi-value" data-v="total">-</div><div class="sr-kpi-note"></div></div>
-                <div class="sr-kpi" data-kpi="completed"><div class="sr-kpi-label">답변 완료</div><div class="sr-kpi-value" data-v="completed">-</div><div class="sr-kpi-note" data-v="completedNote"></div></div>
-                <div class="sr-kpi" data-kpi="processing"><div class="sr-kpi-label">처리 중</div><div class="sr-kpi-value" data-v="processing">-</div><div class="sr-kpi-note" data-v="processingNote"></div></div>
-                <div class="sr-kpi" data-kpi="avg"><div class="sr-kpi-label">평균 처리기간</div><div class="sr-kpi-value" data-v="avg">-</div><div class="sr-kpi-note" data-v="avgNote"></div></div>
+    <!-- 요약 카드(현재 분류). 값은 서버 get_stats_overview 결과로 그린다. -->
+    <section class="sr-kpis" id="statsOverview" aria-live="polite" aria-labelledby="statsOverviewTitle">
+        <h2 class="visually-hidden" id="statsOverviewTitle">요약</h2>
+        <div class="sr-card sr-kpi" data-kpi="total">
+            <div class="sr-kpi-label">총 건수</div>
+            <div class="sr-kpi-value" data-v="total">-</div>
+            <div class="sr-kpi-note">처리 중 <b data-v="processing">-</b> · <span data-v="supplementNote"></span></div>
+        </div>
+        <div class="sr-card sr-kpi" data-kpi="completed">
+            <div class="sr-kpi-label">답변 완료</div>
+            <div class="sr-kpi-value" data-v="completed">-</div>
+            <div class="sr-kpi-note" data-v="completedNote"></div>
+            <div class="sr-kpi-note" data-v="completedSplit"></div>
+        </div>
+        <div class="sr-card sr-kpi" data-kpi="fines">
+            <div class="sr-kpi-label">과태료 건수</div>
+            <div class="sr-kpi-value" data-v="fines">-</div>
+            <div class="sr-kpi-note" data-v="finesNote"></div>
+        </div>
+        <div class="sr-card sr-kpi" data-kpi="warnings">
+            <div class="sr-kpi-label">경고·범칙금 건수</div>
+            <div class="sr-kpi-value" data-v="warnings">-</div>
+            <div class="sr-kpi-note" data-v="warningsNote"></div>
+        </div>
+        <div class="sr-card sr-kpi" data-kpi="avg">
+            <div class="sr-kpi-label">평균 처리기간</div>
+            <div class="sr-kpi-value" data-v="avg">-</div>
+            <div class="sr-kpi-note" data-v="avgNote"></div>
+        </div>
+        <div class="sr-card sr-kpi" data-kpi="amount" id="statsFineSummary">
+            <div class="sr-kpi-label">확정 과태료</div>
+            <div class="sr-kpi-value" data-v="confirmedAmount">-</div>
+            <div class="sr-kpi-note">금액 확인 <b data-v="confirmedCount">-</b> · 금액 미확인 <b data-v="unknownCount">-</b></div>
+            <div class="sr-kpi-note sr-kpi-estimate">추정(법정 최저) <b data-v="estimated">-</b></div>
+        </div>
+    </section>
+
+    <!-- 지도·월별 처리 추이·처분 분포·위반 유형 -->
+    <div class="sr-viz-wrap">
+    <div class="sr-viz" id="statsViz">
+        <article class="sr-card sr-viz-card" id="statsMapCard" aria-labelledby="statsMapTitle">
+            <div class="sr-card-head">
+                <h3 class="sr-card-title" id="statsMapTitle"><i class="fas fa-map-location-dot me-1"></i>신고 지도</h3>
+                <a href="/stats/map" id="statsMapOpen">전체 지도 열기 <i class="fas fa-arrow-up-right-from-square"></i></a>
             </div>
-            <div class="sr-chart-legend"><span><i style="background: var(--sr-primary)"></i>신고 (신고일 기준)</span><span><i style="background: var(--sr-status-accept)"></i>답변 (답변일 기준)</span></div>
-            <div class="sr-chart-scroll" id="statsMonthlyChart"></div>
-            <div class="sr-overview-notes" id="statsOverviewNotes"></div>
-        </section>
+            <div class="sr-viz-body" id="statsMapBody">
+                <div class="sr-map-state" id="statsMapState" role="status">지도를 불러오는 중입니다…</div>
+                <div id="statsMiniMap" hidden aria-label="현재 조건의 신고 위치 지도"></div>
+            </div>
+            <div class="sr-viz-foot" id="statsMapMeta">공식 좌표가 있는 신고만 지도에 표시합니다.</div>
+        </article>
 
-        <!-- 위반법규 필터: 표 폭 확보를 위해 오른쪽 세로 패널에서 표 위 가로 줄로 옮겼다(id 유지). -->
-        <div class="sr-law-filter mb-3">
-            <div class="sr-seg-label mb-1"><i class="fas fa-gavel me-1"></i>위반법규</div>
-            <div id="statsLawSidebar" class="d-flex flex-wrap gap-1">
-                <!-- JS로 채워짐 -->
+        <article class="sr-card sr-viz-card" id="statsTrendCard" aria-labelledby="statsTrendTitle">
+            <div class="sr-card-head">
+                <h3 class="sr-card-title" id="statsTrendTitle">월별 처리 추이</h3>
+                <span class="sr-card-sub">답변일 기준</span>
+            </div>
+            <div class="sr-legend" aria-hidden="true">
+                <span><i style="background: var(--sr-primary)"></i>처리(답변) 건수</span>
+                <span><i class="sr-sw-line" style="background: var(--sr-status-fine)"></i>그중 과태료</span>
+                <span><i class="sr-sw-partial"></i>이번 달(집계 중)</span>
+            </div>
+            <div class="sr-viz-body">
+                <div class="sr-chart-scroll" id="statsMonthlyChart" tabindex="0" aria-label="월별 처리 추이 차트(가로로 스크롤)"></div>
+            </div>
+            <div class="sr-viz-foot" id="statsTrendNotes"></div>
+        </article>
+
+        <article class="sr-card sr-viz-card" id="statsDispositionCard" aria-labelledby="statsDispositionTitle">
+            <div class="sr-card-head">
+                <h3 class="sr-card-title" id="statsDispositionTitle">처분 분포</h3>
+                <span class="sr-card-sub" id="statsDispositionBase"></span>
+            </div>
+            <div class="sr-viz-body">
+                <ul class="sr-hbars" id="statsDispositionList"></ul>
+            </div>
+            <div class="sr-viz-foot" id="statsDispositionNote"></div>
+        </article>
+
+        <article class="sr-card sr-viz-card" id="statsTypeCard" aria-labelledby="statsTypeTitle">
+            <div class="sr-card-head">
+                <h3 class="sr-card-title" id="statsTypeTitle">위반 유형별 현황</h3>
+                <span class="sr-card-sub" id="statsTypeBase"></span>
+            </div>
+            <div class="sr-viz-body">
+                <div id="statsTypeScroll"><ul class="sr-hbars" id="statsTypeList"></ul></div>
+            </div>
+            <button type="button" class="btn btn-link sr-type-more" id="statsTypeMore" aria-expanded="false" aria-controls="statsTypeList" hidden></button>
+            <div class="sr-viz-foot">신고명 기준 · 비율은 현재 분류 전체 건수 대비</div>
+        </article>
+    </div>
+    </div>
+
+    <!-- 상세 통계: 여섯 보기 = 집계 단위·기관 범위. 검색·정렬·열·페이지는 이 영역에만 적용 -->
+    <section class="sr-card sr-detail" id="statsDetail" aria-labelledby="statsDetailTitle">
+        <div class="sr-detail-head">
+            <h2 id="statsDetailTitle">상세 통계</h2>
+            <span id="statsDetailScope" aria-live="polite"></span>
+        </div>
+        <div class="sr-detail-bar">
+            <div class="sr-seg" id="statsTypeGroup" role="group" aria-label="상세 통계 보기">
+                <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="agency"><i class="fas fa-building me-1"></i>기관별</button>
+                <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="person"><i class="fas fa-user-tie me-1"></i>담당자별</button>
+                <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="police-agency"><i class="fas fa-shield-alt me-1"></i>경찰 기관</button>
+                <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="police-person"><i class="fas fa-user-shield me-1"></i>경찰 담당자</button>
+                <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="other-agency"><i class="fas fa-building me-1"></i>비경찰 기관</button>
+                <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="other-person"><i class="fas fa-user-tie me-1"></i>비경찰 담당자</button>
+            </div>
+            <div class="sr-detail-tools">
+                <label class="sr-search mb-0">
+                    <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                    <input type="search" class="form-control form-control-sm" id="statsTableSearch" placeholder="기관명·담당자명 검색" aria-label="상세표 검색(기관명·담당자명)" autocomplete="off">
+                </label>
+                <select class="form-select form-select-sm" id="statsPageLength" aria-label="한 쪽에 보일 행 수">
+                    <option value="10">10행</option><option value="25">25행</option><option value="50" selected>50행</option><option value="100">100행</option><option value="-1">전체</option>
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="statsExportCsv" title="검색·정렬이 적용된 표 전체(모든 쪽)를 CSV 로 받습니다">
+                    <i class="fas fa-file-csv me-1"></i>CSV 내보내기
+                </button>
             </div>
         </div>
-        <div class="stats-column-controls mb-3">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <span id="statsSortLabel" aria-live="polite"></span>
+            <span class="small text-muted"><i class="fas fa-hand-pointer me-1"></i>행을 누르면 오른쪽에 상세가 열립니다. 신고 목록·지도는 상세에서 이동합니다.</span>
+        </div>
+        <div class="stats-column-controls">
             <button type="button" class="sr-col-toggle" id="statsColumnsToggle" aria-expanded="false" aria-controls="statsColumnBody">
                 <span><i class="fas fa-table-columns me-2"></i>표 열 선택 <span class="text-muted fw-normal small" id="statsColumnCount"></span></span>
                 <span class="d-flex align-items-center gap-2"><span class="badge text-bg-secondary fw-normal" id="statsColumnScope"></span><i class="fas fa-chevron-down"></i></span>
             </button>
             <div class="sr-col-body" id="statsColumnBody" hidden>
                 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-                    <div class="small text-muted">체크한 열만 지금 보는 통계 표에 나옵니다.</div>
+                    <div class="small text-muted">체크한 열만 지금 보는 통계 표에 나옵니다. 모든 열을 켜면 표 안에서 가로로 스크롤됩니다.</div>
                     <button type="button" class="btn btn-sm btn-outline-secondary" id="statsColumnsSelectAll">전체 선택</button>
                 </div>
                 <div class="stats-column-list" id="statsColumnCheckboxes"></div>
             </div>
         </div>
 
-        <!-- Stats panes -->
+        <div class="sr-detail-body-wrap">
+        <div class="sr-detail-body" id="statsDetailBody">
+        <!-- Stats panes (id·클래스·data-* 는 DOM 계약 — pilot-dom-contracts.md) -->
         <div id="statsTabsContent">
-            {% macro avg_display(val) %}{{ ('%.1f일' % val) if val is not none else '-' }}{% endmacro %}
+            {% macro avg_display(val) %}{{ ('%.1f일' % val) if val is not none else '—' }}{% endmacro %}
 
-            {% macro fine_amt(val) %}{{ "{:,}원".format(val) if val > 0 else '-' }}{% endmacro %}
+            {% macro fine_amt(val) %}{{ "{:,}원".format(val) if val > 0 else '—' }}{% endmacro %}
 
-            {% macro rating_display(val, count) %}{% if val is not none %}<span class="sr-metric-n"><span class="text-warning">★</span> {{ '%.2f' % val }}</span><span class="sr-metric-pct">{{ count }}명</span>{% else %}-{% endif %}{% endmacro %}
+            {% macro rating_display(val, count) %}{% if val is not none %}<span class="sr-metric-n"><span class="sr-rating-star" aria-hidden="true">★</span> {{ '%.2f' % val }}</span><span class="sr-metric-pct">{{ count }}명</span>{% else %}<span class="sr-muted" title="평가 없음">—</span>{% endif %}{% endmacro %}
 
             {% macro metric_cells(r) %}
-                    <td data-order="{{ r.total_fine_amount }}" class="text-center text-success fw-bold small">{{ fine_amt(r.total_fine_amount) }}</td>
-                    <td data-order="{{ r.estimated_fine_amount or 0 }}" data-count="{{ r.estimated_fine_count or 0 }}" class="text-center text-secondary small sr-metric">{% if r.estimated_fine_count %}<span class="sr-metric-n">{{ "{:,}".format(r.estimated_fine_amount) }}원</span><span class="sr-metric-pct">{{ r.estimated_fine_count }}건</span>{% else %}-{% endif %}</td>
+                    <td data-order="{{ r.total_fine_amount }}" data-count="{{ (r.fines or 0) - (r.fine_amount_unknown or 0) }}" class="sr-n small {{ 'sr-fine-confirmed' if r.total_fine_amount > 0 else 'sr-muted' }}">{{ fine_amt(r.total_fine_amount) }}</td>
+                    <td data-order="{{ r.estimated_fine_amount or 0 }}" data-count="{{ r.estimated_fine_count or 0 }}" class="sr-n small sr-metric">{% if r.estimated_fine_count %}<span class="sr-metric-n">{{ "{:,}".format(r.estimated_fine_amount) }}원</span><span class="sr-metric-pct">{{ r.estimated_fine_count }}건</span>{% else %}<span class="sr-muted">—</span>{% endif %}</td>
                     {# 건수와 비율을 한 칸에(건수 아래 작은 비율). 정렬은 건수(data-order) 기준. #}
-                    <td data-order="{{ r.fines }}" class="text-center sr-metric"><span class="sr-metric-n text-danger fw-bold">{{ r.fines }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.fines_pct or 0) }}%</span></td>
-                    <td data-order="{{ r.warnings }}" class="text-center sr-metric"><span class="sr-metric-n">{{ r.warnings }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.warnings_pct or 0) }}%</span></td>
-                    <td data-order="{{ r.rejects }}" class="text-center sr-metric"><span class="sr-metric-n">{{ r.rejects }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.rejects_pct or 0) }}%</span></td>
-                    <td data-order="{{ (r.in_progress or 0) }}" class="text-center sr-metric"><span class="sr-metric-n">{{ (r.in_progress or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.in_progress_pct or 0) }}%</span></td>
-                    <td data-order="{{ (r.disposition_unknown or 0) }}" class="text-center sr-metric"><span class="sr-metric-n">{{ (r.disposition_unknown or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.disposition_unknown_pct or 0) }}%</span></td>
-                    <td data-order="{{ (r.no_penalty or 0) }}" class="text-center sr-metric"><span class="sr-metric-n">{{ (r.no_penalty or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.no_penalty_pct or 0) }}%</span></td>
-                    <td data-order="{{ (r.unclassified or 0) }}" class="text-center sr-metric"><span class="sr-metric-n">{{ (r.unclassified or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.unclassified_pct or 0) }}%</span></td>
-                    <td data-order="{{ r.avg_rating if r.avg_rating is not none else -1 }}" data-count="{{ r.rating_count or 0 }}" class="text-center fw-bold sr-metric">{{ rating_display(r.avg_rating, r.rating_count) }}</td>
+                    <td data-order="{{ r.fines }}" class="sr-n sr-metric"><span class="sr-metric-n sr-fines-n">{{ r.fines }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.fines_pct or 0) }}%</span></td>
+                    <td data-order="{{ r.warnings }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ r.warnings }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.warnings_pct or 0) }}%</span></td>
+                    <td data-order="{{ r.rejects }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ r.rejects }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.rejects_pct or 0) }}%</span></td>
+                    <td data-order="{{ (r.in_progress or 0) }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ (r.in_progress or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.in_progress_pct or 0) }}%</span></td>
+                    <td data-order="{{ (r.disposition_unknown or 0) }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ (r.disposition_unknown or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.disposition_unknown_pct or 0) }}%</span></td>
+                    <td data-order="{{ (r.no_penalty or 0) }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ (r.no_penalty or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.no_penalty_pct or 0) }}%</span></td>
+                    <td data-order="{{ (r.unclassified or 0) }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ (r.unclassified or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.unclassified_pct or 0) }}%</span></td>
+                    <td data-order="{{ r.avg_rating if r.avg_rating is not none else -1 }}" data-count="{{ r.rating_count or 0 }}" class="sr-n fw-bold sr-metric">{{ rating_display(r.avg_rating, r.rating_count) }}</td>
             {% endmacro %}
-            {% macro agency_rows(records, base_url, law_filter='') %}
+            {#- 목록 드릴다운 공통 조건: 법규 + 답변 연도(→ 답변일 범위) + 목록이 읽을 수 있는 상세 조건. 기관·담당자는 행마다 붙인다. -#}
+            {% set yr_start = (current_year ~ '-01-01') if current_year != 'all' else '' %}
+            {% set yr_end = (current_year ~ '-12-31') if current_year != 'all' else '' %}
+            {% set resp_start = [yr_start, f.responseDateStart or ''] | max %}
+            {% set resp_end_candidates = [yr_end, f.responseDateEnd or ''] | reject('equalto', '') | list %}
+            {% set resp_end = (resp_end_candidates | min) if resp_end_candidates else '' %}
+            {% set drill_base = {} %}
+            {% for key, value in [('law', f.law), ('responseDateStart', resp_start), ('responseDateEnd', resp_end),
+                                  ('reportName', f.reportName), ('location', f.location),
+                                  ('reportDateStart', f.reportDateStart), ('reportDateEnd', f.reportDateEnd),
+                                  ('occurDateStart', f.occurDateStart), ('occurDateEnd', f.occurDateEnd),
+                                  ('occurTimeStart', f.occurTimeStart), ('occurTimeEnd', f.occurTimeEnd)] if value %}
+                {% set _ = drill_base.update({key: value}) %}
+            {% endfor %}
+            {% macro agency_rows(records, base_url) %}
                 {% for r in records %}
-                {% set q = {'agency': r.agency, 'agencyExact': 'true'} %}{% if law_filter %}{% set _ = q.update({'law': law_filter}) %}{% endif %}
-                <tr class="sr-drill" data-href="{{ base_url }}?{{ q | urlencode }}">
-                    <td>{{ r.agency }}</td>
-                    <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
-                    <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
+                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'agencyExact': 'true'}) %}
+                <tr class="sr-drill" tabindex="0" data-key="{{ r.agency }}" data-href="{{ base_url }}?{{ q | urlencode }}">
+                    <td class="sr-name" title="{{ r.agency }}">{{ r.agency }}</td>
+                    <td data-order="{{ r.total }}" class="sr-n"><b>{{ r.total }}</b>건</td>
+                    <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" data-count="{{ r.avg_days_count or 0 }}" class="sr-n">{{ avg_display(r.avg_days) }}</td>
                     {{ metric_cells(r) }}
                 </tr>
                 {% endfor %}
             {% endmacro %}
-            {% macro person_rows(records, base_url, law_filter='') %}
+            {% macro person_rows(records, base_url) %}
                 {% for r in records %}
-                {% set q = {'agency': r.agency, 'person': r.person, 'agencyExact': 'true'} %}{% if law_filter %}{% set _ = q.update({'law': law_filter}) %}{% endif %}
-                <tr class="sr-drill" data-href="{{ base_url }}?{{ q | urlencode }}">
-                    <td>{{ r.agency }}</td>
-                    <td class="text-center">{{ r.person }}</td>
-                    <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
-                    <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
+                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'person': r.person, 'agencyExact': 'true'}) %}
+                <tr class="sr-drill" tabindex="0" data-key="{{ r.agency }}&#9;{{ r.person }}" data-href="{{ base_url }}?{{ q | urlencode }}">
+                    <td class="sr-name" title="{{ r.agency }}">{{ r.agency }}</td>
+                    <td class="sr-person" title="{{ r.person }}">{{ r.person }}</td>
+                    <td data-order="{{ r.total }}" class="sr-n"><b>{{ r.total }}</b>건</td>
+                    <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" data-count="{{ r.avg_days_count or 0 }}" class="sr-n">{{ avg_display(r.avg_days) }}</td>
                     {{ metric_cells(r) }}
                 </tr>
                 {% endfor %}
             {% endmacro %}
-            {% macro law_rows(records, base_url) %}
-                {% for r in records %}
-                <tr class="sr-drill" data-href="{{ base_url }}?{{ {'law': r.law} | urlencode }}">
-                    <td>{{ r.law }}</td>
-                    <td data-order="{{ r.total }}" class="text-center"><b>{{ r.total }}</b>건</td>
-                    <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" class="text-center text-info">{{ avg_display(r.avg_days) }}</td>
-                    {{ metric_cells(r) }}
-                </tr>
-                {% endfor %}
-            {% endmacro %}
-            {% set agency_thead %}<tr><th>처리기관</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">확정 과태료</th><th class="text-center">추정 과태료</th><th class="text-center">과태료</th><th class="text-center">경고장/<wbr>범칙금</th><th class="text-center">불수용/<wbr>기타</th><th class="text-center">처리중</th><th class="text-center">처분 미확인</th><th class="text-center">처분 대상 아님</th><th class="text-center">기타·<wbr>미분류</th><th class="text-center">★</th></tr>{% endset %}
-            {% set person_thead %}<tr><th>처리기관</th><th class="text-center">담당자</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">확정 과태료</th><th class="text-center">추정 과태료</th><th class="text-center">과태료</th><th class="text-center">경고장/<wbr>범칙금</th><th class="text-center">불수용/<wbr>기타</th><th class="text-center">처리중</th><th class="text-center">처분 미확인</th><th class="text-center">처분 대상 아님</th><th class="text-center">기타·<wbr>미분류</th><th class="text-center">★</th></tr>{% endset %}
-            {% set law_thead %}<tr><th>위반법규</th><th class="text-center">총 건수</th><th class="text-center">답변 소요</th><th class="text-center">확정 과태료</th><th class="text-center">추정 과태료</th><th class="text-center">과태료</th><th class="text-center">경고장/<wbr>범칙금</th><th class="text-center">불수용/<wbr>기타</th><th class="text-center">처리중</th><th class="text-center">처분 미확인</th><th class="text-center">처분 대상 아님</th><th class="text-center">기타·<wbr>미분류</th><th class="text-center">★</th></tr>{% endset %}
-            {% set agency_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center text-secondary sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td></tr>{% endset %}
-            {% set person_tfoot %}<tr class="table-secondary fw-bold small"><td>합계</td><td></td><td class="text-center"></td><td class="text-center text-info"></td><td class="text-center text-success"></td><td class="text-center text-secondary sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td><td class="text-center sr-metric"></td></tr>{% endset %}
+            {#- 머리글 글자는 열 선택 저장 키(sessionStorage stats_column_visibility)다. 바꾸면 저장된 선택이 끊긴다. -#}
+            {% set metric_heads %}<th class="sr-n">확정 과태료</th><th class="sr-n">추정 과태료</th><th class="sr-n">과태료</th><th class="sr-n">경고장/<wbr>범칙금</th><th class="sr-n">불수용/<wbr>기타</th><th class="sr-n">처리중</th><th class="sr-n">처분 미확인</th><th class="sr-n">처분 대상 아님</th><th class="sr-n">기타·<wbr>미분류</th><th class="sr-n" title="별점 평균(평가 수)">★</th>{% endset %}
+            {% set agency_thead %}<tr><th>처리기관</th><th class="sr-n">총 건수</th><th class="sr-n">답변 소요</th>{{ metric_heads }}</tr>{% endset %}
+            {% set person_thead %}<tr><th>처리기관</th><th>담당자</th><th class="sr-n">총 건수</th><th class="sr-n">답변 소요</th>{{ metric_heads }}</tr>{% endset %}
+            {% set foot_metrics %}<td class="sr-n sr-fine-confirmed"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td>{% endset %}
+            {% set agency_tfoot %}<tr class="table-secondary fw-bold"><td>합계</td><td class="sr-n"></td><td class="sr-n"></td>{{ foot_metrics }}</tr>{% endset %}
+            {% set person_tfoot %}<tr class="table-secondary fw-bold"><td>합계</td><td></td><td class="sr-n"></td><td class="sr-n"></td>{{ foot_metrics }}</tr>{% endset %}
 
-            {% set lf = f.law or '' %}
-
-            <!-- Traffic Agency -->
-            <div class="stats-pane" id="traffic-agency" style="display:none;overflow-x:auto">
-                <table id="statsTableTrafficAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_traffic_agency, '/data/traffic', lf) }}</tbody>
-                    <tfoot>{{ agency_tfoot }}</tfoot>
+            {% for cat, cat_label in [('traffic', 'Traffic'), ('parking', 'Parking'), ('other', 'Other')] %}
+            {% set base_url = '/data/' ~ cat %}
+            {% for type, type_label, key, is_person in [
+                ('agency', 'Agency', 'agency', False), ('person', 'Person', 'person', True),
+                ('police-agency', 'PoliceAgency', 'police_agency', False), ('police-person', 'PolicePerson', 'police_person', True),
+                ('other-agency', 'OtherAgency', 'other_agency', False), ('other-person', 'OtherPerson', 'other_person', True)] %}
+            {% set rows = pane_rows[cat][key] %}
+            <div class="stats-pane" id="{{ cat }}-{{ type }}" style="display:none" data-cat="{{ cat }}" data-type="{{ type }}">
+                <table id="statsTable{{ cat_label }}{{ type_label }}" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
+                    <caption class="visually-hidden">{{ {'traffic': '교통위반', 'parking': '주정차위반', 'other': '기타위반'}[cat] }} 상세 통계 — 행을 선택하면 상세 패널이 열립니다</caption>
+                    <thead>{{ person_thead if is_person else agency_thead }}</thead>
+                    <tbody>{{ person_rows(rows, base_url) if is_person else agency_rows(rows, base_url) }}</tbody>
+                    <tfoot>{{ person_tfoot if is_person else agency_tfoot }}</tfoot>
                 </table>
             </div>
-
-            <!-- Traffic Person -->
-            <div class="stats-pane" id="traffic-person" style="display:none;overflow-x:auto">
-                <table id="statsTableTrafficPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_traffic_person, '/data/traffic', lf) }}</tbody>
-                    <tfoot>{{ person_tfoot }}</tfoot>
-                </table>
-            </div>
-
-            <!-- Parking Agency -->
-            <div class="stats-pane" id="parking-agency" style="display:none;overflow-x:auto">
-                <table id="statsTableParkingAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_parking_agency, '/data/parking', lf) }}</tbody>
-                    <tfoot>{{ agency_tfoot }}</tfoot>
-                </table>
-            </div>
-
-            <!-- Parking Person -->
-            <div class="stats-pane" id="parking-person" style="display:none;overflow-x:auto">
-                <table id="statsTableParkingPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_parking_person, '/data/parking', lf) }}</tbody>
-                    <tfoot>{{ person_tfoot }}</tfoot>
-                </table>
-            </div>
-            <!-- Parking Police Agency -->
-            <div class="stats-pane" id="parking-police-agency" style="display:none;overflow-x:auto">
-                <table id="statsTableParkingPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_parking_police_agency, '/data/parking', lf) }}</tbody>
-                    <tfoot>{{ agency_tfoot }}</tfoot>
-                </table>
-            </div>
-            <!-- Parking Police Person -->
-            <div class="stats-pane" id="parking-police-person" style="display:none;overflow-x:auto">
-                <table id="statsTableParkingPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_parking_police_person, '/data/parking', lf) }}</tbody>
-                    <tfoot>{{ person_tfoot }}</tfoot>
-                </table>
-            </div>
-            <!-- Parking Other Agency -->
-            <div class="stats-pane" id="parking-other-agency" style="display:none;overflow-x:auto">
-                <table id="statsTableParkingOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_parking_other_agency, '/data/parking', lf) }}</tbody>
-                    <tfoot>{{ agency_tfoot }}</tfoot>
-                </table>
-            </div>
-            <!-- Parking Other Person -->
-            <div class="stats-pane" id="parking-other-person" style="display:none;overflow-x:auto">
-                <table id="statsTableParkingOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_parking_other_person, '/data/parking', lf) }}</tbody>
-                    <tfoot>{{ person_tfoot }}</tfoot>
-                </table>
-            </div>
-
-            <!-- Other Agency -->
-            <div class="stats-pane" id="other-agency" style="display:none;overflow-x:auto">
-                <table id="statsTableOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_other_agency, '/data/other', lf) }}</tbody>
-                    <tfoot>{{ agency_tfoot }}</tfoot>
-                </table>
-            </div>
-
-            <!-- Other Person -->
-            <div class="stats-pane" id="other-person" style="display:none;overflow-x:auto">
-                <table id="statsTableOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_other_person, '/data/other', lf) }}</tbody>
-                    <tfoot>{{ person_tfoot }}</tfoot>
-                </table>
-            </div>
-
-            <!-- Traffic Police Agency -->
-            <div class="stats-pane" id="traffic-police-agency" style="display:none;overflow-x:auto">
-                <table id="statsTableTrafficPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_traffic_police_agency, '/data/traffic', lf) }}</tbody>
-                    <tfoot>{{ agency_tfoot }}</tfoot>
-                </table>
-            </div>
-            <!-- Traffic Police Person -->
-            <div class="stats-pane" id="traffic-police-person" style="display:none;overflow-x:auto">
-                <table id="statsTableTrafficPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_traffic_police_person, '/data/traffic', lf) }}</tbody>
-                    <tfoot>{{ person_tfoot }}</tfoot>
-                </table>
-            </div>
-            <!-- Traffic Other Agency -->
-            <div class="stats-pane" id="traffic-other-agency" style="display:none;overflow-x:auto">
-                <table id="statsTableTrafficOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_traffic_other_agency, '/data/traffic', lf) }}</tbody>
-                    <tfoot>{{ agency_tfoot }}</tfoot>
-                </table>
-            </div>
-            <!-- Traffic Other Person -->
-            <div class="stats-pane" id="traffic-other-person" style="display:none;overflow-x:auto">
-                <table id="statsTableTrafficOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_traffic_other_person, '/data/traffic', lf) }}</tbody>
-                    <tfoot>{{ person_tfoot }}</tfoot>
-                </table>
-            </div>
-            <!-- Other Police Agency -->
-            <div class="stats-pane" id="other-police-agency" style="display:none;overflow-x:auto">
-                <table id="statsTableOtherPoliceAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_other_police_agency, '/data/other', lf) }}</tbody>
-                    <tfoot>{{ agency_tfoot }}</tfoot>
-                </table>
-            </div>
-            <!-- Other Police Person -->
-            <div class="stats-pane" id="other-police-person" style="display:none;overflow-x:auto">
-                <table id="statsTableOtherPolicePerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_other_police_person, '/data/other', lf) }}</tbody>
-                    <tfoot>{{ person_tfoot }}</tfoot>
-                </table>
-            </div>
-            <!-- Other Other Agency -->
-            <div class="stats-pane" id="other-other-agency" style="display:none;overflow-x:auto">
-                <table id="statsTableOtherOtherAgency" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ agency_thead }}</thead>
-                    <tbody>{{ agency_rows(records_other_other_agency, '/data/other', lf) }}</tbody>
-                    <tfoot>{{ agency_tfoot }}</tfoot>
-                </table>
-            </div>
-            <!-- Other Other Person -->
-            <div class="stats-pane" id="other-other-person" style="display:none;overflow-x:auto">
-                <table id="statsTableOtherOtherPerson" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <thead>{{ person_thead }}</thead>
-                    <tbody>{{ person_rows(records_other_other_person, '/data/other', lf) }}</tbody>
-                    <tfoot>{{ person_tfoot }}</tfoot>
-                </table>
-            </div>
-
+            {% endfor %}
+            {% endfor %}
         </div>
+        <aside class="sr-card" id="statsDetailPanel" aria-label="선택 항목 상세" aria-live="polite"></aside>
+        </div>
+        </div>
+    </section>
+
+    <!-- 전국 안전신고 현황(Sunwi, 대시보드에서 옮김): 안전신문고 공개 행정구역 통계. 내 신고 통계와 섞지 않는다. -->
+    <section class="sr-card sr-sunwi" id="statsSunwi" aria-labelledby="statsSunwiTitle">
+        <div class="sr-sunwi-head">
+            <div>
+                <h2 id="statsSunwiTitle"><i class="fas fa-map-marked-alt me-2" style="color: var(--sr-accent)"></i>전국 안전신고 현황</h2>
+                <div class="sr-sunwi-note">안전신문고 공개 통계의 행정구역별 상위 5곳입니다. 위의 내 신고 통계와 다른 자료이며 조건이 적용되지 않습니다.</div>
+            </div>
+            <div class="sr-sunwi-note" id="sunwiUpdatedAtLabel">
+                {% if sunwi.updated_at %}전일기준 · 수집시간 {{ sunwi.updated_at }}{% else %}전일기준 · 수집 준비 중{% endif %}
+            </div>
+        </div>
+        <div id="sunwiContent"></div>
+    </section>
+</div>
+
+<!-- 좁은 화면의 선택 항목 상세(드로어). 넓은 화면은 표 옆 #statsDetailPanel 을 쓴다. -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="statsDetailDrawer" aria-labelledby="statsDetailDrawerTitle">
+    <div class="offcanvas-header border-bottom">
+        <h5 class="offcanvas-title fw-bold" id="statsDetailDrawerTitle">선택 항목 상세</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="닫기"></button>
+    </div>
+    <div class="offcanvas-body" id="statsDetailDrawerBody"></div>
+</div>
+
+<!-- 떠 있는 상세 검색 버튼(좁은 화면용 — 넓은 화면은 조건 줄의 '상세 조건') -->
+<button class="btn btn-primary floating-search-btn shadow-lg" type="button" data-bs-toggle="offcanvas" data-bs-target="#offcanvasSearch">
+    <i class="fas fa-filter me-2"></i>상세 조건 검색
+</button>
+
+<!-- 상세 검색 사이드바 (Offcanvas) -->
+<div class="offcanvas offcanvas-end" tabindex="-1" id="offcanvasSearch" aria-labelledby="offcanvasSearchLabel" style="width: 400px; max-width: 100vw;">
+    <div class="offcanvas-header bg-primary text-white">
+        <h5 class="offcanvas-title fw-bold" id="offcanvasSearchLabel"><i class="fas fa-filter me-2"></i>상세 조건 검색</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body">
+        <form method="get" action="/stats" class="row g-3">
+            <!-- 현재 선택된 연도 유지 -->
+            <input type="hidden" name="year" value="{{ current_year if current_year != 'all' else '' }}">
+            <div class="col-12">
+                <div class="alert alert-light border mb-0 small">
+                    <span class="fw-bold">안내:</span> <code>&amp;</code>는 AND, <code>,</code>는 OR 조건입니다. 조건은 요약·지도·차트·상세표에 모두 적용됩니다.
+                </div>
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold">처리기관</label>
+                <input type="text" class="form-control" name="agency" value="{{ f.agency or '' }}" placeholder="예: 강남경찰서">
+                <div class="form-check mt-1">
+                    <input class="form-check-input" type="checkbox" name="agencyExact" id="agencyExact" {% if f.agencyExact %}checked{% endif %} value="true">
+                    <label class="form-check-label small text-muted" for="agencyExact">단일어 입력 시 정확히 일치</label>
+                </div>
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold">신고명</label>
+                <input type="text" class="form-control" name="reportName" value="{{ f.reportName or '' }}">
+            </div>
+            {% if f.law %}<input type="hidden" name="law" value="{{ f.law }}">{% endif %}
+            <div class="col-12">
+                <label class="form-label fw-bold">위반장소</label>
+                <input type="text" class="form-control" name="location" value="{{ f.location or '' }}">
+            </div>
+            <div class="col-12">
+                <div class="form-check form-switch mb-1">
+                    <input class="form-check-input filter-police" type="checkbox" name="excludePolice" id="excludePolice" {% if f.excludePolice %}checked{% endif %} value="true">
+                    <label class="form-check-label" for="excludePolice">경찰기관 제외</label>
+                </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input filter-police" type="checkbox" name="onlyPolice" id="onlyPolice" {% if f.onlyPolice %}checked{% endif %} value="true">
+                    <label class="form-check-label" for="onlyPolice">경찰기관만 포함</label>
+                </div>
+            </div>
+
+            <hr class="my-3">
+
+            <div class="col-12">
+                <label class="form-label fw-bold text-primary">신고일 범위</label>
+                <div class="input-group input-group-sm">
+                    <input type="date" class="form-control" name="reportDateStart" value="{{ f.reportDateStart or '' }}">
+                    <span class="input-group-text">~</span>
+                    <input type="date" class="form-control" name="reportDateEnd" value="{{ f.reportDateEnd or '' }}">
+                </div>
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold text-success">발생일 범위</label>
+                <div class="input-group input-group-sm">
+                    <input type="date" class="form-control" name="occurDateStart" value="{{ f.occurDateStart or '' }}">
+                    <span class="input-group-text">~</span>
+                    <input type="date" class="form-control" name="occurDateEnd" value="{{ f.occurDateEnd or '' }}">
+                </div>
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold text-warning">답변일 범위</label>
+                <div class="input-group input-group-sm">
+                    <input type="date" class="form-control" name="responseDateStart" value="{{ f.responseDateStart or '' }}">
+                    <span class="input-group-text">~</span>
+                    <input type="date" class="form-control" name="responseDateEnd" value="{{ f.responseDateEnd or '' }}">
+                </div>
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold text-secondary">발생시간 범위</label>
+                <div class="input-group input-group-sm">
+                    <input type="text" class="form-control" name="occurTimeStart" value="{{ f.occurTimeStart or '' }}" placeholder="14:30">
+                    <span class="input-group-text">~</span>
+                    <input type="text" class="form-control" name="occurTimeEnd" value="{{ f.occurTimeEnd or '' }}" placeholder="15:00">
+                </div>
+            </div>
+
+            <div class="col-12 mt-4 d-grid gap-2">
+                <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-search me-1"></i> 통계 재산출</button>
+                <a href="/stats" class="btn btn-outline-secondary">필터 초기화</a>
+            </div>
+        </form>
     </div>
 </div>
-</div><!-- col-12 -->
+</div>
 
-<!-- 위반법규 사이드바 -->
-</div><!-- row -->
+{#- 화면 스크립트가 쓰는 서버 집계 결과(같은 요청 안의 값). -#}
+<script type="application/json" id="statsData">{{ {
+    'overview': overview,
+    'rows': table_rows,
+    'laws': {'traffic': traffic_available_laws, 'parking': parking_available_laws, 'other': other_available_laws},
+    'hasEmptyLaw': {'traffic': traffic_has_empty_law, 'parking': parking_has_empty_law, 'other': other_has_empty_law},
+    'activeLaw': f.law or None,
+    'year': current_year,
+    'filters': f,
+    'dedupeMode': dedupe_mode,
+    'excludeWithdraw': exclude_withdraw,
+} | tojson }}</script>
+<script type="application/json" id="sunwiData">{{ sunwi | tojson }}</script>
 {% endblock %}
 
 {% block extra_js %}
-<script>
-    $(document).ready(function () {
-        // 행 클릭 → 목록 드릴다운. 주소는 서버에서 URL 인코딩해 data-href 에 담는다(기관명의 & # + 보존 — D-STAT-8).
-        $('#statsTabsContent').on('click', 'tr.sr-drill', function () {
-            window.location.href = $(this).attr('data-href');
-        });
-
-        // 합계 행 계산 콜백 생성기
-        // cfg: { total, avg, fine, fines, warn, rejects, unconfirmed, inProgress, rating } — 컬럼 인덱스 (0-based)
-        // 합계 행. 열을 숨기면 tr 안 td 순서가 바뀌므로 DataTables API 로 열 번호를 지정해 읽고 쓴다(D-STAT-7).
-        var COUNT_KEYS = ['fines', 'warn', 'rejects', 'inProgress', 'dispositionUnknown', 'noPenalty', 'unclassified'];
-        function makeDrawCallback(cfg) {
-            return function () {
-                var api = this.api();
-                var sums = { total: 0, fine: 0, est: 0, estCount: 0 };
-                COUNT_KEYS.forEach(function (k) { sums[k] = 0; });
-                var wDays = 0, wBase = 0, wRating = 0, wRatingBase = 0;
-                function attr(rowIdx, col, name) { return $(api.cell(rowIdx, col).node()).attr(name); }
-
-                api.rows({ search: 'applied' }).indexes().each(function (r) {
-                    var total = parseInt(attr(r, cfg.total, 'data-order')) || 0;
-                    sums.total += total;
-                    sums.fine += parseInt(attr(r, cfg.fine, 'data-order')) || 0;
-                    sums.est += parseInt(attr(r, cfg.est, 'data-order')) || 0;
-                    sums.estCount += parseInt(attr(r, cfg.est, 'data-count')) || 0;
-                    COUNT_KEYS.forEach(function (k) { sums[k] += parseInt(attr(r, cfg[k], 'data-order')) || 0; });
-                    var avgD = parseFloat(attr(r, cfg.avg, 'data-order'));
-                    if (!isNaN(avgD) && avgD >= 0) { wDays += avgD * total; wBase += total; }
-                    var rAvg = parseFloat(attr(r, cfg.rating, 'data-order'));
-                    var rCount = parseInt(attr(r, cfg.rating, 'data-count')) || 0;
-                    if (!isNaN(rAvg) && rAvg >= 0 && rCount > 0) { wRating += rAvg * rCount; wRatingBase += rCount; }
-                });
-
-                function foot(col) { return $(api.column(col).footer()); }
-                function pct(n) { return sums.total > 0 ? (n / sums.total * 100).toFixed(1) + '%' : '-'; }
-                foot(cfg.total).html('<b>' + sums.total + '</b>건');
-                foot(cfg.avg).text(wBase > 0 ? (wDays / wBase).toFixed(1) + '일' : '-');
-                foot(cfg.fine).text(sums.fine > 0 ? sums.fine.toLocaleString() + '원' : '-');
-                foot(cfg.est).html(sums.estCount > 0 ? '<span class="sr-metric-n">' + sums.est.toLocaleString() + '원</span><span class="sr-metric-pct">' + sums.estCount + '건</span>' : '-');
-                COUNT_KEYS.forEach(function (k) {
-                    var n = k === 'fines' ? '<span class="sr-metric-n text-danger fw-bold">' + sums[k] + '</span>' : '<span class="sr-metric-n">' + sums[k] + '</span>';
-                    foot(cfg[k]).html(n + '<span class="sr-metric-pct">' + pct(sums[k]) + '</span>');
-                });
-                foot(cfg.rating).html(wRatingBase > 0
-                    ? '<span class="sr-metric-n"><span class="text-warning">★</span> ' + (wRating / wRatingBase).toFixed(2) + '</span><span class="sr-metric-pct">' + wRatingBase + '명</span>'
-                    : '-');
-            };
-        }
-
-        function columnMap(lead) {
-            return { total: lead, avg: lead + 1, fine: lead + 2, est: lead + 3, fines: lead + 4, warn: lead + 5, rejects: lead + 6,
-                     inProgress: lead + 7, dispositionUnknown: lead + 8, noPenalty: lead + 9, unclassified: lead + 10, rating: lead + 11 };
-        }
-        var agencyCb = makeDrawCallback(columnMap(1));
-        var personCb = makeDrawCallback(columnMap(2));
-
-        var dtOptionsAgency = {
-            "order": [[1, "desc"]],
-            "pageLength": 50,
-            "language": { "url": "https://cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" },
-            "drawCallback": agencyCb,
-            "autoWidth": false
-        };
-        var dtOptionsPerson = {
-            "order": [[2, "desc"]],
-            "pageLength": 50,
-            "language": { "url": "https://cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json" },
-            "drawCallback": personCb,
-            "autoWidth": false
-        };
-
-        // Initialize all DataTables
-        var agencyTables = [
-            '#statsTableTrafficAgency', '#statsTableParkingAgency', '#statsTableOtherAgency',
-            '#statsTableTrafficPoliceAgency', '#statsTableTrafficOtherAgency',
-            '#statsTableParkingPoliceAgency', '#statsTableParkingOtherAgency',
-            '#statsTableOtherPoliceAgency', '#statsTableOtherOtherAgency'
-        ];
-        var personTables = [
-            '#statsTableTrafficPerson', '#statsTableParkingPerson', '#statsTableOtherPerson',
-            '#statsTableTrafficPolicePerson', '#statsTableTrafficOtherPerson',
-            '#statsTableParkingPolicePerson', '#statsTableParkingOtherPerson',
-            '#statsTableOtherPolicePerson', '#statsTableOtherOtherPerson'
-        ];
-        agencyTables.forEach(function(id) { $(id).DataTable(dtOptionsAgency); });
-        personTables.forEach(function(id) { $(id).DataTable(dtOptionsPerson); });
-
-        var columnVisibilityStorageKey = 'stats_column_visibility';
-        var columnVisibilityState = {};
-        try {
-            columnVisibilityState = JSON.parse(sessionStorage.getItem(columnVisibilityStorageKey) || '{}') || {};
-        } catch (e) {
-            columnVisibilityState = {};
-        }
-
-        function normalizeColumnText(text) {
-            return String(text || '').replace(/\s+/g, ' ').trim();
-        }
-
-        function getColumnLabel(headers, index) {
-            var label = normalizeColumnText(headers[index]);
-            if (label === '★') {
-                return '별점';
-            }
-            if (label === '비율') {
-                var prev = normalizeColumnText(headers[index - 1]);
-                if (prev === '★') {
-                    prev = '별점';
-                }
-                return (prev || '비율') + ' 비율';
-            }
-            return label;
-        }
-
-        function saveColumnVisibilityState() {
-            sessionStorage.setItem(columnVisibilityStorageKey, JSON.stringify(columnVisibilityState));
-        }
-
-        function getActiveTableApi() {
-            var $table = $('#' + currentCat + '-' + currentType).find('table').first();
-            return $table.length ? $table.DataTable() : null;
-        }
-
-        function getColumnMeta(api) {
-            var headers = api.columns().header().toArray().map(function (th) {
-                return normalizeColumnText($(th).text());
-            });
-            return headers.map(function (_, index) {
-                var label = getColumnLabel(headers, index);
-                return {
-                    index: index,
-                    key: label,
-                    label: label
-                };
-            });
-        }
-
-        function isColumnVisible(meta) {
-            return !Object.prototype.hasOwnProperty.call(columnVisibilityState, meta.key) || columnVisibilityState[meta.key] !== false;
-        }
-
-        function applyColumnVisibility(api) {
-            var meta = getColumnMeta(api);
-            meta.forEach(function (item) {
-                api.column(item.index).visible(isColumnVisible(item), false);
-            });
-            return meta;
-        }
-
-        function updateColumnScopeLabel() {
-            var catLabel = normalizeColumnText($('.stats-cat-btn[data-cat="' + currentCat + '"]').text());
-            var typeLabel = normalizeColumnText($('.stats-type-btn[data-type="' + currentType + '"]').text());
-            $('#statsColumnScope').text(catLabel + ' / ' + typeLabel);
-        }
-
-        function renderColumnControls(meta) {
-            var $box = $('#statsColumnCheckboxes');
-            $box.empty();
-            var shown = meta.filter(isColumnVisible).length;
-            $('#statsColumnCount').text('(' + shown + '/' + meta.length + ')');
-            meta.forEach(function (item) {
-                var inputId = 'stats-column-' + currentType.replace(/[^a-z0-9]+/gi, '-') + '-' + item.index;
-                var $item = $('<div class="form-check stats-column-item"></div>');
-                var $input = $('<input type="checkbox" class="form-check-input stats-column-checkbox">')
-                    .attr('id', inputId)
-                    .attr('data-column-key', item.key)
-                    .prop('checked', isColumnVisible(item));
-                var $label = $('<label class="form-check-label"></label>')
-                    .attr('for', inputId)
-                    .text(item.label);
-                $item.append($input, $label);
-                $box.append($item);
-            });
-            updateColumnScopeLabel();
-        }
-
-        function syncActiveTableColumns() {
-            var api = getActiveTableApi();
-            if (!api) {
-                $('#statsColumnCheckboxes').empty();
-                $('#statsColumnScope').text('');
-                return;
-            }
-            var meta = applyColumnVisibility(api);
-            api.columns.adjust().draw(false);
-            renderColumnControls(meta);
-        }
-
-        // 카테고리별 위반법규 목록 + 빈 법규 여부 (law 필터 제외한 서버 집계)
-        var lawMap = {
-            traffic: {{ traffic_available_laws | tojson }},
-            parking: {{ parking_available_laws | tojson }},
-            other:   {{ other_available_laws   | tojson }}
-        };
-        var hasEmptyLaw = {
-            traffic: {{ traffic_has_empty_law | tojson }},
-            parking: {{ parking_has_empty_law | tojson }},
-            other:   {{ other_has_empty_law   | tojson }}
-        };
-        var activeLaw = {{ (f.law | tojson) if f.law else 'null' }};
-
-        function renderLawButtons(cat) {
-            var $sb = $('#statsLawSidebar');
-            $sb.empty();
-            var laws = (lawMap[cat] || []).slice().sort(function(a, b) {
-                var ax = [], bx = [];
-                a.replace(/(\d+)|(\D+)/g, function(_, n, s) { ax.push(n ? [+n, ''] : [Infinity, s]); });
-                b.replace(/(\d+)|(\D+)/g, function(_, n, s) { bx.push(n ? [+n, ''] : [Infinity, s]); });
-                for (var i = 0; i < Math.max(ax.length, bx.length); i++) {
-                    if (!ax[i]) return -1;
-                    if (!bx[i]) return 1;
-                    var d = ax[i][0] !== bx[i][0] ? ax[i][0] - bx[i][0] : ax[i][1].localeCompare(bx[i][1], 'ko');
-                    if (d !== 0) return d;
-                }
-                return 0;
-            });
-
-            function mkBtn(label, isActive, extraClass, onClick) {
-                return $('<button type="button" class="btn btn-sm btn-outline-secondary"></button>')
-                    .addClass(extraClass || '')
-                    .toggleClass('active', !!isActive)
-                    .attr('aria-pressed', isActive ? 'true' : 'false')
-                    .text(label)
-                    .on('click', onClick);
-            }
-
-            // 전체
-            $sb.append(mkBtn('전체', !activeLaw, '', function () {
-                var p = new URLSearchParams(window.location.search);
-                p.delete('law');
-                var qs = p.toString();
-                window.location.href = '/stats' + (qs ? '?' + qs : '');
-            }));
-
-            // 없음
-            if (hasEmptyLaw[cat]) {
-                $sb.append(mkBtn('없음', activeLaw === '__없음__', 'sr-law-none', function () {
-                    var p = new URLSearchParams(window.location.search);
-                    p.set('law', '__없음__');
-                    window.location.href = '/stats?' + p.toString();
-                }));
-            }
-
-
-            laws.forEach(function (law) {
-                $sb.append(mkBtn(law, activeLaw === law, '', function () {
-                    var p = new URLSearchParams(window.location.search);
-                    p.set('law', law);
-                    window.location.href = '/stats?' + p.toString();
-                }));
-            });
-        }
-
-        // 2-row navigation state
-        var currentCat = sessionStorage.getItem('stats_cat') || 'traffic';
-        var currentType = sessionStorage.getItem('stats_type') || 'agency';
-
-        function showPane() {
-            $('.stats-pane').hide();
-            $('#' + currentCat + '-' + currentType).show();
-            syncActiveTableColumns();
-            sessionStorage.setItem('stats_cat', currentCat);
-            sessionStorage.setItem('stats_type', currentType);
-        }
-
-        // ── P2b 요약·월별 추이 ──
-        var overview = {{ overview | tojson }};
-        var catLabels = { traffic: '교통위반', parking: '주정차위반', other: '기타위반' };
-
-        function monthlyChartSvg(reported, answered) {
-            var months = {};
-            reported.forEach(function (m) { months[m.month] = months[m.month] || { r: 0, a: 0 }; months[m.month].r = m.count; });
-            answered.forEach(function (m) { months[m.month] = months[m.month] || { r: 0, a: 0 }; months[m.month].a = m.count; });
-            var keys = Object.keys(months).sort();
-            if (!keys.length) return '<div class="text-muted small py-3">표시할 월별 자료가 없습니다.</div>';
-            // 건수가 없는 달도 0 으로 채워 축이 건너뛰지 않게 한다
-            var filled = [], cur = keys[0].split('-').map(Number), last = keys[keys.length - 1];
-            while (filled.length < 600) {
-                var key = cur[0] + '-' + String(cur[1]).padStart(2, '0');
-                filled.push(key);
-                if (!months[key]) months[key] = { r: 0, a: 0 };
-                if (key === last) break;
-                cur = cur[1] === 12 ? [cur[0] + 1, 1] : [cur[0], cur[1] + 1];
-            }
-            keys = filled;
-            var max = 1;
-            keys.forEach(function (k) { max = Math.max(max, months[k].r, months[k].a); });
-            var step = Math.max(1, Math.ceil(max / 4)), top = Math.ceil(max / step) * step;
-            var padL = 28, padB = 22, h = 170, plotH = h - padB - 8;
-            var boxW = ($('#statsMonthlyChart').width() || 320) - 2;
-            var colW = Math.min(90, Math.max(44, (boxW - padL - 8) / keys.length));  // 넓으면 칸을 늘리고, 좁으면 가로 스크롤
-            var bar = Math.min(22, Math.floor((colW - 10) / 2));
-            var w = Math.max(padL + keys.length * colW + 8, 320);
-            function y(v) { return 8 + plotH - (v / top) * plotH; }
-            var out = ['<svg role="img" aria-label="월별 신고·답변 건수" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '">'];
-            for (var t = 0; t <= top; t += step) {
-                out.push('<line class="sr-grid" x1="' + padL + '" x2="' + (w - 4) + '" y1="' + y(t) + '" y2="' + y(t) + '"/>');
-                out.push('<text x="' + (padL - 4) + '" y="' + (y(t) + 4) + '" text-anchor="end">' + t + '</text>');
-            }
-            keys.forEach(function (k, i) {
-                var x = padL + i * colW + (colW - bar * 2 - 2) / 2, d = months[k];
-                out.push('<rect class="sr-bar-reported" x="' + x + '" y="' + y(d.r) + '" width="' + bar + '" height="' + (y(0) - y(d.r)) + '"><title>' + k + ' 신고 ' + d.r + '건</title></rect>');
-                out.push('<rect class="sr-bar-answered" x="' + (x + bar + 2) + '" y="' + y(d.a) + '" width="' + bar + '" height="' + (y(0) - y(d.a)) + '"><title>' + k + ' 답변 ' + d.a + '건</title></rect>');
-                out.push('<text x="' + (padL + i * colW + colW / 2) + '" y="' + (h - 6) + '" text-anchor="middle">' + k.slice(2).replace('-', '.') + '</text>');
-            });
-            out.push('</svg>');
-            return out.join('');
-        }
-
-        function renderOverview(cat) {
-            var s = overview && overview[cat];
-            var $box = $('#statsOverview');
-            if (!s) { $box.prop('hidden', true); return; }
-            $box.prop('hidden', false);
-            $('#statsOverviewTitle').text('요약 · ' + (catLabels[cat] || cat));
-            function v(key, text) { $box.find('[data-v="' + key + '"]').text(text); }
-            v('total', s.total + '건');
-            v('completed', s.completed + '건');
-            v('completedNote', s.total > 0 ? (s.completed / s.total * 100).toFixed(1) + '% · 수용 ' + s.accept + ' · 일부 ' + s.partial : '');
-            v('processing', s.processing + '건');
-            v('processingNote', s.supplement > 0 ? '보완요청 ' + s.supplement + '건 별도' : '');
-            v('avg', s.avg_days == null ? '—' : s.avg_days.toFixed(1) + '일');
-            v('avgNote', '완료 신고 표본 ' + s.avg_days_count + '건');
-            $('#statsMonthlyChart').html(monthlyChartSvg(s.monthly_reported || [], s.monthly_answered || []));
-            var chart = $('#statsMonthlyChart')[0];
-            if (chart) chart.scrollLeft = chart.scrollWidth; // 최근 달부터 보이게
-            var notes = ['연도 버튼은 ' + (overview.year_basis || '답변일') + ' 기준'];
-            if (s.undated_report_count) notes.push('신고일 없는 신고 ' + s.undated_report_count + '건은 추이에서 빠짐');
-            if (s.reversed_date_count) notes.push('답변일이 신고일보다 앞선 ' + s.reversed_date_count + '건은 평균에서 빠짐');
-            $('#statsOverviewNotes').text(notes.join(' · '));
-        }
-
-        // 선택 표시는 .active + aria-pressed 만 바꾼다. 색은 CSS(분류별 --sr-seg-accent)가 정한다.
-        function setPressed($btns, isOn) {
-            $btns.each(function () {
-                var on = isOn($(this));
-                $(this).toggleClass('active', on).attr('aria-pressed', on ? 'true' : 'false');
-            });
-        }
-
-        function updateButtons() {
-            setPressed($('.stats-cat-btn'), function ($b) { return $b.data('cat') === currentCat; });
-            setPressed($('.stats-type-btn'), function ($b) { return $b.data('type') === currentType; });
-            renderLawButtons(currentCat);
-            renderOverview(currentCat);
-        }
-
-        $('.stats-cat-btn').on('click', function () {
-            currentCat = $(this).data('cat');
-            updateButtons();
-            showPane();
-        });
-
-        $('.stats-type-btn').on('click', function () {
-            currentType = $(this).data('type');
-            updateButtons();
-            showPane();
-        });
-
-        $('#statsColumnCheckboxes').on('change', '.stats-column-checkbox', function () {
-            columnVisibilityState[$(this).attr('data-column-key')] = $(this).is(':checked');
-            saveColumnVisibilityState();
-            syncActiveTableColumns();
-        });
-
-        $('#statsColumnsSelectAll').on('click', function () {
-            var api = getActiveTableApi();
-            if (!api) {
-                return;
-            }
-            getColumnMeta(api).forEach(function (item) {
-                columnVisibilityState[item.key] = true;
-            });
-            saveColumnVisibilityState();
-            syncActiveTableColumns();
-        });
-
-        // 열 선택 패널: 기본 접힘, 펼침 상태는 탭 세션 동안 유지
-        var columnsOpenKey = 'stats_columns_open';
-        function setColumnsOpen(open) {
-            $('#statsColumnsToggle').attr('aria-expanded', open ? 'true' : 'false');
-            $('#statsColumnBody').prop('hidden', !open);
-            try { sessionStorage.setItem(columnsOpenKey, open ? '1' : '0'); } catch (e) {}
-        }
-        $('#statsColumnsToggle').on('click', function () {
-            setColumnsOpen($(this).attr('aria-expanded') !== 'true');
-        });
-        var columnsOpen = false;
-        try { columnsOpen = sessionStorage.getItem(columnsOpenKey) === '1'; } catch (e) {}
-        setColumnsOpen(columnsOpen);
-
-        updateButtons();
-        showPane();
-
-        // 연도 버튼: 현재 URL 파라미터를 유지하면서 year만 교체 후 이동
-        $('.stats-year-btn').on('click', function () {
-            var year = $(this).data('year');
-            var params = new URLSearchParams(window.location.search);
-            if (year === 'all') {
-                params.delete('year');
-            } else {
-                params.set('year', String(year));
-            }
-            var qs = params.toString();
-            window.location.href = '/stats' + (qs ? '?' + qs : '');
-        });
-
-        // 발생시간 24시간제 유효성 검사 및 자동 포맷팅
-        function validateTimeFormat(input) {
-            let val = $(input).val().trim();
-            const timeRegex = /^([01]\d|2[0-3]):?([0-5]\d)$/;
-            if (val) {
-                if (!timeRegex.test(val)) {
-                    alert("발생시간 형식이 올바르지 않습니다. (예: 14:30)");
-                    $(input).val('');
-                } else if (val.length === 4 && !val.includes(':')) {
-                    $(input).val(val.slice(0, 2) + ':' + val.slice(2));
-                }
-            }
-        }
-
-        $('input[name="occurTimeStart"], input[name="occurTimeEnd"]').on('change', function () {
-            validateTimeFormat(this);
-        });
-
-        // 경찰기관 필터 상호 배타적 선택
-        $('.filter-police').on('change', function () {
-            if ($(this).is(':checked')) {
-                $('.filter-police').not(this).prop('checked', false);
-            }
-        });
-
-        // 상세 조건 폼 제출 시 빈 값 제외 (hidden year 제외). 다른 form(테마 전환 등)에는 걸지 않는다.
-        $('#offcanvasSearch form').on('submit', function () {
-            $(this).find('input').not('[name="year"]').each(function () {
-                if (!$(this).val()) {
-                    $(this).attr('disabled', 'disabled');
-                }
-            });
-            return true;
-        });
-    });
-</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="/static/ui/report-map.js?v={{ request.state.app_version }}"></script>
+<script src="/static/ui/sunwi-widget.js?v={{ request.state.app_version }}"></script>
+<script src="/static/ui/stats.js?v={{ request.state.app_version }}"></script>
 {% endblock %}

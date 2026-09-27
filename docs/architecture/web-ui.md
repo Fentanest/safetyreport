@@ -11,6 +11,7 @@
 | 웹 대시보드 카드 → 상세 URL | `index.html` 에 `/data/parking` 로 가는 '주정차위반' 카드는 없다(카드 12개: 총 신고/보완 요청/처리 중/답변 완료/취하/수용/일부수용/불수용·기타 + 교통 과태료/경고·범칙금/교통 불수용/미확인). | 정정 |
 | 웹 대시보드 카드 → 상세 URL | `?status=`, `?fine=`, `?agencyExact=` 는 `data_table.html` JS 가 아니라 서버(`services/report_query_service.py:57-80,115-119`)가 적용한다. JS 는 `agency/person/car/law/location/open` 만 읽는다. | 정정 |
 | 웹 통계 탭 구조 | 위반법규는 탭이 아니라 오른쪽 사이드바 버튼(`#statsLawSidebar`, `?law=`)이다. 라우터가 `records_*_law` 를 넘기지만 템플릿은 렌더하지 않는다. 차트 라이브러리는 없다(표만 있음). | 정정 |
+| 웹 통계 탭 구조 (2026-09-28) | 통계 화면 개편: 법규는 검색 가능한 선택창, 행 클릭은 선택 항목 상세(목록 이동은 상세의 버튼), 요약 카드 6개·지도·차트 추가, 전국 안전신고 현황(Sunwi)은 대시보드에서 통계 하단으로. 사이드바 이름 '통계'. 상세는 [statistics-spec §9](../design/statistics-spec.md) | 정정 |
 | 공통 | DataTables 한국어 파일을 `//cdn.datatables.net/...` 로 불러 http 접속(로컬/LAN)에서는 301→CORS 로 실패하고 영문 UI 가 나온다(2026-09-24 fixture 실측). | 기존 결함 기록 |
 
 ## 이관 원문

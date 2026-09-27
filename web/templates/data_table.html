@@ -255,6 +255,15 @@ $(document).ready(function() {
     // '__없음__'(법규 없는 신고)은 서버가 이미 걸렀다. 검색칸에 넣으면 글자 그대로 다시 걸러 0건이 된다(D-STAT-8).
     if (qLaw && qLaw !== '__없음__') $('#searchLaw').val(qLaw);
     if (qLocation) $('#searchLocation').val(qLocation);
+    // 통계 화면에서 넘어온 조건(2026-09-28): 답변 연도는 답변일 범위로, 상세 조건은 같은 이름의 검색칸으로.
+    [['reportName', '#searchReportName'],
+     ['reportDateStart', '#searchReportDateStart'], ['reportDateEnd', '#searchReportDateEnd'],
+     ['occurDateStart', '#searchOccurDateStart'], ['occurDateEnd', '#searchOccurDateEnd'],
+     ['responseDateStart', '#searchResponseDateStart'], ['responseDateEnd', '#searchResponseDateEnd'],
+     ['occurTimeStart', '#searchOccurTimeStart'], ['occurTimeEnd', '#searchOccurTimeEnd']].forEach(function (pair) {
+        const value = urlParams.get(pair[0]);
+        if (value) $(pair[1]).val(value);
+    });
 
     const isDuplicate = '{{ table_id }}' === 'duplicateTable';
     const offset = isDuplicate ? 1 : 0;

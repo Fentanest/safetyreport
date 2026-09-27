@@ -1,12 +1,42 @@
 from fastapi import APIRouter, Request
+import settings.settings as app_settings
 from core.database.engine import get_engine
 from core.utils import csrf
-from services import data_service, geocode_service
+from services import data_service, geocode_service, sunwi_service
 from core.utils.templating import templates
 from web.routers.filters import default_dedupe_mode, normalize_dedupe_mode, normalize_map_category
 
 router = APIRouter()
 engine = get_engine()
+
+# 통계 화면의 공통 조건(연도·법규·상세 검색). 지도(`/stats/map`)도 같은 이름으로 받는다(2026-09-28).
+STATS_FILTER_KEYS = (
+    "reportName", "law", "location",
+    "reportDateStart", "reportDateEnd", "occurDateStart", "occurDateEnd",
+    "responseDateStart", "responseDateEnd", "occurTimeStart", "occurTimeEnd",
+    "agency", "agencyExact", "excludePolice", "onlyPolice",
+)
+_BOOL_FILTER_KEYS = {"agencyExact", "excludePolice", "onlyPolice"}
+
+
+def _query_filters(request: Request) -> dict:
+    """쿼리 문자열에서 통계 공통 조건만 읽는다(빈 값은 버림). 불리언은 'true'/'1'/'on' 만 참."""
+    filters = {}
+    for key in STATS_FILTER_KEYS:
+        raw = request.query_params.get(key)
+        if raw is None or raw == "":
+            continue
+        filters[key] = raw.strip().lower() in {"true", "1", "on"} if key in _BOOL_FILTER_KEYS else raw
+    return filters
+
+
+def _map_filters(request: Request) -> dict:
+    filters = _query_filters(request)
+    for key in ("targetAgency", "targetPerson"):
+        value = (request.query_params.get(key) or "").strip()
+        if value:
+            filters[key] = value
+    return filters
 
 @router.get("/stats")
 def view_stats(
@@ -48,12 +78,36 @@ def view_stats(
         'year': year,
     }
     dedupe_mode = normalize_dedupe_mode(dedupe)
-    records = data_service.get_agency_stats(engine, filters, mode=dedupe_mode)
-    # 요약 카드·월별 추이: 모바일 통계 요약과 같은 함수·같은 조건(표와 같은 행) — statistics-spec §5, P2b
-    overview = data_service.get_stats_overview(engine, filters, mode=dedupe_mode)
+    # 표·요약 카드·차트는 한 번 읽은 같은 행에서 만든다(모바일 통계 요약과 같은 함수·조건) — statistics-spec §5, §9
+    records, overview = data_service.get_stats_page(engine, filters, mode=dedupe_mode)
+    # 선택 항목 상세 패널·CSV 내보내기용 행 자료. 경찰/비경찰 표는 기관별·담당자별의 부분집합이라 두 목록만 내린다.
+    table_rows = {
+        cat: {"agency": records[cat]["by_agency"], "person": records[cat]["by_person"]}
+        for cat in ("traffic", "parking", "other")
+    }
+    # 상세표 18개(분류 3 × 보기 6). 경찰/비경찰 보기는 기관별·담당자별의 부분집합(기관명에 '경찰').
+    pane_rows = {
+        cat: {
+            "agency": records[cat]["by_agency"], "person": records[cat]["by_person"],
+            "police_agency": records[cat]["police_by_agency"], "police_person": records[cat]["police_by_person"],
+            "other_agency": records[cat]["other_by_agency"], "other_person": records[cat]["other_by_person"],
+        }
+        for cat in ("traffic", "parking", "other")
+    }
+    try:
+        last_crawl_time = data_service.get_last_sync_label(engine)
+    except Exception:
+        last_crawl_time = "확인 불가"
 
     return templates.TemplateResponse(request, "stats.html", {
-        "title": "부서 통계",
+        "title": "통계",
+        "last_crawl_time": last_crawl_time,
+        "dedupe_mode": records.get("dedupe_mode", dedupe_mode),
+        "exclude_withdraw": bool(app_settings.exclude_withdraw),
+        "table_rows": table_rows,
+        "pane_rows": pane_rows,
+        # 전국 안전신고 현황(Sunwi): 대시보드에서 옮겼다. 개인 신고 통계와 다른 데이터셋이라 별도 구역에 둔다.
+        "sunwi": sunwi_service.get_dashboard_payload(),
         "available_years": records.get("available_years", []),
         "overview": overview,
         "current_year": year or "all",
@@ -101,18 +155,22 @@ def view_report_map(
     dedupe_mode = default_dedupe_mode()
     selected_category = normalize_map_category(category)
     map_error = ""
+    # 통계 화면에서 넘어온 조건(법규·상세 검색·상세 패널 대상). 없으면 예전과 같은 전체 지도.
+    map_filters = _map_filters(request)
 
     map_payload = data_service.get_report_map_stats(
         engine,
         year=year,
         category=selected_category,
         mode=dedupe_mode,
+        filters=map_filters or None,
     )
     missing_payload = data_service.get_report_map_missing_groups(
         engine,
         year=year,
         category=selected_category,
         mode=dedupe_mode,
+        filters=map_filters or None,
     )
     meta = map_payload.get("meta", {})
 
@@ -127,9 +185,26 @@ def view_report_map(
         "available_years": meta.get("available_years", []),
         "selected_category": meta.get("selected_category", selected_category),
         "dedupe_mode": meta.get("dedupe_mode", dedupe_mode),
+        "map_filters": map_filters,
         # T4 커뮤니티 공유 패널의 POST(upload/run·reshare)용 CSRF 토큰 (그 밖 변경 없음)
         "csrf_token": csrf.get_or_create_token(request),
     })
+
+
+@router.get("/stats/map/points")
+def get_report_map_points(
+    request: Request,
+    year: str = None,
+    category: str = "all",
+):
+    """통계 화면의 작은 신고 지도용 JSON. 통계와 같은 조건을 받아 `/stats/map` 과 같은 함수로 집계한다."""
+    return data_service.get_report_map_stats(
+        engine,
+        year=year,
+        category=normalize_map_category(category),
+        mode=default_dedupe_mode(),
+        filters=_map_filters(request) or None,
+    )
 
 
 @router.get("/stats/map/progress")
@@ -140,6 +215,7 @@ def get_report_map_progress():
 
 @router.get("/stats/map/missing")
 def get_report_map_missing(
+    request: Request,
     year: str = None,
     category: str = "all",
 ):
@@ -150,4 +226,5 @@ def get_report_map_missing(
         year=year,
         category=selected_category,
         mode=dedupe_mode,
+        filters=_map_filters(request) or None,
     )

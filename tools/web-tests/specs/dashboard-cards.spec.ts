@@ -55,19 +55,8 @@ test('dashboard cards match api and links', async ({ page, request }) => {
   await expect(getCard('경고장/범칙금 발부')).toHaveAttribute('onclick', "window.location.href='/data/traffic?fine=경고'");
   await expect(getCard('미확인')).toHaveAttribute('onclick', "window.location.href='/data/traffic?fine=미확인'");
 
-  // Test Sunwi prev/next buttons
-  const isSunwiAvailable = await page.locator('#sunwiPrevParentCategory').waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false);
-  if (isSunwiAvailable) {
-    const nextBtn = page.locator('#sunwiNextParentCategory');
-    // At first, wait for Sunwi to be loaded (category title should not be empty)
-    await expect(page.locator('#sunwiParentCategoryName')).not.toBeEmpty();
-    const initTitle = await page.locator('#sunwiParentCategoryName').textContent();
-    
-    if (await nextBtn.isEnabled()) {
-      await nextBtn.click();
-      await expect(page.locator('#sunwiParentCategoryName')).not.toHaveText(initTitle!);
-    }
-  }
+  // 전국 안전신고 현황(Sunwi)은 2026-09-28 통계 화면으로 옮겼다(stats-renewal.spec.ts). 대시보드에는 없어야 한다.
+  await expect(page.locator('#sunwiContent')).toHaveCount(0);
 
   // Test recent answers link opens modal
   const firstReport = page.locator('#recentAnswersBody a.report-detail-link').first();
