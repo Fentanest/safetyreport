@@ -28,6 +28,8 @@ class CrawlManager:
             if cls._instance is None:
                 cls._instance = super(CrawlManager, cls).__new__(cls)
                 cls._instance._active_process = None
+                cls._instance._post_upload_active = False
+                cls._instance._preparing = False
                 cls._instance._state_lock = threading.Lock()
                 cls._instance._pending_queue: List[str] = []
                 cls._instance._restore_hold = False
@@ -50,7 +52,7 @@ class CrawlManager:
         """복원 동안 크롤러 시작을 막는다. 크롤링 중이거나 다른 복원 중이면 RestoreBlocked.
         검사와 표시를 start_crawl 과 같은 잠금 안에서 하므로, 검사 직후 크롤러가 끼어들 수 없다(SOL-04)."""
         with self._state_lock:
-            if self._active_process is not None and self._active_process.poll() is None:
+            if self._preparing or self._post_upload_active or (self._active_process is not None and self._active_process.poll() is None):
                 raise RestoreBlocked("크롤링이 진행 중입니다. 끝난 뒤 다시 복원하세요.")
             if self._restore_hold:
                 raise RestoreBlocked("다른 복원이 진행 중입니다.")
@@ -71,21 +73,24 @@ class CrawlManager:
     def is_crawling(self) -> bool:
         """크롤링이 현재 실행 중인지 반환"""
         with self._state_lock:
-            return self._active_process is not None and self._active_process.poll() is None
+            return self._preparing or self._post_upload_active or (self._active_process is not None and self._active_process.poll() is None)
 
     def start_crawl(self, cmd: list, cwd: str, log_file: str, *, prepare=None,
                     restore_generation: Optional[int] = None) -> bool:
         """크롤링 프로세스를 시작합니다. 이미 실행 중이면 False 반환.
         restore_generation: 호출자가 허용 검사(게이트·초기화) 전에 읽은 복원 세대. 그 사이 복원이 있었으면 시작하지 않는다(R4-03).
-        prepare: 시작이 확정된 뒤(같은 잠금 안, Popen 직전)에만 실행 — 로그 교체·큐 파일 작성이 다른 시작과 겹치지 않는다(R4-02)."""
+        prepare: 시작을 예약한 뒤 Popen 전에 실행. 예약 표시가 다른 시작·복원을 막고,
+        긴 업로드 동안에는 상태 잠금을 풀어 조회 요청이 계속 응답하게 한다(R4-02)."""
         with self._state_lock:
-            if self._active_process is not None and self._active_process.poll() is None:
+            if self._preparing or self._post_upload_active or (self._active_process is not None and self._active_process.poll() is None):
                 return False
             if self._restore_hold:
                 raise CrawlBlockedByRestore("DB 복원이 진행 중입니다. 끝난 뒤 다시 시작하세요.")
             if restore_generation is not None and restore_generation != self._restore_generation:
                 raise CrawlBlockedByRestore("DB 가 복원되어 공유 데이터 확인을 다시 해야 합니다. 다시 시작하세요.")
 
+            self._preparing = True
+        try:
             block_if_fixture("crawl subprocess")
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
             if prepare is not None:
@@ -94,17 +99,24 @@ class CrawlManager:
             # Force UTF-8 for subprocesses on Windows to avoid encoding issues in log streaming
             env = os.environ.copy()
             env["PYTHONUTF8"] = "1"
-
-            self._active_process = subprocess.Popen(
-                cmd,
-                cwd=cwd,
-                stdout=open(log_file, 'a', encoding='utf-8', errors='replace'),
-                stderr=subprocess.STDOUT,
-                env=env,
-                encoding='utf-8',
-                errors='replace'
-            )
+            with self._state_lock:
+                self._active_process = subprocess.Popen(
+                    cmd,
+                    cwd=cwd,
+                    stdout=open(log_file, 'a', encoding='utf-8', errors='replace'),
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                    encoding='utf-8',
+                    errors='replace'
+                )
             return True
+        except Exception:
+            if self.pending_count():
+                self._schedule_retry()
+            raise
+        finally:
+            with self._state_lock:
+                self._preparing = False
 
     STOP_WAIT_SECONDS = 10.0
     KILL_WAIT_SECONDS = 5.0
@@ -360,6 +372,8 @@ class CrawlManager:
 
         if proc:
             proc.wait()
+        with self._state_lock:
+            self._post_upload_active = True
         self.clear_process(proc)
         # 초기화 크롤 후처리 훅(T3b): --rebuild <run_id> 로 시작한 크롤이면 같은 run 으로 종결 판정.
         try:
@@ -373,13 +387,22 @@ class CrawlManager:
             pass
         time.sleep(1)
 
-        if os.path.exists(log_file):
-            try:
-                with open(log_file, 'a', encoding='utf-8') as f:
-                    f.write("\n[시스템] 크롤링 작업이 완료되었습니다.\n")
-                rotate_crawl_log(log_file)
-            except Exception:
-                pass
+        try:
+            if os.path.exists(log_file):
+                try:
+                    from services.community_crawl_upload import flush
+                    flush(log_file, before_crawl=False)
+                except Exception:
+                    pass
+                try:
+                    with open(log_file, 'a', encoding='utf-8') as f:
+                        f.write("\n[시스템] 크롤링 작업이 완료되었습니다.\n")
+                    rotate_crawl_log(log_file)
+                except Exception:
+                    pass
+        finally:
+            with self._state_lock:
+                self._post_upload_active = False
 
         try:
             done = crawl_state_store.get_and_clear_crawl_done()
@@ -437,14 +460,17 @@ class CrawlManager:
             cmd.extend(["--queue", queue_file])
             log_file = os.path.join(s.datapath, 'logs', 'current_crawl.log')
 
-            def prepare():  # start_crawl 잠금 안: 시작이 확정된 뒤에만 파일을 만든다(실패하면 아래 except 가 파일을 지운다)
+            def prepare():  # start_crawl 시작 예약 뒤에만 파일을 만든다(실패하면 아래 except 가 파일을 지운다)
                 with open(queue_file, 'w', encoding='utf-8') as f:
                     f.write('\n'.join(str(r) for r in pending))
                 rotate_crawl_log(log_file)
                 with open(log_file, 'w', encoding='utf-8') as f:
                     f.write(f"=== [대기 큐 자동 시작] 신고번호 {len(pending)}건 ===\n")
                     f.write('\n'.join(f"  - {r}" for r in pending) + '\n')
-                self._reserved.update(pending)  # 같은 잠금(_state_lock) 안
+                from services.community_crawl_upload import flush
+                flush(log_file, before_crawl=True)
+                with self._state_lock:
+                    self._reserved.update(pending)
 
             work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
             try:
@@ -453,7 +479,13 @@ class CrawlManager:
             except CrawlBlockedByRestore as exc:
                 logger.LoggerFactory.logbot.info(f"[crawl] 대기 큐 {len(pending)}건 보류: {exc}")
                 started = False
-            except Exception:
+            except Exception as exc:
+                from services.community_crawl_upload import PendingUploadError
+                if isinstance(exc, PendingUploadError):
+                    logger.LoggerFactory.logbot.info(f"[crawl] 이전 공유 자료 업로드가 남아 대기 큐 {len(pending)}건 보류: {exc}")
+                    self._remove_run_files(queue_file)
+                    self._schedule_retry()
+                    return False
                 # prepare 나 Popen 이 실패했다 — 예약을 풀고 큐에 남긴다. 번호가 담긴 임시 파일도 지운다(R5-04)
                 with self._state_lock:
                     self._reserved.difference_update(pending)

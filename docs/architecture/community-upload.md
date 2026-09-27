@@ -26,6 +26,7 @@
 | `services/community_capture.py` | 순수 함수(`build_adapter_input/build_payload/canonical_json/payload_sha256/is_eligible/decide_event`) + `capture/mark_personal_save/capture_retry_ids/on_contributions_deleted` |
 | `services/community_ingest_client.py` | `POST {supabase_url}/functions/v1/community-ingest` + manifest 조회, ACK 검증·분류 |
 | `services/community_uploader.py` | `request_upload/wake/start_background/stop_background/upload_status/reshare_candidates/request_reshare/refresh_server_completed/on_contributions_deleted` |
+| `services/community_crawl_upload.py` | 새 크롤링 전 미전송 자료 소진과 종료 뒤 복구 업로드, 현재 크롤링 로그 기록 |
 | `services/community_schedule.py` | KST 순수 함수(`due_key/next_due_at/should_run`) + `register_community_jobs/run_midnight/catch_up_on_start` |
 | `web/routers/community_upload_route.py` | `router`(관리자 `/community/upload/*`), `api_router`(API 키 `/api/v1/community/upload/*`) |
 | `core/storage/reports_repo.py` | `_save_one` 안 capture 호출 1곳 + `personal_save_state` 표시, 연속 3회 실패 시 중단 |
@@ -37,6 +38,10 @@
   (`--reset`)가 이 파일을 건드리지 않는다. 비밀(토큰·연결 비밀)은 여기에 두지 않는다.
 - 수집 서브프로세스(`start.py`)와 메인 서버가 함께 열므로 WAL + `busy_timeout` 30초,
   쓰기는 짧은 `BEGIN IMMEDIATE` 트랜잭션으로만 한다.
+- PC 크롤링 시작 경로(`crawl_control`과 자동 대기 큐)는 subprocess 실행 전에 `recovery` 업로드를 기다린다. `more_pending`이면 계속 보내고,
+  다른 실행의 업로드 잠금은 최대 125초 기다린다(OS 종료 뒤 120초 lease 만료 포함). 현재 연결의 미전송 자료가 남으면 시작을 거절한다.
+  실패 이유와 건수는 크롤링 로그에 남긴다. 자동 대기 큐는 번호를 보존하고 재시도를 예약한다. 크롤링 중 실시간 업로드와
+  종료 뒤 복구 업로드도 같은 로그에 전송·중앙 확인·재시도 건수를 남기며, 종료 뒤 업로드 확인 후 완료 이벤트를 보낸다.
 - `source_revision` 은 파일 전체 단조(`meta.next_revision`). 데이터셋 회전으로 초기화하지
   않는다. 중앙 `last_accepted_revision` 보다 작아지면 올린다(`raise_revision_floor`).
 - 한 수집 실행에서 capture 가 연속 3회 실패하면 `CaptureStoreUnavailable` 로 수집을 멈춘다.

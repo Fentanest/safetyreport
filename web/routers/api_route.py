@@ -371,6 +371,9 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
+        from services.community_crawl_upload import PendingUploadError
+        if isinstance(exc, PendingUploadError):
+            raise HTTPException(status_code=503, detail=str(exc))
         raise _community_runtime_error(exc) or HTTPException(status_code=500, detail=str(exc))
 
     if result["status"] == "queued":
@@ -510,6 +513,9 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
+        from services.community_crawl_upload import PendingUploadError
+        if isinstance(exc, PendingUploadError):
+            raise HTTPException(status_code=503, detail=str(exc))
         raise _community_runtime_error(exc) or HTTPException(status_code=500, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

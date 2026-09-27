@@ -88,16 +88,18 @@ class UploaderTest(unittest.TestCase):
             "SELECT o.event_id, o.state, j.source_report_id FROM outbox o"
             " JOIN source_journal j ON j.event_id=o.event_id ORDER BY j.source_revision")]
 
-    def _run_with(self, response, trigger="realtime"):
+    def _run_with(self, response, trigger="realtime", progress=None):
         with mock.patch.object(client, "post_envelope",
                                side_effect=lambda env, **kw: (self.posts.append(env), response)[1]):
-            return up.request_upload(trigger, data_dir=self.tmp)
+            return up.request_upload(trigger, data_dir=self.tmp, progress=progress)
 
     def test_b01_upload_right_after_capture(self):
         """B01: capture 직후 1초 안에 전송 시도 — 동기 request_upload 1회로 전송."""
         res = self._capture("R1")
-        result = self._run_with(ok_resp([ack(res.event_id)]))
+        progress = []
+        result = self._run_with(ok_resp([ack(res.event_id)]), progress=progress.append)
         self.assertEqual(result["result"], "sent")
+        self.assertTrue(any("확인 1건" in line for line in progress))
         self.assertEqual(len(self.posts), 1)
         self.assertEqual(self._outbox(), [])
         row = self.store.connect().execute(

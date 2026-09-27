@@ -401,7 +401,7 @@ def _classify(response) -> "policy.Interpretation":
 
 # ── 공개 API ─────────────────────────────────────────────────────────────────
 
-def request_upload(trigger: str, data_dir=None) -> dict:
+def request_upload(trigger: str, data_dir=None, progress=None) -> dict:
     """업로드 1회 실행. 같은 프로세스의 동시 호출은 진행 중 run 에 합류한다(다른 프로세스는 lease 가 막는다).
     합류한 호출이 manual/midnight/recovery/reshare 면 자기가 도착한 뒤 시작한(enqueue 하는) 실행의 결과를 돌려준다 — 없으면 앞선 실행이
     끝난 뒤 직접 실행한다(enqueue 가 빠지지 않게, 여러 호출이 와도 실행은 하나로 합쳐진다)."""
@@ -411,7 +411,7 @@ def request_upload(trigger: str, data_dir=None) -> dict:
         if trigger in _ENQUEUE_TRIGGERS:
             _waiting_enqueue[trigger] = _waiting_enqueue.get(trigger, 0) + 1
     try:
-        return _request_upload(trigger, data_dir, arrived)
+        return _request_upload(trigger, data_dir, arrived, progress)
     finally:
         with _run_lock:
             if trigger in _ENQUEUE_TRIGGERS:
@@ -429,7 +429,7 @@ def _effective_trigger(trigger: str) -> str:
     return trigger
 
 
-def _request_upload(trigger: str, data_dir, arrived: int) -> dict:
+def _request_upload(trigger: str, data_dir, arrived: int, progress=None) -> dict:
     global _active_run, _run_seq
     while True:
         with _run_lock:
@@ -458,7 +458,7 @@ def _request_upload(trigger: str, data_dir, arrived: int) -> dict:
             return dict(active["result"])
     result: dict = {"run_id": run_id, "result": "failed", "counts": {}, "request_ids": [], "error_code": "not_started"}
     try:
-        result = _run_upload(run_id, trigger, data_dir)
+        result = _run_upload(run_id, trigger, data_dir, progress)
     except Exception as exc:
         _log.exception("[community] upload run failed")
         result = {"run_id": run_id, "result": "failed", "counts": {}, "request_ids": [], "error_code": type(exc).__name__}
@@ -506,17 +506,26 @@ def _gate_result(gate: dict) -> str | None:
     return "blocked_gate"
 
 
-def _run_upload(run_id: str, trigger: str, data_dir=None) -> dict:
+def _run_upload(run_id: str, trigger: str, data_dir=None, progress=None) -> dict:
     store = _store(data_dir)
     started = _iso(_now())
     counts = {"sent": 0, "acked": 0, "dead": 0, "blocked": 0, "retry": 0, "quarantined": 0, "requests": 0}
     request_ids: list[str] = []
     state = {"error_code": None, "next_attempt_at": None}
 
+    def report(message: str) -> None:
+        if progress is not None:
+            try:
+                progress(message)
+            except Exception:
+                _log.info("[community] upload progress callback failed", exc_info=True)
+
     def finish(result: str) -> dict:
         out = {"run_id": run_id, "result": result, "counts": counts, "request_ids": request_ids,
                "error_code": state["error_code"], "next_attempt_at": state["next_attempt_at"]}
         _record_run(store, run_id, trigger, started, out)
+        report(f"결과 {result}: 전송 {counts['sent']}건, 확인 {counts['acked']}건, 재시도 {counts['retry']}건"
+               + (f" ({state['error_code']})" if state['error_code'] else ""))
         return out
 
     from services import community_capture as _cap
@@ -554,7 +563,7 @@ def _run_upload(run_id: str, trigger: str, data_dir=None) -> dict:
         probing = control == "probe"
         if probing:
             _control_probing(store, scopes)
-        return _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_ids, state, finish)
+        return _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_ids, state, finish, report)
     finally:
         try:
             store.release_lease("upload", owner)
@@ -562,7 +571,7 @@ def _run_upload(run_id: str, trigger: str, data_dir=None) -> dict:
             pass
 
 
-def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_ids, state, finish) -> dict:
+def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_ids, state, finish, report) -> dict:
     conn = store.connect()
     started = _monotonic()
     run = {"owner": owner,
@@ -631,6 +640,7 @@ def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_
                 interp = ack
             else:
                 _apply_ack(store, batch, ack, counts)
+                report(f"진행: 전송 {counts['sent']}건, 확인 {counts['acked']}건, 재시도 {counts['retry']}건")
                 for scope in scopes.values():
                     _control_mark(store, scope, state="ready")
                 probing = False
@@ -644,6 +654,8 @@ def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_
                     had_problem = True
                 continue
         outcome = _apply_error(store, batch, interp, scopes, counts, state, run)
+        report(f"진행: 전송 {counts['sent']}건, 확인 {counts['acked']}건, 재시도 {counts['retry']}건"
+               + (f" ({state['error_code']})" if state['error_code'] else ""))
         if outcome == "continue":
             continue  # 이분·대조는 문제가 아니다 — 최종 결과는 격리(dead)·차단·재시도 집계로 정한다
         _hold_suspects(store, run, state)
@@ -865,7 +877,9 @@ def start_background(data_dir=None) -> None:
             if trigger is None:
                 continue
             try:
-                request_upload(trigger, data_dir)
+                from services.community_crawl_upload import log_background_progress
+                log_background_progress("실시간 공유 자료 업로드 중...")
+                request_upload(trigger, data_dir, progress=log_background_progress)
             except Exception:
                 _log.info("[community] background upload 실패", exc_info=True)
             try:

@@ -40,10 +40,14 @@ def _write_log_header(header: str, *, rotate_existing: bool = False):
 
 
 def _log_header(header: str):
-    """(로그 경로, prepare) — 로그 교체·머리말 쓰기를 crawl_manager.start_crawl 잠금 안에서 시작이 확정된 뒤에만 하게 한다
+    """(로그 경로, prepare) — 로그 교체·머리말 쓰기를 crawl_manager.start_crawl 의 시작 예약 뒤에만 하게 한다
     (감사 R4-02: 다른 시작과 겹쳐 실행 중인 크롤의 로그를 지우지 않는다)."""
     log_file = get_current_crawl_log_path()
-    return log_file, lambda: _write_log_header(header, rotate_existing=True)
+    def prepare():
+        _write_log_header(header, rotate_existing=True)
+        from services.community_crawl_upload import flush
+        flush(log_file, before_crawl=True)
+    return log_file, prepare
 
 
 def _build_command(*, crawl_mode: str = "full", queue_file: str | None = None):
@@ -337,5 +341,3 @@ def stop_crawl():
     with open(get_current_crawl_log_path(), "a", encoding="utf-8") as file_obj:
         file_obj.write("\n[시스템] 사용자 요청으로 크롤링 프로세스가 강제 종료되었습니다.\n")
     return True
-
-

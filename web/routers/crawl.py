@@ -11,6 +11,7 @@ from core.database.engine import get_engine
 from core.utils.templating import templates
 from services import crawl_control, export_service
 from services.crawl_manager import crawl_manager
+from services.community_crawl_upload import PendingUploadError
 
 router = APIRouter(prefix="/crawl")
 
@@ -52,6 +53,8 @@ def start_crawl(
             broadcast_source="web_start",
         )
     except RuntimeError as exc:
+        if isinstance(exc, PendingUploadError):
+            return JSONResponse({"status": "error", "message": str(exc)}, status_code=503)
         if community_gate.block_code(exc):
             return _community_blocked(409 if community_gate.block_code(exc) == community_gate.REBUILD_REQUIRED else 403,
                                       community_gate.block_code(exc))
