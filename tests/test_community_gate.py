@@ -264,6 +264,16 @@ class DecideTests(unittest.TestCase):
                          ("ok", []), "새 정책도 앱을 새로 배포하지 않고 통과한다")
         self.assertEqual(d("ok", "valid", self.status(contributor={"status": "none"}), 600, False), ("ok", []))
 
+    def test_contract_gate_vectors(self):
+        # 모바일 test/community/gate_evaluate_test.dart 와 같은 계약 벡터 — PC·모바일 판정이 같아야 한다
+        with open(os.path.join(ROOT, "contracts/community-ingest/vectors/gate.json"), encoding="utf-8") as fh:
+            vectors = json.load(fh)
+        self.assertNotIn("app_required_policy_version", vectors, "앱에 박힌 정책 버전은 없다")
+        for c in vectors["cases"]:
+            got, _ = community_gate.decide(c["config"], c["session"], c.get("status"), c.get("age_seconds"),
+                                           c.get("invalidated", False))
+            self.assertEqual(got, c["expect"], c["name"])
+
     def test_no_bundled_policy(self):
         for name in ("REQUIRED_POLICY_VERSION", "CONSENT_TEXT_SHA256", "CONSENT_TEXT_FILE", "consent_text"):
             self.assertFalse(hasattr(community_gate, name), f"{name}: 동의 정책은 중앙에서 받는다")
