@@ -30,7 +30,7 @@ _log = logging.getLogger("safetyreport.core.community_gate")
 
 REQUIRED_POLICY_VERSION = "2026-09-28.1"
 # contracts/community-ingest/consent/share-consent-2026-09-28.1.sha256 — tests/test_community_gate.py 가 같은지 확인
-CONSENT_TEXT_SHA256 = "986cc1d6ec2fb850c5bfb20976a250f030f1c5249b97c7815cfdafbd34d2306a"
+CONSENT_TEXT_SHA256 = "a775cc34a175ac880574976b011f2c16cce3b0d366aa7729c2128cd1f1f38670"
 CONSENT_TEXT_FILE = "contracts/community-ingest/consent/share-consent-2026-09-28.1.md"
 CACHE_TTL = 600.0
 FRESH_SECONDS = 60.0
