@@ -27,6 +27,7 @@
         {% if gate.state == 'config_invalid' %}커뮤니티 서버 설정(공개 주소·공개 키)을 확인할 수 없습니다. 아래 고급 설정을 확인하거나 배포 설정을 점검해 주세요.
         {% elif gate.state == 'verification_required' %}커뮤니티 서버에서 상태를 확인하지 못했습니다. 네트워크를 확인한 뒤 새로고침해 주세요.
         {% elif gate.state == 'suspended' %}이 카카오 계정의 공유가 중지되어 있습니다. 운영자 안내를 확인해 주세요.
+        {% elif gate.state == 'db_owner_mismatch' %}이 서버에 저장된 신고 내역은 다른 카카오 계정의 것입니다. 아래 카드에서 신고 내역을 지우고 시작하거나 로그아웃해 주세요.
         {% else %}카카오 인증과 신고내용 공유 동의를 마치면 원래 화면으로 이동합니다.{% endif %}
     </div>
 
@@ -56,7 +57,8 @@
         session_unreadable: '저장된 커뮤니티 로그인 정보를 읽을 수 없습니다. 카드의 초기화를 눌러 다시 연결해 주세요.',
         verification_required: '커뮤니티 서버에서 상태를 확인하는 중입니다. 계속되면 네트워크를 확인해 주세요.',
         suspended: '이 카카오 계정의 공유가 중지되어 있습니다. 운영자 안내를 확인해 주세요.',
-        consent_required: '2단계: 신고내용 공유 동의 문서를 읽고 동의해 주세요.'
+        consent_required: '2단계: 신고내용 공유 동의 문서를 읽고 동의해 주세요.',
+        db_owner_mismatch: '이 서버에 저장된 신고 내역은 다른 카카오 계정의 것입니다. 카드에서 신고 내역을 지우고 시작하거나 로그아웃해 주세요.'
     };
     function go() { window.location.href = next; }
     document.addEventListener('sr:community-gate', function (ev) {

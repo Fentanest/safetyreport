@@ -373,6 +373,8 @@ class CommunityAuthService:
                     "display_name": cand.get("display_name") or FALLBACK_DISPLAY_NAME,
                     "has_email": bool(cand.get("has_email")),
                     "is_different_account": bool(existing and existing.get("user_id") != cand.get("user_id")),
+                    # 이 서버의 신고 자료 주인과 다른 카카오 계정 — 확인 창에서 "계속하면 자료가 지워진다"를 알린다
+                    "is_different_data_owner": _differs_from_data_owner(cand.get("kakao_id")),
                 }
         if current:
             dto["account"] = {"display_name": current.get("display_name") or FALLBACK_DISPLAY_NAME,
@@ -679,6 +681,7 @@ class CommunityAuthService:
             "display_name": _display_name(user), "has_email": bool(user.get("email")),
             "session_id": claims.get("session_id") if isinstance(claims.get("session_id"), str) else None,
             "connected_at": None,
+            "kakao_id": kakao_member_id(user),
         }
 
     def _fail_pending(self, request_id: str, code: str, cancel_relay: bool = False) -> None:
@@ -840,6 +843,48 @@ class CommunityAuthService:
             _log.info("[community] 세션 로그아웃 실패(무시): %s", getattr(exc, "code", type(exc).__name__))
             return False
 
+    # 데이터 주인(카카오 회원번호) ------------------------------------------------
+    def session_kakao_id(self) -> str | None:
+        """네트워크 없이: 저장된 세션(현재 또는 재로그인 대기)의 카카오 회원번호. 모르면 None."""
+        try:
+            st = self.store.load()
+        except StoreUnreadable:
+            return None
+        for record in (st.get("current"), st.get("reauth")):
+            if record and record.get("kakao_id"):
+                return record["kakao_id"]
+        return None
+
+    def current_kakao_id(self) -> str | None:
+        """지금 로그인한 카카오 회원번호. 이 기능 전에 연결한 세션은 값이 없으므로 /auth/v1/user 를 한 번 받아 채워 둔다.
+        연결 안 됨이면 None. 네트워크 실패는 CommunityAuthError(auth_unavailable) — 호출자는 판단을 미룬다(fail-closed)."""
+        try:
+            cur = self.store.load().get("current")
+        except StoreUnreadable:
+            return None
+        if not cur:
+            return None
+        if cur.get("kakao_id"):
+            return cur["kakao_id"]
+        cfg = self.config()
+        token = self.get_access_token()
+        try:
+            user = self._client(cfg).get_user(access_token=token)
+        except CommunityHttpError as exc:
+            raise CommunityAuthError("auth_unavailable") from exc
+        if user.get("id") != cur.get("user_id"):
+            raise CommunityAuthError("user_mismatch")
+        kakao_id = kakao_member_id(user)
+        if not kakao_id:
+            raise CommunityAuthError("kakao_id_missing")
+        with self.store.locked():
+            st = self._load()
+            now = st.get("current")
+            if now and now.get("user_id") == cur.get("user_id"):
+                now["kakao_id"] = kakao_id
+                self.store.save(st)
+        return kakao_id
+
     # 세션 공급 ---------------------------------------------------------------
     def get_access_token(self, *, rejected: str | None = None) -> str:
         """업로더용: 유효한 access token. 60초 안에 만료되면 락 안에서 한 번만 refresh 한다.
@@ -928,6 +973,35 @@ class CommunityAuthService:
                 thread.join(timeout=timeout)
 
 
+_KAKAO_ID_RE = re.compile(r"^[0-9]{1,20}$")
+
+
+def _differs_from_data_owner(kakao_id: str | None) -> bool:
+    try:
+        from services import account_data
+        owner = account_data.db_owner()
+    except Exception:
+        return False
+    return bool(owner and kakao_id and owner != kakao_id)
+
+
+def kakao_member_id(user: dict) -> str | None:
+    """GoTrue /auth/v1/user 의 카카오 identity 에서 카카오 회원번호(숫자 문자열). 사용자가 스스로 고칠 수 있는
+    user_metadata 는 쓰지 않는다 — 서버가 관리하는 identities[provider=kakao] 만(identity_data.provider_id → sub → id).
+    모바일 CommunityAuthService.kakaoMemberId 와 같은 규칙."""
+    identities = user.get("identities") if isinstance(user, dict) else None
+    if not isinstance(identities, list):
+        return None
+    for identity in identities:
+        if not isinstance(identity, dict) or identity.get("provider") != "kakao":
+            continue
+        data = identity.get("identity_data") if isinstance(identity.get("identity_data"), dict) else {}
+        for value in (data.get("provider_id"), data.get("sub"), identity.get("id")):
+            if isinstance(value, (str, int)) and not isinstance(value, bool) and _KAKAO_ID_RE.match(str(value)):
+                return str(value)
+    return None
+
+
 def _display_name(user: dict) -> str:
     meta = user.get("user_metadata") if isinstance(user.get("user_metadata"), dict) else {}
     for key in ("name", "nickname", "preferred_username", "full_name"):
@@ -978,6 +1052,10 @@ def get_access_token(*, rejected: str | None = None) -> str:
 
 def is_upload_allowed() -> bool:
     return get_service().is_upload_allowed()
+
+
+def current_kakao_id() -> str | None:
+    return get_service().current_kakao_id()
 
 
 def update_settings(body: dict, known_key_hashes: set[str]) -> CommunityConfig:

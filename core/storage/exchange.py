@@ -388,6 +388,15 @@ def _swap_in(staged: str, dst: str) -> None:
     os.replace(staged, dst)
 
 
+def _current_kakao_id() -> str | None:
+    from services import community_auth_service as cas
+
+    try:
+        return cas.current_kakao_id()
+    except Exception:  # 네트워크·세션 문제면 모름 → 거절(fail-closed)
+        return None
+
+
 def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
     """kind='server' | 'mobile'. (백업 경로, 신고 수) 반환. 실패하면 현재 DB 는 그대로다."""
     from core.database.engine import get_engine
@@ -398,6 +407,9 @@ def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
     ensure_restore_allowed(get_engine())
     if kind in ("server", "mobile"):
         refuse_other_version(uploaded_path, kind)  # 이전(또는 더 새) 버전 DB 는 가져오지 않는다 — 무엇이든 바꾸기 전에
+        # 다른 카카오 계정(또는 주인을 모르는) DB 는 가져오지 않는다(services/account_data.py) — 무엇이든 바꾸기 전에
+        from services import account_data
+        account_data.refuse_foreign_owner(uploaded_path, kind, _current_kakao_id())
     snapshot = read_mobile_db(uploaded_path) if kind == "mobile" else None  # 모르는 열 검사 포함 — 장벽 전에
     # (1) 크롤러(별도 프로세스라 쓰기 장벽 밖)는 검사와 같은 잠금 안에서 시작을 막는다 — 검사 직후 시작하는 경쟁 없음.
     # (2) 스테이징 복사부터 교체까지 이 프로세스의 운영 DB 연결을 막는다. 이미 빌린 연결이 반납될 때까지 기다린다(SOL-04).

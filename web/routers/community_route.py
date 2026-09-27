@@ -159,15 +159,101 @@ async def web_cancel(request: Request):
     return await _web_action(request, run)
 
 
-@router.post("/disconnect")
-async def web_disconnect(request: Request):
+# 2026-09-27: 카카오 로그인은 필수(사용자 결정) — "연결 해제"(데이터를 남긴 채 로그인만 푸는 기능)는 지금은 쓰지 않는다.
+# 대신 카카오 로그아웃(/logout)이 신고 자료를 지운다. 필요해지면 되살린다(주석 처리).
+# @router.post("/disconnect")
+# async def web_disconnect(request: Request):
+#     async def run(body):
+#         _only(body, set())
+#         service = cas.get_service()
+#         community_gate.invalidate("logout")  # 로그아웃 전에 context 를 먼저 끈다(업로드 즉시 중단)
+#         result = await run_in_threadpool(service.disconnect)
+#         dto = await run_in_threadpool(service.status, can_manage=True)
+#         return _ok({"data": dto, "result": result, "gate": await run_in_threadpool(community_gate.status_view)})
+#     return await _web_action(request, run)
+
+
+LOGOUT_CONFIRM = "DELETE_MY_REPORTS"
+ADOPT_CONFIRM = "DELETE_OTHER_ACCOUNT_REPORTS"
+
+
+def _refused(exc: Exception) -> JSONResponse:
+    return JSONResponse({"detail": str(exc), "code": "busy"}, status_code=409, headers=_NO_STORE)
+
+
+def _logout_wipes(service) -> bool:
+    """로그아웃하면 이 서버의 신고 자료를 지우는가. 지금 로그인한 카카오 계정이 자료 주인과 **다르다고 확인된** 경우만 남긴다
+    (다른 계정의 자료이므로). 주인이 없거나 같거나 확인하지 못하면 지운다(로그아웃 = 자료 삭제, 사용자 결정)."""
+    from services import account_data
+
+    owner = account_data.db_owner()
+    kakao = service.session_kakao_id()
+    return not (owner and kakao and owner != kakao)
+
+
+@router.post("/logout")
+async def web_logout(request: Request):
+    """카카오 로그아웃: 신고 자료를 지운 뒤(관리자·API 키·감시목록·지오코딩 캐시는 남김) 이 서버의 카카오 로그인을 끝낸다.
+    화면은 먼저 "로그아웃하면 이 서버에 저장된 신고 내역이 모두 지워집니다"를 확인받는다(confirm)."""
+    async def run(body):
+        _only(body, {"confirm"})
+        if body.get("confirm") != LOGOUT_CONFIRM:
+            raise CommunityAuthError("invalid_settings", "확인 항목이 필요합니다.")
+        from core.storage.exchange import RestoreRefused
+        from services import account_data
+
+        service = cas.get_service()
+        wipe = await run_in_threadpool(_logout_wipes, service)
+        community_gate.invalidate("logout")  # 업로드·새 작업을 먼저 멈춘다
+        wiped = None
+        if wipe:
+            try:
+                wiped = await run_in_threadpool(account_data.wipe_report_data, "kakao_logout")
+            except RestoreRefused as exc:  # 크롤링·지도 변환 중 — 아무것도 지우지 않고 로그인도 그대로
+                community_gate.invalidate("logout_refused")
+                return _refused(exc)
+        result = await run_in_threadpool(service.disconnect)
+        dto = await run_in_threadpool(service.status, can_manage=True)
+        return _ok({"data": dto, "result": dict(result, reports_wiped=bool(wiped)),
+                    "gate": await run_in_threadpool(community_gate.status_view)})
+    return await _web_action(request, run)
+
+
+@router.post("/reset-session")
+async def web_reset_session(request: Request):
+    """세션 파일을 읽을 수 없을 때만: 옆으로 옮기고 다시 로그인하게 한다(자료는 그대로 — 다음 로그인 계정이 주인과 다르면 게이트가 막는다)."""
     async def run(body):
         _only(body, set())
         service = cas.get_service()
-        community_gate.invalidate("logout")  # 로그아웃 전에 context 를 먼저 끈다(업로드 즉시 중단)
+        if (await run_in_threadpool(service.status, can_manage=True))["state"] != "store_unreadable":
+            raise CommunityAuthError("invalid_state")
+        community_gate.invalidate("session_reset")
         result = await run_in_threadpool(service.disconnect)
         dto = await run_in_threadpool(service.status, can_manage=True)
         return _ok({"data": dto, "result": result, "gate": await run_in_threadpool(community_gate.status_view)})
+    return await _web_action(request, run)
+
+
+@router.post("/db-owner/adopt")
+async def web_db_owner_adopt(request: Request):
+    """이 서버의 신고 자료가 다른 카카오 계정 것일 때(게이트 db_owner_mismatch): 그 자료를 지우고 지금 계정으로 시작한다."""
+    async def run(body):
+        _only(body, {"confirm"})
+        if body.get("confirm") != ADOPT_CONFIRM:
+            raise CommunityAuthError("invalid_settings", "확인 항목이 필요합니다.")
+        from core.storage.exchange import RestoreRefused
+        from services import account_data
+
+        if (await run_in_threadpool(community_gate.evaluate))["state"] != "db_owner_mismatch":
+            raise CommunityAuthError("invalid_state")
+        kakao = await run_in_threadpool(cas.get_service().current_kakao_id)
+        if not kakao:
+            raise CommunityAuthError("not_connected")
+        try:
+            await run_in_threadpool(account_data.wipe_report_data, "db_owner_adopt", then_owner=kakao)
+        except RestoreRefused as exc:
+            return _refused(exc)
+        return _ok({"data": await run_in_threadpool(_regate, "db_owner_adopt")})
     return await _web_action(request, run)
 
 
@@ -396,16 +482,17 @@ async def api_cancel(request: Request, api_key: str = Depends(_require_api_key))
     return await _api_action(request, api_key, run)
 
 
-@api_router.post("/disconnect")
-async def api_disconnect(request: Request, api_key: str = Depends(_require_api_key)):
-    async def run(body):
-        _only(body, set())
-        service = cas.get_service()
-        community_gate.invalidate("logout")
-        result = await run_in_threadpool(service.disconnect)
-        dto = await run_in_threadpool(service.status, can_manage=True)
-        return _ok({"data": dto, "result": result})
-    return await _api_action(request, api_key, run)
+# 2026-09-27: 카카오 로그인 필수 — 모바일 Client 에서 서버의 카카오 로그인을 푸는 API 는 없앤다(사용자 결정: 경로 삭제). 필요해지면 되살린다.
+# @api_router.post("/disconnect")
+# async def api_disconnect(request: Request, api_key: str = Depends(_require_api_key)):
+#     async def run(body):
+#         _only(body, set())
+#         service = cas.get_service()
+#         community_gate.invalidate("logout")
+#         result = await run_in_threadpool(service.disconnect)
+#         dto = await run_in_threadpool(service.status, can_manage=True)
+#         return _ok({"data": dto, "result": result})
+#     return await _api_action(request, api_key, run)
 
 
 # ── 모바일: 서버 게이트 상태 (/api/v1/community/gate) ─────────────────────────────

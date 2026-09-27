@@ -163,6 +163,11 @@ class ExchangeRotateTest(unittest.TestCase):
         self.addCleanup(get_engine().dispose)
         self.upload = Path(self._tmp.name) / "mobile.db"
         _mobile_db(self.upload)
+        # 이 시험들은 같은 카카오 계정의 DB 를 다룬다 — 주인 확인(다른 계정·주인 없는 DB 거절)은 tests/test_account_data.py 가 따로 본다
+        for target, value in (("core.storage.exchange._current_kakao_id", "910001"), ("services.account_data.file_owner", "910001")):
+            owner_patch = mock.patch(target, return_value=value)
+            owner_patch.start()
+            self.addCleanup(owner_patch.stop)
 
     def _dataset_id(self):
         from services.community_store import CommunityStore

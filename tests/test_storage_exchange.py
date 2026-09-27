@@ -66,6 +66,11 @@ class ExchangeRestoreTests(unittest.TestCase):
             conn.execute(text("INSERT INTO mysafety_geocode_cache(주소정규화, 상태, source) VALUES ('서버 전용 주소', 'ok', 'kakao')"))
         self._tmp = tempfile.TemporaryDirectory()
         self.upload = Path(self._tmp.name) / "mobile.db"
+        # 이 시험들은 같은 카카오 계정의 DB 를 다룬다 — 주인 확인(다른 계정·주인 없는 DB 거절)은 tests/test_account_data.py 가 따로 본다
+        for target, value in (("core.storage.exchange._current_kakao_id", "910001"), ("services.account_data.file_owner", "910001")):
+            owner_patch = mock.patch(target, return_value=value)
+            owner_patch.start()
+            self.addCleanup(owner_patch.stop)
 
     @staticmethod
     def _join_crawl_threads():

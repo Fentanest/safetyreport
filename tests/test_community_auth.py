@@ -25,10 +25,15 @@ from services import community_auth_service as cas
 from services.community_auth_store import CommunitySessionStore, StoreUnreadable
 
 SITE_URL = "http://127.0.0.1:8480/"
+# GoTrue /auth/v1/user 모양(로컬 스택에서 확인): 카카오 회원번호는 identities[provider=kakao].identity_data.provider_id
 USER_A = {"id": "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0", "email": None,
-          "user_metadata": {"name": "로컬A", "nickname": "로컬A"}}
+          "user_metadata": {"name": "로컬A", "nickname": "로컬A"},
+          "identities": [{"provider": "kakao", "id": "910001", "provider_id": None,
+                          "identity_data": {"provider_id": "910001", "sub": "910001"}}]}
 USER_B = {"id": "9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d", "email": "b-user@example.invalid",
-          "user_metadata": {"nickname": "로컬B"}}
+          "user_metadata": {"nickname": "로컬B"},
+          "identities": [{"provider": "kakao", "id": "910002", "provider_id": None,
+                          "identity_data": {"provider_id": "910002", "sub": "910002"}}]}
 
 
 def _b64(data: bytes) -> str:
@@ -590,6 +595,23 @@ class ServiceFlowTests(CommunityTestBase):
         self.assertEqual(dto["state"], "connected")
         self.assertEqual(dto["last_error"]["code"], "complete_failed")
 
+    def test_kakao_member_id_is_kept_with_the_session_and_backfilled_for_older_sessions(self):
+        self.connect(USER_A)
+        self.assertEqual(self.service.store.load()["current"]["kakao_id"], "910001")
+        self.assertEqual(self.service.current_kakao_id(), "910001")
+        # 이 기능 전에 연결한 세션(카카오 번호 없음)은 /auth/v1/user 를 한 번 받아 채운다
+        with self.service.store.locked():
+            st = self.service.store.load()
+            st["current"].pop("kakao_id")
+            self.service.store.save(st)
+        self.assertIsNone(self.service.session_kakao_id())
+        calls = self.fake.count("/auth/v1/user")
+        self.assertEqual(self.service.current_kakao_id(), "910001")
+        self.assertEqual(self.fake.count("/auth/v1/user"), calls + 1)
+        self.assertEqual(self.service.session_kakao_id(), "910001")
+        self.service.current_kakao_id()
+        self.assertEqual(self.fake.count("/auth/v1/user"), calls + 1, "한 번 채운 뒤에는 다시 묻지 않는다")
+
     def test_disconnect_logs_out_with_scope_local_and_deletes(self):
         self.connect(USER_A)
         current = self.state()["current"]
@@ -931,7 +953,7 @@ class LocalApiTests(CommunityTestBase):
         r = self.client.post("/settings/community/start", data={"a": "b"},
                              headers={"Accept": "application/json", "X-CSRF-Token": token})
         self.assertEqual(r.status_code, 403)
-        for path in ("confirm", "cancel", "disconnect", "settings"):
+        for path in ("confirm", "cancel", "logout", "reset-session", "db-owner/adopt", "settings"):
             self.assertEqual(self.post(f"/settings/community/{path}").status_code, 403, path)
         self.assertEqual(self.fake.count("/requests"), 0)
         r = self.post("/settings/community/start", token=token, headers={"Origin": "http://testserver"})
@@ -961,9 +983,16 @@ class LocalApiTests(CommunityTestBase):
         for secret in self.secret_values():
             self.assertNotIn(secret, settings_html)
         self.assertNotIn(self.manager_key, settings_html)
-        r = self.post("/settings/community/disconnect", {}, token=token)
-        self.assertEqual(r.status_code, 200)
+        # 2026-09-27: 연결 해제는 없앴다 — 카카오 로그아웃(확인 필요, 신고 자료 삭제)
+        from web.routers import community_route
+        paths = {route.path for route in community_route.router.routes}
+        self.assertNotIn("/settings/community/disconnect", paths)
+        self.assertIn("/settings/community/logout", paths)
+        self.assertNotEqual(self.post("/settings/community/disconnect", {}, token=token).status_code, 200)
+        r = self.post("/settings/community/logout", {"confirm": "DELETE_MY_REPORTS"}, token=token)
+        self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue(r.json()["result"]["server_logout"])
+        self.assertTrue(r.json()["result"]["reports_wiped"])
         self.assertEqual(self.fake.calls_to("/auth/v1/logout")[-1]["query"], "scope=local")
 
     def test_web_errors_use_codes(self):
@@ -1023,7 +1052,7 @@ class LocalApiTests(CommunityTestBase):
         self.assertFalse(data["can_manage"])
         self.assertNotIn("bootstrap_url", data["pending"])
         for path, body in (("start", {}), ("confirm", {"request_id": data["pending"]["request_id"]}),
-                           ("cancel", {}), ("disconnect", {})):
+                           ("cancel", {})):
             r = self.api("POST", path, self.plain_key, body)
             self.assertEqual(r.status_code, 403, path)
             self.assertEqual(r.json()["code"], "permission_required")
@@ -1047,9 +1076,12 @@ class LocalApiTests(CommunityTestBase):
         self.assert_no_secrets(r.json())
         r = self.api("POST", "confirm", self.manager_key, {"request_id": data["pending"]["request_id"]})
         self.assertEqual((r.status_code, r.json()["code"]), (409, "no_pending"))
+        # 2026-09-27: 폰에서 서버의 카카오 로그인을 푸는 API 는 없앴다(카카오 로그인 필수, 경로 삭제)
+        from web.routers import community_route
+        self.assertNotIn("/api/v1/community-auth/disconnect", {route.path for route in community_route.api_router.routes})
         r = self.api("POST", "disconnect", self.manager_key)
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["data"]["state"], "disconnected")
+        self.assertIn(r.status_code, (403, 404), "게이트가 먼저 막거나(403) 경로가 없다(404) — 어느 쪽도 로그아웃하지 않는다")
+        self.assertEqual(self.api("GET", "status", self.manager_key).json()["data"]["state"], "connected")
 
     def test_mobile_errors(self):
         self.fake.close()
