@@ -105,3 +105,4 @@ jobs:
       with:
         name: mysafetyreport-macos-arm64-test-v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.short_sha }}
         path: mysafetyreport-macos-arm64-test.zip
+        retention-days: 1

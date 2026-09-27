@@ -137,6 +137,7 @@ jobs:
       with:
         name: mysafetyreport-win-${{ needs.prepare-release.outputs.version }}
         path: mysafetyreport-win.zip
+        retention-days: 1
 
   # ────────────────────────────────────────────────────────────────
   # 2. Linux 실행 파일 빌드
@@ -220,6 +221,7 @@ jobs:
       with:
         name: mysafetyreport-linux-${{ needs.prepare-release.outputs.version }}
         path: mysafetyreport-linux.zip
+        retention-days: 1
 
   # ────────────────────────────────────────────────────────────────
   # 3. Docker 멀티아키 이미지 빌드
@@ -463,6 +465,7 @@ jobs:
       with:
         name: mysafetyreport-macos-x64-${{ needs.prepare-release.outputs.version }}
         path: mysafetyreport-macos-x64.zip
+        retention-days: 1
 
   # ────────────────────────────────────────────────────────────────
   # 4. macOS ARM64 실행 파일 빌드 (GitHub-hosted Apple Silicon runner)
@@ -548,6 +551,7 @@ jobs:
       with:
         name: mysafetyreport-macos-arm64-${{ needs.prepare-release.outputs.version }}
         path: mysafetyreport-macos-arm64.zip
+        retention-days: 1
 
   # ────────────────────────────────────────────────────────────────
   # 5. 공통 릴리즈 생성
@@ -677,6 +681,7 @@ jobs:
   #     with:
   #       name: mysafetyreport-linux-arm64-${{ steps.get_version.outputs.version }}
   #       path: mysafetyreport-linux-arm64.zip
+  #       retention-days: 1
 
   #   - name: Update GitHub Release with ARM64 asset
   #     if: steps.check_tag.outputs.tag_exists == 'false'

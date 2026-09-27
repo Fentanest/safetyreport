@@ -95,3 +95,4 @@ jobs:
       with:
         name: mysafetyreport-win-test-v${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.short_sha }}
         path: mysafetyreport-win-test.zip
+        retention-days: 1
