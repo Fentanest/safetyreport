@@ -160,6 +160,9 @@ community.db 삭제·초기화 없음. v1→v2 migration 은 표 추가만(기�
   (`BitmapFactory.decodeStream` 옵션 없음)는 `compressionQuality > 0` 일 때만 실행되고 앱은 항상 0 이라 실행 경로는 아니다(바이너리에는 있음).
   선택지: (a) flutter_secure_storage 9→10 이관 릴리즈(이관 시험 포함)를 먼저 내고 다음 릴리즈에서 11·file_picker 13, (b) file_picker 11.0.2 의
   Android 코드만 고친 로컬 사본(유지 부담), (c) 그대로 두고 Play 경고 사유를 기록.
+  **결정(2026-09-27, 사용자): (a).** 1단계 = 모바일 flutter_secure_storage 9.2.4 → 10.3.4(옵션 그대로, 포그라운드 시작 때 이관 + `secureStorageV10Migrated` 표시,
+  백그라운드는 표시 전 보안 저장소 미사용). 에뮬레이터에서 v9 쓰기 순서 4가지 × v10 첫 초기화 순서 2가지 + 기본 옵션만 → 모두 값 일치. 2단계(다음 릴리즈) =
+  11 + file_picker 13(+ share_plus 13·package_info_plus 10), 표시 없는 설치본은 재로그인·연결 재설정 안내(모바일 `docs/architecture/data-contracts.md` 자격증명 절).
 - 모바일은 연결 변화 감지 플러그인을 추가하지 않았다(cooldown 탐색·앱 복귀·재시도 타이머로 복구).
 - 모바일 location_supplement 발급은 원래 없었다(후보 함수만) — 이번 범위 밖, PC 와 차이로 남김.
 
