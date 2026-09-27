@@ -145,7 +145,10 @@
         show('ccNeedKakao', needKakao);
         var active = g && g.state === 'ok';
         show('ccPanelActive', !!active);
-        show('ccPanelAsk', !active && !needKakao && g && g.state === 'consent_required');
+        var ask = !active && !needKakao && g && g.state === 'consent_required';
+        show('ccPanelAsk', ask);
+        // 동의가 필요하면 문서를 펼쳐 둔다 — 본문을 보지 않고 동의하지 않게
+        if (ask && $('ccDocWrap')) $('ccDocWrap').open = true;
         $('ccOutdatedNote').hidden = st !== 'outdated';
         $('ccRevokedNote').hidden = st !== 'revoked';
         $('ccAgreeBtn').disabled = busy || !policy || !$('ccAccept').checked;
@@ -199,6 +202,8 @@
             if (done) done(res.data || {});
         }).catch(function (e) {
             if (e.message !== 'login') alertBox(e.message, 'danger');
+            // 동의하는 사이 중앙 동의문이 바뀌었다 — 새 문서를 다시 받고 체크를 풀어 다시 읽게 한다
+            if (path === 'consent' && e.data && e.data.code === 'policy_mismatch') { $('ccAccept').checked = false; loadPolicy(); }
             loadGate();
         }).then(function () { busy = false; if (button) button.disabled = false; if (gate) render(gate); });
     }
