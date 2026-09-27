@@ -644,6 +644,21 @@ class GateAppTests(GateTestBase):
         self.assertEqual(self.client.get("/settings/", follow_redirects=False).status_code, 302)
         self.assertEqual(self.store.context()["state"], "inactive")
 
+    def test_logout_is_refused_when_the_data_owner_cannot_be_read(self):
+        # 주인 표시를 읽지 못하면 "주인 없음"으로 보고 지우지 않는다 — 아무것도 지우지 않고 로그인도 그대로(Codex 검수 P1)
+        from services import account_data
+
+        token = self.login()
+        self.open_gate()
+        with mock.patch.object(account_data, "db_owner", side_effect=RuntimeError("disk")), \
+                mock.patch.object(account_data, "wipe_report_data") as wipe:
+            r = self.post("/settings/community/logout", {"confirm": "DELETE_MY_REPORTS"}, token=token)
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("로그아웃하지 않았습니다", r.json()["detail"])
+        wipe.assert_not_called()
+        self.assertTrue(community_gate.evaluate()["can_enter"])
+        self.assertIsNotNone(self.service.session_kakao_id())
+
     def test_another_account_on_the_same_data_is_blocked_until_the_data_is_wiped(self):
         from core.database import models
         from core.database.engine import get_engine

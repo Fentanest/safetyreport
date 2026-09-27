@@ -203,7 +203,11 @@ async def web_logout(request: Request):
         from services import account_data
 
         service = cas.get_service()
-        wipe = await run_in_threadpool(_logout_wipes, service)
+        try:
+            wipe = await run_in_threadpool(_logout_wipes, service)
+        except Exception as exc:  # 주인 표시를 읽지 못함 — 남의 자료를 지우지 않게 로그아웃하지 않는다
+            logger.warning("[community] 로그아웃 전 자료 주인 확인 실패: %s", type(exc).__name__)
+            return _refused(RuntimeError("저장된 신고 내역을 확인하지 못해 로그아웃하지 않았습니다. 잠시 뒤 다시 시도하세요."))
         community_gate.invalidate("logout")  # 업로드·새 작업을 먼저 멈춘다
         wiped = None
         if wipe:

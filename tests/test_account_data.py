@@ -89,6 +89,18 @@ class OwnerTests(_DbCase):
         self.assertEqual(account_data.db_owner(), "910001", "다른 계정이 와도 주인은 바뀌지 않는다")
         self.assertEqual(account_data.check_owner(None), "unknown")
 
+    def test_a_read_failure_is_not_taken_as_no_owner(self):
+        # Codex 검수 P1: 읽기 실패를 "주인 없음"으로 바꾸면 남의 자료에 새 주인을 적는다
+        account_data.check_owner("910001")
+        with mock.patch.object(database, "get_meta", side_effect=sqlite3.OperationalError("disk I/O error")):
+            with self.assertRaises(sqlite3.OperationalError):
+                account_data.db_owner()
+        with mock.patch.object(database, "stamp_meta_if_missing", side_effect=sqlite3.OperationalError("disk I/O error")):
+            with self.assertRaises(sqlite3.OperationalError):
+                account_data.check_owner("910002")
+        self.assertEqual(account_data.db_owner(), "910001")
+        self.assertEqual(account_data.check_owner("910002"), "mismatch")
+
 
 class WipeTests(_DbCase):
     def test_logout_wipe_empties_reports_only_and_clears_the_owner(self):
@@ -118,6 +130,21 @@ class WipeTests(_DbCase):
             account_data.wipe_report_data("db_owner_adopt", then_owner="910002")
         self.assertEqual(self.count(models.title_table), 0)
         self.assertEqual(account_data.db_owner(), "910002")
+
+    def test_a_failure_while_emptying_keeps_every_report(self):
+        # 선회전 뒤 표를 다시 만들다 실패하면 신고 DB 는 통째로 되돌아간다(공유 대기 사본만 새 데이터셋으로 — 다음 계정으로 가지 않는 쪽)
+        account_data.check_owner("910001")
+        before = self.count(models.title_table)
+        rotated = []
+        with mock.patch("services.community_store.CommunityStore.rotate_dataset", lambda self, reason: rotated.append(reason)), \
+                mock.patch.object(database, "_index_statements", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                account_data.wipe_report_data("kakao_logout")
+        self.assertEqual(rotated, ["kakao_logout"])
+        self.assertEqual(self.count(models.title_table), before)
+        self.assertEqual(account_data.db_owner(), "910001")
+        with get_engine().connect() as conn:
+            self.assertEqual(conn.execute(text("PRAGMA integrity_check")).scalar(), "ok")
 
     def test_nothing_is_wiped_while_crawling(self):
         account_data.check_owner("910001")
@@ -200,6 +227,9 @@ class LogoutDecisionTests(unittest.TestCase):
             service.session_kakao_id.return_value = session
             with mock.patch("services.account_data.db_owner", return_value=owner):
                 self.assertEqual(community_route._logout_wipes(service), wipes, (owner, session))
+        with mock.patch("services.account_data.db_owner", side_effect=sqlite3.OperationalError("x")):
+            with self.assertRaises(sqlite3.OperationalError, msg="읽기 실패는 판단하지 않는다(라우트가 409)"):
+                community_route._logout_wipes(service)
 
 
 if __name__ == "__main__":

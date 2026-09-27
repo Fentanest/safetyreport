@@ -600,6 +600,17 @@ def set_meta(engine, key: str, value: str) -> None:
         conn.execute(sync_meta_table.insert().values(key=key, value=value))
 
 
+def stamp_meta_if_missing(engine, key: str, value: str) -> str | None:
+    """한 트랜잭션에서: 값이 있으면 그 값을 돌려주고 바꾸지 않는다, 없으면(NULL·빈 문자열 포함) value 를 적고 None."""
+    with engine.begin() as conn:
+        current = conn.execute(select(sync_meta_table.c.value).where(sync_meta_table.c.key == key)).scalar()
+        if current:
+            return current
+        conn.execute(sync_meta_table.delete().where(sync_meta_table.c.key == key))
+        conn.execute(sync_meta_table.insert().values(key=key, value=value))
+        return None
+
+
 def empty_report_data(engine, *, before_empty=None) -> dict:
     """카카오 로그아웃(또는 다른 카카오 계정으로 시작)할 때: 신고 자료만 비운다. 남기는 것은 이전 DB 초기화와 같다
     (LEGACY_KEEP_TABLES — 관리자·API 키·감시목록·지오코딩 캐시). sync_meta 도 비우므로 데이터 주인 표시(KAKAO_MEMBER_META_KEY)가

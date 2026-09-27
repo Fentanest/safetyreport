@@ -117,6 +117,7 @@
   신고 자료를 비우고(`account_data.wipe_report_data` → `database.empty_report_data`: `admin_users`·`api_keys`·`mysafety_watchlist`·`mysafety_geocode_cache` 유지,
   나머지 표는 지우고 다시 만듦, `mysafety_sync_meta` 비움, 백업 없음) 로그아웃한다. community.db 데이터셋을 먼저 선회전한다.
   지금 계정이 주인과 **다르다고 확인된** 경우만 자료를 남긴다(남의 자료). 크롤링·지도 변환 중이면 409, 아무것도 바꾸지 않는다.
+  주인 표시를 읽지 못하면(DB 오류) "주인 없음"으로 보지 않고 409 로 로그아웃하지 않는다. 게이트의 주인 기록도 한 트랜잭션에서 비어 있을 때만 쓴다(`stamp_meta_if_missing`).
 - **가져오기·복원 거절**(`exchange.restore` → `account_data.refuse_foreign_owner`, 버전 검사 바로 뒤·무엇이든 바꾸기 전): 파일의 주인이 없거나(이 기능 전 DB)
   지금 로그인한 계정과 다르거나 로그인 계정 번호를 모르면 `ForeignDatabaseRefused`(409). 웹·API 업로드 복원 모두 이 경로다.
 

@@ -27,11 +27,9 @@ def _engine():
 
 
 def db_owner(engine=None) -> str | None:
-    """이 서버 DB 의 주인 카카오 회원번호(없으면 None)."""
-    try:
-        value = database.get_meta(engine or _engine(), KAKAO_MEMBER_META_KEY)
-    except Exception:
-        return None
+    """이 서버 DB 의 주인 카카오 회원번호(없으면 None). 읽기 실패는 예외 그대로 — "주인 없음"으로 바꾸지 않는다
+    (그러면 남의 자료에 새 주인을 적거나 로그아웃이 남의 자료를 지운다. Codex 검수 P1)."""
+    value = database.get_meta(engine or _engine(), KAKAO_MEMBER_META_KEY)
     return value or None
 
 
@@ -39,10 +37,8 @@ def check_owner(kakao_id: str | None, engine=None) -> str:
     """게이트 통과 뒤 호출: 'ok'(같음·처음이라 적음) | 'mismatch'(다른 계정의 자료) | 'unknown'(로그인 계정 번호를 모름)."""
     if not kakao_id:
         return "unknown"
-    engine = engine or _engine()
-    owner = db_owner(engine)
+    owner = database.stamp_meta_if_missing(engine or _engine(), KAKAO_MEMBER_META_KEY, kakao_id)
     if owner is None:
-        database.set_meta(engine, KAKAO_MEMBER_META_KEY, kakao_id)
         logger.LoggerFactory.logbot.info("[account] 이 서버 DB 의 주인 카카오 계정을 기록했습니다.")
         return "ok"
     return "ok" if owner == kakao_id else "mismatch"

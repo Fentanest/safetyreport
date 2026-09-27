@@ -18,6 +18,7 @@
 - 신고 자료의 주인: 게이트를 처음 통과할 때 로그인한 카카오 회원번호(서버가 관리하는 카카오 identity 에서 읽음)를 `mysafety_sync_meta['kakao_member_id']` 에 적는다.
   다른 카카오 계정으로 로그인하면 게이트가 `db_owner_mismatch` 로 막고 "신고 내역 지우고 이 계정으로 시작"/"로그아웃(신고 내역 유지)"을 보인다.
 - DB 가져오기·복원(웹·API)은 주인이 지금 로그인한 계정과 같은 DB 만 받는다. 주인 표시가 없는 DB(이 기능 전 DB)와 다른 계정 DB 는 무엇이든 바꾸기 전에 409 로 거절한다.
+- Codex 독립 검수(`docs/reviews/2026-09-27-kakao-logout-owner-codex.md`) 반영: 주인 표시를 읽지 못하면 "주인 없음"으로 보지 않고 로그아웃·주인 기록을 거절, 주인 기록은 한 트랜잭션에서 비어 있을 때만.
 - 서버↔모바일 왕복 검사(`scripts/dev/db_roundtrip_check.py`)에 주인 표시 유지 확인을 넣었다(fixture 24건, 차이 0). 계약 `contracts/storage-contract.json` sync_meta 설명 갱신(모바일과 바이트 동일).
 
 ### 커뮤니티 업로드 장애 대응 UC-1 (모바일과 같은 규칙, 계약 `contracts/upload-control/`)
