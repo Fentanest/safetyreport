@@ -8,7 +8,7 @@
 |---|---|
 | 계약 | `community-ingest-v1` (`protocol: 1`) |
 | 공유 payload 스키마 | `observation-v1` (`observation.schema.json`) |
-| 필수 동의 정책 버전 | `2026-09-26.1` (`consent/share-consent-2026-09-26.1.md`) |
+| 필수 동의 정책 버전 | `2026-09-28.1` (`consent/share-consent-2026-09-28.1.md`; 이전 `2026-09-26.1`은 금액 비공개 판) |
 | 초기화 크롤링 버전 | `source-rebuild-2026-09-26.1` |
 | 업로드 기준 시간대·시각 | `Asia/Seoul` 00:00 (한국은 DST 없음 → UTC+9 고정 계산) |
 | ingest 함수 | `POST {COMMUNITY_SUPABASE_URL}/functions/v1/community-ingest` |

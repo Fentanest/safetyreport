@@ -28,10 +28,10 @@ from services.community_account_client import AccountApiError, CommunityAccountC
 
 _log = logging.getLogger("safetyreport.core.community_gate")
 
-REQUIRED_POLICY_VERSION = "2026-09-26.1"
-# contracts/community-ingest/consent/share-consent-2026-09-26.1.sha256 — tests/test_community_gate.py 가 같은지 확인
-CONSENT_TEXT_SHA256 = "818703977dbf1596a82df8ff68408d0907280adbda7ce2140879a2ab5fd6a6fa"
-CONSENT_TEXT_FILE = "contracts/community-ingest/consent/share-consent-2026-09-26.1.md"
+REQUIRED_POLICY_VERSION = "2026-09-28.1"
+# contracts/community-ingest/consent/share-consent-2026-09-28.1.sha256 — tests/test_community_gate.py 가 같은지 확인
+CONSENT_TEXT_SHA256 = "986cc1d6ec2fb850c5bfb20976a250f030f1c5249b97c7815cfdafbd34d2306a"
+CONSENT_TEXT_FILE = "contracts/community-ingest/consent/share-consent-2026-09-28.1.md"
 CACHE_TTL = 600.0
 FRESH_SECONDS = 60.0
 

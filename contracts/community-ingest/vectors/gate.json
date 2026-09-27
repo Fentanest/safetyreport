@@ -1,6 +1,6 @@
 {
   "contract": "gate-v1",
-  "app_required_policy_version": "2026-09-26.1",
+  "app_required_policy_version": "2026-09-28.1",
   "ttl_seconds": 600,
   "cases": [
     {
@@ -16,10 +16,10 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-26.1"
+          "policy_version": "2026-09-28.1"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 10,
@@ -39,10 +39,10 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-26.1"
+          "policy_version": "2026-09-28.1"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 10,
@@ -62,10 +62,10 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-26.1"
+          "policy_version": "2026-09-28.1"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 10,
@@ -94,10 +94,10 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-26.1"
+          "policy_version": "2026-09-28.1"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 10,
@@ -126,10 +126,10 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-26.1"
+          "policy_version": "2026-09-28.1"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 601,
@@ -149,10 +149,10 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-26.1"
+          "policy_version": "2026-09-28.1"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 600,
@@ -172,10 +172,10 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-26.1"
+          "policy_version": "2026-09-28.1"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 5,
@@ -195,10 +195,10 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-26.1"
+          "policy_version": "2026-09-28.1"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 5,
@@ -218,10 +218,10 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-26.1"
+          "policy_version": "2026-09-28.1"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 5,
@@ -244,7 +244,7 @@
           "policy_version": null
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 5,
@@ -267,7 +267,7 @@
           "policy_version": null
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 5,
@@ -290,7 +290,7 @@
           "policy_version": "2026-01-01.1"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 5,
@@ -313,7 +313,7 @@
           "policy_version": "2026-09-26.0"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 5,
@@ -333,10 +333,10 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-26.1"
+          "policy_version": "2026-09-28.1"
         },
         "policy": {
-          "required_version": "2026-09-26.1"
+          "required_version": "2026-09-28.1"
         }
       },
       "age_seconds": 5,
