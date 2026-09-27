@@ -191,9 +191,15 @@ def parse_json_details(result_data):
         
     violation_law = ""
     if processing_content:
-        violation_law_match = re.search(r'도로교통법\s*제\d+조(?:\s*제?\d{1,2}항)?', processing_content)
+        violation_law_match = re.search(
+            r'(?:「\s*([가-힣·\s]{1,40}?법)\s*」|(도로교통법))\s*제\s*(\d+\s*조(?:\s*의\s*\d+)?)(?:\s*(제?\s*\d{1,2}\s*항))?',
+            processing_content,
+        )
         if violation_law_match:
-            violation_law = re.sub(r'\s+', '', violation_law_match.group(0)).replace('법제', '법 제')
+            law_name = re.sub(r'\s+', '', violation_law_match.group(1) or violation_law_match.group(2))
+            article = re.sub(r'\s+', '', violation_law_match.group(3))
+            paragraph = re.sub(r'\s+', '', violation_law_match.group(4) or '')
+            violation_law = f"{law_name} 제{article}{paragraph}"
 
     fine_entry = ""
     if ("버스전용차로 위반" in entry_value or "쓰레기, 폐기물" in entry_value or "불법주정차신고" in entry_value) and processing_status == "수용":

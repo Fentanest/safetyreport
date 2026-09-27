@@ -639,6 +639,82 @@
     "위도": 37.5612345,
     "경도": 126.8312345
    }
+  },
+  {
+   "name": "corner quoted automobile law",
+   "detail": {
+    "C_NO": "90000003",
+    "STTEMNT_NO": "SYNTH-90000003",
+    "C_A_TITLE": "합성 신고",
+    "C_DATE": "2026-09-01",
+    "C_NOW": 10,
+    "answers": [
+     {
+      "C_MANAGER_TYPE_NM": "수용",
+      "C_MANAGE_CONTENTS": "「자동차관리법」제29조에 따라 조치했습니다."
+     }
+    ]
+   },
+   "expect": {
+    "위반법규": "자동차관리법 제29조"
+   }
+  },
+  {
+   "name": "corner quoted law with spaced article and paragraph",
+   "detail": {
+    "C_NO": "90000003",
+    "STTEMNT_NO": "SYNTH-90000003",
+    "C_A_TITLE": "합성 신고",
+    "C_DATE": "2026-09-01",
+    "C_NOW": 10,
+    "answers": [
+     {
+      "C_MANAGER_TYPE_NM": "수용",
+      "C_MANAGE_CONTENTS": "「 자동차 관리법 」 제 29 조 제 1 항에 따라 조치했습니다."
+     }
+    ]
+   },
+   "expect": {
+    "위반법규": "자동차관리법 제29조제1항"
+   }
+  },
+  {
+   "name": "plain road law with spaced article",
+   "detail": {
+    "C_NO": "90000003",
+    "STTEMNT_NO": "SYNTH-90000003",
+    "C_A_TITLE": "합성 신고",
+    "C_DATE": "2026-09-01",
+    "C_NOW": 10,
+    "answers": [
+     {
+      "C_MANAGER_TYPE_NM": "수용",
+      "C_MANAGE_CONTENTS": "도로교통법 제 5 조 위반입니다."
+     }
+    ]
+   },
+   "expect": {
+    "위반법규": "도로교통법 제5조"
+   }
+  },
+  {
+   "name": "corner quoted non law is ignored",
+   "detail": {
+    "C_NO": "90000003",
+    "STTEMNT_NO": "SYNTH-90000003",
+    "C_A_TITLE": "합성 신고",
+    "C_DATE": "2026-09-01",
+    "C_NOW": 10,
+    "answers": [
+     {
+      "C_MANAGER_TYPE_NM": "수용",
+      "C_MANAGE_CONTENTS": "「접수 안내」제29조에 따라 안내합니다."
+     }
+    ]
+   },
+   "expect": {
+    "위반법규": ""
+   }
   }
  ]
 }
