@@ -69,6 +69,22 @@ class CaptureTest(unittest.TestCase):
         self.assertIsNone(result2.event_id)
         self.assertEqual(self._counts(), (1, 1, 1, 0))
 
+    def test_changed_official_coordinates_emit_new_completed_observation(self):
+        first = eligible_input()
+        first["geocode"] = {"status": "ok", "lat": 37.560123456789, "lng": 126.830123456789}
+        cap.capture(first, source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        updated = dict(first)
+        updated["violation_location"] = "서울특별시 중구 세종대로 111"
+        updated["geocode"] = {"status": "ok", "lat": 37.56123456789, "lng": 126.83123456789}
+        result = cap.capture(updated, source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(result.event_type, "completed_observation")
+        rows = self.store.connect().execute(
+            "SELECT event_type, payload_json FROM source_journal ORDER BY source_revision DESC"
+        ).fetchall()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(json.loads(rows[0]["payload_json"])["location"],
+                         {"lat": "37.56123456789", "lng": "126.83123456789", "source": "geocode"})
+
     def test_detail_status_recorded_with_progress(self):
         adapter = dict(eligible_input())
         adapter["progress_status"] = "답변완료"

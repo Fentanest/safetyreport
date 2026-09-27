@@ -20,9 +20,9 @@
 | `violation_location` | `violation_location` / 위반장소 | `location` |
 | `entry_value` | `entry_value` | `entryValueFromDetail(...)` |
 | `penalty_points` | `penalty_points` / 벌점 | `penaltyPoints` |
-| `geocode` | `_prefetch_derived()` 의 위도·경도·지오코딩상태(공식 주소로 계산, 원본 상세 행 기준) | 공식 주소 정규화 키의 `geocode_cache` 행 |
+| `geocode` | 공식 상세 응답의 `C_A_W/E` 또는 완료된 보완의 `SPLMNT_C_A_W/E` | 같은 공식 상세 응답의 `C_A_W/E` 또는 완료된 보완의 `SPLMNT_C_A_W/E` |
 
-`geocode` 는 **공식 주소**로 얻은 값만 쓴다. 사용자 override 주소·좌표는 읽지 않는다.
+`geocode` 는 기존 전송 형식의 좌표 있음 표시값이다. 실제 좌표는 공식 상세 응답에서 읽고, 주소를 카카오 REST API로 변환하지 않는다. 사용자 override 주소·좌표는 읽지 않는다.
 
 ## 3. DTO 규칙
 - 문자열 정리 `clean(s, n)`: None/비문자열 → 빈 문자열, 제어문자(U+0000–U+001F, U+007F)와 모든 공백 연속을 공백 하나로, 앞뒤 공백 제거, **코드포인트 기준** n 자로 자름. 결과가 빈 문자열이면 null.
@@ -66,7 +66,7 @@ payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won
 - eligible: prev 가 있고 payload_sha256 이 같으면 새 이벤트 없음(내용 변화 없음). 아니면 `completed_observation`.
 - not eligible: prev 가 eligible 이면 `status_correction`(payload = 이번 관측 그대로). 아니면 이벤트 없음.
 - 이벤트가 없고 prev 도 없으면(예: 처음 본 처리중·취하 신고) `detail_status` 만 기록하고 report_latest/staging 은 쓰지 않는다(가리킬 journal 행이 없음). 이것은 capture 성공이다(S-06).
-- `location_supplement`: 수동·자정·recovery 트리거 때, 신고별 최신 journal 행이 eligible 이고 `location.source="none"` 인데 그 행의 `address` 로 지오코딩 캐시(공식 주소 결과만)가 이제 `ok` 이면, 같은 payload 에 location 만 채운 새 이벤트.
+- `location_supplement`: 기존 자료와의 호환을 위해 서버가 받는 이벤트 종류로 남긴다. 새 앱/서버는 사용하지 않는다. 재조회에서 공식 좌표가 새로 생기거나 바뀌면 변경된 payload의 `completed_observation`을 보낸다.
 - `reshare`: 재동의·writer 전환 뒤 사용자가 지도 탭에서 **명시적으로** 요청할 때만. 신고별 최신 eligible journal 행의 payload·captured_at 을 그대로 두고 새 event_id·새 source_revision·현재 grant/connection/epoch 로 발급. 자동 실행 금지.
 - 개인 편집·백업 복원·DB 변환·가져오기·모바일 Client 는 이벤트를 만들지 않는다.
 - capture 가 실패하면(community.db 오류 등) **그 신고의 개인 저장도 하지 않는다**(저장 실패로 집계). 개인 상태가 전진하지 않으므로 다음 수집의 선정 규칙(신규·미종결·목록 상태 변경)이 그 신고를 다시 읽는다 — 공유 사본을 영구히 놓치지 않는다(S-03).

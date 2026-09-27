@@ -496,27 +496,6 @@
     </div>
 </div>
 
-<div class="card map-progress-card mb-3" id="mapProgressCard" {% if backfill_progress.state not in ['queued', 'running', 'error', 'config_required', 'config_warning'] %}style="display:none"{% endif %}>
-    <div class="card-body">
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-            <div>
-                <div class="fw-bold" id="mapProgressTitle">주소 좌표 변환 진행 중</div>
-                <div class="small text-muted" id="mapProgressSubtitle">지도 통계를 위한 위도/경도 백필을 백그라운드에서 수행합니다.</div>
-            </div>
-            <div class="fw-bold text-primary" id="mapProgressPercent">{{ '%.1f'|format(backfill_progress.progress_pct or 0) }}%</div>
-        </div>
-        <div class="map-progress-bar mb-2">
-            <div class="map-progress-fill" id="mapProgressFill" style="width: {{ backfill_progress.progress_pct or 0 }}%"></div>
-        </div>
-        <div class="d-flex flex-wrap gap-3 small text-muted">
-            <span>처리: <b id="mapProgressProcessed">{{ backfill_progress.processed or 0 }}</b> / <b id="mapProgressTotal">{{ backfill_progress.total or 0 }}</b></span>
-            <span>성공: <b id="mapProgressUpdated">{{ backfill_progress.updated or 0 }}</b></span>
-            <span>주소 미발견: <b id="mapProgressNotFound">{{ backfill_progress.not_found or 0 }}</b></span>
-            <span>남은 대상: <b id="mapProgressRemaining">{{ backfill_progress.remaining_missing or 0 }}</b></span>
-        </div>
-    </div>
-</div>
-
 <div class="row g-3 mb-3">
     <div class="col-xl-3 col-md-6">
         <div class="card map-summary-card h-100" style="--sr-kpi-accent: var(--sr-primary);">
@@ -545,8 +524,8 @@
     <div class="col-xl-3 col-md-6">
         <div class="card map-summary-card h-100" style="--sr-kpi-accent: var(--sr-status-supplement);">
             <div class="card-body">
-                <div class="map-summary-value">{{ backfill_progress.remaining_missing or 0 }}</div>
-                <div class="map-summary-label">남은 자동 백필 대상</div>
+                <div class="map-summary-value">{{ map_meta.missing_reports or 0 }}</div>
+                <div class="map-summary-label">공식 좌표 없는 신고건</div>
             </div>
         </div>
     </div>
@@ -585,17 +564,7 @@
         {% else %}
         <div class="map-empty">
             <div class="fw-bold mb-2">표시할 좌표 데이터가 없습니다.</div>
-            <div>
-                {% if backfill_progress.state == 'running' %}
-                주소 좌표를 변환하는 중입니다. 진행률이 100%가 되면 지도가 자동으로 새로고침됩니다.
-                {% elif backfill_progress.state == 'queued' %}
-                크롤링이 진행 중이라 주소 좌표 변환을 잠시 보류했습니다. 크롤링이 끝나면 자동으로 다시 시작됩니다.
-                {% elif backfill_progress.state == 'config_warning' %}
-                저장된 좌표가 있는 신고는 계속 지도에 표시됩니다. 다만 DB에 없는 새 주소는 카카오 REST API 키를 다시 입력해야 변환할 수 있습니다.
-                {% else %}
-                카카오 REST API 키를 등록한 뒤 다시 열면 주소를 자동 변환해 지도를 채웁니다.
-                {% endif %}
-            </div>
+            <div>안전신문고에서 받은 좌표가 있는 신고를 지도에 표시합니다. 좌표가 없다면 신고를 다시 동기화해 주세요.</div>
         </div>
         {% endif %}
     </div>
@@ -606,8 +575,8 @@
         <div class="modal-content border-0 shadow">
             <div class="modal-header">
                 <div>
-                    <h5 class="modal-title" id="missingAddressModalLabel">미변환 주소 목록</h5>
-                    <div class="small text-muted">좌표가 아직 없는 주소와 해당 신고건을 확인할 수 있습니다.</div>
+                    <h5 class="modal-title" id="missingAddressModalLabel">공식 좌표 없는 신고 목록</h5>
+                    <div class="small text-muted">공식 좌표가 없는 신고와 해당 주소를 확인할 수 있습니다.</div>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
             </div>
@@ -823,20 +792,8 @@
         }
         var mapPoints = {{ map_points | tojson }};
         var mapElement = document.getElementById('reportMap');
-        var backfillProgress = {{ backfill_progress | tojson }};
         var selectedCategory = {{ selected_category | tojson }};
         var dedupeMode = {{ dedupe_mode | tojson }};
-        var progressCard = document.getElementById('mapProgressCard');
-        var progressTitle = document.getElementById('mapProgressTitle');
-        var progressSubtitle = document.getElementById('mapProgressSubtitle');
-        var progressPercent = document.getElementById('mapProgressPercent');
-        var progressFill = document.getElementById('mapProgressFill');
-        var progressProcessed = document.getElementById('mapProgressProcessed');
-        var progressTotal = document.getElementById('mapProgressTotal');
-        var progressUpdated = document.getElementById('mapProgressUpdated');
-        var progressNotFound = document.getElementById('mapProgressNotFound');
-        var progressRemaining = document.getElementById('mapProgressRemaining');
-        var hasReloadedAfterBackfill = false;
 
         function updateQuery(key, value) {
             var params = new URLSearchParams(window.location.search);
@@ -859,82 +816,6 @@
                 updateQuery('category', this.getAttribute('data-category'));
             });
         });
-
-        function renderProgress(progress) {
-            if (!progressCard) {
-                return;
-            }
-
-            var state = String(progress.state || 'idle');
-            var total = Number(progress.total || 0);
-            var processed = Number(progress.processed || 0);
-            var updated = Number(progress.updated || 0);
-            var notFound = Number(progress.not_found || 0);
-            var remaining = Number(progress.remaining_missing || 0);
-            var pct = Number(progress.progress_pct || 0);
-            var errorMessage = String(progress.error_message || '');
-
-            progressPercent.textContent = pct.toFixed(1) + '%';
-            progressFill.style.width = pct + '%';
-            progressProcessed.textContent = processed;
-            progressTotal.textContent = total;
-            progressUpdated.textContent = updated;
-            progressNotFound.textContent = notFound;
-            progressRemaining.textContent = remaining;
-
-            if (state === 'queued') {
-                progressCard.style.display = '';
-                progressTitle.textContent = '크롤링 완료 후 주소 좌표 변환 대기 중';
-                progressSubtitle.textContent = errorMessage || '크롤링이 끝나면 누락 좌표를 자동으로 다시 처리합니다.';
-            } else if (state === 'running') {
-                progressCard.style.display = '';
-                progressTitle.textContent = '주소 좌표 변환 진행 중';
-                progressSubtitle.textContent = '지도 통계를 위한 위도/경도 백필을 백그라운드에서 수행합니다.';
-            } else if (state === 'config_warning') {
-                progressCard.style.display = '';
-                progressTitle.textContent = '저장된 좌표로 지도는 계속 표시됩니다';
-                progressSubtitle.textContent = errorMessage || 'DB에 없는 새 주소는 카카오 REST API 키를 다시 입력해야 변환할 수 있습니다.';
-            } else if (state === 'error' || state === 'config_required') {
-                progressCard.style.display = '';
-                progressTitle.textContent = '지도 좌표 변환을 진행할 수 없습니다';
-                progressSubtitle.textContent = errorMessage || '카카오 REST API 키를 확인해주세요.';
-            } else if (state === 'completed' && total > 0) {
-                progressCard.style.display = '';
-                progressTitle.textContent = '주소 좌표 변환이 완료되었습니다';
-                progressSubtitle.textContent = '새 좌표 반영 결과를 불러오기 위해 화면을 새로고침합니다.';
-            } else {
-                progressCard.style.display = 'none';
-            }
-        }
-
-        function pollProgress() {
-            fetch('/stats/map/progress')
-                .then(function (response) { return response.json(); })
-                .then(function (progress) {
-                    backfillProgress = progress || {};
-                    renderProgress(backfillProgress);
-
-                    var state = String(backfillProgress.state || 'idle');
-                    if (state === 'queued' || state === 'running') {
-                        window.setTimeout(pollProgress, 2000);
-                        return;
-                    }
-                    if (!hasReloadedAfterBackfill && state === 'completed' && Number(backfillProgress.total || 0) > 0) {
-                        hasReloadedAfterBackfill = true;
-                        window.setTimeout(function () {
-                            window.location.reload();
-                        }, 900);
-                    }
-                })
-                .catch(function () {
-                    window.setTimeout(pollProgress, 4000);
-                });
-        }
-
-        renderProgress(backfillProgress);
-        if (['queued', 'running'].includes(String(backfillProgress.state || 'idle'))) {
-            window.setTimeout(pollProgress, 2000);
-        }
 
         if (!mapElement || !Array.isArray(mapPoints) || mapPoints.length === 0) {
             return;

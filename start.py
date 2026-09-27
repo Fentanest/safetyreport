@@ -68,7 +68,7 @@ def _prepare_database(engine, reset=False):
         logger.LoggerFactory.logbot.warning("--reset 옵션이 사용되어 크롤링 데이터 테이블을 초기화합니다.")
         # 관리자 계정(admin_users), API 키(api_keys), 감시 목록(watchlist)은 보존.
         # 신고 ID 에 매여 있는 사이드카(entry_value, raw_content, duplicate_*)도 같이 비운다.
-        # 주소 좌표 캐시(mysafety_geocode_cache)는 주소 단위 재사용 자산이므로 보존한다.
+        # 과거 주소 좌표 캐시(mysafety_geocode_cache)는 DB 교환 호환 때문에 보존한다. 새 지도에는 쓰지 않는다.
         # 중간 실험 빌드에서 잠시 존재했던 보완 history 테이블도 reset 시 함께 정리한다.
         data_tables = [
             # 중복 멤버는 group 보다 먼저 — 의미상 group 의 부속이므로
@@ -85,10 +85,10 @@ def _prepare_database(engine, reset=False):
             database.merge_other_table,
         ]
         logger.LoggerFactory.logbot.info(
-            "--reset에서도 mysafety_geocode_cache는 유지합니다. 재크롤링 시 같은 주소는 캐시 좌표를 재사용합니다."
+            "--reset에서도 mysafety_geocode_cache는 호환용으로 유지합니다. 재크롤링은 공식 좌표를 새로 반영합니다."
         )
         # 한 트랜잭션으로 지운다(중간에 멈춰 반쯤 지워진 DB 가 남지 않게 — S-27).
-        # 사용자 데이터(수정값·중복 판단·감시목록)와 지오코딩 캐시는 신고 ID 로 다시 이어지므로 보존한다(결정 D-6).
+        # 사용자 데이터(수정값·중복 판단·감시목록)와 과거 지오코딩 캐시는 호환용으로 보존한다(결정 D-6).
         # last_sync 는 reset 의미상 같이 지운다 — 다음 크롤링이 다시 채워준다.
         with engine.begin() as conn:
             database.metadata.drop_all(conn, tables=data_tables)

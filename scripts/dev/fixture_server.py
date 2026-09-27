@@ -136,7 +136,7 @@ def seed(data_dir: Path) -> dict:
 def seed_engine(engine) -> dict:
     """합성 신고 24건 + 관리자 + API 키를 engine 에 넣는다. 테스트에서도 재사용한다."""
     from core.database import database, models
-    from services.geocode_service import build_pending_geo_payload
+    from services.geocode_service import official_geo_payload
 
     database.upgrade_schema(engine)
 
@@ -163,8 +163,7 @@ def seed_engine(engine) -> dict:
                 위반법규=law, 범칙금_과태료=fine, 벌점="", 처리기관=agency, 담당자=person, 답변일=answered,
                 발생일자=reported[:10], 발생시각=reported[11:16], 위반장소=place,
                 종결여부="Y" if closed else "N", 신고내용=body,
-                # 크롤러(detail_to_sql → geocode_service.prepare_geo_payload)처럼 주소 정규화 컬럼을 채운다. NULL 로 두면 실제 DB 와 달라진다.
-                **{k: v for k, v in build_pending_geo_payload(place).items() if k in ("주소정규화", "행정구역", "지오코딩상태")},
+                **official_geo_payload(place, None, None),
                 처리내용=f"(fixture) {status} 처리 결과 안내" if answered else "",
                 지도="", 첨부사진="/static/logo.png" if index % 5 == 0 else "", 첨부파일="",
                 보완횟수=1 if status == "보완요청" else 0,

@@ -2,7 +2,7 @@
 
 request_upload(trigger) 하나가 realtime/manual/midnight/recovery/rebuild/reshare 를 모두 처리한다.
 - 삭제 정리 대기·게이트(require_fresh 60) → 영속 전송 제어(upload_control: 서비스·계정 cooldown) → lease(`upload`, 실행별 owner)
-- manual/midnight/recovery 면 현재 context 의 미ACK journal 을 outbox 에 넣고 location_supplement 후보를 만든다
+- manual/midnight/recovery 면 현재 context 의 미ACK journal 을 outbox 에 넣는다
 - 신고마다 보낼 수 있는 가장 앞 revision 하나만 후보(뒤 revision 이 먼저 가지 않음), 요청당 ≤20건·envelope UTF-8 ≤256KiB·신고당 1건
 - 실제 HTTP 요청마다 그 요청의 이벤트만 attempt_count+1. 요청 전 lease heartbeat(소유권을 잃으면 멈춤), 요청 간격 ≥1.1초,
   실행 예산(요청 25개·90초) — 남으면 곧바로 다시 깨운다
@@ -217,95 +217,6 @@ def _enqueue_missing(trigger: str, data_dir=None) -> int:
                 " VALUES (?, 'pending', 0, ?, ?)", (row["event_id"], trigger, now))
             count += 1
         return count
-
-
-def _maybe_location_supplement(trigger: str, data_dir=None) -> int:
-    """최신 eligible journal 행의 location.source=none 이고 그 address 의 geocode_cache 가 ok 면 보충 이벤트.
-    개인 DB(지오코딩 캐시) 읽기는 community.db 쓰기 트랜잭션 밖에서 하고, 넣을 때만 짧은 트랜잭션으로 최신 행을 다시 확인한다."""
-    if trigger not in ("manual", "midnight", "recovery"):
-        return 0
-    store = _store(data_dir)
-    ctx = store.active_context()
-    if ctx is None:
-        return 0
-    try:
-        from core.database.engine import get_engine
-        from core.database import models
-        from sqlalchemy import select as _select
-        from services import geocode_service as _geo
-        from services.community_capture import _canonical_double as _canon
-        from services.community_capture import canonical_json as _cj, payload_sha256 as _sha
-        engine = get_engine()
-    except Exception:
-        return 0
-    conn = store.connect()
-    local_id = store.local_dataset_id()
-    latest = conn.execute(
-        "SELECT j.source_report_id, j.source_revision, j.event_id, j.payload_json FROM source_journal j"
-        " JOIN (SELECT source_report_id, MAX(source_revision) AS rev FROM source_journal WHERE local_dataset_id=?"
-        " GROUP BY source_report_id) m ON m.source_report_id=j.source_report_id AND m.rev=j.source_revision"
-        " WHERE j.local_dataset_id=? AND j.eligible=1 AND (j.blocked_reason IS NULL OR j.blocked_reason='')",
-        (local_id, local_id)).fetchall()
-    candidates = []
-    for row in latest:
-        try:
-            payload = json.loads(row["payload_json"])
-        except ValueError:
-            continue
-        location = payload.get("location") or {}
-        if location.get("source") != "none" or not payload.get("address"):
-            continue
-        try:
-            with engine.connect() as pconn:
-                cache_row = pconn.execute(_select(models.geocode_cache_table).where(
-                    models.geocode_cache_table.c["주소정규화"] == _geo.normalize_address(payload["address"]))).mappings().first()
-        except Exception:
-            continue
-        if cache_row is None or cache_row.get("상태") != "ok":
-            continue
-        lat, lng = _canon(cache_row.get("위도")), _canon(cache_row.get("경도"))
-        if lat is None or lng is None or not (32 <= float(lat) <= 39.5 and 124 <= float(lng) <= 132):
-            continue
-        new_payload = dict(payload)
-        new_payload["location"] = {"lat": lat, "lng": lng, "source": "geocode"}
-        new_sha = _sha(new_payload)
-        if new_sha == _sha(payload):
-            continue
-        candidates.append((row, new_payload, new_sha))
-    created = 0
-    for row, new_payload, new_sha in candidates:
-        with store.transaction() as tx:
-            current = tx.execute("SELECT * FROM context WHERE id=1").fetchone()
-            if current is None or current["state"] != "active":
-                return created
-            still = tx.execute("SELECT MAX(source_revision) FROM source_journal WHERE local_dataset_id=? AND source_report_id=?",
-                               (local_id, row["source_report_id"])).fetchone()[0]
-            if still != row["source_revision"]:
-                continue  # 그 사이 새 수집이 들어왔다
-            revision = store.next_revision(tx)
-            event_id = str(uuid.uuid4())
-            now = _iso(_now())
-            tx.execute(
-                "INSERT INTO source_journal(event_id, project_namespace, local_dataset_id, dataset_key,"
-                " source_report_id, source_revision, event_type, captured_at, capture_trigger,"
-                " schema_version, parser_version, payload_json, payload_sha256, eligible,"
-                " contributor_fingerprint, connection_id, writer_epoch, consent_grant_id, personal_save_state)"
-                " SELECT ?, project_namespace, local_dataset_id, ?, source_report_id, ?,"
-                " 'location_supplement', ?, ?, schema_version, parser_version, ?, ?, 1,"
-                " ?, ?, ?, ?, 'pending' FROM source_journal WHERE event_id=?",
-                (event_id, current["dataset_key"], revision, now, trigger, _cj(new_payload), new_sha,
-                 current["contributor_fingerprint"], current["connection_id"], current["writer_epoch"],
-                 current["consent_grant_id"], row["event_id"]))
-            tx.execute("INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at)"
-                       " VALUES (?, 'pending', 0, ?, ?)", (event_id, trigger, now))
-            tx.execute(
-                "INSERT INTO report_latest(local_dataset_id, source_report_id, event_id,"
-                " payload_sha256, eligible, source_generation) VALUES (?, ?, ?, ?, 1, 0)"
-                " ON CONFLICT(local_dataset_id, source_report_id) DO UPDATE"
-                " SET event_id=excluded.event_id, payload_sha256=excluded.payload_sha256, eligible=1",
-                (local_id, row["source_report_id"], event_id, new_sha))
-            created += 1
-    return created
 
 
 # ── 후보 선택 ────────────────────────────────────────────────────────────────
@@ -640,10 +551,6 @@ def _run_upload(run_id: str, trigger: str, data_dir=None) -> dict:
                 _enqueue_missing(trigger, data_dir)
             except Exception:
                 _log.info("[community] enqueue 실패", exc_info=True)
-            try:
-                _maybe_location_supplement(trigger, data_dir)
-            except Exception:
-                _log.info("[community] location_supplement 실패", exc_info=True)
         probing = control == "probe"
         if probing:
             _control_probing(store, scopes)

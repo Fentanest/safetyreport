@@ -195,6 +195,8 @@
                     <th style="width: 85px;">발생일자</th>
                     <th style="width: 75px;">발생시각</th>
                     <th style="width: 310.45px;">위반장소</th>
+                    <th style="width: 130px;">위도</th>
+                    <th style="width: 130px;">경도</th>
                     <th style="width: 58.89px;">종결여부</th>
                     <th style="width: 182px;">신고내용</th>
                     <th style="width: 182px;">처리내용</th>
@@ -508,6 +510,8 @@ $(document).ready(function() {
         { data: '발생시각', className: 'text-center' },
         { data: '위반장소',
           render: (d, t) => t === 'display' ? renderEllipsis(d, t, 310) : (d || '') },
+        { data: '위도', className: 'text-center', render: (d) => d == null ? '' : String(d) },
+        { data: '경도', className: 'text-center', render: (d) => d == null ? '' : String(d) },
         { data: '종결여부', className: 'text-center' },
         { data: '신고내용',
           render: (d, t) => t === 'display' ? renderEllipsis(d, t, 182) : (d || '') },
@@ -535,7 +539,7 @@ $(document).ready(function() {
         null, 'ID', '상태', '신고번호', '신고명', '신고일', '처리상태', '차량번호',
         ...(isDuplicate ? ['valid_count'] : []),
         '위반법규', '범칙금_과태료', '벌점', '처리기관', '담당자', '답변일', '보완횟수', '발생일자',
-        '발생시각', '위반장소', '종결여부', '신고내용', '처리내용', '지도',
+        '발생시각', '위반장소', '위도', '경도', '종결여부', '신고내용', '처리내용', '지도',
         '첨부사진', '첨부파일', '만족도조사여부', '별점', '별점사유', '감시목록'
     ];
 
@@ -576,16 +580,18 @@ $(document).ready(function() {
             { targets: 15 + offset, width: '85px', className: 'tabular-nums' },
             { targets: 16 + offset, width: '75px', className: 'tabular-nums' },
             { targets: 17 + offset, width: '310.45px' },
-            { targets: 18 + offset, width: '58.89px' },
-            { targets: 19 + offset, width: '182px' },
-            { targets: 20 + offset, width: '182px' },
-            { targets: 21 + offset, width: '40.89px' },
-            { targets: 22 + offset, width: '71.63px' },
-            { targets: 23 + offset, width: '71.63px' },
-            { targets: 24 + offset, width: '73.61px' },
-            { targets: 25 + offset, width: '58.89px' },
-            { targets: 26 + offset, width: '182px' },
-            { targets: 27 + offset, width: '58.89px' }
+            { targets: 18 + offset, width: '130px', className: 'tabular-nums' },
+            { targets: 19 + offset, width: '130px', className: 'tabular-nums' },
+            { targets: 20 + offset, width: '58.89px' },
+            { targets: 21 + offset, width: '182px' },
+            { targets: 22 + offset, width: '182px' },
+            { targets: 23 + offset, width: '40.89px' },
+            { targets: 24 + offset, width: '71.63px' },
+            { targets: 25 + offset, width: '71.63px' },
+            { targets: 26 + offset, width: '73.61px' },
+            { targets: 27 + offset, width: '58.89px' },
+            { targets: 28 + offset, width: '182px' },
+            { targets: 29 + offset, width: '58.89px' }
         ],
         language: {
             url: 'https://cdn.datatables.net/plug-ins/1.13.6/i18n/ko.json',

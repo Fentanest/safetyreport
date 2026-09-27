@@ -22,6 +22,7 @@ def as_columns(detail: dict) -> dict:
         "처리기관": d["processing_agency"], "담당자": d["person_in_charge"], "답변일": d["response_date"],
         "처리내용": d["processing_content"], "위반법규": d["violation_law"], "범칙금_과태료": d["penalty_amount"], "벌점": d["penalty_points"],
         "차량번호": d["car_number"], "발생일자": d["occurrence_date"], "발생시각": d["occurrence_time"], "위반장소": d["violation_location"],
+        "위도": d["violation_latitude"], "경도": d["violation_longitude"],
         "신고내용": d["report_content"], "첨부사진": d["attached_photos"], "첨부파일": d["attachment_files"], "지도": d["map_image"],
         "raw_content": d["raw_content"],
         "보완횟수": int(sup.get("count") or 0), "보완_미응답": sup.get("is_open") or "N", "보완_요청자": sup.get("requester") or "",

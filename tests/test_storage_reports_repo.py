@@ -72,19 +72,30 @@ class ReportsRepoTests(unittest.TestCase):
         self.assertEqual(self.row(models.merge_traffic_table, "90000001")["첨부사진"], reports_repo.EXPIRED_ATTACHMENT)
         self.assertEqual(self.row(models.detail_traffic_table, "90000001")["첨부사진"], "https://example/1.jpg")  # 원본은 보존
 
-    def test_geocoding_runs_before_the_transaction(self):
-        from services import geocode_service
+    def test_official_coordinates_replace_previous_values_on_recrawl(self):
+        self.save("90000001", 위도=37.560123456789, 경도=126.830123456789)
+        row = self.row(models.detail_traffic_table, "90000001")
+        self.assertEqual((row["위도"], row["경도"], row["지오코딩상태"]),
+                         (37.560123456789, 126.830123456789, "ok"))
+        synced_at = row["synced_at"]
+        self.save("90000001", 위도=37.56123456789, 경도=126.83123456789)
+        row = self.row(models.detail_traffic_table, "90000001")
+        self.assertEqual((row["위도"], row["경도"]), (37.56123456789, 126.83123456789))
+        self.assertEqual(row["synced_at"], synced_at)
+        self.save("90000001", 위도=None, 경도=None)
+        row = self.row(models.detail_traffic_table, "90000001")
+        self.assertEqual((row["위도"], row["경도"], row["지오코딩상태"]),
+                         (None, None, "not_found"))
 
-        seen = {}
+    def test_map_keeps_official_point_even_without_an_address(self):
+        from services.report_stats_service import get_report_map_stats
 
-        def fake_prepare(engine, address, *, existing_record=None, conn=None):
-            seen["conn"] = conn
-            return geocode_service.build_pending_geo_payload(address, status="pending")
-
-        with mock.patch.object(geocode_service, "prepare_geo_payload", side_effect=fake_prepare):
-            self.save("90000001")
-        self.assertIn("conn", seen)
-        self.assertIsNone(seen["conn"])  # 저장 트랜잭션 연결을 넘기지 않음 → HTTP 가 트랜잭션 밖(S-7)
+        self.save("90000001", 위반장소="", 위도=37.560123456789, 경도=126.830123456789)
+        payload = get_report_map_stats(self.engine, mode="raw")
+        self.assertTrue(any(
+            point["lat"] == 37.560123456789 and point["lng"] == 126.830123456789
+            for point in payload["points"]
+        ))
 
     def test_failures_are_reported_not_swallowed(self):
         bad = reports_repo.CrawledDetail(id="90000001", category="traffic", detail={"ID": "90000001"})

@@ -104,10 +104,4 @@ def restore_from_mobile_db(uploaded_path: str) -> Tuple[str, int]:
     from core.storage import exchange
 
     backup, count = exchange.restore(uploaded_path, "mobile")
-    try:
-        from core.database.engine import get_engine
-        from services import geocode_service
-        geocode_service.ensure_map_backfill_started(get_engine(), batch_size=120)
-    except Exception as exc:
-        logger.LoggerFactory.logbot.warning(f"[geocode] 모바일 DB 복원 후 자동 백필 시작 실패: {exc}")
     return backup, count

@@ -1,3 +1,4 @@
+import math
 import re
 
 
@@ -64,6 +65,18 @@ def extract_car_number(content_text: str) -> str:
     return re.sub(r'\s+', '', value)
 
 
+def _official_coordinates(data: dict, prefix: str = "") -> tuple[float | None, float | None]:
+    """안전신문고 상세 응답의 위도(W)·경도(E)를 한 쌍으로 읽는다."""
+    try:
+        lat = float(data[f"{prefix}C_A_W"])
+        lng = float(data[f"{prefix}C_A_E"])
+    except (KeyError, TypeError, ValueError):
+        return None, None
+    if not (math.isfinite(lat) and math.isfinite(lng) and 32 <= lat <= 39.5 and 124 <= lng <= 132):
+        return None, None
+    return lat, lng
+
+
 def parse_json_details(result_data):
     # 1. Body Text Extraction & Regex Parsing
     content_text = result_data.get("C_A_CONTENTS", "")
@@ -91,6 +104,7 @@ def parse_json_details(result_data):
     else:
         violation_location = str(result_data.get("C_A_ADDR_HEAD") or "") + " " + str(result_data.get("C_A_ADDR_TAIL") or "")
     violation_location = violation_location.strip()
+    violation_latitude, violation_longitude = _official_coordinates(result_data)
 
     # 신고자가 보완 제출 완료(SPLMNT_CMPTN_DT 설정)하고 2차 요청 없음(SPLMNT_CMPTN_YN != 'N') 시 갱신
     if result_data.get('SPLMNT_CMPTN_DT') and result_data.get('SPLMNT_CMPTN_YN') != 'N':
@@ -105,6 +119,14 @@ def parse_json_details(result_data):
         splmnt_loc = (result_data.get('SPLMNT_RN_ADRES') or result_data.get('SPLMNT_C_A_ADD2') or '').strip()
         if splmnt_loc:
             violation_location = splmnt_loc
+            # 보완 주소가 채택되면 같은 보완 응답의 좌표만 사용한다.
+            # 한쪽이 없거나 잘못된 좌표는 이전 위치와 섞지 않는다.
+            violation_latitude, violation_longitude = _official_coordinates(result_data, 'SPLMNT_')
+        else:
+            # 주소가 되풀이되지 않아도 보완 좌표만 갱신될 수 있다.
+            supplement_lat, supplement_lng = _official_coordinates(result_data, 'SPLMNT_')
+            if supplement_lat is not None:
+                violation_latitude, violation_longitude = supplement_lat, supplement_lng
 
     c_now = result_data.get("C_NOW", 0)
     try:
@@ -310,6 +332,8 @@ def parse_json_details(result_data):
         "occurrence_date": occurrence_date,
         "occurrence_time": occurrence_time,
         "violation_location": violation_location,
+        "violation_latitude": violation_latitude,
+        "violation_longitude": violation_longitude,
         "progress_status": raw_status,
         "processing_status": processing_status,
         "processing_finish": processing_finish,

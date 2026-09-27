@@ -78,7 +78,7 @@
 │   ├── export_service.py        # 엑셀/구글시트 export 흐름 조립
 │   ├── file_service.py          # 웹/API 파일 브라우저 공용 로직
 │   ├── crawl_manager.py         # 크롤링 프로세스 싱글톤 (충돌 방지)
-│   ├── geocode_service.py       # 주소 정규화/좌표 캐시/지도 백필 진행률 + queued 재개 제어
+│   ├── geocode_service.py       # 공식 응답 좌표를 기존 DB 열에 담는 순수 헬퍼
 │   ├── duplicate_group_service.py # raw_content 기반 중복군/대표건 관리 + canonical projection
 │   ├── media_proxy_service.py   # 원격 첨부 동영상/미디어 스트리밍 프록시
 │   ├── parser.py                # HTML/JSON 파싱 (과태료, 처리상태 등)
@@ -189,9 +189,9 @@
   - 2026-05-06 이후에는 `mysafetydetail_*`.`synced_at` 공백을 `답변일` 우선, 없으면 `신고일` 기준으로 자동 백필하고 `mysafetymerge_*`를 다시 만든다.
   - `/backup/upload`로 서버 형식 DB를 덮어쓴 경우에도 같은 업그레이드/백필을 즉시 수행하므로, 앱 재시작 전까지 구스키마가 남아 있지 않게 한다.
   - 같은 흐름에서 payload exact 중복군도 재생성되어 merge 결과와 대표건 집계층을 함께 갱신한다.
-- 지도 지오코딩 백필은 `services/geocode_service.py`가 `config_required/config_warning/queued/running/error/completed` 상태를 관리한다.
-  - 크롤링 상세 저장 중 주소 준비/캐시 upsert 는 **반드시 같은 DB 연결/트랜잭션 안에서** 수행해야 하며, 별도 write 연결을 열면 SQLite self-lock으로 `database is locked` 가 날 수 있다.
-  - 크롤링 중 새 백필은 `queued` 로만 남기고, 실제 백필 재개는 서버 시작 시, 크롤링 종료 직후, 모바일 DB 복원 직후에 공통 helper 로 다시 건다.
+- 신고 위치는 안전신문고 상세의 `C_A_W`(위도)·`C_A_E`(경도)에서 읽고, 완료된 보완 주소·좌표가 있으면 그 값으로 갱신한다.
+  - `services/geocode_service.py`는 기존 `위도`·`경도`·`지오코딩상태` 열에 맞춘 순수 변환만 한다. 카카오 REST 주소 변환·백필 작업은 없다.
+  - 재크롤링 때 좌표가 없어지면 이전 좌표를 지운다. 사용자 편집 주소는 공식 좌표를 바꾸지 않는다.
 - 비회원(수동) 로그인 모드는 2026-09-25 제거했다. 크롤링은 늘 회원 로그인이고, `/api/v1/crawl/resume` 은 구앱 호환으로 410 만 돌려준다.
 - 만족도 보강: 점수 API 우선, 필요 시 만족도 팝업 HTML로 사유 보강(브라우저 비상 경로면 브라우저 세션으로 같은 조회)
   - 공통 원칙: 조회 실패는 미참여로 간주하지 않고, 확정 미참여일 때만 `참여 완료 -> 참여 가능` 재분류

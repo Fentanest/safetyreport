@@ -1249,7 +1249,7 @@ class ExchangeRestoreTests(unittest.TestCase):
         finished.wait.return_value = 0
         finished.poll.return_value = 0
         finished.args = []
-        with mock.patch("time.sleep"), mock.patch.object(crawl_manager, "_resume_geocode_backfill"):
+        with mock.patch("time.sleep"):
             real_run_after_crawl(crawl_manager, finished, os.path.join(settings.datapath, "logs", "none.log"))
         self.assertEqual(popen.call_count, 0)  # 호출 인자(환경 변수)를 실패 메시지에 찍지 않는다(R4-04)
         self.assertEqual(crawl_manager.pending_items(), ["SPP-9"])

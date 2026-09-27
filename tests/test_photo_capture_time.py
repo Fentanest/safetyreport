@@ -100,15 +100,13 @@ class DetailToSqlPhotoTest(unittest.TestCase):
 
     def test_collects_once_and_carries_over_without_touching_synced_at(self):
         times = iter(["2026-09-22 13:19:43", "2026-09-22 15:30:00"])
-        with mock.patch.object(photo_capture_time, "fetch_capture_time", side_effect=lambda url: next(times)), \
-                mock.patch("services.geocode_service.prepare_geo_payload", return_value={}):
+        with mock.patch.object(photo_capture_time, "fetch_capture_time", side_effect=lambda url: next(times)):
             self._save(self._frame())
         first = self._row()
         self.assertEqual((first["사진_첫촬영"], first["사진_끝촬영"], first["사진_촬영수"]), ("2026-09-22 13:19:43", "2026-09-22 15:30:00", 2))
 
         # 재크롤링: 새 프레임에는 사진 시각이 없고, 다시 받지 않으며(값 이어받음) 변경으로 보지 않는다.
-        with mock.patch.object(photo_capture_time, "fetch_capture_time", side_effect=AssertionError("refetch")), \
-                mock.patch("services.geocode_service.prepare_geo_payload", return_value={}):
+        with mock.patch.object(photo_capture_time, "fetch_capture_time", side_effect=AssertionError("refetch")):
             changed = self._save(self._frame())
         second = self._row()
         self.assertEqual(changed, [])
@@ -116,13 +114,11 @@ class DetailToSqlPhotoTest(unittest.TestCase):
         self.assertEqual((second["사진_첫촬영"], second["사진_끝촬영"], second["사진_촬영수"]), (first["사진_첫촬영"], first["사진_끝촬영"], 2))
 
     def test_non_parking_is_not_fetched(self):
-        with mock.patch.object(photo_capture_time, "fetch_capture_time", side_effect=AssertionError("should not fetch")), \
-                mock.patch("services.geocode_service.prepare_geo_payload", return_value={}):
+        with mock.patch.object(photo_capture_time, "fetch_capture_time", side_effect=AssertionError("should not fetch")):
             database.detail_to_sql([(self._frame(), "traffic", "자동차·교통위반-신호위반")], self.engine)
 
     def test_merge_carries_photo_columns(self):
-        with mock.patch.object(photo_capture_time, "fetch_capture_time", return_value="2026-09-22 01:00:00"), \
-                mock.patch("services.geocode_service.prepare_geo_payload", return_value={}):
+        with mock.patch.object(photo_capture_time, "fetch_capture_time", return_value="2026-09-22 01:00:00"):
             self._save(self._frame())
         database.merge_final(self.engine)
         with self.engine.connect() as conn:

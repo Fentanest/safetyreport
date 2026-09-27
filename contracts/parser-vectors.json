@@ -496,6 +496,149 @@
     "보완횟수": 1,
     "보완_미응답": "N"
    }
+  },
+  {
+   "name": "official coordinate precise base pair",
+   "detail": {
+    "C_NO": "90000001",
+    "STTEMNT_NO": "SYNTH-90000001",
+    "C_A_TITLE": "합성 신고",
+    "C_DATE": "2026-09-01",
+    "C_NOW": 10,
+    "RN_ADRES": "서울특별시 중구 세종대로 1",
+    "C_A_W": "37.560123456789",
+    "C_A_E": "126.830123456789"
+   },
+   "expect": {
+    "위반장소": "서울특별시 중구 세종대로 1",
+    "위도": 37.560123456789,
+    "경도": 126.830123456789
+   }
+  },
+  {
+   "name": "completed supplement replaces address and coordinate pair",
+   "detail": {
+    "C_NO": "90000001",
+    "STTEMNT_NO": "SYNTH-90000001",
+    "C_A_TITLE": "합성 신고",
+    "C_DATE": "2026-09-01",
+    "C_NOW": 10,
+    "RN_ADRES": "서울특별시 중구 세종대로 1",
+    "C_A_W": "37.5601",
+    "C_A_E": "126.8301",
+    "SPLMNT_CMPTN_DT": "2026-09-02",
+    "SPLMNT_CMPTN_YN": "Y",
+    "SPLMNT_RN_ADRES": "서울특별시 중구 세종대로 2",
+    "SPLMNT_C_A_W": "37.56123456789",
+    "SPLMNT_C_A_E": "126.83123456789"
+   },
+   "expect": {
+    "위반장소": "서울특별시 중구 세종대로 2",
+    "위도": 37.56123456789,
+    "경도": 126.83123456789
+   }
+  },
+  {
+   "name": "open supplement keeps original address and pair",
+   "detail": {
+    "C_NO": "90000001",
+    "STTEMNT_NO": "SYNTH-90000001",
+    "C_A_TITLE": "합성 신고",
+    "C_DATE": "2026-09-01",
+    "C_NOW": 10,
+    "RN_ADRES": "서울특별시 중구 세종대로 1",
+    "C_A_W": 37.5601,
+    "C_A_E": 126.8301,
+    "SPLMNT_CMPTN_DT": "2026-09-02",
+    "SPLMNT_CMPTN_YN": "N",
+    "SPLMNT_RN_ADRES": "서울특별시 중구 세종대로 2",
+    "SPLMNT_C_A_W": "37.5612",
+    "SPLMNT_C_A_E": "126.8312"
+   },
+   "expect": {
+    "위반장소": "서울특별시 중구 세종대로 1",
+    "위도": 37.5601,
+    "경도": 126.8301
+   }
+  },
+  {
+   "name": "changed supplement address without pair clears old location",
+   "detail": {
+    "C_NO": "90000001",
+    "STTEMNT_NO": "SYNTH-90000001",
+    "C_A_TITLE": "합성 신고",
+    "C_DATE": "2026-09-01",
+    "C_NOW": 10,
+    "RN_ADRES": "서울특별시 중구 세종대로 1",
+    "C_A_W": "37.5601",
+    "C_A_E": "126.8301",
+    "SPLMNT_CMPTN_DT": "2026-09-02",
+    "SPLMNT_CMPTN_YN": "Y",
+    "SPLMNT_RN_ADRES": "서울특별시 중구 세종대로 2",
+    "SPLMNT_C_A_W": null,
+    "SPLMNT_C_A_E": null
+   },
+   "expect": {
+    "위반장소": "서울특별시 중구 세종대로 2",
+    "위도": null,
+    "경도": null
+   }
+  },
+  {
+   "name": "invalid half pair is absent",
+   "detail": {
+    "C_NO": "90000001",
+    "STTEMNT_NO": "SYNTH-90000001",
+    "C_A_TITLE": "합성 신고",
+    "C_DATE": "2026-09-01",
+    "C_NOW": 10,
+    "RN_ADRES": "서울특별시 중구 세종대로 1",
+    "C_A_W": "37.5601",
+    "C_A_E": null
+   },
+   "expect": {
+    "위도": null,
+    "경도": null
+   }
+  },
+  {
+   "name": "swapped out of range pair is absent",
+   "detail": {
+    "C_NO": "90000001",
+    "STTEMNT_NO": "SYNTH-90000001",
+    "C_A_TITLE": "합성 신고",
+    "C_DATE": "2026-09-01",
+    "C_NOW": 10,
+    "RN_ADRES": "서울특별시 중구 세종대로 1",
+    "C_A_W": "126.8301",
+    "C_A_E": "37.5601"
+   },
+   "expect": {
+    "위도": null,
+    "경도": null
+   }
+  },
+  {
+   "name": "completed supplement coordinate without repeated address updates position",
+   "detail": {
+    "C_NO": "90000002",
+    "STTEMNT_NO": "SYNTH-90000002",
+    "C_A_TITLE": "합성 신고",
+    "C_DATE": "2026-09-01",
+    "C_NOW": 10,
+    "RN_ADRES": "서울특별시 중구 세종대로 1",
+    "C_A_W": "37.5601",
+    "C_A_E": "126.8301",
+    "SPLMNT_CMPTN_DT": "2026-09-02",
+    "SPLMNT_CMPTN_YN": "Y",
+    "SPLMNT_C_A_W": "37.5612345",
+    "SPLMNT_C_A_E": "126.8312345"
+   },
+   "expect": {
+    "위반장소": "서울특별시 중구 세종대로 1",
+    "위도": 37.5612345,
+    "경도": 126.8312345
+   }
   }
  ]
 }

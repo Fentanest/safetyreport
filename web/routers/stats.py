@@ -100,9 +100,7 @@ def view_report_map(
 ):
     dedupe_mode = default_dedupe_mode()
     selected_category = normalize_map_category(category)
-    backfill_progress = geocode_service.ensure_map_backfill_started(engine, batch_size=120)
-
-    map_error = backfill_progress.get("error_message", "")
+    map_error = ""
 
     map_payload = data_service.get_report_map_stats(
         engine,
@@ -125,7 +123,6 @@ def view_report_map(
         "missing_map_groups": missing_payload.get("groups", []),
         "missing_map_meta": missing_payload.get("meta", {}),
         "map_error": map_error,
-        "backfill_progress": backfill_progress,
         "current_year": meta.get("current_year", year or "all"),
         "available_years": meta.get("available_years", []),
         "selected_category": meta.get("selected_category", selected_category),
@@ -137,7 +134,7 @@ def view_report_map(
 
 @router.get("/stats/map/progress")
 def get_report_map_progress():
-    progress = geocode_service.get_backfill_progress(engine)
+    progress = geocode_service.idle_progress()
     return progress
 
 

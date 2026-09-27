@@ -1101,10 +1101,7 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
             },
         })
 
-    geocoded_df = combined_df[
-        combined_df["유효좌표"]
-        & (combined_df["주소키"].str.strip() != "")
-    ].copy()
+    geocoded_df = combined_df[combined_df["유효좌표"]].copy()
     missing_df = combined_df[
         (combined_df["위반장소"].str.strip() != "")
         & ~combined_df["유효좌표"]

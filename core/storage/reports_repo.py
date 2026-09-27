@@ -112,19 +112,11 @@ def _find_existing(conn, record_id: str):
 
 
 def _prefetch_derived(engine, rec: CrawledDetail, existing: dict | None) -> dict:
-    """트랜잭션 밖에서 계산값(지오코딩·사진 촬영 시각)을 준비한다."""
+    """트랜잭션 밖에서 공식 좌표·사진 촬영 시각을 준비한다."""
     from services import geocode_service, photo_capture_time
 
     address = rec.detail.get("위반장소") or ""
-    try:
-        geo = geocode_service.prepare_geo_payload(engine, address, existing_record=existing)
-    except Exception as exc:
-        logger.LoggerFactory.logbot.warning(f"[geocode] ID {rec.id} 지오코딩 준비 실패: {exc}")
-        existing_address = (existing or {}).get("주소정규화") or (existing or {}).get("위반장소") or ""
-        if existing and geocode_service.normalize_address(existing_address) == geocode_service.normalize_address(address):
-            geo = geocode_service.extract_geo_payload(existing, fallback_address=address)
-        else:
-            geo = geocode_service.build_pending_geo_payload(address, status="error")
+    geo = geocode_service.official_geo_payload(address, rec.detail.get("위도"), rec.detail.get("경도"))
 
     photo = {name: (existing or {}).get(name) for name in PHOTO_COLUMNS}
     if photo["사진_촬영수"] is None and photo_capture_time.is_parking_report(rec.category, rec.entry_value):
@@ -362,22 +354,9 @@ def _apply_overrides(conn, ids) -> None:
             logger.LoggerFactory.logbot.warning(f"[override] 허용되지 않은 열 무시: {record_id}.{column}")
             continue
         values = {column: value}
-        if column == "위반장소":
-            values.update(_geo_for_overridden_address(conn, value))
+        # 사용자 수정 주소는 원본 신고의 공식 좌표를 바꾸지 않는다.
         for merge in MERGE_TABLES.values():
             conn.execute(update(merge).where(merge.c.ID == record_id).values(values))
-
-
-def _geo_for_overridden_address(conn, address) -> dict:
-    """고친 주소의 좌표는 지오코딩 캐시에서만 찾는다(네트워크 없음). 없으면 대기 상태로 둔다."""
-    from services import geocode_service
-
-    normalized = geocode_service.normalize_address(address)
-    cache = models.geocode_cache_table
-    row = conn.execute(select(cache).where(cache.c["주소정규화"] == normalized)).mappings().first() if normalized else None
-    if row is None:
-        return {"주소정규화": normalized, "행정구역": None, "위도": None, "경도": None, "지오코딩상태": "pending" if normalized else ""}
-    return {"주소정규화": normalized, "행정구역": row["행정구역"], "위도": row["위도"], "경도": row["경도"], "지오코딩상태": row["상태"]}
 
 
 def _apply_attachment_expiry(conn, ids) -> None:

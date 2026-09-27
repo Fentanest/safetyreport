@@ -55,7 +55,7 @@ with engine.begin() as conn:
     for t in ("mysafetydetail_parking",):
         conn.execute(text(f"UPDATE {t} SET 사진_첫촬영='2026-09-22 01:00:00', 사진_끝촬영='2026-09-22 02:30:00', 사진_촬영수=3 WHERE ID='90000101'"))
         conn.execute(text(f"UPDATE {t} SET 사진_촬영수=0 WHERE ID='90000102'"))
-        conn.execute(text(f"UPDATE {t} SET 위도=37.5601234, 경도=126.8301234, 주소정규화='서울특별시 강서구 등촌동 101', 지오코딩상태='ok' WHERE ID='90000103'"))
+        conn.execute(text(f"UPDATE {t} SET 위도=37.56012345678901, 경도=126.83012345678901, 주소정규화='서울특별시 강서구 등촌동 101', 지오코딩상태='ok' WHERE ID='90000103'"))
     conn.execute(text("UPDATE mysafetydetail_other SET 처리내용='첫 줄\n둘째 줄\n“따옴표”' WHERE ID='90000201'"))
     conn.execute(text("UPDATE mysafetydetail_traffic SET 벌점=NULL WHERE ID='90000003'"))
     conn.execute(text("UPDATE mysafety SET 별점사유='' WHERE ID='90000001'"))

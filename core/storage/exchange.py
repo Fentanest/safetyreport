@@ -327,16 +327,9 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
 
 def ensure_restore_allowed(engine) -> None:
     from services.crawl_manager import crawl_manager
-    from services import geocode_service
 
     if crawl_manager.is_crawling():
         raise RestoreRefused("크롤링이 진행 중입니다. 끝난 뒤 다시 복원하세요.")
-    try:
-        running = bool(geocode_service.get_backfill_progress(engine).get("running"))
-    except Exception:
-        running = False
-    if running:
-        raise RestoreRefused("지도 좌표 변환이 진행 중입니다. 끝난 뒤 다시 복원하세요.")
 
 
 def _copy_sqlite(src: str, dst: str) -> None:

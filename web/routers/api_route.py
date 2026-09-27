@@ -123,7 +123,6 @@ def get_stats_map(
     category: str = "all",
 ):
     try:
-        geocode_service.ensure_map_backfill_started(engine, batch_size=120)
         payload = data_service.get_report_map_stats(
             engine,
             year=year,
@@ -164,7 +163,7 @@ def get_maintenance_status(_: str = Depends(_require_api_key)):
 @router.get("/stats/map/progress")
 def get_stats_map_progress(_: str = Depends(_require_api_key)):
     try:
-        progress = geocode_service.get_backfill_progress(engine)
+        progress = geocode_service.idle_progress()
         return {"status": "success", "data": progress}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

@@ -97,22 +97,10 @@ class FixtureBlocksSideEffectsTest(unittest.TestCase):
             sunwi_service.start_background_refresh()
             thread.assert_not_called()
 
-    def test_geocode_request_blocked(self):
-        import tempfile
-        from sqlalchemy import create_engine
-        from core.database import database
+    def test_official_coordinate_helper_has_no_network_dependency(self):
         from services import geocode_service
-        fd, db_path = tempfile.mkstemp(suffix=".db")
-        os.close(fd)
-        engine = create_engine(f"sqlite:///{db_path}")
-        self.addCleanup(os.remove, db_path)
-        self.addCleanup(engine.dispose)
-        database.upgrade_schema(engine)
-        with mock.patch.object(geocode_service, "get_kakao_rest_api_key", return_value="test-key"), \
-                mock.patch.object(geocode_service.requests, "get") as kakao_get:
-            with self.assertRaises(ExternalSideEffectBlocked):
-                geocode_service.resolve_address(engine, "서울특별시 강서구 마곡동 1")
-            kakao_get.assert_not_called()
+        self.assertEqual(geocode_service.official_geo_payload("서울 중구", 37.5, 127.0)["위도"], 37.5)
+        self.assertFalse(hasattr(geocode_service, "resolve_address"))
 
     def test_settings_disable_telegram_and_sheets(self):
         import settings.settings as app_settings

@@ -2,6 +2,14 @@
 
 다루는 것: 설정 키, DB 테이블/컬럼, 서비스 반환 키, category 전파, 모바일 API, WebSocket, 완료 마커 파일, 크롬 확장 API.
 
+## 공식 신고 위치 (현재 dev)
+
+- 안전신문고 상세의 `C_A_W`가 위도, `C_A_E`가 경도다. 완료된 보완의 `SPLMNT_C_A_W/E`가 유효하면 보완 좌표를 쓴다. 보완 주소가 바뀌고 좌표 쌍이 유효하지 않으면 기존 위치를 새 주소에 붙이지 않는다.
+- 위도 32~39.5, 경도 124~132의 유한한 쌍만 기존 상세·병합 표의 `위도`·`경도`에 저장한다. 반올림·소수점 절사를 하지 않는다. 값이 없으면 두 열 모두 NULL이다.
+- `주소정규화`는 공식 주소의 공백 정리값, `행정구역`은 빈 문자열, `지오코딩상태`는 좌표가 있으면 `ok`, 주소만 있으면 `not_found`다. 이 열 이름은 기존 DB 교환 계약을 유지하기 위해 남았다.
+- 재크롤링은 같은 주소여도 좌표를 덮어쓴다. 개인 주소 수정값은 화면의 주소만 바꾸며 공식 좌표는 그대로 둔다. 서버·모바일 DB 교환은 이 기존 열을 양방향 모두 보존한다.
+- 커뮤니티 지도에는 해당 좌표를 보내고, wire `location.source="geocode"`는 기존 입력 계약의 좌표 있음 표시값으로 유지한다. 보완으로 바뀐 좌표는 재수집 시 새 `completed_observation`으로 전달된다.
+
 2026-09-24 에 기존 루트 `CLAUDE.md`(725줄)에서 옮겼다. 아래 '이관 원문' 은 문구를 바꾸지 않고 옮긴 것이며, 원본 전체는 [legacy-claude-reference.md](legacy-claude-reference.md)에 있다.
 
 ## 코드 대조 정정 (기준 17df6cb)
@@ -12,7 +20,7 @@
 |---|---|---|
 | 설정 표 crawl_type | 코드는 `[Crawler] crawl_type` 이 `api` 면 api, 그 외 값은 모두 `legacy` 로 읽는다(`settings/settings.py:68-69`). 표의 `api / web` 는 부정확. | 정정 |
 | 설정 표 auto_export_sheet | 코드 기본값은 `False`(`settings/settings.py:66`). 표의 `True` 는 부정확. | 정정 |
-| config.ini 섹션+키 | `[MAP] kakao_rest_api_key` 가 목록에 없다(`settings/settings.py:62`, 지도 지오코딩용). | 추가 |
+| config.ini 섹션+키 | 과거 `[MAP] kakao_rest_api_key` 는 읽거나 저장하지 않는다. 기존 설정 파일의 값은 기능에 사용하지 않는다. | 공식 좌표로 전환 |
 | get_dashboard_stats() / get_agency_stats() 키 | 현재 코드는 목록 외에 `withdrawGraphCount`, `dedupe_mode`(대시보드), `avg_days`, `total_fine_amount`, `unconfirmed(_pct)`, `avg_rating`, `rating_count`, `by_law`, `available_laws`, `has_empty_law`, `dedupe_mode`(기관 통계)를 반환한다(`services/report_stats_service.py:440-470, 603-705`). | 추가 — 기존 키는 유지 |
 | 모바일 API 표 | `/summary 의 취하 필드 규칙` 목록이 표 중간에 끼어 뒤쪽 행(`/app/config` 이하)이 표로 렌더되지 않는다. 내용은 유효. | 형식만 문제 |
 
@@ -210,7 +218,7 @@ by_law (법규별, 같은 필드 + law)
 - `services/maintenance_service.py`: 서버 기동 때(스키마 업그레이드 뒤) 신고일 6개월 이내 주정차 신고 중 `사진_촬영수` NULL 인 것의 첨부 사진 EXIF 촬영 시각을 채운다.
   한 건마다 0.4초 간격, 크롤링 중에는 기다렸다 이어 감. 진행은 메모리에만(재기동하면 남은 대상부터 다시 셈). 네트워크 오류 건은 다음 기동·크롤링 끝 재시도(`photo_capture_time.backfill_missing`, 30건)에서 다시.
 - 추정 과태료·처분 분류는 통계를 볼 때 저장된 값으로 계산하므로 훑을 필요가 없다.
-- 진행 표시: 모든 화면 하단 `#srJobBar`(base.html, 작업 있을 때만), `GET /maintenance/status`(웹), `GET /api/v1/maintenance/status`(Client 앱). 지도 좌표 채우기(geocode 백필) 진행도 같이 보인다.
+- 진행 표시: 모든 화면 하단 `#srJobBar`(base.html, 작업 있을 때만), `GET /maintenance/status`(웹), `GET /api/v1/maintenance/status`(Client 앱). 지도 좌표 변환 작업은 실행하지 않는다.
   응답: `{active, jobs:[{key,label,state(running|paused|completed),total,done,current,message}]}`.
 
 ## 2026-09-26 커뮤니티 필수 게이트·공유 업로드 계약 (하위호환 추가 + 인증 강화)
