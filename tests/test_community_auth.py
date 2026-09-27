@@ -455,6 +455,15 @@ class HelperTests(unittest.TestCase):
         cfg = cas.build_config({}, env={"COMMUNITY_SUPABASE_URL": same, cas.ENV_SUPABASE_URL: same,
                                         "COMMUNITY_PUBLISHABLE_KEY": "sb_publishable_abcdefghijklmnop"})
         self.assertTrue(cfg.configured, "같은 값이면 충돌이 아니다")
+        # 정본 공개 키 이름(Android·지도와 같음)도 별칭이며, 옛 이름과 값이 다르면 충돌로 잠근다(조용히 하나를 고르지 않음).
+        cfg = cas.build_config({}, env={"COMMUNITY_SUPABASE_URL": same,
+                                        "COMMUNITY_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_abcdefghijklmnop"})
+        self.assertTrue(cfg.configured)
+        cfg = cas.build_config({}, env={"COMMUNITY_SUPABASE_URL": same,
+                                        "COMMUNITY_SUPABASE_PUBLISHABLE_KEY": "sb_publishable_abcdefghijklmnop",
+                                        "COMMUNITY_PUBLISHABLE_KEY": "sb_publishable_zzzzzzzzzzzzzzzz"})
+        self.assertIn("config_conflict", cfg.problems)
+        self.assertFalse(cfg.configured)
         bundled = {"supabase_url": "https://bundled.supabase.co", "publishable_key": "sb_publishable_bundledkey123456"}
         cfg = cas.build_config({}, env={}, bundled=bundled)
         self.assertEqual((cfg.supabase_url, cfg.publishable_key), (bundled["supabase_url"], bundled["publishable_key"]))

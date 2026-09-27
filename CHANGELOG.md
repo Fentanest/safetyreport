@@ -10,6 +10,15 @@
 
 ## 2026-09-27 (dev, 미배포)
 
+### 커뮤니티 공개 설정 이름 통일·배포 빌드 사전 차단·Docker 이미지 반영
+
+- 배포 워크플로가 저장소에 없는 변수 `vars.COMMUNITY_PUBLISHABLE_KEY` 를 읽어, URL 만 있고 키가 비어 모든 PyInstaller 빌드가 멈추는 상태였다.
+  공개 키 정본 이름을 Android·지도·저장소 Variables 와 같은 `COMMUNITY_SUPABASE_PUBLISHABLE_KEY` 로 맞추고, 옛 이름은 별칭으로 받되
+  값이 다르면 빌드를 멈추고 실행은 `config_conflict` 로 잠근다.
+- 배포 빌드(`COMMUNITY_CONFIG_REQUIRED=1`)는 공개 설정이 없으면 멈춘다(예전엔 경고만 하고 설정 없는 배포본을 만들 수 있었다).
+- Docker 이미지에 공개 설정이 전혀 들어가지 않던 문제: `Dockerfile` 이 build-args 로 받은 공개값을 같은 검증으로 `/app/community_public.json` 에 굽고,
+  `build.yml` 의 이미지 빌드가 저장소 Variables 를 넘긴다. 실행 때 env·`config.ini` 가 여전히 우선한다.
+
 ### 커뮤니티 업로드 장애 대응 UC-1 (모바일과 같은 규칙, 계약 `contracts/upload-control/`)
 
 - 중앙이 일시적으로 요청을 못 받을 때 대기 사본을 잃거나 요청을 퍼붓지 않게 업로드 제어를 다시 만들었다(재현 표·설계: `docs/plans/2026-09-27-upload-hardening-android.md`).

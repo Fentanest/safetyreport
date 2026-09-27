@@ -117,8 +117,9 @@ jobs:
     - name: Build Windows executable with PyInstaller
       env:
         COMMUNITY_SUPABASE_URL: ${{ vars.COMMUNITY_SUPABASE_URL }}  # 공개값(저장소 Variables) — 비밀 금지
-        COMMUNITY_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_PUBLISHABLE_KEY }}  # 공개값(저장소 Variables) — 비밀 금지
+        COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_SUPABASE_PUBLISHABLE_KEY }}  # 공개값(저장소 Variables) — 비밀 금지
         COMMUNITY_SITE_URL: ${{ vars.COMMUNITY_SITE_URL }}  # 공개값(저장소 Variables) — 비밀 금지
+        COMMUNITY_CONFIG_REQUIRED: '1'  # 배포 빌드는 공개 설정이 없으면 멈춘다
       shell: powershell
       run: .\venv\Scripts\python.exe scripts/build/build_exe.py
 
@@ -200,8 +201,9 @@ jobs:
     - name: Build Linux executable with PyInstaller
       env:
         COMMUNITY_SUPABASE_URL: ${{ vars.COMMUNITY_SUPABASE_URL }}  # 공개값(저장소 Variables) — 비밀 금지
-        COMMUNITY_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_PUBLISHABLE_KEY }}  # 공개값(저장소 Variables) — 비밀 금지
+        COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_SUPABASE_PUBLISHABLE_KEY }}  # 공개값(저장소 Variables) — 비밀 금지
         COMMUNITY_SITE_URL: ${{ vars.COMMUNITY_SITE_URL }}  # 공개값(저장소 Variables) — 비밀 금지
+        COMMUNITY_CONFIG_REQUIRED: '1'  # 배포 빌드는 공개 설정이 없으면 멈춘다
       run: ./venv/bin/python scripts/build/build_exe.py
 
     - name: Compress Linux executable with UPX
@@ -267,6 +269,12 @@ jobs:
         context: .
         platforms: linux/amd64,linux/arm64
         push: true
+        # 공개 커뮤니티 설정(저장소 Variables, 비밀 아님)을 이미지의 /app/community_public.json 으로 굽는다. 없으면 빌드가 멈춘다.
+        build-args: |
+          COMMUNITY_SUPABASE_URL=${{ vars.COMMUNITY_SUPABASE_URL }}
+          COMMUNITY_SUPABASE_PUBLISHABLE_KEY=${{ vars.COMMUNITY_SUPABASE_PUBLISHABLE_KEY }}
+          COMMUNITY_SITE_URL=${{ vars.COMMUNITY_SITE_URL }}
+          COMMUNITY_CONFIG_REQUIRED=1
         tags: |
           ghcr.io/${{ env.IMAGE_REPO }}:${{ needs.prepare-release.outputs.version }}
           ghcr.io/${{ env.IMAGE_REPO }}:latest
@@ -432,8 +440,9 @@ jobs:
     - name: Build macOS x64 executable with PyInstaller
       env:
         COMMUNITY_SUPABASE_URL: ${{ vars.COMMUNITY_SUPABASE_URL }}  # 공개값(저장소 Variables) — 비밀 금지
-        COMMUNITY_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_PUBLISHABLE_KEY }}  # 공개값(저장소 Variables) — 비밀 금지
+        COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_SUPABASE_PUBLISHABLE_KEY }}  # 공개값(저장소 Variables) — 비밀 금지
         COMMUNITY_SITE_URL: ${{ vars.COMMUNITY_SITE_URL }}  # 공개값(저장소 Variables) — 비밀 금지
+        COMMUNITY_CONFIG_REQUIRED: '1'  # 배포 빌드는 공개 설정이 없으면 멈춘다
         PYINSTALLER_TARGET_ARCH: x86_64
       run: ./venv/bin/python scripts/build/build_exe.py
 
@@ -516,8 +525,9 @@ jobs:
     - name: Build macOS arm64 executable with PyInstaller
       env:
         COMMUNITY_SUPABASE_URL: ${{ vars.COMMUNITY_SUPABASE_URL }}  # 공개값(저장소 Variables) — 비밀 금지
-        COMMUNITY_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_PUBLISHABLE_KEY }}  # 공개값(저장소 Variables) — 비밀 금지
+        COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_SUPABASE_PUBLISHABLE_KEY }}  # 공개값(저장소 Variables) — 비밀 금지
         COMMUNITY_SITE_URL: ${{ vars.COMMUNITY_SITE_URL }}  # 공개값(저장소 Variables) — 비밀 금지
+        COMMUNITY_CONFIG_REQUIRED: '1'  # 배포 빌드는 공개 설정이 없으면 멈춘다
         PYINSTALLER_TARGET_ARCH: arm64
       run: ./venv/bin/python scripts/build/build_exe.py
 
