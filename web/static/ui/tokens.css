@@ -36,6 +36,9 @@
     --sr-status-supplement: #fd7e14;
     --sr-status-withdraw: #8b95a7;
     --sr-status-fine: #db2777;
+    /* 2026-09-28 통계 처분 분포: 경고/범칙금(모바일 serverTrafficPenaltyColor 계열), 처분 미확인·미분류(모바일 serverUnconfirmedColor 계열) */
+    --sr-status-penalty: #7c3aed;
+    --sr-status-unknown: #64748b;
 
     --sr-radius: 12px;
     --sr-radius-sm: 8px;
@@ -66,4 +69,6 @@
     --sr-sidebar-border: #18181a;
 
     --sr-status-withdraw: #8b8d92;
+    --sr-status-penalty: #a78bfa;
+    --sr-status-unknown: #a1a1aa;
 }

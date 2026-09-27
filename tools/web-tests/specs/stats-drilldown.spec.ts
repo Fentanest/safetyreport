@@ -24,9 +24,13 @@ test('agency with & # + drills down to exactly its reports', async ({ page }) =>
     await page.addInitScript(() => { sessionStorage.setItem('stats_cat', 'traffic'); sessionStorage.setItem('stats_type', 'agency'); });
     await page.goto('/stats');
     await expect(page.locator('#traffic-agency .dataTables_wrapper')).toHaveCount(1);
+    // 2026-09-28: 행 선택과 목록 이동을 나눴다 — 행을 누르면 상세 패널, 목록은 패널의 '해당 신고 내역 보기'.
+    await page.locator('#traffic-agency tbody tr', { hasText: special }).first().click();
+    const panel = page.locator('#statsDetailPanel:visible, #statsDetailDrawer.show').first();
+    await expect(panel.locator('#statsPanelName')).toHaveText(special);
     await Promise.all([
       page.waitForURL('**/data/traffic?**'),
-      page.locator('#traffic-agency tbody tr', { hasText: special }).first().click(),
+      panel.getByRole('link', { name: '해당 신고 내역 보기' }).click(),
     ]);
     const params = new URL(page.url()).searchParams;
     expect(params.get('agency')).toBe(special);

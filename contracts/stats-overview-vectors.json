@@ -1,0 +1,664 @@
+{
+ "description": "통계 요약(/api/v1/stats/overview 한 분류)·기관표 행의 같은 입력·기대값. 서버 tests/test_stats_overview_vectors.py 와 모바일 test/services/stats_overview_vectors_test.dart 가 같은 파일을 읽는다(두 레포 바이트 동일). 날짜·처분·금액 규칙은 docs/design/statistics-spec.md §9.",
+ "cases": [
+  {
+   "name": "traffic_mix",
+   "rows": [
+    {
+     "category": "traffic",
+     "처리상태": "수용",
+     "신고일": "2025-12-30 23:40:00",
+     "답변일": "2026-01-02",
+     "범칙금_과태료": "과태료 40,000원",
+     "신고명": "신호위반",
+     "처리기관": "A경찰서",
+     "담당자": "김",
+     "entry_value": "자동차·교통위반-신호위반",
+     "차량번호": "12가3456",
+     "위반법규": "",
+     "별점": 5,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "수용",
+     "신고일": "2026-01-03 08:10:00",
+     "답변일": "2026-01-09",
+     "범칙금_과태료": "과태료 및 범칙금 60,000원",
+     "신고명": "중앙선 침범",
+     "처리기관": "A경찰서",
+     "담당자": "김",
+     "entry_value": "자동차·교통위반-중앙선",
+     "차량번호": "12가3457",
+     "위반법규": "",
+     "별점": 4,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "수용",
+     "신고일": "2026-02-11",
+     "답변일": "2026-02-20",
+     "범칙금_과태료": "경고",
+     "신고명": "신호위반",
+     "처리기관": "B구청",
+     "담당자": "이",
+     "entry_value": "자동차·교통위반-신호위반",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "수용",
+     "신고일": "2026-03-05",
+     "답변일": "2026-03-12",
+     "범칙금_과태료": "과태료",
+     "신고명": "버스전용차로 위반",
+     "처리기관": "B구청",
+     "담당자": "박",
+     "entry_value": "자동차·교통위반-버스",
+     "차량번호": "34나5678",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "불수용",
+     "신고일": "2026-03-20",
+     "답변일": "2026-03-18",
+     "범칙금_과태료": "",
+     "신고명": "진로변경 위반",
+     "처리기관": "B구청",
+     "담당자": "이",
+     "entry_value": "",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "일부수용",
+     "신고일": "2026-04-01",
+     "답변일": "2026-04-15",
+     "범칙금_과태료": "미확인",
+     "신고명": "안전모 미착용",
+     "처리기관": "C경찰서",
+     "담당자": "김",
+     "entry_value": "자동차·교통위반-안전모",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": 2,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "답변완료",
+     "신고일": "2026-04-02",
+     "답변일": "2026-04-02",
+     "범칙금_과태료": "",
+     "신고명": "신호위반",
+     "처리기관": "C경찰서",
+     "담당자": "최",
+     "entry_value": "",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "처리중",
+     "신고일": "2026-05-01",
+     "답변일": "",
+     "범칙금_과태료": "",
+     "신고명": "",
+     "처리기관": "A경찰서",
+     "담당자": "",
+     "entry_value": "",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "보완요청",
+     "신고일": "잘못된날짜",
+     "답변일": null,
+     "범칙금_과태료": "",
+     "신고명": "신호위반",
+     "처리기관": "",
+     "담당자": "",
+     "entry_value": "",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "이송",
+     "신고일": "2026-05-03",
+     "답변일": "2026-05-04",
+     "범칙금_과태료": "",
+     "신고명": "끼어들기",
+     "처리기관": "A경찰서",
+     "담당자": "김",
+     "entry_value": "",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "취하",
+     "신고일": "2026-05-05",
+     "답변일": "2026-05-06",
+     "범칙금_과태료": "",
+     "신고명": "끼어들기",
+     "처리기관": "A경찰서",
+     "담당자": "김",
+     "entry_value": "",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "기타",
+     "신고일": "2026-06-01",
+     "답변일": "2026-06-30",
+     "범칙금_과태료": "",
+     "신고명": "신호위반",
+     "처리기관": "B구청",
+     "담당자": "박",
+     "entry_value": "",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": 1,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": null,
+     "신고일": null,
+     "답변일": null,
+     "범칙금_과태료": null,
+     "신고명": null,
+     "처리기관": "",
+     "담당자": "",
+     "entry_value": "",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    }
+   ],
+   "expected_overview": {
+    "total": 13,
+    "completed": 8,
+    "accept": 4,
+    "partial": 1,
+    "reject": 2,
+    "supplement": 1,
+    "processing": 1,
+    "withdraw": 1,
+    "avg_days": 9.7,
+    "avg_days_count": 7,
+    "reversed_date_count": 1,
+    "undated_report_count": 2,
+    "monthly_reported": [
+     {
+      "month": "2025-12",
+      "count": 1
+     },
+     {
+      "month": "2026-01",
+      "count": 1
+     },
+     {
+      "month": "2026-02",
+      "count": 1
+     },
+     {
+      "month": "2026-03",
+      "count": 2
+     },
+     {
+      "month": "2026-04",
+      "count": 2
+     },
+     {
+      "month": "2026-05",
+      "count": 3
+     },
+     {
+      "month": "2026-06",
+      "count": 1
+     }
+    ],
+    "monthly_answered": [
+     {
+      "month": "2026-01",
+      "count": 2
+     },
+     {
+      "month": "2026-02",
+      "count": 1
+     },
+     {
+      "month": "2026-03",
+      "count": 2
+     },
+     {
+      "month": "2026-04",
+      "count": 2
+     },
+     {
+      "month": "2026-05",
+      "count": 2
+     },
+     {
+      "month": "2026-06",
+      "count": 1
+     }
+    ],
+    "monthly_answered_fine": [
+     {
+      "month": "2026-01",
+      "count": 2
+     },
+     {
+      "month": "2026-03",
+      "count": 1
+     }
+    ],
+    "disposition": {
+     "fines": 3,
+     "warnings": 2,
+     "rejects": 2,
+     "unconfirmed": 3,
+     "in_progress": 4,
+     "disposition_unknown": 1,
+     "no_penalty": 0,
+     "unclassified": 2,
+     "overlap": 1
+    },
+    "fine_amount": {
+     "confirmed_amount": 100000,
+     "confirmed_count": 2,
+     "unknown_count": 1,
+     "estimated_amount": 50000,
+     "estimated_count": 1
+    },
+    "report_types": [
+     {
+      "name": "신호위반",
+      "count": 5
+     },
+     {
+      "name": "",
+      "count": 2
+     },
+     {
+      "name": "끼어들기",
+      "count": 2
+     },
+     {
+      "name": "버스전용차로 위반",
+      "count": 1
+     },
+     {
+      "name": "안전모 미착용",
+      "count": 1
+     },
+     {
+      "name": "중앙선 침범",
+      "count": 1
+     },
+     {
+      "name": "진로변경 위반",
+      "count": 1
+     }
+    ]
+   },
+   "expected_agency_rows": [
+    {
+     "agency": "A경찰서",
+     "total": 5,
+     "avg_days": 4.5,
+     "avg_days_count": 2,
+     "fines": 2,
+     "fine_amount_unknown": 0,
+     "total_fine_amount": 100000,
+     "estimated_fine_amount": 0,
+     "estimated_fine_count": 0,
+     "in_progress": 2,
+     "disposition_unknown": 0,
+     "no_penalty": 0,
+     "unclassified": 1
+    },
+    {
+     "agency": "B구청",
+     "total": 4,
+     "avg_days": 15.0,
+     "avg_days_count": 3,
+     "fines": 1,
+     "fine_amount_unknown": 1,
+     "total_fine_amount": 0,
+     "estimated_fine_amount": 50000,
+     "estimated_fine_count": 1,
+     "in_progress": 0,
+     "disposition_unknown": 0,
+     "no_penalty": 0,
+     "unclassified": 0
+    },
+    {
+     "agency": "C경찰서",
+     "total": 2,
+     "avg_days": 7.0,
+     "avg_days_count": 2,
+     "fines": 0,
+     "fine_amount_unknown": 0,
+     "total_fine_amount": 0,
+     "estimated_fine_amount": 0,
+     "estimated_fine_count": 0,
+     "in_progress": 0,
+     "disposition_unknown": 1,
+     "no_penalty": 0,
+     "unclassified": 1
+    }
+   ]
+  },
+  {
+   "name": "parking_other_mix",
+   "rows": [
+    {
+     "category": "parking",
+     "처리상태": "수용",
+     "신고일": "2026-01-05",
+     "답변일": "2026-01-06",
+     "범칙금_과태료": "과태료",
+     "신고명": "불법주정차신고",
+     "처리기관": "D구청",
+     "담당자": "정",
+     "entry_value": "불법주정차신고-기타 불법주정차",
+     "차량번호": "56다7890",
+     "위반법규": "",
+     "별점": 5,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "parking",
+     "처리상태": "수용",
+     "신고일": "2026-01-07",
+     "답변일": "2026-01-08",
+     "범칙금_과태료": "과태료 40.000원",
+     "신고명": "불법주정차신고",
+     "처리기관": "D구청",
+     "담당자": "정",
+     "entry_value": "불법주정차신고-소화전",
+     "차량번호": "56다7891",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "other",
+     "처리상태": "수용",
+     "신고일": "2026-02-01",
+     "답변일": "2026-02-10",
+     "범칙금_과태료": "",
+     "신고명": "도로 파손",
+     "처리기관": "E구청",
+     "담당자": "한",
+     "entry_value": "안전신고-생활안전",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "other",
+     "처리상태": "수용",
+     "신고일": "2026-02-02",
+     "답변일": "2026-02-05",
+     "범칙금_과태료": "과태료",
+     "신고명": "쓰레기, 폐기물",
+     "처리기관": "E구청",
+     "담당자": "한",
+     "entry_value": "안전신고-쓰레기, 폐기물",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "other",
+     "처리상태": "일부수용",
+     "신고일": "2026-02-03",
+     "답변일": "2026-02-04",
+     "범칙금_과태료": "",
+     "신고명": "가로등 고장",
+     "처리기관": "F공사",
+     "담당자": "오",
+     "entry_value": "안전신고-생활안전",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    }
+   ],
+   "expected_overview": {
+    "total": 5,
+    "completed": 5,
+    "accept": 4,
+    "partial": 1,
+    "reject": 0,
+    "supplement": 0,
+    "processing": 0,
+    "withdraw": 0,
+    "avg_days": 3.0,
+    "avg_days_count": 5,
+    "reversed_date_count": 0,
+    "undated_report_count": 0,
+    "monthly_reported": [
+     {
+      "month": "2026-01",
+      "count": 2
+     },
+     {
+      "month": "2026-02",
+      "count": 3
+     }
+    ],
+    "monthly_answered": [
+     {
+      "month": "2026-01",
+      "count": 2
+     },
+     {
+      "month": "2026-02",
+      "count": 3
+     }
+    ],
+    "monthly_answered_fine": [
+     {
+      "month": "2026-01",
+      "count": 2
+     },
+     {
+      "month": "2026-02",
+      "count": 1
+     }
+    ],
+    "disposition": {
+     "fines": 3,
+     "warnings": 0,
+     "rejects": 0,
+     "unconfirmed": 2,
+     "in_progress": 0,
+     "disposition_unknown": 0,
+     "no_penalty": 2,
+     "unclassified": 0,
+     "overlap": 0
+    },
+    "fine_amount": {
+     "confirmed_amount": 40000,
+     "confirmed_count": 1,
+     "unknown_count": 2,
+     "estimated_amount": 90000,
+     "estimated_count": 2
+    },
+    "report_types": [
+     {
+      "name": "불법주정차신고",
+      "count": 2
+     },
+     {
+      "name": "가로등 고장",
+      "count": 1
+     },
+     {
+      "name": "도로 파손",
+      "count": 1
+     },
+     {
+      "name": "쓰레기, 폐기물",
+      "count": 1
+     }
+    ]
+   },
+   "expected_agency_rows": [
+    {
+     "agency": "D구청",
+     "total": 2,
+     "avg_days": 1.0,
+     "avg_days_count": 2,
+     "fines": 2,
+     "fine_amount_unknown": 1,
+     "total_fine_amount": 40000,
+     "estimated_fine_amount": 40000,
+     "estimated_fine_count": 1,
+     "in_progress": 0,
+     "disposition_unknown": 0,
+     "no_penalty": 0,
+     "unclassified": 0
+    },
+    {
+     "agency": "E구청",
+     "total": 2,
+     "avg_days": 6.0,
+     "avg_days_count": 2,
+     "fines": 1,
+     "fine_amount_unknown": 1,
+     "total_fine_amount": 0,
+     "estimated_fine_amount": 50000,
+     "estimated_fine_count": 1,
+     "in_progress": 0,
+     "disposition_unknown": 0,
+     "no_penalty": 1,
+     "unclassified": 0
+    },
+    {
+     "agency": "F공사",
+     "total": 1,
+     "avg_days": 1.0,
+     "avg_days_count": 1,
+     "fines": 0,
+     "fine_amount_unknown": 0,
+     "total_fine_amount": 0,
+     "estimated_fine_amount": 0,
+     "estimated_fine_count": 0,
+     "in_progress": 0,
+     "disposition_unknown": 0,
+     "no_penalty": 1,
+     "unclassified": 0
+    }
+   ]
+  },
+  {
+   "name": "empty",
+   "rows": [],
+   "expected_overview": {
+    "total": 0,
+    "completed": 0,
+    "accept": 0,
+    "partial": 0,
+    "reject": 0,
+    "supplement": 0,
+    "processing": 0,
+    "withdraw": 0,
+    "avg_days": null,
+    "avg_days_count": 0,
+    "reversed_date_count": 0,
+    "undated_report_count": 0,
+    "monthly_reported": [],
+    "monthly_answered": [],
+    "monthly_answered_fine": [],
+    "disposition": {
+     "fines": 0,
+     "warnings": 0,
+     "rejects": 0,
+     "unconfirmed": 0,
+     "in_progress": 0,
+     "disposition_unknown": 0,
+     "no_penalty": 0,
+     "unclassified": 0,
+     "overlap": 0
+    },
+    "fine_amount": {
+     "confirmed_amount": 0,
+     "confirmed_count": 0,
+     "unknown_count": 0,
+     "estimated_amount": 0,
+     "estimated_count": 0
+    },
+    "report_types": []
+   },
+   "expected_agency_rows": []
+  }
+ ]
+}
