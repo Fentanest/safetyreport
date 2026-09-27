@@ -84,5 +84,6 @@ class CommunityAccountClient:
     def revoke_connection(self, access_token: str, connection_id: str) -> dict:
         return self._post("connections-revoke", access_token, {"connection_id": connection_id})
 
+    # 공유한 자료 전체 삭제: 아직 구현하지 않는 기능이다(2026-09-27). 현재 이를 부르는 화면·HTTP 경로가 없다.
     def delete_contributions(self, access_token: str) -> dict:
         return self._post("contributions-delete", access_token, {"confirm": "DELETE_MY_SHARED_REPORTS"})

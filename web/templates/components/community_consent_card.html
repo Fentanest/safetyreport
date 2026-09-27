@@ -40,10 +40,15 @@
                     {% if cm_mode != 'onboarding' %}
                     <div class="d-flex flex-wrap gap-2">
                         <button type="button" class="btn btn-outline-danger btn-sm" id="ccRevokeBtn">동의 철회</button>
+                        {# 공유한 자료 전체 삭제(contributions-delete)는 아직 구현하지 않는 기능이다(2026-09-27 결정). 되살릴 때 이 주석을 해제한다.
                         <button type="button" class="btn btn-outline-danger btn-sm" id="ccDeleteBtn">공유한 자료 삭제 요청</button>
+                        #}
                     </div>
                     <div class="small text-muted mt-2">
-                        철회하면 이 동의로 보낸 자료가 공개 지도에서 빠지고, 이 프로그램은 필수 설정 화면으로 돌아갑니다. 삭제 요청은 철회와 별개이며 공개 지도·통계에서 자료를 지웁니다.
+                        철회하면 이 동의로 보낸 자료가 공개 지도에서 빠지고, 이 프로그램은 필수 설정 화면으로 돌아갑니다.
+                        {# 공유한 자료 전체 삭제(contributions-delete)는 아직 구현하지 않는 기능이다(2026-09-27 결정). 되살릴 때 이 주석을 해제한다.
+                        삭제 요청은 철회와 별개이며 공개 지도·통계에서 자료를 지웁니다.
+                        #}
                     </div>
                     {% endif %}
                 </div>
@@ -218,14 +223,15 @@
         }
         return issues.length ? { text: head + ' ' + issues.join(' '), level: 'warning' } : { text: head, level: 'success' };
     }
-    if ($('ccDeleteBtn')) $('ccDeleteBtn').addEventListener('click', function () {
-        var typed = window.prompt('공유한 자료를 공개 지도·통계에서 삭제합니다. 삭제 전에 수집한 사본은 다시 올릴 수 없습니다.\n계속하려면 "삭제" 를 입력하세요.');
-        if (typed !== '삭제') return;
-        act('contributions-delete', { confirm: 'DELETE_MY_SHARED_REPORTS' }, this, function (data) {
-            var r = deletionResultMessage(data);
-            alertBox(r.text, r.level);
-        });
-    });
+    // 공유한 자료 전체 삭제(contributions-delete)는 아직 구현하지 않는 기능이다(2026-09-27 결정). 되살릴 때 이 주석을 해제한다.
+    // if ($('ccDeleteBtn')) $('ccDeleteBtn').addEventListener('click', function () {
+    //     var typed = window.prompt('공유한 자료를 공개 지도·통계에서 삭제합니다. 삭제 전에 수집한 사본은 다시 올릴 수 없습니다.\n계속하려면 "삭제" 를 입력하세요.');
+    //     if (typed !== '삭제') return;
+    //     act('contributions-delete', { confirm: 'DELETE_MY_SHARED_REPORTS' }, this, function (data) {
+    //         var r = deletionResultMessage(data);
+    //         alertBox(r.text, r.level);
+    //     });
+    // });
 
     document.addEventListener('sr:community-status', function (ev) {
         var was = kakaoConnected;

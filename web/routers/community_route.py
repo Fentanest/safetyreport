@@ -259,6 +259,7 @@ def _takeover() -> dict:
 
 
 def _contributions_delete() -> dict:
+    # 미구현 기능(공유한 자료 전체 삭제)의 내부 처리. 현재 이를 부르는 화면·HTTP 경로가 없다(아래 주석 처리한 라우트 참고).
     from services import community_capture
 
     # 1) 로컬 삭제 대기 표시를 먼저(community.db, 트랜잭션). 못 쓰면 중앙 삭제를 요청하지 않는다(Sol 2차 H-03a).
@@ -340,9 +341,11 @@ async def web_writer(request: Request):
     return await _gate_action(request, {"takeover"}, _takeover, {"takeover": True})
 
 
-@router.post("/contributions-delete")
-async def web_contributions_delete(request: Request):
-    return await _gate_action(request, {"confirm"}, _contributions_delete, {"confirm": "DELETE_MY_SHARED_REPORTS"})
+# 공유한 자료 전체 삭제(contributions-delete)는 아직 구현하지 않는 기능이다(2026-09-27 결정). 되살릴 때 이 주석을 해제한다.
+# 아래 _contributions_delete 는 로컬 삭제 표시(업로드 차단) 규칙 테스트가 쓰므로 남겨 두지만, 이 경로가 없으면 호출되지 않는다.
+# @router.post("/contributions-delete")
+# async def web_contributions_delete(request: Request):
+#     return await _gate_action(request, {"confirm"}, _contributions_delete, {"confirm": "DELETE_MY_SHARED_REPORTS"})
 
 
 # ── 모바일 Client (API 키) ─────────────────────────────────────────────────────
