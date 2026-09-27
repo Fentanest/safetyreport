@@ -36,7 +36,7 @@ CACHE_TTL = 600.0
 FRESH_SECONDS = 60.0
 
 STATES = ("ok", "config_invalid", "kakao_required", "kakao_reauth_required", "session_unreadable",
-          "verification_required", "suspended", "consent_required")
+          "verification_required", "suspended", "consent_required", "db_owner_mismatch")
 
 
 def dataset_key(username: str | None) -> str | None:
@@ -121,6 +121,8 @@ class _Gate:
         self._last_error: str | None = None
         self._takeover_requested = False
         self._last_attempt: float | None = None
+        # 신고 자료 주인 확인(services/account_data.py): None=아직 확인 안 함, 'ok', 'mismatch', 'unknown'(카카오 번호 확인 실패)
+        self._owner: str | None = None
 
     # -- 입력 --------------------------------------------------------------------------------------------
     @staticmethod
@@ -141,6 +143,14 @@ class _Gate:
             status, verified_at, invalidated = self._status, self._verified_at, self._invalidated
         age = None if verified_at is None else max(0.0, self._clock() - verified_at)
         state, reasons = decide(config_state(cfg), session, status, age, invalidated)
+        if state == "ok":
+            # 카카오 로그인·동의가 끝나도, 이 서버의 신고 자료가 다른 카카오 계정 것이면 들어가지 않는다(자료를 지우거나 로그아웃할 때까지)
+            with self._lock:
+                owner = self._owner
+            if owner == "mismatch":
+                state, reasons = "db_owner_mismatch", ["db_owner_mismatch"]
+            elif owner != "ok":
+                state, reasons = "verification_required", ["data_owner_unverified"]
         if state == "verification_required" and self._last_error:
             reasons = reasons + [self._last_error]
         result = {"state": state, "can_enter": state == "ok", "reasons": reasons, "verified_age": age}
@@ -191,7 +201,9 @@ class _Gate:
         self._last_error = None
         state, _ = decide("ok", "valid", status, 0.0, False)
         if state == "ok":
-            self._ensure_writer(service, client, token, status, own, current)
+            owner = self._check_owner(service)
+            if owner == "ok":  # 다른 계정의 자료가 남아 있으면 writer 연결도 만들지 않는다
+                self._ensure_writer(service, client, token, status, own, current)
 
     def check_for_request(self, retry_interval: float = 15.0) -> dict:
         """HTTP 요청용: 캐시 판정. 확인이 필요하면(cold start·무효화·만료) 중앙 status 를 받되,
@@ -212,9 +224,26 @@ class _Gate:
             stale = self._invalidated or age is None or age > max_age
         return self.refresh_now() if stale else self.evaluate()
 
+    def _check_owner(self, service) -> str:
+        """게이트 통과 뒤: 이 서버 DB 의 주인 카카오 회원번호를 확인(처음이면 적음). 네트워크로 번호를 못 받으면 'unknown'."""
+        from services import account_data
+
+        try:
+            owner = account_data.check_owner(service.current_kakao_id())
+        except cas.CommunityAuthError as exc:
+            self._last_error = exc.code
+            owner = "unknown"
+        except Exception as exc:
+            _log.warning("[community] 자료 주인 확인 실패: %s", type(exc).__name__)
+            owner = "unknown"
+        with self._lock:
+            self._owner = owner
+        return owner
+
     def _mark_invalid(self) -> None:
         with self._lock:
             self._invalidated = True
+            self._owner = None
 
     def invalidate(self, reason: str) -> None:
         """로그인·로그아웃·계정 변경·동의 저장/철회·업로드 401/403 뒤. 다음 판정은 중앙 status 를 다시 받아야 통과한다."""
@@ -376,6 +405,7 @@ class _Gate:
             self._last_state, self._writer_note, self._last_error = None, None, None
             self._takeover_requested = False
             self._last_attempt = None
+            self._owner = None
             self._listeners.clear()
 
 

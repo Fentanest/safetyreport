@@ -182,6 +182,21 @@ by_law (법규별, 같은 필드 + law)
 - 모바일은 같은 규칙(`LocalDbService.resetLegacyDatabase`·`_refuseOtherVersion`, 모바일 레포 `docs/architecture/data-contracts.md`). 계약: `contracts/community-ingest/rebuild.md` "이전 버전 개인 DB".
 - 되돌리기: 서버를 멈추고 `data/data.db`(와 `-wal`/`-shm`)를 `legacy_v*` 백업으로 바꾼 뒤 **이전 버전 서버**로 띄운다(이번 서버로 띄우면 다시 비운다).
 
+## 2026-09-27 신고 자료의 주인 = 카카오 계정 (서버·모바일 함께)
+
+사용자 결정: 카카오 로그인은 필수, 카카오 로그아웃은 신고 자료를 지운다, 다른 사람의 DB 는 가져오지 못한다.
+- 키 `kakao_member_id`: 서버 `mysafety_sync_meta`, 모바일 `sync_meta`. 값은 카카오 회원번호 원문(숫자 문자열, GoTrue `identities[provider=kakao]` 에서 읽음 —
+  `user_metadata` 는 쓰지 않음). 스키마·버전 변경 없음(key/value 행 하나). 교환 때 다른 sync_meta 키와 같이 그대로 옮긴다 —
+  `scripts/dev/db_roundtrip_check.py` 가 S0·M1·S2·M3 네 DB 모두 같은 값인지 따로 확인한다(`[owner]`).
+- 쓰는 때: 게이트가 처음 통과할 때(주인 표시가 없을 때만), "신고 내역 지우고 이 계정으로 시작". 지우는 때: 카카오 로그아웃·위 전환(자료와 함께).
+  `start.py --reset` 은 이 키를 남긴다(같은 사용자의 초기화).
+- 가져오기·복원(서버 `exchange.restore`, 모바일 `importFromServerDb`·`replaceFromBackup`): 버전 검사 바로 뒤·무엇이든 바꾸기 전에 파일의 주인을 본다.
+  없거나(이 기능 전 DB 포함) 지금 로그인한 계정과 다르거나 로그인 계정 번호를 모르면 거절(서버 409 `ForeignDatabaseRefused`, 모바일 `ForeignDatabaseException`).
+- 카카오 로그아웃이 비우는 범위 = 이전 DB 초기화와 같다: 서버는 `admin_users`·`api_keys`·`mysafety_watchlist`·`mysafety_geocode_cache` 유지,
+  모바일은 감시목록(`sync_meta['watchlist']`)·`geocode_cache` 유지. 백업은 만들지 않는다. 크롤링·동기화·지도 변환 중이면 거절(아무것도 안 바꿈).
+- API: `POST /api/v1/community-auth/disconnect` 는 **삭제**(사용자 결정 "경로 삭제", 코드 주석 처리). 폰에서 서버의 카카오 로그인을 풀 수 없다.
+  상태 DTO 의 로그인 후보에 `is_different_data_owner`(하위호환 추가). 게이트 상태에 `db_owner_mismatch` 추가.
+
 ## 2026-09-25 업데이트 때 DB 처리 (서버) — 2026-09-27 부터 비활성(위 절)
 - 서버 기동(`main.py`)·크롤러(`start.py`)가 `upgrade_schema(..., backup_dir=data/backups)` 를 부른다. DB 의 `PRAGMA user_version` 이 코드(`SCHEMA_VERSION`)보다 낮으면,
   표·열 추가를 포함해 **무엇이든 바꾸기 전에** `data/backups/before_schema_v<옛 버전>_<시각>.db` 로 SQLite backup API 복사(WAL 포함). 이 접두어 파일은 최근 5개만 남긴다.
@@ -515,7 +530,7 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
   - 실제 원본 취하 건수는 `withdrawRawCount` 로 별도 전달
 | GET | `/app/config` | 앱 설정 (`exclude_withdraw`, `normalize_police`, `use_representative_records` 등). `capabilities`(기능 목록: `rating_cause`, `community_account`)·`rating_cause_max` — 앱이 서버 기능을 알아본다(2026-09-25) |
 | GET | `/community-auth/status` | 서버의 커뮤니티 계정 상태 DTO(`{"data": …}`). 모든 키 가능, 관리 권한 없는 키는 `can_manage=false`·연결 링크 없음 (2026-09-25) |
-| POST | `/community-auth/start` · `/confirm` · `/cancel` · `/disconnect` | 커뮤니티 계정 연결 관리. `[COMMUNITY] api_key_managers` 에 허용된 키만(아니면 403 `permission_required`). 본문·오류 코드는 `community-account.md` |
+| POST | `/community-auth/start` · `/confirm` · `/cancel` | 커뮤니티 계정 연결 관리(`/disconnect` 는 2026-09-27 삭제). `[COMMUNITY] api_key_managers` 에 허용된 키만(아니면 403 `permission_required`). 본문·오류 코드는 `community-account.md` |
 | POST | `/settings` | 필터 설정 저장 (`normalize_police`, `exclude_withdraw`, `use_representative_records`) |
 | GET | `/files?path=` | 서버 파일 브라우저 (logs/results 한정) |
 | GET | `/files/download?path=&api_key=` | 파일 다운로드 (헤더 또는 쿼리 파라미터 인증) |

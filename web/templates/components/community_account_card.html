@@ -86,6 +86,9 @@
                         <div id="cmReplaceWarn" class="alert alert-danger small mt-2 mb-0 d-none" role="alert">
                             지금 연결된 계정(<span id="cmCurrentName"></span>)과 다른 계정입니다. 연결하면 <strong>기존 연결이 이 계정으로 바뀝니다.</strong>
                         </div>
+                        <div id="cmOwnerWarn" class="alert alert-danger small mt-2 mb-0 d-none" role="alert">
+                            이 서버에 저장된 신고 내역은 다른 카카오 계정의 것입니다. 이 계정으로 계속하려면 <strong>저장된 신고 내역을 지워야 합니다.</strong>
+                        </div>
                     </div>
                     <div class="d-flex flex-wrap gap-2">
                         <button type="button" class="btn btn-success btn-sm" id="cmConfirmBtn"><i class="fas fa-check me-1"></i>이 계정으로 연결</button>
@@ -103,10 +106,26 @@
                         <dt class="col-sm-3 col-lg-2">업로드</dt><dd class="col-sm-9 col-lg-10" id="cmUploadState"></dd>
                     </dl>
                     <div class="d-flex flex-wrap gap-2">
-                        <button type="button" class="btn btn-outline-danger btn-sm" id="cmDisconnectBtn">연결 해제</button>
+                        {# 2026-09-27: 카카오 로그인 필수(사용자 결정) — 데이터를 남긴 채 로그인만 푸는 "연결 해제"는 지금은 쓰지 않는다(주석 처리).
+                        <button type="button" class="btn btn-outline-danger btn-sm" id="cmDisconnectBtn">연결 해제</button> #}
+                        <button type="button" class="btn btn-outline-danger btn-sm" id="cmLogoutBtn">카카오 로그아웃</button>
                         <button type="button" class="btn btn-outline-secondary btn-sm" id="cmRelinkBtn">다른 계정으로 다시 연결</button>
                     </div>
-                    <div class="small text-muted mt-1" id="cmRelinkNote">다시 연결해도 새 계정을 확인하기 전까지 지금 연결은 그대로입니다.</div>
+                    <div class="small text-muted mt-1" id="cmRelinkNote">다시 연결해도 새 계정을 확인하기 전까지 지금 연결은 그대로입니다.
+                        로그아웃하면 이 서버에 저장된 신고 내역이 지워집니다.</div>
+                </div>
+
+                <!-- 신고 자료가 다른 카카오 계정의 것(게이트 db_owner_mismatch) -->
+                <div id="cmPanelOwnerMismatch" class="d-none">
+                    <div class="alert alert-warning small">
+                        이 서버에 저장된 신고 내역은 지금 로그인한 카카오 계정이 아닌 다른 계정의 것입니다.
+                        이 계정으로 쓰려면 저장된 신고 내역을 지우고 시작해야 합니다. 원래 계정으로 쓰려면 로그아웃한 뒤 그 계정으로 다시 로그인해 주세요
+                        (이때 저장된 신고 내역은 지우지 않습니다).
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button type="button" class="btn btn-danger btn-sm" id="cmAdoptBtn">신고 내역 지우고 이 계정으로 시작</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="cmOwnerLogoutBtn">로그아웃(신고 내역 유지)</button>
+                    </div>
                 </div>
 
                 <!-- 저장소 읽기 실패 -->
@@ -124,7 +143,7 @@
                 <!-- 모바일 앱(API 키) 관리 권한 -->
                 <h6 class="mb-2 text-primary border-bottom pb-2">모바일 앱의 커뮤니티 계정 관리 권한</h6>
                 <p class="small text-muted mb-2">
-                    체크한 API 키(기기)만 모바일 앱에서 이 서버의 커뮤니티 계정 연결·확인·해제를 할 수 있습니다. 상태 조회는 모든 키가 할 수 있지만 연결 링크는 보이지 않습니다.
+                    체크한 API 키(기기)만 모바일 앱에서 이 서버의 커뮤니티 계정 연결·확인을 할 수 있습니다. 상태 조회는 모든 키가 할 수 있지만 연결 링크는 보이지 않습니다.
                 </p>
                 <div id="cmApiKeys" class="mb-2 small"></div>
                 <button type="button" class="btn btn-outline-primary btn-sm" id="cmSaveKeysBtn">권한 저장</button>
@@ -302,6 +321,7 @@
             show('cmPanelConfirm', true);
             text('cmCandidateName', dto.candidate.display_name || '카카오 사용자');
             show('cmReplaceWarn', !!dto.candidate.is_different_account);
+            show('cmOwnerWarn', !!dto.candidate.is_different_data_owner);
             text('cmCurrentName', dto.account ? dto.account.display_name : '');
         }
         var showAccount = dto.account && dto.account.session_state === 'valid' &&
@@ -380,20 +400,52 @@
         if (!last || !last.candidate) return;
         act('cancel', { request_id: last.candidate.request_id }, this);
     });
-    $('cmDisconnectBtn').addEventListener('click', function () {
-        var ok = window.confirm('연결을 해제하면 이 서버에 저장된 커뮤니티 로그인 정보를 지우고, 인증 서버에는 이 서버의 세션만 끝내도록 요청합니다.\n' +
-            '다른 기기의 로그인과 신고 데이터는 그대로입니다. 계속할까요?');
+    // 2026-09-27: 카카오 로그인 필수(사용자 결정) — "연결 해제"는 지금은 쓰지 않는다(주석 처리). 카카오 로그아웃은 신고 내역을 지운다.
+    // $('cmDisconnectBtn').addEventListener('click', function () {
+    //     var ok = window.confirm('연결을 해제하면 이 서버에 저장된 커뮤니티 로그인 정보를 지우고, 인증 서버에는 이 서버의 세션만 끝내도록 요청합니다.\n' +
+    //         '다른 기기의 로그인과 신고 데이터는 그대로입니다. 계속할까요?');
+    //     if (!ok) return;
+    //     act('disconnect', {}, this, function (res) {
+    //         var confirmed = res.result && res.result.server_logout;
+    //         alertBox(confirmed ? '연결을 해제했습니다. 인증 서버에서도 이 서버의 세션을 끝냈습니다.'
+    //                            : '연결을 해제했습니다(이 서버의 로그인 정보 삭제). 인증 서버 로그아웃은 확인하지 못했습니다.',
+    //                  confirmed ? 'success' : 'warning');
+    //     });
+    // });
+    function logout(button, keepReports) {
+        act('logout', { confirm: 'DELETE_MY_REPORTS' }, button, function (res) {
+            var wiped = res.result && res.result.reports_wiped;
+            alertBox(wiped ? '로그아웃했습니다. 이 서버에 저장된 신고 내역을 지웠습니다. 다시 쓰려면 카카오 계정으로 로그인해 주세요.'
+                           : '로그아웃했습니다. 다시 쓰려면 카카오 계정으로 로그인해 주세요.', 'success');
+            setTimeout(function () { window.location.reload(); }, 1500);
+        });
+    }
+    $('cmLogoutBtn').addEventListener('click', function () {
+        var ok = window.confirm('로그아웃하면 이 서버에 저장된 신고 내역이 모두 지워집니다.\n' +
+            '다시 로그인하면 안전신문고에서 신고 내역을 처음부터 다시 불러와야 합니다(관리자 계정·기기 연동·감시 목록은 남습니다).\n로그아웃할까요?');
         if (!ok) return;
-        act('disconnect', {}, this, function (res) {
-            var confirmed = res.result && res.result.server_logout;
-            alertBox(confirmed ? '연결을 해제했습니다. 인증 서버에서도 이 서버의 세션을 끝냈습니다.'
-                               : '연결을 해제했습니다(이 서버의 로그인 정보 삭제). 인증 서버 로그아웃은 확인하지 못했습니다.',
-                     confirmed ? 'success' : 'warning');
+        logout(this);
+    });
+    $('cmOwnerLogoutBtn').addEventListener('click', function () {
+        if (!window.confirm('로그아웃할까요? 저장된 신고 내역(다른 카카오 계정의 것)은 지우지 않습니다.')) return;
+        logout(this, true);
+    });
+    $('cmAdoptBtn').addEventListener('click', function () {
+        var ok = window.confirm('저장된 신고 내역(다른 카카오 계정의 것)을 모두 지우고 지금 로그인한 계정으로 시작합니다.\n' +
+            '지운 내역은 되돌릴 수 없습니다. 계속할까요?');
+        if (!ok) return;
+        act('db-owner/adopt', { confirm: 'DELETE_OTHER_ACCOUNT_REPORTS' }, this, function () {
+            alertBox('신고 내역을 지웠습니다. 이 계정으로 시작합니다.', 'success');
+            setTimeout(function () { window.location.reload(); }, 1200);
         });
     });
+    document.addEventListener('sr:community-gate', function (ev) {
+        var g = ev.detail || {};
+        show('cmPanelOwnerMismatch', g.state === 'db_owner_mismatch');
+    });
     $('cmResetBtn').addEventListener('click', function () {
-        if (!window.confirm('읽을 수 없는 커뮤니티 로그인 파일을 옆으로 옮기고 초기화할까요?')) return;
-        act('disconnect', {}, this);
+        if (!window.confirm('읽을 수 없는 커뮤니티 로그인 파일을 옆으로 옮기고 초기화할까요? 저장된 신고 내역은 지우지 않습니다.')) return;
+        act('reset-session', {}, this);
     });
     $('cmCopyBtn').addEventListener('click', function () {
         var url = last && last.pending ? safeLink(last.pending.bootstrap_url) : null;

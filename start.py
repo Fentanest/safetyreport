@@ -94,7 +94,8 @@ def _prepare_database(engine, reset=False):
             database.metadata.drop_all(conn, tables=data_tables)
             conn.execute(
                 database.sync_meta_table.delete().where(
-                    database.sync_meta_table.c.key.notin_(["watchlist", database.LEGACY_RESET_META_KEY])
+                    database.sync_meta_table.c.key.notin_(["watchlist", database.LEGACY_RESET_META_KEY,
+                                                           database.KAKAO_MEMBER_META_KEY])  # 데이터 주인 표시는 남긴다
                 )
             )
             conn.exec_driver_sql("DROP TABLE IF EXISTS mysafety_supplement_history")

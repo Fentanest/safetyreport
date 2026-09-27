@@ -189,6 +189,22 @@ class GateTestBase(CommunityTestBase):
             self.addCleanup(p.stop)
         self.service.upload_allowed_provider = cas._gate_can_enter
         self.addCleanup(CommunityStore._forget, os.path.join(self.data, "community.db"))
+        # 개인 DB(settings.db_path)는 시험끼리 같은 파일이다 — 신고 자료 주인 표시가 다음 시험으로 새지 않게 비워 두고 시작한다
+        self._clear_data_owner()
+        self.addCleanup(self._clear_data_owner)
+
+    @staticmethod
+    def _clear_data_owner():
+        from core.database import database
+        from core.database.engine import get_engine
+
+        try:
+            database.upgrade_schema(get_engine())
+            with get_engine().begin() as conn:
+                conn.execute(database.sync_meta_table.delete().where(
+                    database.sync_meta_table.c.key == database.KAKAO_MEMBER_META_KEY))
+        except Exception:
+            pass
 
     @property
     def store(self):
@@ -348,8 +364,12 @@ class GateServiceTests(GateTestBase):
         self.assertEqual(self.store.context()["connection_id"], cid)
 
     def test_other_user_conflict_then_takeover(self):
+        from services import account_data
+
         self.open_gate(USER_A)
         first = self.store.context()["connection_id"]
+        # 카카오 로그아웃(2026-09-27): 신고 자료를 지운 뒤 로그인을 끝낸다 — 다음 계정이 새 주인이 된다
+        account_data.wipe_report_data("kakao_logout")
         self.service.disconnect()
         community_gate.invalidate("logout")
         self.connect(USER_B)
@@ -614,11 +634,58 @@ class GateAppTests(GateTestBase):
         token = self.login()
         self.open_gate()
         self.assertEqual(self.client.get("/settings/", follow_redirects=False).status_code, 200)
-        r = self.post("/settings/community/disconnect", {}, token=token)
+        # 2026-09-27: 로그인만 푸는 연결 해제는 없앴다(카카오 로그인 필수) — 로그아웃은 확인 문구와 함께 신고 자료를 지운다
+        self.assertEqual(self.post("/settings/community/disconnect", {}, token=token).status_code, 404)
+        self.assertEqual(self.post("/settings/community/logout", {}, token=token).status_code, 400, "확인 없이는 로그아웃하지 않는다")
+        r = self.post("/settings/community/logout", {"confirm": "DELETE_MY_REPORTS"}, token=token)
         self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()["result"]["reports_wiped"])
         self.assertEqual(r.json()["gate"]["state"], "kakao_required")
         self.assertEqual(self.client.get("/settings/", follow_redirects=False).status_code, 302)
         self.assertEqual(self.store.context()["state"], "inactive")
+
+    def test_logout_is_refused_when_the_data_owner_cannot_be_read(self):
+        # 주인 표시를 읽지 못하면 "주인 없음"으로 보고 지우지 않는다 — 아무것도 지우지 않고 로그인도 그대로(Codex 검수 P1)
+        from services import account_data
+
+        token = self.login()
+        self.open_gate()
+        with mock.patch.object(account_data, "db_owner", side_effect=RuntimeError("disk")), \
+                mock.patch.object(account_data, "wipe_report_data") as wipe:
+            r = self.post("/settings/community/logout", {"confirm": "DELETE_MY_REPORTS"}, token=token)
+        self.assertEqual(r.status_code, 409)
+        self.assertIn("로그아웃하지 않았습니다", r.json()["detail"])
+        wipe.assert_not_called()
+        self.assertTrue(community_gate.evaluate()["can_enter"])
+        self.assertIsNotNone(self.service.session_kakao_id())
+
+    def test_another_account_on_the_same_data_is_blocked_until_the_data_is_wiped(self):
+        from core.database import models
+        from core.database.engine import get_engine
+        from services import account_data
+        from sqlalchemy import func, select
+
+        token = self.login()
+        self.open_gate(USER_A)
+        self.assertEqual(account_data.db_owner(), "910001")
+        # 로그아웃 없이 다른 카카오 계정으로 다시 로그인(재인증 등) — A 의 자료가 남아 있다
+        self.connect(USER_B)
+        self.account.grant(USER_B)
+        community_gate.invalidate("login")
+        result = community_gate.refresh_now()
+        self.assertEqual((result["state"], result["can_enter"]), ("db_owner_mismatch", False))
+        self.assertEqual(self.client.get("/settings/", follow_redirects=False).status_code, 302)
+        self.assertNotEqual((self.store.context() or {}).get("state"), "active", "다른 계정의 자료로는 업로드 연결도 만들지 않는다")
+        self.assertIn("db_owner_mismatch", self.client.get("/onboarding/community").text)
+        self.assertEqual(self.post("/settings/community/db-owner/adopt", {}, token=token).status_code, 400)
+        r = self.post("/settings/community/db-owner/adopt", {"confirm": "DELETE_OTHER_ACCOUNT_REPORTS"}, token=token)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["data"]["can_enter"])
+        self.assertEqual(account_data.db_owner(), "910002")
+        with get_engine().connect() as conn:
+            self.assertEqual(conn.execute(select(func.count()).select_from(models.title_table)).scalar(), 0)
+        self.assertEqual(self.post("/settings/community/db-owner/adopt", {"confirm": "DELETE_OTHER_ACCOUNT_REPORTS"},
+                                   token=token).status_code, 409, "주인이 같아진 뒤에는 다시 지우지 않는다")
 
     def test_config_invalid_recovery_allowed(self):
         token = self.login()

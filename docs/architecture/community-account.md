@@ -25,7 +25,8 @@
 
 | 파일 | 역할 |
 |---|---|
-| `services/community_auth_service.py` | 설정 검증, 상태 DTO, start/poll 스레드/confirm/cancel/disconnect, `get_access_token()`·`is_upload_allowed()` |
+| `services/community_auth_service.py` | 설정 검증, 상태 DTO, start/poll 스레드/confirm/cancel/disconnect, `get_access_token()`·`is_upload_allowed()`, `kakao_member_id()`·`current_kakao_id()` |
+| `services/account_data.py` | 신고 자료의 주인(카카오 회원번호) 확인·기록, 로그아웃 때 신고 자료 비우기, 다른 계정 DB 가져오기 거절 |
 | `services/community_auth_client.py` | 중계·GoTrue HTTP 클라이언트(requests, 10초, 리다이렉트 안 따라감), PKCE, 기기 이름·연결 링크 검증 |
 | `services/community_auth_store.py` | 암호화 저장소, 파일 락, 원자적 쓰기, 설치 ID |
 | `web/routers/community_route.py` | 관리자 웹 `/settings/community/*`, 모바일 `/api/v1/community-auth/*` |
@@ -64,25 +65,27 @@
 - `data/auth/.community_key`: 설치별 Fernet 키(`os.open(..., 0o600)` + chmod 0600). **`.config_key` 와 따로** 둔다(설정 암호화 키와 수명·노출면을 분리).
 - `data/auth/community_installation_id`: 설치 ID(비밀 아님, 중계는 HMAC 만 저장). `data/auth/.community.lock`: 파일 락.
 - 쓰기: 같은 폴더 임시 파일 → fsync → `os.replace` → 폴더 fsync. 락: 프로세스 안 `RLock` + POSIX `fcntl.flock` / Windows `msvcrt.locking`.
-- 읽을 수 없음(키 분실·손상·다른 설치에서 복사): 상태 `store_unreadable`, 덮어쓰지 않는다. 관리자가 "초기화"(= disconnect)하면 파일을 `community_session.enc.unreadable-<시각>` 으로 옮긴다(삭제 안 함).
-- **data.db 에 아무것도 쓰지 않는다** → DB 백업·다운로드(`/api/v1/settings/db`)·모바일 DB 변환에 포함되지 않고, 두 레포 스키마 계약도 바뀌지 않는다. `config.ini` 와 `data/auth/*` 는 원래 백업 대상이 아니다. 파일 API(`/api/v1/files`)는 `logs`·`results` 만 연다.
-- 볼륨 전체를 복제하면 세션도 복제된다(같은 키·파일). 복제한 쪽에서는 "연결 해제" 후 다시 연결한다.
+- 읽을 수 없음(키 분실·손상·다른 설치에서 복사): 상태 `store_unreadable`, 덮어쓰지 않는다. 관리자가 "초기화"(`POST reset-session`)하면 파일을 `community_session.enc.unreadable-<시각>` 으로 옮긴다(삭제 안 함).
+- 토큰·세션은 data.db 에 쓰지 않는다 → DB 백업·다운로드(`/api/v1/settings/db`)·모바일 DB 변환에 포함되지 않는다. `config.ini` 와 `data/auth/*` 는 원래 백업 대상이 아니다. 파일 API(`/api/v1/files`)는 `logs`·`results` 만 연다.
+  **예외(2026-09-27)**: 신고 자료의 주인 카카오 회원번호 `mysafety_sync_meta['kakao_member_id']` 는 data.db 에 둔다(아래 "카카오 로그인 필수·자료 주인").
+- 볼륨 전체를 복제하면 세션도 복제된다(같은 키·파일). 복제한 쪽에서는 카카오 로그아웃 후 다시 로그인한다(로그아웃은 그 쪽 신고 자료를 지운다).
 - Windows/설치형도 같은 파일 암호화를 쓴다(OS 보안 저장소 미사용). 같은 사용자 권한의 프로그램으로부터는 보호하지 못한다.
 
 ## 권한
 
 - 관리자 웹: 기존 세션 로그인(미들웨어) + 모든 POST 에 `X-CSRF-Token`(세션 토큰, 설정 화면 `data-csrf`), `Content-Type: application/json`,
   `Origin` 이 있으면 이 요청의 host 와 같아야 함(`Sec-Fetch-Site: cross-site` 거부). 신뢰 프록시(`trusted_proxies`) 설정 시 `X-Forwarded-Host` 와 scheme 차이를 허용. 실패는 403 `csrf_failed`.
-- 모바일 Client(`X-API-Key`): 기존 API 키는 범위 구분이 없어 **기본은 상태 조회만**. 관리(start/confirm/cancel/disconnect)는 관리자가 설정 화면에서
+- 모바일 Client(`X-API-Key`): 기존 API 키는 범위 구분이 없어 **기본은 상태 조회만**. 관리(start/confirm/cancel)는 관리자가 설정 화면에서
   "커뮤니티 계정 관리 허용"을 체크한 키만(`api_key_managers`). 권한 없으면 403 `permission_required`. 권한 없는 키의 상태 응답에는 연결 링크가 없다.
 - 하위 호환: 기존 API·키 동작은 그대로. `/api/v1/app/config` `capabilities` 에 `community_account` 추가.
 
 ## 로컬 API
 
 관리자 웹 `/settings/community/`: `GET status` → `{data, config}`, `POST start {device_label?}`, `POST confirm {request_id}`,
-`POST cancel {request_id?}`, `POST disconnect` → `{data, result:{server_logout, reset_unreadable}}`, `POST settings {enabled?, supabase_url?, publishable_key?, device_label?, api_key_managers?[]}`.
+`POST cancel {request_id?}`, `POST logout {confirm}` → `{data, result:{server_logout, reset_unreadable, reports_wiped}, gate}`,
+`POST reset-session`, `POST db-owner/adopt {confirm}`, `POST settings {enabled?, supabase_url?, publishable_key?, device_label?, api_key_managers?[]}`.
 
-모바일 `/api/v1/community-auth/`: `GET status`, `POST start|confirm|cancel|disconnect` (같은 본문). 성공 `{"data": <상태 DTO>}`.
+모바일 `/api/v1/community-auth/`: `GET status`, `POST start|confirm|cancel` (같은 본문). `disconnect` 는 2026-09-27 에 없앴다(코드 주석 처리 — 폰에서 서버의 카카오 로그인을 풀 수 없다). 성공 `{"data": <상태 DTO>}`.
 오류 `{"detail": "<한국어>", "code": "<code>"}`: 503 `community_disabled`/`community_unconfigured`/`fixture_blocked`, 409 `no_pending`/`request_mismatch`/`invalid_state`/`store_unreadable`,
 410 `expired`, 429 `rate_limited`(`Retry-After`), 502 `relay_unavailable`/`relay_rejected`, 400 `invalid_label`/`invalid_settings`, 403 `permission_required`.
 모든 입력은 JSON 본문(비밀·링크를 URL 에 두지 않음 — 접속 로그에 요청 줄이 남는다). 응답 `Cache-Control: no-store`.
@@ -94,7 +97,7 @@
  "can_manage": true,
  "pending": {"request_id": "…", "display_code": "ABCD-2345", "bootstrap_url": "(can_manage 일 때만)", "expires_at": "…",
              "phase": "created|claimed|oauth_started|exchanging|confirm_required"},
- "candidate": {"request_id": "…", "display_name": "…", "has_email": false, "is_different_account": true},
+ "candidate": {"request_id": "…", "display_name": "…", "has_email": false, "is_different_account": true, "is_different_data_owner": false},
  "account": {"display_name": "…", "connected_at": "…", "session_state": "valid|reauth_required"},
  "last_error": {"code": "…", "message": "…"},
  "upload_enabled": false}
@@ -109,8 +112,24 @@
   락을 잡은 뒤 다시 읽으므로 동시 호출자(다른 프로세스 포함)는 이미 갱신된 값을 쓴다.
   400 `refresh_token_not_found|refresh_token_already_used|session_not_found|session_expired|invalid_grant|user_not_found|user_banned` → `reauth_required`(토큰 삭제, 표시 이름만 유지).
   네트워크/5xx/429 → 세션 유지, `auth_unavailable` 예외.
-- 연결 해제: poll 중지, 대기 요청 취소, 로컬 세션 삭제(항상), 서버에는 `logout?scope=local`(access 가 만료됐으면 refresh 후, refresh 도 실패하면 생략).
-  GoTrue 의 scope 기본값은 global 이므로 늘 `scope=local`. 신고 데이터 등은 건드리지 않는다.
+- `disconnect()`(카카오 로그아웃·세션 초기화가 부름): poll 중지, 대기 요청 취소, 로컬 세션 삭제(항상), 서버에는 `logout?scope=local`(access 가 만료됐으면 refresh 후, refresh 도 실패하면 생략).
+  GoTrue 의 scope 기본값은 global 이므로 늘 `scope=local`. 이 함수 자체는 신고 데이터를 건드리지 않는다 — 지우는 것은 라우트 `/logout` 이다.
+
+## 카카오 로그인 필수·자료 주인 (2026-09-27 사용자 결정)
+
+- 카카오 로그인 없이는 쓸 수 없다(게이트). 로그인만 푸는 "연결 해제"(웹 `/disconnect`, API `/api/v1/community-auth/disconnect`)는 주석 처리했다.
+- **카카오 회원번호**: GoTrue `/auth/v1/user` 의 `identities[provider=kakao]` → `identity_data.provider_id` → `sub` → `id`(숫자만).
+  사용자가 고칠 수 있는 `user_metadata` 는 쓰지 않는다. 로그인 확정 때 세션 레코드에 `kakao_id` 로 저장, 이 기능 전 세션은 `current_kakao_id()` 가 한 번 받아 채운다
+  (실패는 `auth_unavailable`/`user_mismatch`/`kakao_id_missing` — 호출자는 판단을 미룬다).
+- **주인 표시**: `mysafety_sync_meta['kakao_member_id']`(모바일 `sync_meta` 같은 키, 교환 때 그대로 옮김). 게이트가 처음 통과할 때 적는다.
+  로그인 후보 DTO 의 `is_different_data_owner` 는 확정하면 게이트가 막힐 것을 미리 알린다.
+- **카카오 로그아웃**(`POST /settings/community/logout`): 확인 문구 "로그아웃하면 이 서버에 저장된 신고 내역이 모두 지워집니다…" 뒤,
+  신고 자료를 비우고(`account_data.wipe_report_data` → `database.empty_report_data`: `admin_users`·`api_keys`·`mysafety_watchlist`·`mysafety_geocode_cache` 유지,
+  나머지 표는 지우고 다시 만듦, `mysafety_sync_meta` 비움, 백업 없음) 로그아웃한다. community.db 데이터셋을 먼저 선회전한다.
+  지금 계정이 주인과 **다르다고 확인된** 경우만 자료를 남긴다(남의 자료). 크롤링·지도 변환 중이면 409, 아무것도 바꾸지 않는다.
+  주인 표시를 읽지 못하면(DB 오류) "주인 없음"으로 보지 않고 409 로 로그아웃하지 않는다. 게이트의 주인 기록도 한 트랜잭션에서 비어 있을 때만 쓴다(`stamp_meta_if_missing`).
+- **가져오기·복원 거절**(`exchange.restore` → `account_data.refuse_foreign_owner`, 버전 검사 바로 뒤·무엇이든 바꾸기 전): 파일의 주인이 없거나(이 기능 전 DB)
+  지금 로그인한 계정과 다르거나 로그인 계정 번호를 모르면 `ForeignDatabaseRefused`(409). 웹·API 업로드 복원 모두 이 경로다.
 
 ## fixture·수명주기
 

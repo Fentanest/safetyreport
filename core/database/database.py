@@ -583,6 +583,91 @@ def reset_legacy_database(engine, backup_dir: str, *, before_reset=None) -> dict
     return info
 
 
+# ── 카카오 계정(데이터 주인)과 로그아웃 초기화 (2026-09-27 사용자 결정) ─────────────────────────────────
+#: 이 DB 의 주인인 카카오 회원번호(카카오가 준 숫자 ID 원문). 모바일 앱 DB sync_meta 와 같은 키 — 교환 때 그대로 옮겨진다.
+#: 가져오기·복원은 이 값이 지금 로그인한 카카오 회원번호와 같은 DB 만 받는다(core/storage/exchange.refuse_foreign_owner).
+KAKAO_MEMBER_META_KEY = "kakao_member_id"
+
+
+def get_meta(engine, key: str) -> str | None:
+    with engine.connect() as conn:
+        return conn.execute(select(sync_meta_table.c.value).where(sync_meta_table.c.key == key)).scalar()
+
+
+def set_meta(engine, key: str, value: str) -> None:
+    with engine.begin() as conn:
+        conn.execute(sync_meta_table.delete().where(sync_meta_table.c.key == key))
+        conn.execute(sync_meta_table.insert().values(key=key, value=value))
+
+
+def stamp_meta_if_missing(engine, key: str, value: str) -> str | None:
+    """한 트랜잭션에서: 값이 있으면 그 값을 돌려주고 바꾸지 않는다, 없으면(NULL·빈 문자열 포함) value 를 적고 None."""
+    with engine.begin() as conn:
+        current = conn.execute(select(sync_meta_table.c.value).where(sync_meta_table.c.key == key)).scalar()
+        if current:
+            return current
+        conn.execute(sync_meta_table.delete().where(sync_meta_table.c.key == key))
+        conn.execute(sync_meta_table.insert().values(key=key, value=value))
+        return None
+
+
+def empty_report_data(engine, *, before_empty=None) -> dict:
+    """카카오 로그아웃(또는 다른 카카오 계정으로 시작)할 때: 신고 자료만 비운다. 남기는 것은 이전 DB 초기화와 같다
+    (LEGACY_KEEP_TABLES — 관리자·API 키·감시목록·지오코딩 캐시). sync_meta 도 비우므로 데이터 주인 표시(KAKAO_MEMBER_META_KEY)가
+    지워지고, 다음 로그인 계정이 새 주인이 된다. 백업은 만들지 않는다(사용자에게 지운다고 알린 자료).
+
+    쓰기 잠금(BEGIN IMMEDIATE) 한 트랜잭션 — 중간에 멈춰 반쯤 지운 DB 가 없다. before_empty 는 잠금 안에서 지우기 직전에 부른다
+    (community.db 데이터셋 선회전). 호출자는 크롤링·지도 변환이 없고 이 프로세스의 쓰기가 막힌 상태에서 부른다(account_data.wipe_report_data)."""
+    import sqlite3
+    from sqlalchemy.schema import CreateIndex, CreateTable
+
+    db_path = engine.url.database
+    if not db_path or db_path == ":memory:" or not os.path.exists(db_path):
+        raise RuntimeError("파일이 아닌 DB 는 비울 수 없습니다.")
+    dialect = engine.dialect
+    engine.dispose()
+    conn = sqlite3.connect(db_path, isolation_level=None, timeout=LEGACY_RESET_LOCK_TIMEOUT)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            tables = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
+            kept = [name for name in LEGACY_KEEP_TABLES if name in tables and _keepable(conn, name, dialect)]
+            broken = [name for name in LEGACY_REQUIRED_KEEP if name in tables and name not in kept]
+            if broken:
+                raise RuntimeError(f"{', '.join(broken)} 표 구조가 달라 비우지 않았습니다.")
+            if before_empty is not None:
+                before_empty()
+            dropped = [name for name in tables if name not in kept]
+            for name in [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='view'")]:
+                conn.execute(f'DROP VIEW "{name}"')
+            virtual = [r[0] for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE 'CREATE VIRTUAL TABLE%'")]
+            for name in virtual:
+                if name in dropped:
+                    conn.execute(f'DROP TABLE "{name}"')
+            for name in dropped:
+                conn.execute(f'DROP TABLE IF EXISTS "{name}"')
+            for table in metadata.sorted_tables:
+                if table.name in kept:
+                    continue
+                conn.execute(str(CreateTable(table).compile(dialect=dialect)))
+                for index in table.indexes:
+                    conn.execute(str(CreateIndex(index).compile(dialect=dialect)))
+            for statement in _index_statements():
+                conn.execute(statement)
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
+    logger.LoggerFactory.logbot.warning(f"[account] 신고 자료를 비웠습니다(카카오 로그아웃). 남긴 표: {kept}")
+    return {"kept": kept, "dropped": dropped}
+
+
 def legacy_reset_info(engine) -> dict | None:
     """reset_legacy_database 가 남긴 기록(없으면 None)."""
     import json

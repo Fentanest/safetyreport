@@ -321,12 +321,15 @@ _GATE_ALLOW = frozenset({
     ("GET", "/login"), ("POST", "/login"), ("GET", "/setup"), ("POST", "/setup"), ("GET", "/logout"), ("GET", "/health"),
     ("GET", "/onboarding/community"), ("GET", "/onboarding/rebuild"),
     ("GET", "/settings/community/status"), ("GET", "/settings/community/policy"), ("GET", "/settings/community/gate"),
-    *(("POST", f"/settings/community/{a}") for a in ("start", "confirm", "cancel", "disconnect", "settings", "consent",
+    # disconnect 는 2026-09-27 에 없앴다(카카오 로그인 필수) — 대신 logout(신고 자료 삭제)·reset-session(세션 파일 손상 때만)·
+    # db-owner/adopt(다른 계정의 자료를 지우고 시작)
+    *(("POST", f"/settings/community/{a}") for a in ("start", "confirm", "cancel", "logout", "reset-session",
+                                                      "db-owner/adopt", "settings", "consent",
                                                       "consent-revoke", "writer")),  # "contributions-delete": 미구현 기능이라 경로를 주석 처리(community_route.py)
     ("GET", "/settings/community/rebuild"),
     *(("POST", f"/settings/community/rebuild/{a}") for a in ("start", "resume", "pause")),
     ("GET", "/api/v1/app/config"), ("GET", "/api/v1/community-auth/status"),
-    *(("POST", f"/api/v1/community-auth/{a}") for a in ("start", "confirm", "cancel", "disconnect")),
+    *(("POST", f"/api/v1/community-auth/{a}") for a in ("start", "confirm", "cancel")),
     ("GET", "/api/v1/community/gate"), ("GET", "/api/v1/community/rebuild"),
     *(("POST", f"/api/v1/community/rebuild/{a}") for a in ("start", "resume")),
 })
