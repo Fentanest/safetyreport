@@ -57,6 +57,7 @@
     </div>
 </div>
 
+<script src="/static/ui/community_consent_markdown.js?v={{ request.state.app_version }}"></script>
 <script>
 (function () {
     'use strict';
@@ -84,30 +85,8 @@
         var d = new Date(iso);
         return isNaN(d.getTime()) ? String(iso) : d.toLocaleString();
     }
-    // 동의 문서(Markdown 일부 문법)를 textContent 로만 그린다 — HTML 을 해석하지 않는다.
-    function inline(parent, line) {
-        line.split(/(\*\*[^*]+\*\*)/).forEach(function (part) {
-            if (!part) return;
-            if (/^\*\*[^*]+\*\*$/.test(part)) {
-                var b = document.createElement('strong'); b.textContent = part.slice(2, -2); parent.appendChild(b);
-            } else { parent.appendChild(document.createTextNode(part)); }
-        });
-    }
     function renderDoc(text) {
-        var root = $('ccDoc'); root.textContent = '';
-        var list = null;
-        text.split('\n').forEach(function (raw) {
-            var line = raw.replace(/\s+$/, '');
-            if (!line) { list = null; return; }
-            var el;
-            if (/^# /.test(line)) { list = null; el = document.createElement('h6'); el.className = 'fw-bold'; inline(el, line.slice(2)); root.appendChild(el); return; }
-            if (/^## /.test(line)) { list = null; el = document.createElement('div'); el.className = 'fw-bold mt-3 mb-1'; inline(el, line.slice(3)); root.appendChild(el); return; }
-            if (/^- /.test(line)) {
-                if (!list) { list = document.createElement('ul'); list.className = 'mb-1 ps-3'; root.appendChild(list); }
-                el = document.createElement('li'); inline(el, line.slice(2)); list.appendChild(el); return;
-            }
-            list = null; el = document.createElement('p'); el.className = 'mb-1'; inline(el, line); root.appendChild(el);
-        });
+        window.renderCommunityConsentMarkdown($('ccDoc'), text);
     }
 
     function request(method, path, body) {
