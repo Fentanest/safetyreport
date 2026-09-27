@@ -15,6 +15,11 @@
 - 동의문을 중앙에서 받게 되어 이 저장소의 사본(`contracts/community-ingest/consent/`)을 지웠다. 정본은 지도 저장소 `contracts/consent/`(복사하지 않음)와 중앙 DB 다.
   실행 파일(PyInstaller `--add-data`)과 Docker 이미지(`.dockerignore` 예외)에 동의문을 넣던 설정도 뺐다. 패키징 시험은 이제 동의문이 어디에도 들어가지 않는지 확인한다.
 
+### PC 공유 동의문 Markdown 표시
+
+- 중앙에서 받은 동의문을 카드 안에서 제목·목록·표·굵게·인라인 코드·허용된 HTTPS 링크로 표시한다. 표는 좁은 화면에서 가로 스크롤할 수 있게 했다. 동의 정책·해시·저장 흐름은 그대로다.
+- 실제 2026-09-28.1 동의문과 비허용 링크를 대상으로 렌더러 회귀 테스트를 추가했다.
+
 ### 공유 동의문을 중앙에서 받는다 (모바일과 같은 규칙, 계약 `contracts/community-ingest/account-api.md` `policy`)
 
 - 동의 정책 버전·동의문 해시·동의문 파일을 서버에 넣어 두지 않는다(`REQUIRED_POLICY_VERSION`·`CONSENT_TEXT_SHA256`·`CONSENT_TEXT_FILE` 제거).
