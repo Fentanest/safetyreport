@@ -145,15 +145,20 @@ class CaptureTest(unittest.TestCase):
     def test_mark_personal_save(self):
         result = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime",
                              data_dir=self.tmp)
-        cap.mark_personal_save(result.event_id, True, data_dir=self.tmp)
-        row = self.store.connect().execute(
-            "SELECT personal_save_state FROM source_journal WHERE event_id=?", (result.event_id,)).fetchone()
-        self.assertEqual(row["personal_save_state"], "saved")
-        cap.mark_personal_save(result.event_id, False, data_dir=self.tmp)
+        states_at_wake = []
+        def read_state():
+            row = self.store.connect().execute(
+                "SELECT personal_save_state FROM source_journal WHERE event_id=?", (result.event_id,)).fetchone()
+            states_at_wake.append(row["personal_save_state"])
+        with mock.patch("services.community_uploader.wake", side_effect=read_state) as wake:
+            cap.mark_personal_save(result.event_id, True, data_dir=self.tmp)
+            cap.mark_personal_save(result.event_id, False, data_dir=self.tmp)
+            cap.mark_personal_save(None, True, data_dir=self.tmp)  # no-op
+        self.assertEqual(states_at_wake, ["saved"])
+        self.assertEqual(wake.call_count, 1)
         row = self.store.connect().execute(
             "SELECT personal_save_state FROM source_journal WHERE event_id=?", (result.event_id,)).fetchone()
         self.assertEqual(row["personal_save_state"], "failed")
-        cap.mark_personal_save(None, True, data_dir=self.tmp)  # no-op
 
     def test_a01_personal_edit_does_not_change_payload(self):
         """A01: enqueue 뒤 개인 DB 를 B 로 편집해도 전송 payload 는 A."""

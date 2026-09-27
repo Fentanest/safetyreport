@@ -396,11 +396,6 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
                 " DO UPDATE SET event_id=excluded.event_id, payload_sha256=excluded.payload_sha256,"
                 " eligible=excluded.eligible",
                 (local_dataset_id, source_report_id, event_id, sha, 1 if eligible else 0))
-    try:
-        from services import community_uploader as _uploader
-        _uploader.wake()
-    except Exception:
-        pass
     return CaptureResult(event_id=event_id, event_type=event_type, eligible=eligible, payload_sha256=sha)
 
 
@@ -411,6 +406,12 @@ def mark_personal_save(event_id: str | None, ok: bool, data_dir: str | None = No
     with store.transaction() as tx:
         tx.execute("UPDATE source_journal SET personal_save_state=? WHERE event_id=?",
                    ("saved" if ok else "failed", event_id))
+    if ok:
+        try:
+            from services import community_uploader as _uploader
+            _uploader.wake()
+        except Exception:
+            pass
 
 
 # ── 재시도 의도 파일 (local-store.md S-03) ────────────────────────────────────

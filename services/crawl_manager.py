@@ -395,6 +395,14 @@ class CrawlManager:
         except Exception:
             pass
 
+        # 모든 크롤링 진입점(수동·API·대기 큐)이 이 훅을 지난다. 자식 프로세스의
+        # wake 이벤트는 부모 업로더에 닿지 않으므로 종료 뒤 한 번 더 깨운다.
+        try:
+            from services import community_uploader
+            community_uploader.wake()
+        except Exception:
+            pass
+
         if self.pending_count():
             self.launch_pending_crawl()
 

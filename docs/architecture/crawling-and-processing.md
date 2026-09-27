@@ -10,6 +10,7 @@
 |---|---|---|
 | 전체 | 이번 이관에서는 크롤러 경로를 실행하지 않았다(실계정·외부 요청 금지). 코드 대조는 문서 절과 심볼 존재 수준만 확인했다. | 미검증 표시 |
 | 위반법규 파싱 (2026-09-27) | `services/parser.py`는 최신 처리내용에서 `도로교통법 제N조`와 `「자동차관리법」제29조`처럼 꺾쇠 안에 법 이름이 있는 조문을 읽는다. 법 이름·조·항 사이 공백을 허용하고 저장값은 공백을 정리한다. 모바일 `standalone_parser.dart`와 합성 입력 계약을 공유한다. | `contracts/parser-vectors.json` |
+| 커뮤니티 자동 업로드 (2026-09-27) | 상세 1건의 개인 DB 저장 완료 뒤 `community_uploader.wake()`를 호출한다. 모든 크롤링의 부모 프로세스 완료 훅(`CrawlManager.run_after_crawl`)에서도 깨워 자식 프로세스에서 만들어진 대기 전송을 처리한다. | `services/community_capture.py`, `services/crawl_manager.py` |
 
 ## 이관 원문
 
