@@ -158,7 +158,7 @@ class CommunityStoreTest(unittest.TestCase):
     def test_context_active_and_inactive(self):
         self.assertIsNone(self.store.active_context())
         self.store.set_context(contributor_fingerprint="f" * 32, connection_id="c", writer_epoch=3, dataset_key="d" * 64,
-                               consent_grant_id="g", policy_version="2026-09-26.1", consent_text_sha256="h" * 64,
+                               consent_grant_id="g", policy_version="2026-09-28.1", consent_text_sha256="h" * 64,
                                source_app="safetyreport", source_mode="server")
         self.assertEqual(self.store.active_context()["writer_epoch"], 3)
         self.store.deactivate_context("consent_revoked")
