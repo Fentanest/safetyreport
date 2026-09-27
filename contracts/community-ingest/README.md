@@ -8,7 +8,7 @@
 |---|---|
 | 계약 | `community-ingest-v1` (`protocol: 1`) |
 | 공유 payload 스키마 | `observation-v1` (`observation.schema.json`) |
-| 필수 동의 정책 버전 | `2026-09-28.1` (`consent/share-consent-2026-09-28.1.md`; 이전 `2026-09-26.1`은 금액 비공개 판). 앱은 이 파일을 번들에 넣지 않고 중앙 `policy` 로 받는다(`account-api.md`) — 이 폴더의 동의문은 중앙 migration 의 원본 |
+| 필수 동의 정책 버전 | `2026-09-28.1` (이전 `2026-09-26.1`은 금액 비공개 판). 앱은 동의문을 번들에 넣지 않고 중앙 `policy` 로 받는다(`account-api.md`). 동의문 원본은 이 폴더가 아니라 지도 레포 `contracts/consent/`(복사하지 않음) |
 | 초기화 크롤링 버전 | `source-rebuild-2026-09-26.1` |
 | 업로드 기준 시간대·시각 | `Asia/Seoul` 00:00 (한국은 DST 없음 → UTC+9 고정 계산) |
 | ingest 함수 | `POST {COMMUNITY_SUPABASE_URL}/functions/v1/community-ingest` |
@@ -26,7 +26,6 @@
 | `rebuild.md` | 1회 초기화 job 상태기계·보존 범위 |
 | `local-store.md` | 앱 쪽 `community.db` 테이블 |
 | `vectors/*.json` | 세 언어(Python·Dart·TypeScript)가 같은 결과를 내야 하는 입력·기대값 |
-| `consent/*.md` | 동의문 정본 |
 | `MANIFEST.sha256` | 위 파일들의 sha256 |
 
 보안 한계: 이 계약의 출처 표시는 "클라이언트 수집 데이터"다. 서버는 인증·연결·동의를 확인하지만 공식 서버 대조는 하지 않는다.

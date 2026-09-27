@@ -68,14 +68,13 @@ class CommunityPackagingTest(unittest.TestCase):
         ignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
         self.assertNotIn("scripts/build/", ignore)
 
-    def test_consent_copy_is_bundled_and_not_docker_ignored(self):
+    def test_consent_text_is_not_bundled(self):
+        # 동의문은 중앙 `policy` 로 받는다(2026-09-27) — 실행 파일·이미지·계약 사본 어디에도 두지 않는다
         source = (ROOT / "scripts" / "build" / "build_exe.py").read_text(encoding="utf-8")
-        self.assertIn("--add-data=contracts/community-ingest/consent{sep}contracts/community-ingest/consent", source)
-        ignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
-        self.assertIn("!contracts/community-ingest/consent/*.md", ignore)
-        self.assertGreater(ignore.index("!contracts/community-ingest/consent/*.md"), ignore.index("*.md"),
-                           "예외는 *.md 뒤에 있어야 적용된다")
-        self.assertTrue((ROOT / "contracts" / "community-ingest" / "consent" / "share-consent-2026-09-26.1.md").is_file())
+        self.assertNotIn("consent", source)
+        ignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+        self.assertNotIn("consent", ignore)
+        self.assertFalse((ROOT / "contracts" / "community-ingest" / "consent").exists())
 
     def test_workflows_pass_only_public_variables(self):
         for wf in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
