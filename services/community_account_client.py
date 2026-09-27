@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+
 from urllib.parse import urlsplit
 
 import requests
@@ -63,6 +65,17 @@ class CommunityAccountClient:
 
     def status(self, access_token: str, connection_id: str | None = None) -> dict:
         return self._post("status", access_token, {"connection_id": connection_id} if connection_id else {})
+
+    def policy(self, access_token: str) -> dict:
+        """지금 필수 동의 정책 {version, consent_text_sha256, consent_text} (2026-09-27, 계약 account-api.md `policy`).
+        동의문은 앱에 넣어 두지 않고 중앙에서 받는다. 본문의 sha256(UTF-8)이 해시와 같을 때만 돌려준다(보여 줄 본문 = 동의할 해시)."""
+        res = self._post("policy", access_token, {})
+        p = res.get("policy") if isinstance(res, dict) else None
+        text = p.get("consent_text") if isinstance(p, dict) else None
+        if (not isinstance(text, str) or not isinstance(p.get("version"), str)
+                or hashlib.sha256(text.encode("utf-8")).hexdigest() != p.get("consent_text_sha256")):
+            raise AccountApiError("server_error")
+        return {"version": p["version"], "consent_text_sha256": p["consent_text_sha256"], "consent_text": text}
 
     def consent(self, access_token: str, policy_version: str, consent_text_sha256: str) -> dict:
         return self._post("consent", access_token, {"policy_version": policy_version, "consent_text_sha256": consent_text_sha256,

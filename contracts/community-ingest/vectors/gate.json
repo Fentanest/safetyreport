@@ -1,6 +1,5 @@
 {
   "contract": "gate-v1",
-  "app_required_policy_version": "2026-09-28.1",
   "ttl_seconds": 600,
   "cases": [
     {
@@ -16,10 +15,12 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-28.1"
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 10,
@@ -39,10 +40,12 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-28.1"
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 10,
@@ -62,10 +65,12 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-28.1"
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 10,
@@ -94,10 +99,12 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-28.1"
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 10,
@@ -126,10 +133,12 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-28.1"
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 601,
@@ -149,10 +158,12 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-28.1"
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 600,
@@ -172,10 +183,12 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-28.1"
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 5,
@@ -195,10 +208,12 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-28.1"
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 5,
@@ -218,10 +233,12 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-28.1"
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 5,
@@ -241,10 +258,12 @@
         },
         "consent": {
           "state": "none",
-          "policy_version": null
+          "policy_version": null,
+          "consent_text_sha256": null
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 5,
@@ -264,10 +283,12 @@
         },
         "consent": {
           "state": "revoked",
-          "policy_version": null
+          "policy_version": null,
+          "consent_text_sha256": null
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 5,
@@ -287,10 +308,12 @@
         },
         "consent": {
           "state": "outdated",
-          "policy_version": "2026-01-01.1"
+          "policy_version": "2026-01-01.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 5,
@@ -298,7 +321,7 @@
       "expect": "consent_required"
     },
     {
-      "name": "app_knows_newer_policy",
+      "name": "grant_on_older_version",
       "config": "ok",
       "session": "valid",
       "status": {
@@ -310,10 +333,12 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-26.0"
+          "policy_version": "2026-09-26.0",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 5,
@@ -333,15 +358,92 @@
         },
         "consent": {
           "state": "active",
-          "policy_version": "2026-09-28.1"
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         },
         "policy": {
-          "required_version": "2026-09-28.1"
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         }
       },
       "age_seconds": 5,
       "invalidated": false,
       "expect": "ok"
+    },
+    {
+      "name": "same_version_new_text",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        "policy": {
+          "required_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      },
+      "age_seconds": 10,
+      "invalidated": false,
+      "expect": "consent_required"
+    },
+    {
+      "name": "newer_policy_without_app_update",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-10-01.1",
+          "consent_text_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        },
+        "policy": {
+          "required_version": "2026-10-01.1",
+          "consent_text_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+        }
+      },
+      "age_seconds": 10,
+      "invalidated": false,
+      "expect": "ok"
+    },
+    {
+      "name": "policy_without_hash",
+      "config": "ok",
+      "session": "valid",
+      "status": {
+        "gate": {
+          "kakao": true
+        },
+        "contributor": {
+          "status": "active"
+        },
+        "consent": {
+          "state": "active",
+          "policy_version": "2026-09-28.1",
+          "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "policy": {
+          "required_version": "2026-09-28.1"
+        }
+      },
+      "age_seconds": 10,
+      "invalidated": false,
+      "expect": "consent_required"
     }
-  ]
+  ],
+  "note_policy": "\uc815\ucc45 \ubc84\uc804\u00b7\ub3d9\uc758\ubb38 \ud574\uc2dc\ub294 \uc571\uc5d0 \ub450\uc9c0 \uc54a\ub294\ub2e4(2026-09-27): grant \uc758 (policy_version, consent_text_sha256) \uc774 status.policy \uc758 (required_version, consent_text_sha256) \uacfc \ub458 \ub2e4 \uac19\uc544\uc57c \ud55c\ub2e4."
 }

@@ -6,7 +6,9 @@
 ## 무엇을 막나
 `CAN_ENTER = K && C`
 - K: 이 서버의 커뮤니티 세션(`data/auth/community_session.enc`)이 유효하고, 중앙 `community-account/status` 가 카카오 연결·세션을 확인함.
-- C: 중앙에 현재 정책(`2026-09-26.1`)·동의문 해시(`share-consent-2026-09-26.1.md` 의 sha256)와 같은 활성 동의 grant.
+- C: 중앙의 **지금** 필수 정책(버전·동의문 해시 — status.policy)과 (버전, 해시)가 둘 다 같은 활성 동의 grant.
+  정책·동의문은 이 서버에 넣어 두지 않는다(2026-09-27): 동의 화면은 중앙 `policy` 로 본문을 받아 그 sha256 을 직접 확인한 뒤 보여 주고,
+  그 해시로 동의한다. 동의문이 바뀌면 이 서버를 새로 배포하지 않아도 기존 동의가 `outdated` 가 되어 새 본문으로 다시 묻는다.
 
 카카오 로그인은 동의가 아니다. 로컬 파일의 "완료" 값으로는 통과하지 않는다. 중앙 ingest 는 이 판정과 무관하게 저장 트랜잭션에서 다시 확인한다.
 `[COMMUNITY] enabled=false`·`upload_enabled` 는 더 이상 게이트를 끄지 못한다(설정 화면에 경고만).
@@ -65,8 +67,8 @@
 | 경로 | 인증 | 설명 |
 |---|---|---|
 | `GET /settings/community/gate` | 관리자 세션 | 게이트 요약(토큰·사용자 UUID·연결 비밀 없음) |
-| `GET /settings/community/policy` | 관리자 세션 | 정책 버전·해시·동의문 원문 |
-| `POST /settings/community/consent` | 세션 + CSRF | `{"accepted":true,"policy_version","consent_text_sha256"}` → 중앙 `consent`(via `safetyreport_server`) |
+| `GET /settings/community/policy` | 관리자 세션 | 중앙 `policy` 로 받은 정책 버전·해시·동의문 원문(본문 해시 확인). 카카오 연결 전이면 409 `not_connected` — 화면은 "카카오 인증을 마치면 동의 문서를 불러옵니다" |
+| `POST /settings/community/consent` | 세션 + CSRF | `{"accepted":true,"policy_version","consent_text_sha256"}` — 화면이 보여 준 본문의 버전·해시 그대로 → 중앙 `consent`(via `safetyreport_server`). 그 사이 중앙 정책이 바뀌었으면 409 `policy_mismatch` |
 | `POST /settings/community/consent-revoke` | 세션 + CSRF | `{"confirm":true}` → 현재 grant 철회(업로드 먼저 중단) |
 | `POST /settings/community/writer` | 세션 + CSRF | `{"takeover":true}` → 이 서버로 업로드 연결 전환 |
 | `POST /settings/community/contributions-delete` | 세션 + CSRF | `{"confirm":"DELETE_MY_SHARED_REPORTS"}` |

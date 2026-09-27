@@ -22,8 +22,10 @@ from services.community_store import CommunityStore
 from test_community_auth import USER_A, USER_B, CommunityTestBase, wait_for
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-POLICY = community_gate.REQUIRED_POLICY_VERSION
-HASH = community_gate.CONSENT_TEXT_SHA256
+# 동의 정책은 앱에 넣어 두지 않는다 — 가짜 중앙이 이 본문을 `policy` 로 내려준다(2026-09-27, account-api.md)
+POLICY = "2026-09-28.1"
+TEXT = "# [필수] 신고 결과 공유 동의\n정책 버전: 2026-09-28.1\n\n| 구분 | 내용 |\n| --- | --- |\n| 장소 | 주소 |\n"
+HASH = hashlib.sha256(TEXT.encode("utf-8")).hexdigest()
 OFFICIAL_ID = "Fixture.Official "
 
 
@@ -36,6 +38,7 @@ class FakeAccount:
         self.connections: dict[str, dict] = {}   # connection_id -> {...}
         self.contributor: dict[str, str] = {}
         self.policy_hash = HASH
+        self.policy_text = TEXT
         self.fail: list[tuple[int, str]] = []    # 다음 호출들에 돌려줄 (status, code)
         self.calls: list[tuple[str, dict]] = []
         fake.account_handler = self
@@ -57,11 +60,12 @@ class FakeAccount:
 
     def grant(self, user, state="active"):
         self.consents[user["id"]] = {"state": state, "grant_id": str(uuid.uuid4()), "policy_version": POLICY,
-                                     "granted_at": "2026-09-26T00:00:00Z"}
+                                     "consent_text_sha256": self.policy_hash, "granted_at": "2026-09-26T00:00:00Z"}
 
     def _status(self, uid, sid, body):
-        c = self.consents.get(uid) or {"state": "none", "grant_id": None, "policy_version": None, "granted_at": None}
-        if c["state"] == "active" and self.policy_hash != HASH:
+        c = self.consents.get(uid) or {"state": "none", "grant_id": None, "policy_version": None,
+                                       "consent_text_sha256": None, "granted_at": None}
+        if c["state"] == "active" and c["consent_text_sha256"] != self.policy_hash:
             c = dict(c, state="outdated")
         conn = self.connections.get(body.get("connection_id") or "")
         conn_view = None
@@ -79,11 +83,16 @@ class FakeAccount:
                      "account": {"fingerprint": community_gate.account_fingerprint(uid), "display_name": "로컬"},
                      "server_time": "2026-09-26T00:00:00.000Z"}
 
+    def _policy(self, uid, sid, body):
+        return 200, {"protocol": 1, "policy": {"version": POLICY, "consent_text_sha256": self.policy_hash,
+                                                "consent_text": self.policy_text}}
+
     def _consent(self, uid, sid, body):
         if body.get("policy_version") != POLICY or body.get("consent_text_sha256") != self.policy_hash \
                 or body.get("accepted") is not True or body.get("via") != "safetyreport_server":
             return 409, {"error": {"code": "policy_mismatch", "required_version": POLICY}}
-        created = (self.consents.get(uid) or {}).get("state") != "active"
+        prev = self.consents.get(uid) or {}
+        created = prev.get("state") != "active" or prev.get("consent_text_sha256") != self.policy_hash
         if created:
             self.grant({"id": uid})
         c = self.consents[uid]
@@ -219,7 +228,7 @@ class GateTestBase(CommunityTestBase):
 class DecideTests(unittest.TestCase):
     def status(self, **over):
         base = {"gate": {"kakao": True}, "contributor": {"status": "active"},
-                "consent": {"state": "active", "policy_version": POLICY},
+                "consent": {"state": "active", "policy_version": POLICY, "consent_text_sha256": HASH},
                 "policy": {"required_version": POLICY, "consent_text_sha256": HASH}}
         base.update(over)
         return base
@@ -244,15 +253,30 @@ class DecideTests(unittest.TestCase):
                          ("consent_required", ["consent_outdated"]))
         self.assertEqual(d("ok", "valid", self.status(policy={"required_version": POLICY, "consent_text_sha256": "0" * 64}),
                            1, False), ("consent_required", ["consent_outdated"]))
+        # 앱에 박힌 기준 없이 중앙의 지금 정책과 grant 의 (버전, 해시)를 비교한다 — 같은 버전이라도 동의문이 바뀌면 다시 묻는다
+        self.assertEqual(d("ok", "valid", self.status(consent={"state": "active", "policy_version": POLICY,
+                                                               "consent_text_sha256": "1" * 64}), 1, False),
+                         ("consent_required", ["consent_outdated"]))
+        self.assertEqual(d("ok", "valid", self.status(policy={}), 1, False), ("consent_required", ["consent_outdated"]))
+        newer = {"required_version": "2026-10-01.1", "consent_text_sha256": "2" * 64}
+        self.assertEqual(d("ok", "valid", self.status(policy=newer, consent={"state": "active", "policy_version": "2026-10-01.1",
+                                                                               "consent_text_sha256": "2" * 64}), 1, False),
+                         ("ok", []), "새 정책도 앱을 새로 배포하지 않고 통과한다")
         self.assertEqual(d("ok", "valid", self.status(contributor={"status": "none"}), 600, False), ("ok", []))
 
-    def test_consent_hash_matches_contract_copy(self):
-        path = os.path.join(ROOT, community_gate.CONSENT_TEXT_FILE)
-        with open(path, "rb") as fh:
-            self.assertEqual(hashlib.sha256(fh.read()).hexdigest(), HASH)
-        with open(path.replace(".md", ".sha256"), encoding="utf-8") as fh:
-            self.assertEqual(fh.read().split()[0], HASH)
-        self.assertIn(POLICY, community_gate.consent_text())
+    def test_contract_gate_vectors(self):
+        # 모바일 test/community/gate_evaluate_test.dart 와 같은 계약 벡터 — PC·모바일 판정이 같아야 한다
+        with open(os.path.join(ROOT, "contracts/community-ingest/vectors/gate.json"), encoding="utf-8") as fh:
+            vectors = json.load(fh)
+        self.assertNotIn("app_required_policy_version", vectors, "앱에 박힌 정책 버전은 없다")
+        for c in vectors["cases"]:
+            got, _ = community_gate.decide(c["config"], c["session"], c.get("status"), c.get("age_seconds"),
+                                           c.get("invalidated", False))
+            self.assertEqual(got, c["expect"], c["name"])
+
+    def test_no_bundled_policy(self):
+        for name in ("REQUIRED_POLICY_VERSION", "CONSENT_TEXT_SHA256", "CONSENT_TEXT_FILE", "consent_text"):
+            self.assertFalse(hasattr(community_gate, name), f"{name}: 동의 정책은 중앙에서 받는다")
 
     def test_dataset_key_normalizes_official_id(self):
         expected = hashlib.sha256(b"safetyreport-dataset|v1|fixture.official").hexdigest()
@@ -527,11 +551,11 @@ class GateAppTests(GateTestBase):
         self.assertEqual((r.status_code, r.json()["code"]), (403, "COMMUNITY_ONBOARDING_REQUIRED"))
         r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, follow_redirects=False)
         self.assertEqual((r.status_code, r.json()["code"]), (403, "COMMUNITY_ONBOARDING_REQUIRED"))
-        for path in ("/onboarding/community", "/settings/community/status", "/settings/community/policy",
-                     "/settings/community/gate", "/health"):
+        for path in ("/onboarding/community", "/settings/community/status", "/settings/community/gate", "/health"):
             self.assertEqual(self.client.get(path, headers={"Accept": "application/json"}).status_code, 200, path)
-        policy = self.client.get("/settings/community/policy").json()["data"]
-        self.assertEqual((policy["policy_version"], policy["consent_text_sha256"]), (POLICY, HASH))
+        # 동의문은 중앙에서 받는다 — 카카오 연결 전에는 게이트를 지나 "연결 필요"로 답한다(화면은 안내만 보임)
+        r = self.client.get("/settings/community/policy", headers={"Accept": "application/json"})
+        self.assertEqual((r.status_code, r.json()["code"]), (409, "not_connected"))
 
     def test_api_key_first_then_gate(self):
         r = self.client.get("/api/v1/summary", headers={"X-API-Key": "sk-wrong"})
@@ -606,8 +630,14 @@ class GateAppTests(GateTestBase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["gate"]["state"], "consent_required", "로그인만으로는 동의가 아니다")
         self.assertEqual(self.post("/settings/community/consent", {}, token=token).status_code, 400)
+        policy = self.client.get("/settings/community/policy").json()["data"]
+        self.assertEqual((policy["policy_version"], policy["consent_text_sha256"], policy["text"]), (POLICY, HASH, TEXT),
+                         "로그인 뒤 중앙의 본문을 그대로 받는다")
         self.assertEqual(self.post("/settings/community/consent", {"accepted": True, "policy_version": POLICY,
-                                                                  "consent_text_sha256": "0" * 64}, token=token).status_code, 400)
+                                                                  "consent_text_sha256": "zz"}, token=token).status_code, 400)
+        r = self.post("/settings/community/consent", {"accepted": True, "policy_version": POLICY,
+                                                     "consent_text_sha256": "0" * 64}, token=token)
+        self.assertEqual((r.status_code, r.json()["code"]), (409, "policy_mismatch"), "보여 준 본문과 다른 해시는 중앙이 거절")
         self.assertEqual(self.post("/settings/community/consent", {"accepted": True, "policy_version": POLICY,
                                                                   "consent_text_sha256": HASH}).status_code, 403, "CSRF")
         r = self.post("/settings/community/consent", {"accepted": True, "policy_version": POLICY,
@@ -615,8 +645,9 @@ class GateAppTests(GateTestBase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["data"]["gate"]["state"], "ok")
         consent_calls = [b for a, b in self.account.calls if a == "consent"]
-        self.assertEqual(len(consent_calls), 1)
-        self.assertEqual((consent_calls[0]["via"], consent_calls[0]["accepted"]), ("safetyreport_server", True))
+        self.assertEqual(len(consent_calls), 2, "해시가 다른 요청(중앙이 거절)과 성공한 요청")
+        self.assertEqual((consent_calls[-1]["via"], consent_calls[-1]["accepted"], consent_calls[-1]["consent_text_sha256"]),
+                         ("safetyreport_server", True, HASH))
         self.assertEqual(self.client.get("/settings/", follow_redirects=False).status_code, 200)
         self.assertEqual(self.client.get("/api/v1/summary", headers={"X-API-Key": self.key}).status_code, 200)
         self.assertEqual(self.store.context()["state"], "active")

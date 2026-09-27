@@ -89,6 +89,14 @@ class PcLiveStackTest(unittest.TestCase):
             self.addCleanup(p.stop)
         from services.community_store import CommunityStore
         self.addCleanup(CommunityStore._forget, os.path.join(self.tmp, "community.db"))
+        # 두 시험이 같은 개인 DB 를 쓴다 — 앞 시험이 남긴 자료 주인(카카오 회원번호)을 비우고 시작한다
+        from services import account_data
+        from core.database.engine import get_engine
+        try:
+            with get_engine().begin() as conn:
+                conn.exec_driver_sql("DELETE FROM mysafety_sync_meta WHERE key=?", (account_data.KAKAO_MEMBER_META_KEY,))
+        except Exception:
+            pass
 
     def login(self, choice: str) -> dict:
         s = kakao_session(self.publishable, choice)
@@ -112,7 +120,6 @@ class PcLiveStackTest(unittest.TestCase):
         from services import community_gate
         from services import community_uploader as up
         from services.community_store import CommunityStore
-        from services.community_gate import CONSENT_TEXT_SHA256, REQUIRED_POLICY_VERSION
 
         # 관리자 화면의 "카카오 계정으로 연결": 실제 relay(합성 스택의 community-auth-relay)에 연결 요청을 만든다
         pending = self.service.start()
@@ -123,12 +130,17 @@ class PcLiveStackTest(unittest.TestCase):
         user = self.login("A")
         store = CommunityStore.open(self.tmp)
         st = self.account("status", user["access_token"], {}).json()
-        if st["consent"]["state"] == "active":  # 같은 mock 계정을 쓴 다른 실행이 남긴 동의 → 먼저 철회해 '동의 전'으로
+        # 같은 mock 계정을 쓴 다른 실행이 남긴 동의(동의문이 바뀌면 outdated) → 먼저 철회해 새 계보의 '동의 전'으로
+        if st["consent"]["state"] in ("active", "outdated"):
             self.account("consent-revoke", user["access_token"], {"grant_id": st["consent"]["grant_id"]})
         # 동의 전: 로그인만으로는 통과하지 않는다
         self.assertEqual(community_gate.refresh_now()["state"], "consent_required")
-        r = self.account("consent", user["access_token"], {"policy_version": REQUIRED_POLICY_VERSION,
-                                                           "consent_text_sha256": CONSENT_TEXT_SHA256,
+        # 동의문은 중앙 `policy` 로 받고, 받은 본문의 해시를 직접 계산해 보낸다(2026-09-27)
+        policy = self.account("policy", user["access_token"], {}).json()["policy"]
+        digest = hashlib.sha256(policy["consent_text"].encode("utf-8")).hexdigest()
+        self.assertEqual(digest, policy["consent_text_sha256"])
+        r = self.account("consent", user["access_token"], {"policy_version": policy["version"],
+                                                           "consent_text_sha256": digest,
                                                            "via": "safetyreport_server", "accepted": True})
         self.assertEqual(r.status_code, 200, r.text)
         community_gate.invalidate("consent_saved")
@@ -181,19 +193,13 @@ class PcLiveStackTest(unittest.TestCase):
         self.assertIsNotNone(pending.event_id)
 
     def consent(self, token: str) -> None:
-        """이 계정의 동의를 스택이 요구하는 정책으로 맞춘다(철회하지 않음 — 스택을 같이 쓰는 다른 작업을 건드리지 않게).
-        스택의 정책이 이 코드의 정책과 다르면(다른 작업이 정책을 올린 스택) 게이트 상수도 스택 값으로 맞춘다 — 이 시험은 주인 흐름만 본다."""
-        from services import community_gate
-
+        """이 계정의 동의를 중앙의 지금 정책으로 맞춘다(철회하지 않음 — 스택을 같이 쓰는 다른 작업을 건드리지 않게).
+        동의문은 중앙 `policy` 로 받는다 — 앱에 박힌 정책 상수가 없다(2026-09-27)."""
         st = self.account("status", token, {}).json()
-        policy = st["policy"]
-        for name, value in (("REQUIRED_POLICY_VERSION", policy["required_version"]), ("CONSENT_TEXT_SHA256", policy["consent_text_sha256"])):
-            if getattr(community_gate, name) != value:
-                p = mock.patch.object(community_gate, name, value)
-                p.start()
-                self.addCleanup(p.stop)
-        if st["consent"]["state"] != "active" or st["consent"].get("policy_version") != policy["required_version"]:
-            r = self.account("consent", token, {"policy_version": policy["required_version"], "consent_text_sha256": policy["consent_text_sha256"],
+        if st["consent"]["state"] != "active":
+            policy = self.account("policy", token, {}).json()["policy"]
+            digest = hashlib.sha256(policy["consent_text"].encode("utf-8")).hexdigest()
+            r = self.account("consent", token, {"policy_version": policy["version"], "consent_text_sha256": digest,
                                                 "via": "safetyreport_server", "accepted": True})
             self.assertEqual(r.status_code, 200, r.text)
 

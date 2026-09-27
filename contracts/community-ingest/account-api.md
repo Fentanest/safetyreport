@@ -9,6 +9,7 @@
 | action | 본문(protocol 외) | 성공 응답(protocol 외) | 주요 오류 |
 |---|---|---|---|
 | `status` | `connection_id?` | 아래 status | `auth_required`(401) |
+| `policy` | (없음) | `policy:{version, consent_text_sha256, consent_text}` — 지금 필수 동의 정책의 **본문**(UTF-8 markdown). 중앙이 보내기 전에 본문 해시 = `consent_text_sha256` 을 확인한다 | `auth_required`(401), `server_error` |
 | `consent` | `policy_version`, `consent_text_sha256`, `via`(`safetyreport_server`/`mobile_standalone`/`mobile_client`), `accepted: true` | `grant_id`, `policy_version`, `granted_at`, `created` | `kakao_required`(403), `policy_mismatch`(409 + `required_version`), `contributor_suspended`(403) |
 | `consent-revoke` | `grant_id`(현재 또는 같은 계보의 이전 grant) | `grant_id`(실제로 철회된 활성 grant), `revoked:true`, `already_revoked`, `lineage_active:false` | `not_found`(404), `stale_grant`(409: 그 계보는 이미 닫혔고 다른 활성 동의가 있음 — status 를 다시 받아 현재 grant 로 요청) |
 | `connections` | `source_app`, `source_mode`, `platform`, `device_label`(1~40, relay 규칙), `dataset_key`(64hex), `connection_secret`(base64url 32바이트 — 서버는 sha256 만 저장), `takeover`(bool) | `connection_id`, `writer_epoch`, `superseded_previous` | `kakao_required`, `writer_conflict`(409 + `active_writer:{device_label, platform, source_app, created_at}`), `invalid_request` |
@@ -33,7 +34,12 @@ status 응답:
 - `fingerprint = sha256("sr-community-account|v1|" + user_id)` 앞 32 hex. user UUID·이메일·토큰은 반환하지 않는다. `display_name` 은 표시용(권한 근거 아님).
 - `connection` 은 요청한 connection_id 가 **이 사용자 것**일 때만 채운다(타인 것이면 null — 존재를 드러내지 않음).
 
-정책 불변성(N-03): `private.community_policies` 는 (version PK, consent_text_sha256) 이력이고 한 번 쓴 행은 바꿀 수 없다(트리거로 UPDATE/DELETE 거부). 현재 필수 정책은 `private.community_policy_current` 단일 행이 가리킨다. status·ingest 는 grant 의 **(policy_version, consent_text_sha256) 쌍**이 현재 정책과 둘 다 같을 때만 `active` 로 본다. 동의문을 바꾸려면 새 버전을 발급하고 앱 번들 사본·해시를 함께 올린다.
+정책 불변성(N-03): `private.community_policies` 는 (version PK, consent_text_sha256) 이력이고 한 번 쓴 행은 바꿀 수 없다(트리거로 UPDATE/DELETE 거부). 현재 필수 정책은 `private.community_policy_current` 단일 행이 가리킨다. status·ingest 는 grant 의 **(policy_version, consent_text_sha256) 쌍**이 현재 정책과 둘 다 같을 때만 `active` 로 본다.
+
+동의문은 중앙이 내려준다(2026-09-27): 본문은 `private.community_policy_texts`(해시 PK, 본문 해시 검사, 바꿀 수 없음)에 두고 모든 정책 행의 해시는 이 표를 가리킨다 — 어떤 grant 의 해시로든 그때 보인 본문을 다시 읽을 수 있다.
+앱(PC·모바일)은 동의문 본문·해시·필수 버전을 **번들에 넣지 않는다**: `policy` 로 받은 본문의 sha256(UTF-8 바이트)이 `consent_text_sha256` 과 같은지 스스로 확인한 뒤 그 본문을 그대로 보여 주고,
+`consent` 에는 그 `version` 과 **자기가 계산한 해시**를 보낸다(서버가 알려 준 해시를 그대로 되돌려 보내지 않는다 — 보여 준 본문과 동의 기록이 어긋나지 않게).
+그래서 동의문이 바뀌어도 앱을 새로 배포할 필요가 없고, 바뀐 뒤 기존 동의는 `outdated` 가 되어 새 본문으로 다시 묻는다. 서비스 공개 뒤 문구를 바꿀 때는 새 버전을 발급한다(시험 중인 2026-09-28.1 은 같은 버전으로 본문을 교체했다 — 이전 본문도 표에 남음).
 
 동의 규칙: 카카오 로그인은 동의가 아니다. 앱은 동의 체크(기본 해제) + 계속 버튼으로만 `consent` 를 호출하고, 성공 응답을 받은 뒤에만 완료로 표시한다.
 같은 활성 grant·같은 정책이면 멱등(`created:false`). 정책 버전이 바뀌어 다시 동의하면 새 grant 가 이전 grant 의 **계보(lineage)** 를 이어받아 이미 공유한 자료가 계속 공개된다.
