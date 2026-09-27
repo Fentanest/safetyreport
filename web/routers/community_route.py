@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
@@ -321,12 +322,18 @@ def _fail_account(exc: CommunityAuthError) -> JSONResponse:
 
 
 def _policy_view() -> dict:
-    return {"policy_version": community_gate.REQUIRED_POLICY_VERSION,
-            "consent_text_sha256": community_gate.CONSENT_TEXT_SHA256, "text": community_gate.consent_text()}
+    """중앙의 지금 동의문(본문 해시를 확인한 것). 카카오 로그인 전이면 CommunityAuthError(not_connected 등)."""
+    p = _account_call(lambda c, t: c.policy(t))
+    return {"policy_version": p["version"], "consent_text_sha256": p["consent_text_sha256"], "text": p["consent_text"]}
 
 
-def _consent() -> dict:
-    res = _account_call(lambda c, t: c.consent(t, community_gate.REQUIRED_POLICY_VERSION, community_gate.CONSENT_TEXT_SHA256))
+_POLICY_VERSION_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{1,3}$")
+_HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+def _consent(policy_version: str, consent_text_sha256: str) -> dict:
+    # 화면이 보여 준 동의문의 (버전, 해시) 그대로 보낸다. 그 사이 중앙 정책이 바뀌었으면 중앙이 policy_mismatch 로 거절한다.
+    res = _account_call(lambda c, t: c.consent(t, policy_version, consent_text_sha256))
     return {"result": {k: res.get(k) for k in ("policy_version", "granted_at", "created")}, "gate": _regate("consent_saved")}
 
 
@@ -392,7 +399,10 @@ def _contributions_delete() -> dict:
 
 @router.get("/policy")
 async def web_policy(request: Request):
-    return _ok({"data": await run_in_threadpool(_policy_view)})
+    try:
+        return _ok({"data": await run_in_threadpool(_policy_view)})
+    except CommunityAuthError as exc:  # 카카오 연결 전·만료·중앙 오류 — 화면은 code 를 보고 안내한다
+        return _fail_account(exc)
 
 
 @router.get("/gate")
@@ -416,9 +426,17 @@ async def _gate_action(request: Request, allowed: set[str], fn, required: dict |
 @router.post("/consent")
 async def web_consent(request: Request):
     # 기본 해제 체크박스 + 계속 버튼으로만 온다(accepted: true 필수). 성공 응답 뒤에만 화면이 완료로 바뀐다.
-    return await _gate_action(request, {"accepted", "policy_version", "consent_text_sha256"}, _consent,
-                              {"accepted": True, "policy_version": community_gate.REQUIRED_POLICY_VERSION,
-                               "consent_text_sha256": community_gate.CONSENT_TEXT_SHA256})
+    async def run(body):
+        _only(body, {"accepted", "policy_version", "consent_text_sha256"})
+        version, digest = body.get("policy_version"), body.get("consent_text_sha256")
+        if (body.get("accepted") is not True or not isinstance(version, str) or not _POLICY_VERSION_RE.match(version)
+                or not isinstance(digest, str) or not _HEX64_RE.match(digest)):
+            raise CommunityAuthError("invalid_settings", "확인 항목이 필요합니다.")
+        try:
+            return _ok({"data": await run_in_threadpool(_consent, version, digest)})
+        except CommunityAuthError as exc:
+            return _fail_account(exc)
+    return await _web_action(request, run)
 
 
 @router.post("/consent-revoke")

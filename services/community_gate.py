@@ -28,10 +28,8 @@ from services.community_account_client import AccountApiError, CommunityAccountC
 
 _log = logging.getLogger("safetyreport.core.community_gate")
 
-REQUIRED_POLICY_VERSION = "2026-09-28.1"
-# contracts/community-ingest/consent/share-consent-2026-09-28.1.sha256 — tests/test_community_gate.py 가 같은지 확인
-CONSENT_TEXT_SHA256 = "a775cc34a175ac880574976b011f2c16cce3b0d366aa7729c2128cd1f1f38670"
-CONSENT_TEXT_FILE = "contracts/community-ingest/consent/share-consent-2026-09-28.1.md"
+# 필수 동의 정책(버전·동의문 해시·본문)은 앱에 넣어 두지 않는다 — 중앙 status.policy 와 `policy` 액션이 정본이다
+# (2026-09-27, contracts/community-ingest/account-api.md). 동의문이 바뀌어도 이 서버를 새로 배포할 필요가 없다.
 CACHE_TTL = 600.0
 FRESH_SECONDS = 60.0
 
@@ -101,8 +99,10 @@ def decide(config: str, session: str, status: dict | None, age: float | None, in
     policy = status.get("policy") or {}
     if consent.get("state") != "active":
         return "consent_required", [f"consent_{consent.get('state') or 'none'}"]
-    if consent.get("policy_version") != REQUIRED_POLICY_VERSION or policy.get("required_version") != REQUIRED_POLICY_VERSION \
-            or policy.get("consent_text_sha256") != CONSENT_TEXT_SHA256:
+    # grant 의 (버전, 동의문 해시)가 중앙의 지금 정책과 둘 다 같아야 한다(중앙도 같은 기준으로 active 를 준다 — 한 번 더 확인)
+    if (not policy.get("required_version") or not policy.get("consent_text_sha256")
+            or consent.get("policy_version") != policy.get("required_version")
+            or consent.get("consent_text_sha256") != policy.get("consent_text_sha256")):
         return "consent_required", ["consent_outdated"]
     return "ok", []
 
@@ -319,7 +319,7 @@ class _Gate:
         store.set_context(contributor_fingerprint=account_fingerprint(user_id), connection_id=writer["connection_id"],
                           writer_epoch=int(writer["writer_epoch"]), dataset_key=dkey,
                           consent_grant_id=consent.get("grant_id"), policy_version=consent.get("policy_version"),
-                          consent_text_sha256=CONSENT_TEXT_SHA256, source_app="safetyreport", source_mode="server")
+                          consent_text_sha256=consent.get("consent_text_sha256"), source_app="safetyreport", source_mode="server")
         if isinstance(last, int) and last > 0:
             store.raise_revision_floor(last)
         self._writer_note = None
@@ -386,7 +386,7 @@ class _Gate:
             status = self._status or {}
         consent = status.get("consent") or {}
         return {"state": result["state"], "can_enter": result["can_enter"], "reasons": result["reasons"],
-                "verified_age": result["verified_age"], "policy_version": REQUIRED_POLICY_VERSION,
+                "verified_age": result["verified_age"], "policy_version": (status.get("policy") or {}).get("required_version"),
                 "consent": {"state": consent.get("state"), "granted_at": consent.get("granted_at"),
                             "policy_version": consent.get("policy_version")},
                 "kakao": bool((status.get("gate") or {}).get("kakao")),
@@ -486,8 +486,3 @@ def block_code(exc: BaseException) -> str | None:
     return code if code in BLOCK_MESSAGES else None
 
 
-def consent_text() -> str:
-    from core.utils.path_utils import resource_path
-
-    with open(resource_path(CONSENT_TEXT_FILE), "r", encoding="utf-8") as fh:
-        return fh.read()

@@ -75,7 +75,6 @@ def main() -> int:
     import requests
 
     from services.community_auth_store import CommunitySessionStore
-    from services.community_gate import CONSENT_TEXT_SHA256, REQUIRED_POLICY_VERSION
 
     cfg_path = data / "config.ini"
     cfg = configparser.ConfigParser()
@@ -109,7 +108,10 @@ def main() -> int:
     if a.revoke and (st.get("consent") or {}).get("state") == "active":
         account("consent-revoke", {"grant_id": st["consent"]["grant_id"]})
     if a.consent:
-        r = account("consent", {"policy_version": REQUIRED_POLICY_VERSION, "consent_text_sha256": CONSENT_TEXT_SHA256,
+        # 동의문은 중앙에서 받는다(2026-09-27) — 받은 본문의 해시를 직접 계산해 보낸다
+        policy = account("policy", {})["policy"]
+        digest = hashlib.sha256(policy["consent_text"].encode("utf-8")).hexdigest()
+        r = account("consent", {"policy_version": policy["version"], "consent_text_sha256": digest,
                                 "via": "safetyreport_server", "accepted": True})
         if r["status"] != 200:
             sys.exit(f"consent failed: {r.get('error', {}).get('code')}")

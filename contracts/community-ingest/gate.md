@@ -15,7 +15,7 @@
 3. status 없음 또는 invalidated 또는 now - verified_at > ttl → `verification_required`(네트워크로 status 를 다시 받음. 실패하면 이 상태로 머물고 **진입 불가**)
 4. status.gate.kakao = false → `kakao_required`
 5. status.contributor.status ∉ {active, none} → `suspended`
-6. status.consent.state ≠ active 또는 policy_version ≠ 앱이 아는 required_version → `consent_required`(state 가 outdated 면 새 정책 안내)
+6. status.consent.state ≠ active 또는 grant 의 (policy_version, consent_text_sha256) ≠ status.policy 의 (required_version, consent_text_sha256) → `consent_required`(state 가 outdated 면 새 정책 안내). 앱은 정책 버전·해시를 번들에 두지 않고 status.policy 와 비교한다(2026-09-27 — 동의문은 `account-api.md` `policy` 로 받는다)
 7. 그 밖 → `ok` (can_enter = true)
 
 로컬 prefs·SQLite 에 저장된 "완료" 값만으로는 1~7 을 건너뛰지 않는다. 캐시된 status 는 유효 기간 안에서만 쓴다.
