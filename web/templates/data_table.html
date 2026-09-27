@@ -32,34 +32,21 @@
                 <input type="text" class="form-control" id="searchReport">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">신고명</label>
-                <input type="text" class="form-control" id="searchReportName">
+                <label class="form-label fw-bold">ID</label>
+                <input type="text" class="form-control" id="searchId">
             </div>
+            <!-- 공통 항목은 main 통계표의 기관→담당자→과태료→처분→별점 순서 -->
             <div class="col-12">
-                <label class="form-label fw-bold">위반법규명</label>
-                <input type="text" class="form-control" id="searchLaw">
+                <label class="form-label fw-bold">처리기관</label>
+                <input type="text" class="form-control" id="searchAgency">
             </div>
             <div class="col-12">
                 <label class="form-label fw-bold">담당자</label>
                 <input type="text" class="form-control" id="searchPerson">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">위반장소</label>
-                <input type="text" class="form-control" id="searchLocation">
-            </div>
-            <div class="col-12">
-                <label class="form-label fw-bold">처리기관</label>
-                <input type="text" class="form-control" id="searchAgency">
-            </div>
-            <div class="col-12">
-                <div class="form-check form-switch mb-1">
-                    <input class="form-check-input filter-police" type="checkbox" id="excludePolice">
-                    <label class="form-check-label" for="excludePolice">경찰기관 제외</label>
-                </div>
-                <div class="form-check form-switch">
-                    <input class="form-check-input filter-police" type="checkbox" id="onlyPolice">
-                    <label class="form-check-label" for="onlyPolice">경찰기관만 포함</label>
-                </div>
+                <label class="form-label fw-bold">범칙금/과태료</label>
+                <input type="text" class="form-control" id="searchFine">
             </div>
             <div class="col-12">
                 <label class="form-label fw-bold">처리상태</label>
@@ -71,14 +58,6 @@
                 </div>
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">범칙금/과태료</label>
-                <input type="text" class="form-control" id="searchFine">
-            </div>
-            <div class="col-12">
-                <label class="form-label fw-bold">보완횟수</label>
-                <input type="text" class="form-control" id="searchSupplementCount" placeholder="예: 1, 2">
-            </div>
-            <div class="col-12">
                 <label class="form-label fw-bold">별점</label>
                 <div class="dropdown" id="searchRatingDropdown">
                     <button class="multi-select-toggle dropdown-toggle" type="button" data-bs-toggle="dropdown" data-bs-auto-close="outside">
@@ -87,17 +66,18 @@
                     <div class="dropdown-menu multi-select-menu"></div>
                 </div>
             </div>
+            <hr class="my-3">
             <div class="col-12">
-                <label class="form-label fw-bold">별점사유</label>
-                <input type="text" class="form-control" id="searchRatingCause">
+                <label class="form-label fw-bold">신고명</label>
+                <input type="text" class="form-control" id="searchReportName">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">만족도 조사 여부</label>
-                <select class="form-select" id="searchPollStatus">
-                    <option value="">전체</option>
-                    <option value="참여 완료">참여 완료</option>
-                    <option value="참여 가능">참여 가능</option>
-                </select>
+                <label class="form-label fw-bold">위반법규명</label>
+                <input type="text" class="form-control" id="searchLaw">
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold">위반장소</label>
+                <input type="text" class="form-control" id="searchLocation">
             </div>
             <div class="col-12">
                 <label class="form-label fw-bold">신고내용</label>
@@ -108,6 +88,32 @@
                 <input type="text" class="form-control" id="searchProcessContent">
             </div>
 
+            <div class="col-12">
+                <label class="form-label fw-bold">보완횟수</label>
+                <input type="text" class="form-control" id="searchSupplementCount" placeholder="예: 1, 2">
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold">만족도 조사 여부</label>
+                <select class="form-select" id="searchPollStatus">
+                    <option value="">전체</option>
+                    <option value="참여 완료">참여 완료</option>
+                    <option value="참여 가능">참여 가능</option>
+                </select>
+            </div>
+            <div class="col-12">
+                <label class="form-label fw-bold">별점사유</label>
+                <input type="text" class="form-control" id="searchRatingCause">
+            </div>
+            <div class="col-12">
+                <div class="form-check form-switch mb-1">
+                    <input class="form-check-input filter-police" type="checkbox" id="excludePolice">
+                    <label class="form-check-label" for="excludePolice">경찰기관 제외</label>
+                </div>
+                <div class="form-check form-switch">
+                    <input class="form-check-input filter-police" type="checkbox" id="onlyPolice">
+                    <label class="form-check-label" for="onlyPolice">경찰기관만 포함</label>
+                </div>
+            </div>
             <hr class="my-3">
 
             <div class="col-12">
@@ -323,6 +329,7 @@ $(document).ready(function() {
             e.preventDefault();
             values.length = 0;
             renderMultiSelect($root, options, values);
+            $root.find('.multi-select-toggle')[0].focus();
         });
         $menu.append($allButton);
         $menu.append('<div class="dropdown-divider my-1"></div>');
@@ -341,6 +348,8 @@ $(document).ready(function() {
                     sortSelections(values, options);
                 }
                 renderMultiSelect($root, options, values);
+                // 다시 그린 옵션 버튼은 제거되므로 토글에 포커스를 돌려 Enter 검색을 받는다.
+                $root.find('.multi-select-toggle')[0].focus();
             });
             $menu.append($item);
         });
@@ -352,7 +361,7 @@ $(document).ready(function() {
     }
 
     function submitFromMultiSelect($button) {
-        const $dropdown = $button.closest('.dropdown');
+        const $dropdown = $button.hasClass('dropdown') ? $button : $button.closest('.dropdown');
         const toggleEl = $dropdown.find('.multi-select-toggle')[0];
         if (toggleEl && window.bootstrap && window.bootstrap.Dropdown) {
             window.bootstrap.Dropdown.getOrCreateInstance(toggleEl).hide();
@@ -734,6 +743,7 @@ $(document).ready(function() {
 
             if (!matchesAndOr(row['차량번호'], $('#searchCar').val())) return false;
             if (!matchesAndOr(row['신고번호'], $('#searchReport').val())) return false;
+            if (!matchesAndOr(row['ID'], $('#searchId').val())) return false;
             if (!matchesAndOr(row['신고명'], $('#searchReportName').val())) return false;
             if (!matchesAndOr(row['위반법규'], $('#searchLaw').val())) return false;
             if (!matchesAndOr(row['담당자'], $('#searchPerson').val())) return false;
@@ -845,9 +855,10 @@ $(document).ready(function() {
 
         const $optionButton = $target.closest('.multi-select-option');
         if ($optionButton.length) {
+            const $dropdown = $optionButton.closest('.dropdown');
             $optionButton.trigger('click');
             setTimeout(function() {
-                submitFromMultiSelect($optionButton);
+                submitFromMultiSelect($dropdown);
             }, 0);
             return;
         }

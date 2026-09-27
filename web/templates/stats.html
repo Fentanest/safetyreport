@@ -177,6 +177,15 @@
                         </div>
                     </div>
                     <div class="col-12">
+                        <label class="form-label fw-bold">신고명</label>
+                        <input type="text" class="form-control" name="reportName" value="{{ f.reportName or '' }}">
+                    </div>
+                    {% if f.law %}<input type="hidden" name="law" value="{{ f.law }}">{% endif %}
+                    <div class="col-12">
+                        <label class="form-label fw-bold">위반장소</label>
+                        <input type="text" class="form-control" name="location" value="{{ f.location or '' }}">
+                    </div>
+                    <div class="col-12">
                         <div class="form-check form-switch mb-1">
                             <input class="form-check-input filter-police" type="checkbox" name="excludePolice" id="excludePolice" {% if f.excludePolice %}checked{% endif %} value="true">
                             <label class="form-check-label" for="excludePolice">경찰기관 제외</label>
@@ -185,15 +194,6 @@
                             <input class="form-check-input filter-police" type="checkbox" name="onlyPolice" id="onlyPolice" {% if f.onlyPolice %}checked{% endif %} value="true">
                             <label class="form-check-label" for="onlyPolice">경찰기관만 포함</label>
                         </div>
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label fw-bold">신고명</label>
-                        <input type="text" class="form-control" name="reportName" value="{{ f.reportName or '' }}">
-                    </div>
-                    {% if f.law %}<input type="hidden" name="law" value="{{ f.law }}">{% endif %}
-                    <div class="col-12">
-                        <label class="form-label fw-bold">위반장소</label>
-                        <input type="text" class="form-control" name="location" value="{{ f.location or '' }}">
                     </div>
 
                     <hr class="my-3">

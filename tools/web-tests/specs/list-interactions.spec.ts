@@ -57,6 +57,29 @@ test.describe('List Interactions and Modals', () => {
     await page.locator('#btnSearch').click();
   });
 
+  test('clicked status keeps Enter focus and applies search', async ({ page }) => {
+    await page.locator('.floating-search-btn').click();
+    const dropdown = page.locator('#searchStatusDropdown');
+    await dropdown.locator('.multi-select-toggle').click();
+    await dropdown.locator('.multi-select-option').filter({
+      has: page.locator('span', { hasText: /^수용$/ }),
+    }).click();
+    await expect(dropdown.locator('.multi-select-toggle')).toBeFocused();
+
+    const redrawn = page.evaluate(() => new Promise<void>((resolve) => {
+      (window as any).$('table.dataTable').one('draw.dt', () => resolve());
+    }));
+    await page.keyboard.press('Enter');
+    await redrawn;
+    const statuses = await page.evaluate(() => {
+      const table = (window as any).$('table.dataTable').DataTable();
+      return table.rows({ search: 'applied' }).data().toArray()
+        .map((row: Record<string, string>) => row['처리상태']);
+    });
+    expect(statuses.length).toBeGreaterThan(0);
+    expect(statuses.every((status: string) => status === '수용')).toBeTruthy();
+  });
+
   test('selection persists after pagination', async ({ page }) => {
     const firstRowCheckbox = page.locator('tbody tr .row-checkbox').first();
     await firstRowCheckbox.check();
