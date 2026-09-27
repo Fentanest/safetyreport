@@ -20,6 +20,17 @@
 - `services/db_editor_service.py`(데이터 수정 스키마/조회/저장), `web/routers/filters.py`(dedupe/카테고리 쿼리 정규화) — 기존 파일이지만 트리에 없었다.
 - 실행·테스트 방법은 [../development/runtime-and-packaging.md](../development/runtime-and-packaging.md).
 
+## 현재 서버 시작·사용 흐름 (2026-09-27 dev)
+
+이 절이 아래 이관 원문의 구버전 시작·DB 설명보다 우선한다.
+
+1. `main.py` 시작 단계에서 `core/database/database.py`가 이전 형식 DB를 발견하면 `data/backups/legacy_v*.db`로 온전하게 백업한 뒤 신고 자료를 비운다. 관리자 계정·API 키·감시 목록·주소 좌표 캐시는 남긴다. 새 설치와 현재 스키마 DB는 이 초기화를 거치지 않는다. 실패하면 서버 시작을 멈춘다([data-contracts.md](data-contracts.md)).
+2. 관리자 로그인 뒤 `services/community_gate.py`와 `main.py` 미들웨어가 카카오 로그인·중앙의 현재 신고 내용 공유 동의를 확인한다. 통과 전에는 신고 화면과 크롤 시작을 막고 온보딩으로 보낸다. 동의 철회나 정책 변경 시 재확인한다([community-gate.md](community-gate.md)).
+3. 이전 자료를 비웠거나 중앙 공유 자료를 다시 채워야 하면 초기화 수집 안내를 거친다. 실제 수집은 `services/crawl_manager.py`가 `start.py`를 별도 프로세스로 실행한다([community-rebuild.md](community-rebuild.md), [crawling-and-processing.md](crawling-and-processing.md)).
+4. Android Client는 `web/routers/api_route.py`의 인증된 `/api/v1/server/version`에서 PC v3 이상을 확인한 뒤 연결한다. 앱 v2 이상 필요 안내는 `web/templates/devices.html`의 사용자 문구이며, 서버 API 전체가 앱 버전을 강제로 검증한다는 뜻은 아니다. 양쪽 변경 시 앱의 저장 설정 재진입·WebSocket 연결도 함께 확인한다.
+
+`VERSION`은 PC 프로그램 버전이고 SQLite의 `SCHEMA_VERSION`(현재 4)과 별개다. 모바일 앱 버전·빌드 번호도 별개이며, 현재 dev 앱은 `2.0.0+31`이다.
+
 ## 이관 원문
 
 <!-- legacy CLAUDE.md 15-110 -->

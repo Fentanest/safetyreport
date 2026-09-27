@@ -60,7 +60,7 @@
 - `/onboarding/community`: [필수] 1. 카카오 인증(설정 화면과 같은 `components/community_account_card.html`),
   [필수] 2. 신고내용 공유 동의(`components/community_consent_card.html` — 문서 전문, 기본 해제 체크박스, 서버 성공 응답 뒤에만 완료).
   둘 다 끝나면 `next`(같은 서버 상대경로만, `safe_next`)로 이동. `config_invalid` 면 고급 설정이 열린 복구 화면.
-- `/onboarding/rebuild`: 1회 초기화 안내·확인(백업·데이터 보존·재개 설명). 필요·진행 중이면 모든 화면 위에 배너(`base.html`).
+- `/onboarding/rebuild`: 1회 초기화 안내·확인. 이전 형식 개인 DB는 서버 시작 때 백업 후 신고 자료를 비우며, 새로 수집해야 한다. 남는 항목과 백업 경로는 [data-contracts.md](data-contracts.md)의 "2026-09-27 이전 버전 DB 처리"를 따른다. 필요·진행 중이면 모든 화면 위에 배너(`base.html`).
 - 설정 화면 "5. 신고내용 공유 동의": 상태·동의 문서·철회(→ 필수 설정 화면)·공유 자료 삭제 요청(`contributions-delete`, 확인 입력)·업로드 연결 전환.
 
 ## 로컬 API

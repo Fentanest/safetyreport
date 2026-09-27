@@ -6,6 +6,8 @@
 
 ## 코드 대조 정정 (기준 17df6cb)
 
+현재 dev 기준은 아래 **2026-09-27 이전 버전 DB 처리** 절이다. 이 문서의 2026-09-24 R1 절에 적힌 서버 스키마 2·모바일 스키마 12와 아래 이관 원문의 자동 업그레이드 설명은 당시 기록이며 현재 값이 아니다. 현재 서버 스키마는 `core/database/database.py`의 `SCHEMA_VERSION=4`; 이전 버전 DB는 서버 시작 때 백업 후 초기화한다. 현재 모바일 스키마는 `LocalDbService.dbVersion=15`이다.
+
 | 원문 절 | 현재 코드 | 조치 |
 |---|---|---|
 | 설정 표 crawl_type | 코드는 `[Crawler] crawl_type` 이 `api` 면 api, 그 외 값은 모두 `legacy` 로 읽는다(`settings/settings.py:68-69`). 표의 `api / web` 는 부정확. | 정정 |
