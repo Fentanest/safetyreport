@@ -39,8 +39,11 @@ ENV_ENABLED = "SAFETYREPORT_COMMUNITY_ENABLED"
 ENV_SUPABASE_URL = "SAFETYREPORT_COMMUNITY_SUPABASE_URL"
 ENV_PUBLISHABLE_KEY = "SAFETYREPORT_COMMUNITY_PUBLISHABLE_KEY"
 ENV_SITE_URL = "SAFETYREPORT_COMMUNITY_SITE_URL"
-ENV_ALIASES = {ENV_ENABLED: "COMMUNITY_ENABLED", ENV_SUPABASE_URL: "COMMUNITY_SUPABASE_URL",
-               ENV_PUBLISHABLE_KEY: "COMMUNITY_PUBLISHABLE_KEY", ENV_SITE_URL: "COMMUNITY_SITE_URL"}
+# 별칭: 빌드·Docker 가 쓰는 짧은 이름. 공개 키는 Android·지도와 같은 정본 COMMUNITY_SUPABASE_PUBLISHABLE_KEY 와 옛 이름
+# COMMUNITY_PUBLISHABLE_KEY 를 모두 받는다. 여러 이름이 서로 다른 값이면 config_conflict(조용히 하나를 고르지 않는다).
+ENV_ALIASES = {ENV_ENABLED: ("COMMUNITY_ENABLED",), ENV_SUPABASE_URL: ("COMMUNITY_SUPABASE_URL",),
+               ENV_PUBLISHABLE_KEY: ("COMMUNITY_SUPABASE_PUBLISHABLE_KEY", "COMMUNITY_PUBLISHABLE_KEY"),
+               ENV_SITE_URL: ("COMMUNITY_SITE_URL",)}
 BUNDLED_PUBLIC_FILE = "community_public.json"
 
 REFRESH_MARGIN_SECONDS = 60
@@ -203,7 +206,7 @@ def build_config(raw: dict, env: dict | None = None, bundled: dict | None = None
     conflicts = set()
 
     def pick(key: str, env_name: str, default: str = "") -> str:
-        values = [v.strip() for v in (env.get(env_name), env.get(ENV_ALIASES[env_name])) if v is not None and v.strip() != ""]
+        values = [v.strip() for v in (env.get(env_name), *(env.get(a) for a in ENV_ALIASES[env_name])) if v is not None and v.strip() != ""]
         if values:
             locked.add(key)
             if len(set(values)) > 1:

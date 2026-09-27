@@ -39,13 +39,23 @@
 |---|---|---|---|
 | `enabled` | `false` | `SAFETYREPORT_COMMUNITY_ENABLED` | 기능 켜기 |
 | `supabase_url` | 빈 값 | `SAFETYREPORT_COMMUNITY_SUPABASE_URL` | https origin 만(경로 없음). http 는 `127.0.0.1` 만(로컬 검증 스택) |
-| `publishable_key` | 빈 값 | `SAFETYREPORT_COMMUNITY_PUBLISHABLE_KEY` | `sb_publishable_…` 또는 role=anon JWT 만. `sb_secret_`·service_role 거부 |
+| `publishable_key` | 빈 값 | `SAFETYREPORT_COMMUNITY_PUBLISHABLE_KEY` (별칭 `COMMUNITY_SUPABASE_PUBLISHABLE_KEY`·옛 `COMMUNITY_PUBLISHABLE_KEY`) | `sb_publishable_…` 또는 role=anon JWT 만. `sb_secret_`·service_role 거부. 이름이 여러 개 설정되고 값이 다르면 `config_conflict` |
 | `site_url` | `https://safeauth.worklazy.net/` | `SAFETYREPORT_COMMUNITY_SITE_URL` | 중계가 준 연결 링크가 이 주소 + `#r=…&t=…` 형식인지 검사 |
 | `device_label` | 빈 값 → "이 PC" / "Docker 서버"(`/.dockerenv`) | — | 중앙 페이지에 보이는 이름. 프로토콜 규칙(1~40자, `<>"'\`\\`·제어문자·URL 스킴 금지) |
 | `api_key_managers` | 빈 값 | — | 관리 허용 API 키들의 SHA-256 hex, 쉼표 구분. 원문 키는 저장하지 않음 |
 | `upload_enabled` | `false` | — | 화면에서 바꾸지 않는다. 업로더가 생기면 별도 동의 화면에서 다룬다 |
 
 배포 입력은 `supabase_url` 과 `publishable_key` 두 공개값뿐이다. 앱에는 비밀(service_role, 중계 pepper/암호화 키)이 들어가지 않는다.
+
+공개 설정의 경로(2026-09-27 정리 — 이름은 Android·지도와 같은 `COMMUNITY_SUPABASE_URL`·`COMMUNITY_SUPABASE_PUBLISHABLE_KEY` 가 정본):
+
+| 산출물 | 입력 | 번들 결과 | 누락 시 |
+|---|---|---|---|
+| PyInstaller(Windows·Linux·macOS, `build.yml`·수동 빌드) | 저장소 Variables `COMMUNITY_SUPABASE_URL`·`COMMUNITY_SUPABASE_PUBLISHABLE_KEY`(선택 `COMMUNITY_SITE_URL`) → 빌드 env | `scripts/build/build_exe.py` → `community_public.json`(`--add-data`) | `COMMUNITY_CONFIG_REQUIRED=1` 이라 빌드 실패 |
+| Docker 이미지(`build.yml` build-docker) | 같은 Variables → `build-args` | `Dockerfile` → `scripts/build/write_community_public.py` → `/app/community_public.json` | 같은 검증으로 빌드 실패 |
+| 로컬·개발 빌드 | 없음 | 번들 없음(경고) | 실행 때 env·`config.ini` 로 설정 |
+실행 때 우선순위: 환경변수(정식·별칭) > `config.ini [COMMUNITY]` > 번들 파일. 공개 키 이름은 `COMMUNITY_SUPABASE_PUBLISHABLE_KEY`, 옛 이름
+`COMMUNITY_PUBLISHABLE_KEY` 도 받지만 두 값이 다르면 빌드는 멈추고 실행은 `config_conflict` 로 잠근다.
 설정되지 않았거나 잘못된 값이면 상태가 `unconfigured`, 꺼져 있으면 `disabled` 이고 어떤 네트워크 호출도 하지 않는다.
 
 ## 저장·락·백업
