@@ -21,9 +21,14 @@
 | 5 | contributor ∉ {active, none} | `suspended` |
 | 6 | 동의 없음·철회·정책/해시 불일치 | `consent_required` |
 | 7 | 그 밖 | `ok` |
+| 8 | 7 을 통과했지만 이 서버 DB 의 주인 카카오 회원번호가 로그인 계정과 다름 / 번호를 확인하지 못함 | `db_owner_mismatch` / `verification_required`(`data_owner_unverified`) |
+
+- 8 (2026-09-27, `services/account_data.py`): 중앙 status 를 받은 뒤 `_check_owner` 가 `current_kakao_id()` 로 확인한다. 주인 표시가 없으면
+  (이 기능 전 DB·비운 DB) 지금 계정을 적고 `ok`. 다르면 writer 연결을 만들지 않고 진입을 막는다 — 화면은 "신고 내역 지우고 이 계정으로 시작"
+  (`POST /settings/community/db-owner/adopt`) 또는 "로그아웃(신고 내역 유지)". 무효화하면 주인 확인도 다시 한다.
 
 - 캐시: 화면 이동은 10분(`CACHE_TTL`). 새 작업(크롤 시작·큐·별점·업로드·초기화·자정)은 `require_fresh(60)` — 60초 안의 확인이 없으면 동기 재검증, 실패하면 시작하지 않음.
-- 무효화: 로그인 확정·로그아웃·설정 저장·동의 저장/철회·삭제 요청·status 401. 네트워크 장애 때는 유효 기간 안의 성공 캐시만 유지.
+- 무효화: 로그인 확정·로그아웃(카카오 로그아웃·세션 초기화)·자료 주인 전환·설정 저장·동의 저장/철회·삭제 요청·status 401. 네트워크 장애 때는 유효 기간 안의 성공 캐시만 유지.
 - 온라인 동안 60초 주기 `community-gate-poll` job(T4 `register_community_jobs`)이 원격 철회를 반영(상한 온라인 60초, 오프라인 10분).
 - HTTP 요청의 확인(`check_for_request`)은 장애 때 요청마다 막히지 않게 15초에 한 번만 재시도한다.
 
@@ -65,6 +70,9 @@
 | `POST /settings/community/consent-revoke` | 세션 + CSRF | `{"confirm":true}` → 현재 grant 철회(업로드 먼저 중단) |
 | `POST /settings/community/writer` | 세션 + CSRF | `{"takeover":true}` → 이 서버로 업로드 연결 전환 |
 | `POST /settings/community/contributions-delete` | 세션 + CSRF | `{"confirm":"DELETE_MY_SHARED_REPORTS"}` |
+| `POST /settings/community/logout` | 세션 + CSRF | `{"confirm":"DELETE_MY_REPORTS"}` → 카카오 로그아웃. 신고 자료를 지운 뒤 로그아웃(주인이 다른 계정으로 **확인된** 경우만 남김). 크롤링·지도 변환 중이면 409, 아무것도 지우지 않고 로그인 유지. 결과 `reports_wiped` |
+| `POST /settings/community/reset-session` | 세션 + CSRF | 세션 파일을 읽을 수 없을 때(`store_unreadable`)만: 옆으로 옮기고 다시 로그인(자료 유지 — 다음 계정이 주인과 다르면 8 이 막음) |
+| `POST /settings/community/db-owner/adopt` | 세션 + CSRF | `db_owner_mismatch` 일 때만 `{"confirm":"DELETE_OTHER_ACCOUNT_REPORTS"}` → 자료를 비우고 지금 계정을 주인으로 적음 |
 | `GET /api/v1/community/gate` | API 키 | 서버 게이트 요약(모바일 Client 표시·fingerprint 비교) |
 
 모바일 Client 의 민감 제어(초기화 시작·수동 업로드)는 `X-Community-User-Token`(폰의 access token)을 `verify_client_user_token` 이 GoTrue `/user` 로 확인해

@@ -628,7 +628,7 @@
      "exchange": true
     }
    ],
-   "note": "키: last_sync(ISO8601), watchlist(모바일 전용 — 서버 원천은 mysafety_watchlist, 서버 sync_meta 에는 두지 않음; 스키마 버전 2 에서 삭제), map_backfill_state(서버 런타임, 교환 제외). value 는 양쪽 모두 NULL 허용."
+   "note": "키: last_sync(ISO8601), watchlist(모바일 전용 — 서버 원천은 mysafety_watchlist, 서버 sync_meta 에는 두지 않음; 스키마 버전 2 에서 삭제), map_backfill_state(서버 런타임, 교환 제외), kakao_member_id(이 DB 의 주인 카카오 회원번호 원문 — 게이트 통과 때 처음 한 번 기록, 교환 때 그대로 옮김. 가져오기·복원은 이 값이 지금 로그인한 카카오 계정과 같은 DB 만 받고 없거나 다르면 거절, 카카오 로그아웃은 신고 자료와 함께 지움 — 2026-09-27). value 는 양쪽 모두 NULL 허용."
   },
   {
    "entity": "geocode_cache",

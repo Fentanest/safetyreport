@@ -1,4 +1,4 @@
-"""신고 자료의 주인 = 로그인한 카카오 계정 (2026-09-27 사용자 결정, 모바일 lib/services/account_data.dart 와 같은 규칙).
+"""신고 자료의 주인 = 로그인한 카카오 계정 (2026-09-27 사용자 결정, 모바일 lib/services/local_db_service.dart·lib/community/kakao_logout.dart 와 같은 규칙).
 
 - 카카오 로그인은 필수다. 게이트를 통과하면 개인 DB(sync_meta)에 카카오 회원번호를 적는다(처음 한 번). 이미 다른 번호가 적혀 있으면
   게이트는 `db_owner_mismatch` 로 막고, 사용자가 "자료를 지우고 이 계정으로 시작"하거나 로그아웃(원래 주인 자료는 남김)해야 한다.

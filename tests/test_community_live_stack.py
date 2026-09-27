@@ -180,6 +180,62 @@ class PcLiveStackTest(unittest.TestCase):
         self.assertEqual(int(_sql("select count(*) from private.community_ingest_events;")), ledger)
         self.assertIsNotNone(pending.event_id)
 
+    def consent(self, token: str) -> None:
+        """이 계정의 동의를 스택이 요구하는 정책으로 맞춘다(철회하지 않음 — 스택을 같이 쓰는 다른 작업을 건드리지 않게).
+        스택의 정책이 이 코드의 정책과 다르면(다른 작업이 정책을 올린 스택) 게이트 상수도 스택 값으로 맞춘다 — 이 시험은 주인 흐름만 본다."""
+        from services import community_gate
+
+        st = self.account("status", token, {}).json()
+        policy = st["policy"]
+        for name, value in (("REQUIRED_POLICY_VERSION", policy["required_version"]), ("CONSENT_TEXT_SHA256", policy["consent_text_sha256"])):
+            if getattr(community_gate, name) != value:
+                p = mock.patch.object(community_gate, name, value)
+                p.start()
+                self.addCleanup(p.stop)
+        if st["consent"]["state"] != "active" or st["consent"].get("policy_version") != policy["required_version"]:
+            r = self.account("consent", token, {"policy_version": policy["required_version"], "consent_text_sha256": policy["consent_text_sha256"],
+                                                "via": "safetyreport_server", "accepted": True})
+            self.assertEqual(r.status_code, 200, r.text)
+
+    def test_pc_data_owner_is_the_kakao_member_id(self):
+        """2026-09-27: 신고 자료의 주인 = 카카오 회원번호(실제 GoTrue identities 에서 받음). 다른 계정은 게이트가 막고, 비우면 새 주인."""
+        from sqlalchemy import func, select
+
+        from core.database import models
+        from core.database.engine import get_engine
+        from core.utils import logger
+        from scripts.dev import fixture_server
+        from services import account_data
+        from services import community_gate
+
+        logger.LoggerFactory.create_logger(mode="crawl")
+        engine = get_engine()
+        fixture_server.seed_engine(engine)
+        with engine.begin() as conn:
+            conn.exec_driver_sql("DELETE FROM mysafety_sync_meta WHERE key=?", (account_data.KAKAO_MEMBER_META_KEY,))
+        count = lambda: engine.connect().execute(select(func.count()).select_from(models.title_table)).scalar()
+        self.assertGreater(count(), 0)
+
+        a = self.login("A")  # 세션에 kakao_id 없음(이 기능 전 세션과 같음) → 게이트가 /auth/v1/user 로 채운다
+        self.consent(a["access_token"])
+        community_gate.invalidate("login")
+        self.assertTrue(community_gate.refresh_now()["can_enter"], community_gate.status_view())
+        self.assertEqual(account_data.db_owner(), "920001", "mock 카카오 A 의 회원번호(실제 GoTrue identity)")
+        self.assertEqual(self.service.session_kakao_id(), "920001")
+
+        b = self.login("B")
+        self.consent(b["access_token"])
+        community_gate.invalidate("login")
+        self.assertEqual(community_gate.refresh_now()["state"], "db_owner_mismatch")
+        self.assertGreater(count(), 0, "막기만 하고 지우지 않는다")
+
+        with mock.patch("services.community_store.CommunityStore.rotate_dataset", lambda self, reason: None):
+            account_data.wipe_report_data("db_owner_adopt", then_owner=self.service.current_kakao_id())
+        community_gate.invalidate("db_owner_adopt")
+        self.assertTrue(community_gate.refresh_now()["can_enter"])
+        self.assertEqual(account_data.db_owner(), "920002")
+        self.assertEqual(count(), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

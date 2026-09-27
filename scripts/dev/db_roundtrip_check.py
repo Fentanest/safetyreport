@@ -27,6 +27,9 @@ SERVER_TABLES_BY_ID = [
     "mysafety_entry_value", "mysafety_raw_content",
 ]
 MOBILE_TABLES = {"reports": "ID", "report_raw": "ID", "sync_meta": "key", "geocode_cache": "주소정규화"}
+# 가져오기·복원은 주인(카카오 회원번호)이 지금 로그인한 계정과 같은 DB 만 받는다(2026-09-27). 이 검사는 fixture 계정으로 로그인한 것으로 둔다.
+KAKAO_ID = "910001"
+KAKAO_META_KEY = "kakao_member_id"
 
 
 def _server_env(data_dir: Path) -> dict:
@@ -73,12 +76,13 @@ with engine.begin() as conn:
                       "VALUES ('서울특별시 없는구 1', '서울 없는구 1', '', NULL, NULL, 'failed', 'kakao', 'not found', 1790000000456)"))
 from core.database import database
 database.merge_final(engine)
+database.set_meta(engine, database.KAKAO_MEMBER_META_KEY, sys.argv[1])
 with engine.begin() as conn:
     conn.execute(text("UPDATE mysafety_duplicate_group SET status='not_duplicate', representative_mode='manual', representative_id='90000012', note='사용자 메모: 서로 다른 건'"))
     conn.execute(text("UPDATE mysafety_duplicate_member SET is_representative = CASE WHEN report_id='90000012' THEN 1 ELSE 0 END"))
 print(engine.url.database)
 '''
-    out = subprocess.run([sys.executable, "-c", code], env=_server_env(data_dir), capture_output=True, text=True, cwd=REPO_ROOT)
+    out = subprocess.run([sys.executable, "-c", code, KAKAO_ID], env=_server_env(data_dir), capture_output=True, text=True, cwd=REPO_ROOT)
     if out.returncode != 0:
         raise SystemExit("server db build failed:\n" + out.stderr[-3000:])
     return data_dir / "data.db"
@@ -93,14 +97,18 @@ def prepare_server_copy(source: Path, data_dir: Path) -> Path:
     src.backup(dst)  # WAL 내용까지 일관된 사본
     dst.close()
     src.close()
+    # 주인 표시가 없는 사본(이 기능 전 DB)은 임시 사본에만 fixture 계정을 적는다 — 원본은 그대로.
     code = r'''
+import sys
 from core.database.engine import get_engine
 from core.database import database
 from core.utils import logger
 logger.LoggerFactory.create_logger()
 database.upgrade_schema(get_engine())
+if not database.get_meta(get_engine(), database.KAKAO_MEMBER_META_KEY):
+    database.set_meta(get_engine(), database.KAKAO_MEMBER_META_KEY, sys.argv[1])
 '''
-    out = subprocess.run([sys.executable, "-c", code], env=_server_env(data_dir), capture_output=True, text=True, cwd=REPO_ROOT)
+    out = subprocess.run([sys.executable, "-c", code, KAKAO_ID], env=_server_env(data_dir), capture_output=True, text=True, cwd=REPO_ROOT)
     if out.returncode != 0:
         raise SystemExit("server copy upgrade failed:\n" + out.stderr[-3000:])
     return target
@@ -138,19 +146,22 @@ def restore_mobile_into_server(mobile_db: Path, data_dir: Path) -> Path:
     code = r'''
 import sys
 from services import db_backup
+from core.storage import exchange
 from core.utils import logger
 logger.LoggerFactory.create_logger()
+exchange._current_kakao_id = lambda: sys.argv[2]  # 로그인한 카카오 계정(검사용 fixture 계정)
 db_backup.restore_from_mobile_db(sys.argv[1])
 '''
     data_dir.mkdir(parents=True, exist_ok=True)
-    out = subprocess.run([sys.executable, "-c", code, str(mobile_db)], env=_server_env(data_dir), capture_output=True, text=True, cwd=REPO_ROOT)
+    out = subprocess.run([sys.executable, "-c", code, str(mobile_db), KAKAO_ID], env=_server_env(data_dir), capture_output=True, text=True, cwd=REPO_ROOT)
     if out.returncode != 0:
         raise SystemExit("server restore failed:\n" + out.stderr[-3000:])
     return data_dir / "data.db"
 
 
 def mobile_import(server_db: Path, mobile_out: Path, mobile_repo: Path, flutter: str) -> Path:
-    env = dict(os.environ, SR_RT_MODE="import", SR_RT_SERVER_DB=str(server_db), SR_RT_MOBILE_OUT=str(mobile_out))
+    env = dict(os.environ, SR_RT_MODE="import", SR_RT_SERVER_DB=str(server_db), SR_RT_MOBILE_OUT=str(mobile_out),
+               SR_RT_KAKAO_ID=KAKAO_ID)
     out = subprocess.run([flutter, "test", "test/tool/db_roundtrip_harness_test.dart"], env=env, cwd=mobile_repo, capture_output=True, text=True)
     if out.returncode != 0 or not mobile_out.exists():
         raise SystemExit("mobile import failed:\n" + (out.stdout + out.stderr)[-3000:])
@@ -268,6 +279,13 @@ def main() -> int:
         for label, db, table in () if args.server_db else (("M1", m1, "report_override"), ("M1", m1, "duplicate_decision"), ("S2", s2, "mysafety_report_override")):
             if not _all(db, table):
                 diffs.append(f"[coverage] {label}.{table} 가 비어 있음 — 교환이 새 표를 옮기지 않음")
+        # 주인 표시(카카오 회원번호)가 네 DB 모두에 같은 값으로 남아야 한다 — 빠지면 다음 가져오기가 거절된다.
+        owners = {"S0": _rows(s0, "mysafety_sync_meta", "key").get(KAKAO_META_KEY, {}).get("value"),
+                  "M1": _rows(m1, "sync_meta", "key").get(KAKAO_META_KEY, {}).get("value"),
+                  "S2": _rows(s2, "mysafety_sync_meta", "key").get(KAKAO_META_KEY, {}).get("value"),
+                  "M3": _rows(m3, "sync_meta", "key").get(KAKAO_META_KEY, {}).get("value")}
+        if set(owners.values()) != {KAKAO_ID}:
+            diffs.append(f"[owner] 카카오 회원번호 표시가 왕복에서 달라짐: {sorted(k for k, v in owners.items() if v != KAKAO_ID)}")
         mg1, mm1 = _dup_meta(m1, "duplicate_group", "duplicate_member")
         mg3, mm3 = _dup_meta(m3, "duplicate_group", "duplicate_member")
         diffs += compare("B:duplicate_group", mg1, mg3)
