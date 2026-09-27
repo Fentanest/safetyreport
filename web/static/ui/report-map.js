@@ -44,35 +44,26 @@ function create(element, mapPoints, options) {
         return Number.isFinite(pct) ? pct : 0;
     }
 
+    // 과태료 비율 구간 색 = 앱 상태 토큰(60% 이상 수용색, 50% 이상 일부수용색, 그 밖 불수용색). 테마를 따라간다.
+    function markerTone(token) {
+        return {
+            top: 'color-mix(in srgb, ' + token + ' 22%, #ffffff)',
+            mid: 'color-mix(in srgb, ' + token + ' 70%, #ffffff)',
+            bottom: token,
+            shadow: 'color-mix(in srgb, ' + token + ' 30%, transparent)',
+            accent: token,
+            accentSoft: 'color-mix(in srgb, ' + token + ' 12%, transparent)'
+        };
+    }
+
     function getPointMarkerTheme(fineRate) {
         if (fineRate >= 60) {
-            return {
-                top: '#dcfce7',
-                mid: '#4ade80',
-                bottom: '#16a34a',
-                shadow: 'rgba(22, 163, 74, 0.28)',
-                accent: '#15803d',
-                accentSoft: 'rgba(22, 163, 74, 0.12)'
-            };
+            return markerTone('var(--sr-status-accept)');
         }
         if (fineRate >= 50) {
-            return {
-                top: '#ffedd5',
-                mid: '#fb923c',
-                bottom: '#ea580c',
-                shadow: 'rgba(234, 88, 12, 0.28)',
-                accent: '#ea580c',
-                accentSoft: 'rgba(249, 115, 22, 0.12)'
-            };
+            return markerTone('var(--sr-status-partial)');
         }
-        return {
-            top: '#fee2e2',
-            mid: '#f87171',
-            bottom: '#dc2626',
-            shadow: 'rgba(220, 38, 38, 0.28)',
-            accent: '#dc2626',
-            accentSoft: 'rgba(220, 38, 38, 0.11)'
-        };
+        return markerTone('var(--sr-status-reject)');
     }
 
     function buildAddressListUrl(address) {

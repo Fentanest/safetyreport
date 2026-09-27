@@ -83,6 +83,8 @@
             if (k === 'year' || v === null || v === undefined || v === '' || v === false) return;
             p.set(k, v === true ? 'true' : String(v));
         });
+        var urlDedupe = new URLSearchParams(window.location.search).get('dedupe');
+        if (urlDedupe) p.set('dedupe', urlDedupe); // 통계가 고른 대표건 모드를 지도도 따른다
         if (target && target.agency) p.set('targetAgency', target.agency);
         if (target && target.person) p.set('targetPerson', target.person);
         return p;
@@ -431,8 +433,9 @@
         $('#statsMapState').prop('hidden', true);
         var el = document.getElementById('statsMiniMap');
         el.hidden = false;
+        // 팝업 '리스트 보기'에도 통계 조건(법규·답변 연도→답변일 범위·상세 조건)을 잇는다
         var listParams = {};
-        if (FILTERS.law) listParams.law = FILTERS.law;
+        listBaseParams().forEach(function (value, key) { listParams[key] = value; });
         mapInstance = window.SrReportMap && window.SrReportMap.create(el, points, {
             category: cat,
             dedupeMode: DATA.dedupeMode,

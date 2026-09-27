@@ -480,7 +480,14 @@
         // 통계에서 넘어온 조건 중 목록(/data)이 읽는 이름만 '리스트 보기' 주소에 잇는다.
         var mapFilters = {{ (map_filters or {}) | tojson }};
         var listParams = {};
-        if (mapFilters.law) { listParams.law = mapFilters.law; }
+        ['law', 'reportName', 'reportDateStart', 'reportDateEnd', 'occurDateStart', 'occurDateEnd',
+         'occurTimeStart', 'occurTimeEnd'].forEach(function (key) { if (mapFilters[key]) { listParams[key] = mapFilters[key]; } });
+        // 답변 연도 → 답변일 범위(목록에는 연도 필터가 없다). 통계에서 넘어온 답변일 범위와 겹치는 구간.
+        var mapYear = {{ current_year | tojson }};
+        var respStart = [mapYear !== 'all' ? mapYear + '-01-01' : '', mapFilters.responseDateStart || ''].sort().pop();
+        var respEnds = [mapYear !== 'all' ? mapYear + '-12-31' : '', mapFilters.responseDateEnd || ''].filter(Boolean).sort();
+        if (respStart) { listParams.responseDateStart = respStart; }
+        if (respEnds.length) { listParams.responseDateEnd = respEnds[0]; }
         if (mapFilters.targetAgency) { listParams.agency = mapFilters.targetAgency; listParams.agencyExact = 'true'; }
         if (mapFilters.targetPerson) { listParams.person = mapFilters.targetPerson; }
 

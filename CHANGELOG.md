@@ -21,7 +21,8 @@
 - 대시보드의 전국 안전신고 현황(Sunwi)을 통계 화면 하단으로 옮기고 자동 넘김 일시정지 버튼을 넣었다. 대시보드 본문은 전체 폭. 사이드바 메뉴 이름 '처리 부서 통계' → '통계'.
 - 목록 `/data/<분류>` 가 통계에서 넘어온 신고명·신고일·발생일·답변일·발생시간 조건을 상세 검색칸에 채운다.
 - 검증: 단위 테스트 513건 통과(신규 `tests/test_stats_overview_vectors.py` 8건 — 공용 벡터 `contracts/stats-overview-vectors.json`, 한 번 읽기 = 기존 두 함수, 지도 모집단 = 요약), 서버↔모바일 계산 동등성(`logic_parity_check.py`) 48개 조합 차이 0.
-  Playwright(Chromium): 통계·대시보드·지도 스펙 35건 통과(신규 `stats-renewal.spec.ts` 16건). 전체 81건 중 78 통과, 3건(크롤 시작 fixture 차단 문구)은 검수용 로컬 서버가 커뮤니티 게이트 판정만 통과시킨 환경 차이로 실패 — 통계 변경과 무관. 정식 fixture 서버 실행은 로컬 통합 스택 공개 키가 없어 blocked. Firefox·WebKit not-run.
+- 독립 검수: Gemini(agy)는 할당량 소진(429)으로 blocked, 대체로 Codex 읽기 전용 검수 4건(대표건 모드가 지도에 안 넘어감·팝업 목록 링크의 연도 누락·모바일 이전 요약 잔상·지도 고정색)을 모두 고쳤다(`docs/reviews/2026-09-28-stats-renewal-review.md`).
+  Playwright: 통계·대시보드·지도 스펙 Chromium·Firefox·WebKit 각 35건 통과(신규 `stats-renewal.spec.ts`), 수정 뒤 Chromium 41건 재통과. 전체 스위트(Chromium) 81건 중 78 통과, 3건(크롤 시작 fixture 차단 문구)은 검수용 로컬 서버가 커뮤니티 게이트 판정만 통과시킨 환경 차이로 실패 — 통계 변경과 무관. 정식 fixture 서버(게이트 포함) 실행은 로컬 통합 스택 공개 키가 없어 blocked.
 
 
 ### 상세 검색 순서와 체크 항목 Enter 검색

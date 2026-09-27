@@ -149,6 +149,14 @@ test('real map meta counts the same reports as the summary card', async ({ page 
   await expect(page.locator('#statsMapOpen')).toHaveAttribute('href', /category=traffic/);
 });
 
+test('a dedupe choice on the stats page carries over to the map population', async ({ page }) => {
+  await login(page);
+  await openStats(page, '?dedupe=raw');
+  const total = (await page.locator('#statsOverview [data-v="total"]').textContent())!.replace(/[^0-9]/g, '');
+  await expect(page.locator('#statsMapMeta')).toContainText(`대상 ${Number(total).toLocaleString('ko-KR')}건`);
+  await expect(page.locator('#statsMapOpen')).toHaveAttribute('href', /dedupe=raw/);
+});
+
 test('coming back from the report list restores view, selection and page state', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1000 });
   await login(page);

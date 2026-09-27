@@ -151,8 +151,10 @@ def view_report_map(
     request: Request,
     year: str = None,
     category: str = "all",
+    dedupe: str | None = None,
 ):
-    dedupe_mode = default_dedupe_mode()
+    # 통계 화면이 ?dedupe= 로 모드를 고른 경우 지도도 같은 모드(없으면 설정값 — 예전과 같음)
+    dedupe_mode = normalize_dedupe_mode(dedupe)
     selected_category = normalize_map_category(category)
     map_error = ""
     # 통계 화면에서 넘어온 조건(법규·상세 검색·상세 패널 대상). 없으면 예전과 같은 전체 지도.
@@ -196,13 +198,14 @@ def get_report_map_points(
     request: Request,
     year: str = None,
     category: str = "all",
+    dedupe: str | None = None,
 ):
     """통계 화면의 작은 신고 지도용 JSON. 통계와 같은 조건을 받아 `/stats/map` 과 같은 함수로 집계한다."""
     return data_service.get_report_map_stats(
         engine,
         year=year,
         category=normalize_map_category(category),
-        mode=default_dedupe_mode(),
+        mode=normalize_dedupe_mode(dedupe),
         filters=_map_filters(request) or None,
     )
 
@@ -218,8 +221,9 @@ def get_report_map_missing(
     request: Request,
     year: str = None,
     category: str = "all",
+    dedupe: str | None = None,
 ):
-    dedupe_mode = default_dedupe_mode()
+    dedupe_mode = normalize_dedupe_mode(dedupe)
     selected_category = normalize_map_category(category)
     return data_service.get_report_map_missing_groups(
         engine,
