@@ -130,7 +130,8 @@ class PcLiveStackTest(unittest.TestCase):
         user = self.login("A")
         store = CommunityStore.open(self.tmp)
         st = self.account("status", user["access_token"], {}).json()
-        if st["consent"]["state"] == "active":  # 같은 mock 계정을 쓴 다른 실행이 남긴 동의 → 먼저 철회해 '동의 전'으로
+        # 같은 mock 계정을 쓴 다른 실행이 남긴 동의(동의문이 바뀌면 outdated) → 먼저 철회해 새 계보의 '동의 전'으로
+        if st["consent"]["state"] in ("active", "outdated"):
             self.account("consent-revoke", user["access_token"], {"grant_id": st["consent"]["grant_id"]})
         # 동의 전: 로그인만으로는 통과하지 않는다
         self.assertEqual(community_gate.refresh_now()["state"], "consent_required")
