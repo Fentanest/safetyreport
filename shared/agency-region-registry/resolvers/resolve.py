@@ -6,6 +6,10 @@ manifest.json) and resolves source values to current display/stat keys.
 Rules (from the handoff references, enforced here — never string-replace or
 name-hash institutions):
 - Agency identity follows verified 1:1 links only (previous_code chains).
+  A code is resolved whether it arrives as the pre-change code OR the
+  post-change code: when a 7-alnum code starts no forward chain, the resolver
+  walks back over unique incoming links (a merge target with several incoming
+  links stays ambiguous → unresolved) so both sides share one institution_id.
   Empty previous_code never implies succession; unknown codes stay unresolved.
   Sub-organisation splits and multi-successor branches never merge.
 - Region lineage follows typed events only. old_region_closed (code-table date)
@@ -43,6 +47,11 @@ class Snapshot:
     links_by_from: dict
     registry_version: str
     as_of_date: str | None = None
+    links_by_to: dict | None = None
+
+    def __post_init__(self) -> None:
+        if self.links_by_to is None:
+            self.links_by_to = {}
 
     @classmethod
     def load(cls, root: Path = SNAPSHOT_DIR) -> "Snapshot":
@@ -54,10 +63,13 @@ class Snapshot:
         for event in events:
             by_old.setdefault(event["old_code"], event)
         by_from: dict[str, list[dict]] = {}
+        by_to: dict[str, list[dict]] = {}
         for link in links:
             by_from.setdefault(link["from_code"], []).append(link)
-        return cls(by_old, by_from, manifest["registry_version"],
-                   manifest.get("as_of_date"))
+            by_to.setdefault(link["to_code"], []).append(link)
+        return cls(events_by_old=by_old, links_by_from=by_from, links_by_to=by_to,
+                   registry_version=manifest["registry_version"],
+                   as_of_date=manifest.get("as_of_date"))
 
 
 def resolve_current_agency(code: str | None, name: str | None, snap: Snapshot) -> dict:
@@ -89,6 +101,25 @@ def resolve_agency(code: str | None, name: str | None, answered_at: str | None, 
                 break
             chain.append(nxt)
             seen.add(nxt["to_code"])
+        if not chain:
+            # The code starts no forward chain: it may be a post-change code
+            # received after a verified rename (e.g. 1815198 after
+            # 1812314 → 1815198). Walk back over unique incoming links so both
+            # sides resolve to the same institution. Several incoming links
+            # (a merge target) stay ambiguous → unresolved.
+            back: list[dict] = []
+            cursor = code
+            while True:
+                incoming = (snap.links_by_to or {}).get(cursor, [])
+                if len(incoming) != 1:
+                    break
+                link = incoming[0]
+                if link["from_code"] in seen:
+                    break
+                back.append(link)
+                seen.add(link["from_code"])
+                cursor = link["from_code"]
+            chain = back[::-1]
     if not chain:
         return {
             "institution_id": None,

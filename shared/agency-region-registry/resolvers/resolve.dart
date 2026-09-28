@@ -27,8 +27,10 @@ Map<String, dynamic> resolveAgency(
   final cleanName = (name ?? '').trim();
   final displayName = cleanName.isEmpty ? null : cleanName;
   final byFrom = <String, List<dynamic>>{};
+  final byTo = <String, List<dynamic>>{};
   for (final l in links) {
     (byFrom[l['from_code'] as String] ??= []).add(l);
+    (byTo[l['to_code'] as String] ??= []).add(l);
   }
   final chain = <dynamic>[];
   if (_isSevenAlnum(code)) {
@@ -41,6 +43,24 @@ Map<String, dynamic> resolveAgency(
       if (seen.contains(next['to_code'])) break;
       chain.add(next);
       seen.add(next['to_code'] as String);
+    }
+    if (chain.isEmpty) {
+      // The code starts no forward chain: it may be a post-change code received
+      // after a verified rename (e.g. 1815198 after 1812314 → 1815198). Walk back
+      // over unique incoming links so both sides resolve to the same institution.
+      // Several incoming links (a merge target) stay ambiguous → unresolved.
+      final back = <dynamic>[];
+      var cursor = code;
+      while (true) {
+        final incoming = byTo[cursor] ?? const [];
+        if (incoming.length != 1) break;
+        final link = incoming.first;
+        if (seen.contains(link['from_code'])) break;
+        back.add(link);
+        seen.add(link['from_code'] as String);
+        cursor = link['from_code'] as String;
+      }
+      chain.addAll(back.reversed);
     }
   }
   if (chain.isEmpty) {

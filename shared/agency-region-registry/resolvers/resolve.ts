@@ -37,10 +37,14 @@ export function resolveAgency(
   const trimmed = (name ?? '').trim();
   const displayName = trimmed === '' ? null : trimmed;
   const byFrom = new Map<string, Array<Record<string, string>>>();
+  const byTo = new Map<string, Array<Record<string, string>>>();
   for (const link of links) {
     const list = byFrom.get(link.from_code) ?? [];
     list.push(link);
     byFrom.set(link.from_code, list);
+    const rlist = byTo.get(link.to_code) ?? [];
+    rlist.push(link);
+    byTo.set(link.to_code, rlist);
   }
   const chain: Array<Record<string, string>> = [];
   if (isSevenAlnum(code ?? null)) {
@@ -53,6 +57,24 @@ export function resolveAgency(
       if (seen.has(next.to_code)) break;
       chain.push(next);
       seen.add(next.to_code);
+    }
+    if (chain.length === 0) {
+      // The code starts no forward chain: it may be a post-change code received
+      // after a verified rename (e.g. 1815198 after 1812314 → 1815198). Walk back
+      // over unique incoming links so both sides resolve to the same institution.
+      // Several incoming links (a merge target) stay ambiguous → unresolved.
+      const back: Array<Record<string, string>> = [];
+      let cursor = code as string;
+      for (;;) {
+        const incoming = byTo.get(cursor) ?? [];
+        if (incoming.length !== 1) break;
+        const link = incoming[0];
+        if (seen.has(link.from_code)) break;
+        back.push(link);
+        seen.add(link.from_code);
+        cursor = link.from_code;
+      }
+      chain.push(...back.reverse());
     }
   }
   if (chain.length === 0) {
