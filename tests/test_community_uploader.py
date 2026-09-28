@@ -19,6 +19,10 @@ CTX = {"contributor_fingerprint": "f" * 32, "connection_id": "11111111-2222-4333
 CTX_B = dict(CTX, contributor_fingerprint="b" * 32,
              connection_id="99999999-2222-4333-8444-555555555555",
              consent_grant_id="aaaaaaaa-3333-4444-8444-666666666666")
+# 같은 계정의 새 grant/connection(재동의·writer 전환 — reshare 정상 경로).
+# fingerprint·dataset_key는 유지되므로 현 계정 범위에 들어간다.
+CTX_C = dict(CTX, connection_id="99999999-2222-4333-8444-555555555555",
+             consent_grant_id="aaaaaaaa-3333-4444-8444-666666666666")
 
 INPUT = {"processing_status": "수용", "penalty_amount": "과태료: 40,000원", "report_date": "2026-09-01",
          "response_date": "2026-09-10", "processing_agency": "서울특별시 중구청",
@@ -312,7 +316,7 @@ class UploaderTest(unittest.TestCase):
         res = self._capture("R1")
         self._run_with(ok_resp([ack(res.event_id)]), trigger="manual")
         self.assertEqual(up.reshare_candidates(data_dir=self.tmp), 0)
-        self.store.set_context(**CTX_B)
+        self.store.set_context(**CTX_C)
         self.assertEqual(up.reshare_candidates(data_dir=self.tmp), 1)
         with mock.patch.object(client, "post_envelope",
                                side_effect=lambda env, **kw: ok_resp([ack(e["event_id"]) for e in env["events"]])):
@@ -323,7 +327,19 @@ class UploaderTest(unittest.TestCase):
             "SELECT event_type, consent_grant_id, captured_at FROM source_journal"
             " ORDER BY source_revision DESC LIMIT 1").fetchone()
         self.assertEqual(row["event_type"], "reshare")
-        self.assertEqual(row["consent_grant_id"], CTX_B["consent_grant_id"])
+        self.assertEqual(row["consent_grant_id"], CTX_C["consent_grant_id"])
+
+    def test_reshare_never_rebinds_other_account_rows(self):
+        """2026-09-28 계정 규칙: 타 계정 행은 reshare 후보가 아니며 재발급되지 않는다."""
+        res = self._capture("R1")
+        self._run_with(ok_resp([ack(res.event_id)]), trigger="manual")
+        self.store.set_context(**CTX_B)
+        self.assertEqual(up.reshare_candidates(data_dir=self.tmp), 0)
+        result = up.request_reshare(data_dir=self.tmp)
+        self.assertEqual(result.get("reshared", 0), 0)
+        count = self.store.connect().execute(
+            "SELECT COUNT(*) v FROM source_journal WHERE event_type='reshare'").fetchone()["v"]
+        self.assertEqual(count, 0)
 
     def test_upload_status_scoped_to_current_account(self):
         """upload_status 는 현재 context 계정 것만."""
@@ -555,14 +571,14 @@ class UploaderBranchesTest(UploaderTest):
         row = self.store.connect().execute(
             "SELECT ack_status FROM source_journal WHERE event_id=?", (event.event_id,)).fetchone()
         self.assertEqual(row["ack_status"], "accepted")
-        self.store.set_context(**CTX_B)
+        self.store.set_context(**CTX_C)
         self.assertEqual(up.reshare_candidates(data_dir=self.tmp), 1)
         result = up.request_reshare(data_dir=self.tmp)
         self.assertEqual(result["result"], "sent")
         rows = self.store.connect().execute(
             "SELECT event_type, consent_grant_id FROM source_journal ORDER BY source_revision").fetchall()
         self.assertEqual(rows[-1]["event_type"], "reshare")
-        self.assertEqual(rows[-1]["consent_grant_id"], CTX_B["consent_grant_id"])
+        self.assertEqual(rows[-1]["consent_grant_id"], CTX_C["consent_grant_id"])
 
     def test_upload_status_scoped_to_current_account(self):
         self._capture("R1")

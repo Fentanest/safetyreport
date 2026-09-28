@@ -340,7 +340,7 @@ def upgrade_schema(engine, *, maintenance: bool = True, backup_dir: str | None =
 
 # 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다.
 # 위의 열 추가식 upgrade 는 그대로 두고, 이후 데이터 이동이 필요한 변경은 번호 붙은 단계로 쌓는다(저장 계층 재설계 R1).
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def _migration_1_storage_tables(conn):

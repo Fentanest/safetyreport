@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://safemap.worklazy.net/contracts/community-ingest/observation-v2.json",
-  "title": "observation-v2 공유 payload",
+  "$id": "https://safemap.worklazy.net/contracts/community-ingest/observation-v3.json",
+  "title": "observation-v3 공유 payload",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -17,7 +17,8 @@
     "status",
     "status_raw",
     "vehicle_raw",
-    "violation_law"
+    "violation_law",
+    "source_agency_code"
   ],
   "properties": {
     "address": {
@@ -176,6 +177,14 @@
       ],
       "minLength": 1,
       "maxLength": 60
+    },
+    "source_agency_code": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "maxLength": 32
     }
   }
 }

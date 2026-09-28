@@ -1,4 +1,4 @@
-# 공식 관측 → 공유 DTO (observation-v2)
+# 공식 관측 → 공유 DTO (observation-v3)
 
 ## 1. 확정 시점
 공식 상세 응답을 받고 파서가 끝난 직후, **개인 수정값(override)·별점 보강·화면 계산과 합치기 전** 에 DTO 를 만들고 정규 JSON 문자열로 확정한다.
@@ -55,13 +55,17 @@
   `penalty_points`: `penalty_points` 입력 전체가 `^벌점:\s*([0-9]{1,4})\s*점$` 이고 값 ≤ 1000 이면 정수, 아니면 null.
 - `disposition`: status=rejected → `none`; 아니면 penalty_amount 가 `범칙금` 으로 시작 → `penalty`, `과태료` 로 시작 → `fine`, `경고` → `warning`, 그 밖(`미확인`·빈 값 포함) → `unknown`. 금액·처분을 추측하지 않는다.
 - `agency_name` = clean(processing_agency, 200), `manager_name` = clean(person_in_charge, 160), `vehicle_raw` = clean(car_number, 64), `address` = clean(violation_location, 200).
+  `agency_name` 은 선택된 답변의 기관명 **원문**이며 현행 표시명으로 재정의하지 않는다(원문·현행 분리 — handoff §4).
 - `violation_law` = clean(violation_law, 60) (v2, 2026-09-28). 파서가 처리내용에서 뽑은 **법 이름·조항만**(예: `도로교통법 제32조`) — 처리내용 원문은 보내지 않는다. 못 뽑았으면 null.
+- `source_agency_code` = clean(agency_code, 32) (v3, 2026-09-28). 선택된 답변의 `C_MANAGE_ORG` **원문**(TEXT, 7자리 영숫자·선행 0 보존, 정수 변환 금지).
+  HTML fallback 등 코드를 얻지 못하면 null(후보 코드를 원문 필드에 써넣지 않음). 검증 실패한 신규 형식도 원문 그대로 보존하고 자르거나 숫자로 바꾸지 않는다.
+  서버는 7자리 영숫자만 기관 해석에 쓰고 나머지는 미확인으로 둔다. `agency_name` 과 같은 답변에서 가져온다(섞지 않음).
 - `location`: geocode 상태가 `ok` 이고 lat·lng 가 IEEE 754 double 로 해석되며(숫자 또는 10진 문자열) lat ∈ [32, 39.5], lng ∈ [124, 132] 이면
   lat·lng = 그 double 의 **최단 왕복 10진 문자열**(지수 표기 없음, 소수점이 없으면 `.0` 을 붙임 — Python `repr`, Dart `toString`, JS `String()` 후 보정), `source = "geocode"`;
   아니면 lat·lng null, `source = "none"`. 좌표를 반올림·격자화하지 않는다(공개 정책: 입력 좌표 그대로).
 
-payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won, kind, penalty_points}, category, completed_date, disposition, location{lat, lng, source}, manager_name, report_date, status, status_raw, vehicle_raw, violation_law`.
-v1(12키, `violation_law` 없음) payload 도 서버가 받는다(구 앱 호환) — 그 fact 의 위반법규는 "미상"(null 과 구분하지 않음; 2026-09-28 배포 때 중앙 공유 자료를 초기화해 새로 받는다).
+payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won, kind, penalty_points}, category, completed_date, disposition, location{lat, lng, source}, manager_name, report_date, status, status_raw, vehicle_raw, violation_law, source_agency_code`.
+v1(12키, `violation_law`·`source_agency_code` 없음)·v2(13키, `source_agency_code` 없음) payload 도 서버가 받는다(구 앱 호환) — 키가 없는 관측의 해당 값은 null(명시적 null 과 구별은 journal 의 parser 버전으로 한다).
 공식 로그인 정보·쿠키·헤더·사진·첨부·신고 본문·처리내용 원문은 넣지 않는다. `source_report_id` 는 envelope 의 event 필드(private)로만 간다.
 `report_number` 역시 Observation 밖의 private event 필드다. 공백을 잘라 빈 값은 null로 보낸다. 중앙은 `^SPP-[0-9]{4,6}-[0-9]{6,8}$`만 받는다. 기존 이벤트의 필드 생략도 null로 해석한다. 번호만 뒤늦게 채워졌으면 payload_sha256이 같아도 새 이벤트를 발급한다. Observation 해시와 parser/contract 버전은 그대로이며 기존 전체 신고를 일괄 update하지 않는다.
 
@@ -94,8 +98,13 @@ writer 전환·재설치 뒤 첫 비적격 관측도 이벤트 없음이 된다.
   payload 가 적격이 아니거나 event_type 이 `status_correction` 이면 그 이벤트는 `rejected:non_final_not_accepted`(durable=false, 재시도 불가)로
   개별 거절하고 배치의 나머지 이벤트는 정상 처리한다(요청 전체 422가 아님). `status_correction` 이름은 envelope 스키마에 남겨
   구버전 앱 배치가 전체 422 대신 이벤트별 거절을 받도록 인식만 유지한다(새 앱은 발급하지 않는다).
-  `location_supplement` 는 `location.source="geocode"` 만. 어기면 422. `reshare` 이벤트는 envelope `trigger="reshare"` 에서만 허용.
+  `location_supplement` 는 `location.source="geocode"` 만. 적격 payload 가 이 조건을 어기면 422.
+  적격이 아닌 payload 의 `location_supplement`(구버전 잔여 포함)는 위 개별 거절로 처리하고 배치 전체를 422로 만들지 않는다(Sol 2026-09-28).
+  `reshare` 이벤트는 envelope `trigger="reshare"` 에서만 허용.
 - 서버가 `source_report_key = sha256(utf8("safetyreport|" + source_report_id))` 를 계산한다(클라이언트 값 받지 않음). fact 키는 (contributor, 연결의 dataset_key, source_report_key).
+- 계정별 기여와 전역 중복 제거(2026-09-28 사용자 규칙 — 소유 이전 대체): 같은 신고를 다른 카카오 계정이 올려도 먼저 올린 계정의 fact·연결을 지우거나 옮기지 않는다. 업로더의 fact만 만들거나 갱신하고 `accepted`(또는 변경 없음 `no_change`)로 수신한다. 기관명만 달라도 정상 수신이며, 신고번호가 다르거나 없어도 거절하지 않는다(구 `cross_account_mismatch`·`report_identity_mismatch`·`ambiguous_existing_owners`·`transferred`는 폐기 — errors.md).
+  공개 projection(`internal_analytics_v2_facts`)은 identity(`source_report_key`)당 공개 목록 중 가장 먼저 공유된 행 하나를 대표(`is_representative`)로 내보내고, 전체 지도·기관·담당자 통계는 대표행만 센다(고유 1건). 각 행은 기여 수(`contribution_count`)를 함께 싣는다. 개인 범위(my-analytics)는 목록의 모든 행을 그대로 받아 계정별로 자신의 기여를 센다(같은 계정의 두 dataset도 identity당 1건).
+  실제 처리 결과가 계정마다 다르면 각 관측을 그대로 보존하고 대표는 최초 기여로 유지한다(최신 업로드 계정 우선으로 갈아치우지 않음). 한 계정의 삭제/철회는 그 계정의 관계만 처리하고, 남은 유효 기여가 있으면 대표가 승계된다.
 - 삭제 tombstone 은 (contributor, source_report_key) — dataset_key 와 무관 — 이고, 그 신고의 이벤트는 captured_at·dataset_key 와 무관하게 영구 `rejected:deleted`.
 - grant 귀속: 기존 fact 의 grant 계보가 **사용자 철회로 비활성**이면, `reshare` 가 아닌 이벤트는 내용·순서만 갱신하고 fact 는 옛 (비공개) grant 에 남긴다 → 공개되지 않음(`projection_status=held`). `reshare` 이거나 계보가 활성(정책 갱신 재동의 포함)이면 현재 grant 로 귀속(S-02).
 - ACK `projection_status`(실제 공개 조건 기준 — 공개 RPC 와 같은 함수 `community_fact_publicly_listed`: completed ∧ 신고일·처리완료일 중 하나 이상 ∧ contributor active ∧ 계보 활성):

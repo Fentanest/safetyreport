@@ -316,5 +316,60 @@ class ViolationLawPayloadTests(unittest.TestCase):
         self.assertEqual(cc.build_payload(cc.build_adapter_input({"처리상태": "수용"}, {}, "", {}))["violation_law"], None)
 
 
+CTX_B = {"contributor_fingerprint": "b" * 32, "connection_id": "99999999-2222-4333-8444-555555555555",
+         "writer_epoch": 1, "dataset_key": "e" * 16, "consent_grant_id": "aaaaaaaa-3333-4444-8444-666666666666",
+         "policy_version": "2026-09-26.1", "consent_text_sha256": "h" * 64,
+         "source_app": "safetyreport", "source_mode": "server"}
+
+
+class AgencyCodePayloadTests(unittest.TestCase):
+    """observation-v3(2026-09-28): 선택 답변의 C_MANAGE_ORG 원문을 TEXT 그대로 payload 로."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.store = CommunityStore.open(self.tmp)
+        self.store.set_context(**CTX)
+
+    def tearDown(self):
+        self.store.close()
+        CommunityStore._forget(os.path.join(self.tmp, "community.db"))
+
+    def test_adapter_and_payload_carry_agency_code_verbatim(self):
+        from services import community_capture as cc
+
+        detail = {"처리상태": "수용", "처리기관": "서울특별시 중구청", "처리기관코드": "B410002"}
+        inp = cc.build_adapter_input(detail, {"신고일": "2026-09-01"}, "불법주정차신고", {})
+        self.assertEqual(inp["agency_code"], "B410002")
+        self.assertEqual(cc.build_payload(inp)["source_agency_code"], "B410002")
+        # 선행 0·영문 보존, 신규 형식도 자르지 않음, 없으면 null(명시적 NULL)
+        self.assertEqual(cc.build_payload(dict(inp, agency_code="0123456"))["source_agency_code"], "0123456")
+        self.assertEqual(cc.build_payload(dict(inp, agency_code="X-12"))["source_agency_code"], "X-12")
+        self.assertIsNone(cc.build_payload(dict(inp, agency_code=None))["source_agency_code"])
+        self.assertIsNone(cc.build_payload(cc.build_adapter_input({"처리상태": "수용"}, {}, "", {}))["source_agency_code"])
+
+    def test_same_report_two_accounts_create_separate_events(self):
+        # A가 올린 동일 신고를 B도 제출: A 큐·연결을 건드리지 않고 B의 이벤트를 만든다(전역 중복 제거는 서버 몫).
+        first = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(first.event_type, "completed_observation")
+        self.store.set_context(**CTX_B)
+        second = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(second.event_type, "completed_observation")
+        self.assertNotEqual(first.event_id, second.event_id)
+        rows = self.store.connect().execute(
+            "SELECT contributor_fingerprint, connection_id FROM source_journal ORDER BY source_revision").fetchall()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["contributor_fingerprint"], CTX["contributor_fingerprint"])
+        self.assertEqual(rows[1]["contributor_fingerprint"], CTX_B["contributor_fingerprint"])
+        # A의 전송 완료가 B의 제출을 차단하지 않는다: A 행만 ACK 처리해도 B 행은 미ACK·대기로 남는다.
+        conn = self.store.connect()
+        conn.execute("UPDATE source_journal SET ack_status='accepted' WHERE event_id=?", (first.event_id,))
+        conn.execute("DELETE FROM outbox WHERE event_id=?", (first.event_id,))
+        conn.commit()
+        b_row = conn.execute("SELECT ack_status FROM source_journal WHERE event_id=?", (second.event_id,)).fetchone()
+        self.assertIsNone(b_row["ack_status"])
+        b_out = conn.execute("SELECT state FROM outbox WHERE event_id=?", (second.event_id,)).fetchone()
+        self.assertEqual(b_out["state"], "pending")
+
+
 if __name__ == "__main__":
     unittest.main()

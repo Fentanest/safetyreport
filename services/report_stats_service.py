@@ -609,6 +609,33 @@ def _calc_avg_days(group_df):
     return _calc_avg_days_with_count(group_df)[0]
 
 
+def _apply_registry_agency_display(df: pd.DataFrame) -> pd.DataFrame:
+    """registry가 해석한 현행 기관 표시로 푼다(2026-09-28 seed).
+
+    확인된 승계만 현행명으로 바꾸고, 미확정·열 없음·NaN이면 기존 normalize를
+    그대로 쓴다 — 기존 통계·parity 출력이 바뀌지 않는다. 원문 열은 건드리지
+    않으며 표시용 변환만 한다.
+    """
+    if "처리기관" not in df.columns:
+        return df
+    from services import agency_registry
+
+    has_code = "처리기관코드" in df.columns
+    has_date = "답변일" in df.columns
+
+    def display(row) -> str:
+        name = row["처리기관"]
+        current, status = agency_registry.resolve_display_agency(
+            row["처리기관코드"] if has_code else None, name,
+            row["답변일"] if has_date else None)
+        if status != "unresolved" and current:
+            return current
+        return database.normalize_police_agency(name if isinstance(name, str) else "")
+
+    df["처리기관"] = df.apply(display, axis=1)
+    return df
+
+
 def _calc_avg_rating(group_df):
     if "별점" not in group_df.columns:
         return None, 0
@@ -736,7 +763,7 @@ def _compute_agency_stats(available_years, df_t, df_p, df_o, filters=None, mode:
             })
 
         if app_settings.normalize_police and "처리기관" in df.columns:
-            df["처리기관"] = df["처리기관"].apply(database.normalize_police_agency)
+            df = _apply_registry_agency_display(df)
 
         stats_agency, stats_person, stats_law = _build_stats_tables(df, category)
 
@@ -1202,9 +1229,7 @@ def _load_map_records_frame(
         combined_df["category"] = normalized_category if normalized_category != "all" else "other"
 
     if app_settings.normalize_police and "처리기관" in combined_df.columns:
-        combined_df["처리기관"] = (
-            combined_df["처리기관"].fillna("").astype(str).apply(database.normalize_police_agency)
-        )
+        combined_df = _apply_registry_agency_display(combined_df)
     if target_agency and "처리기관" in combined_df.columns:
         combined_df = combined_df[combined_df["처리기관"].fillna("").astype(str).str.strip() == target_agency].copy()
     if target_person and "담당자" in combined_df.columns:

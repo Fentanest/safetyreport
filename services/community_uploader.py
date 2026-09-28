@@ -1030,16 +1030,21 @@ def reshare_candidates(data_dir=None) -> int:
         return 0
     conn = store.connect()
     local_id = store.local_dataset_id()
+    # 2026-09-28 계정 규칙: reshare 후보는 현 계정의 최신 eligible 행만 본다.
+    # 타 계정 행을 현 연결로 rebind하여 전송하지 않는다.
     rows = conn.execute(
         "SELECT source_report_id, MAX(source_revision) AS rev FROM source_journal"
-        " WHERE local_dataset_id=? AND eligible=1 GROUP BY source_report_id", (local_id,)).fetchall()
+        " WHERE local_dataset_id=? AND eligible=1 AND dataset_key IS ? AND contributor_fingerprint IS ?"
+        " GROUP BY source_report_id", (local_id, ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchall()
     count = 0
     for item in rows:
         row = conn.execute(
             "SELECT consent_grant_id, connection_id, blocked_reason, ack_status FROM source_journal"
             " WHERE local_dataset_id=? AND source_report_id=? AND source_revision=?"
+            " AND dataset_key IS ? AND contributor_fingerprint IS ?"
             " ORDER BY source_revision DESC LIMIT 1",
-            (local_id, item["source_report_id"], item["rev"])).fetchone()
+            (local_id, item["source_report_id"], item["rev"],
+             ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchone()
         if row is None or row["blocked_reason"]:
             continue
         if row["consent_grant_id"] == ctx.get("consent_grant_id") \
@@ -1062,14 +1067,19 @@ def request_reshare(data_dir=None) -> dict:
     local_id = store.local_dataset_id()
     created: list[str] = []
     with store.transaction() as tx:
+        # 현 계정의 최신 eligible 행만 재발급한다(타 계정 행 rebind 금지 — 위 reshare_candidates와 같은 범위).
         rows = tx.execute(
             "SELECT source_report_id, MAX(source_revision) AS rev FROM source_journal"
-            " WHERE local_dataset_id=? AND eligible=1 GROUP BY source_report_id", (local_id,)).fetchall()
+            " WHERE local_dataset_id=? AND eligible=1 AND dataset_key IS ? AND contributor_fingerprint IS ?"
+            " GROUP BY source_report_id",
+            (local_id, ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchall()
         for item in rows:
             row = tx.execute(
                 "SELECT * FROM source_journal WHERE local_dataset_id=? AND source_report_id=?"
-                " AND source_revision=? ORDER BY source_revision DESC LIMIT 1",
-                (local_id, item["source_report_id"], item["rev"])).fetchone()
+                " AND source_revision=? AND dataset_key IS ? AND contributor_fingerprint IS ?"
+                " ORDER BY source_revision DESC LIMIT 1",
+                (local_id, item["source_report_id"], item["rev"],
+                 ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchone()
             if row is None or row["blocked_reason"]:
                 continue
             if row["consent_grant_id"] == ctx.get("consent_grant_id") \

@@ -8,7 +8,7 @@
 |---|---|
 | 계약 | `community-ingest-v1` (`protocol: 1`) |
 <| private 신고번호 | event `report_number`: 새 PC·모바일은 항상 전송(null 가능), 구 클라이언트의 필드 생략은 허용. Observation·해시에는 포함하지 않음 |
-| 공유 payload 스키마 | `observation-v2` (`observation.schema.json`) — v2 는 `violation_law`(위반법규) 추가(2026-09-28). 서버는 v1 도 받는다 |
+| 공유 payload 스키마 | `observation-v3` (`observation.schema.json`) — v3 는 `source_agency_code`(원문 기관코드) 추가(2026-09-28). v2(위반법규)·v1 payload 도 서버가 받는다 |
 | 필수 동의 정책 버전 | `2026-09-28.2` (위반법규 공개 추가, 2026-09-28. 이전 `2026-09-28.1`은 위반법규 없음, `2026-09-26.1`은 금액 비공개 판). 앱은 동의문을 번들에 넣지 않고 중앙 `policy` 로 받는다(`account-api.md`). 동의문 원본은 이 폴더가 아니라 지도 레포 `contracts/consent/`(복사하지 않음) |
 | 초기화 크롤링 버전 | `source-rebuild-2026-09-26.1` |
 | 업로드 기준 시간대·시각 | `Asia/Seoul` 00:00 (한국은 DST 없음 → UTC+9 고정 계산) |

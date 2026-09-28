@@ -3,7 +3,10 @@
 `contracts/community-ingest/` 계약의 PC 쪽 데이터 경로 구현 기록이다.
 게이트·온보딩·초기화 job·`main.py`·스케줄러 본체는 T3 소유이며, 여기서는 인터페이스로만 연결한다.
 
-2026-09-28: 제목의 신고번호를 `report_number` private event 필드로 journal v3에 저장해 업로드한다. Observation 해시는 유지한다. 번호만 새로 확보되면 한 번 더 캡처한다. 중앙 `transferred` ACK는 저장 성공, 계정 간 불일치 `rejected`는 재시도하지 않는 blocked 상태이며 지도 패널에 사유를 표시한다. 새 Edge·migration 배포가 PC 업데이트보다 먼저여야 한다.
+2026-09-28: 제목의 신고번호를 `report_number` private event 필드로 journal v3에 저장해 업로드한다. Observation 해시는 유지한다. 번호만 새로 확보되면 한 번 더 캡처한다.
+2026-09-28 개정2(계정별 기여, 소유 이전 대체): 같은 신고의 타 계정 업로드는 중앙이 `accepted`로 정상 수신한다(각자의 기여로 남고 전체는 고유 1건).
+중앙 `transferred`·`cross_account_mismatch`·`report_identity_mismatch`·`ambiguous_existing_owners` ACK는 더 발급되지 않는다(구버전 앱이 받아도 무해 — DURABLE_STATUSES 유지).
+새 Edge·migration 배포가 PC 업데이트보다 먼저여야 한다.
 
 2026-09-28(같은 날 확정): 답변 완료만 중앙에 올린다. 적격 = status ∈ {accepted, partial, rejected, completed_unknown}.
 처리중·보완요청·취하·이송·other 관측은 이벤트를 만들지 않는다 — `status_correction` 발급 중단, 로컬 `detail_status` 기록만.
@@ -124,8 +127,17 @@
 | 2026-09-27 | UC-1 업로드 장애 대응: 이전 서술(400/413/422 → dead_letter, 1초→1시간 백오프, 401 은 캐시 토큰 재사용, 자정 success/no_change)은 코드와 달라졌다 — 위 규칙이 현재 코드. `community.db` v2(`upload_control`). API `result` 값은 호환 유지, 새 코드는 `outcome`. |
 | 2026-09-26 | `contracts/community-ingest/` 사본이 `.gitignore` 로 2개 파일만 추적되던 것을 857185d 로 21개 전부 추적. 이 문서의 규칙 서술은 코드·계약과 일치함을 벡터 테스트로 확인. |
 
+## 원문 기관코드 수집 (observation-v3, 2026-09-28)
+
+- 파서가 선택 답변의 `C_MANAGE_ORG` 원문을 `처리기관코드`(TEXT, detail·merge·`/api/v1`·교환·백업 동일)로 저장한다. 7자리 영숫자·선행 0 보존, 정수 변환 금지, 없으면 NULL.
+  `처리기관`(원문 기관명)은 덮어쓰지 않으며 개인 수정값은 merge 표시 전용으로 커뮤니티 원문으로 승격하지 않는다(capture는 파서 원본만 읽음).
+- payload `source_agency_code`(v3, null 가능): 같은 답변의 코드·기관명·담당자를 함께 보낸다. 서버는 저장만 하고 공개 projection에 내보내지 않는다(동의 범위 미확정 — 보고).
+  v1/v2 payload 도 계속 받는다. 코드가 새로 확보되면 같은 해시여도 새 이벤트를 발급한다(번호 백필과 같은 규칙).
+- DB 스키마 버전 5(레거시 거부·초기화 후 재수집은 기존 정책 유지). 교환 계약 `storage-contract.json` 동일(서버 5, 모바일 16 — 모바일도 함께 변경).
+- parser_version `pc-parser-3`/`mobile-parser-3`.
+
 ## 위반법규 공유 (observation-v2, 2026-09-28)
 - payload 에 `violation_law` 를 추가했다: 파서가 처리내용에서 뽑아 저장하는 위반법규 열(법 이름·조항, 60자 이내)만 보내고 처리내용 원문은 보내지 않는다. 비어 있으면 null.
-- 계약 `observation-v2`(`contracts/community-ingest`, 지도 레포 정본 사본), 필수 동의 정책 `2026-09-28.2`(위반법규 공개 항목 추가). parser_version `pc-parser-2`/`mobile-parser-2`.
+- 계약 `observation-v2`(`contracts/community-ingest`, 지도 레포 정본 사본), 필수 동의 정책 `2026-09-28.2`(위반법규 공개 항목 추가). 당시 parser_version `pc-parser-2`/`mobile-parser-2`(현행 v3는 위 절).
 - 중앙은 v1(12키) payload 도 받는다. 기존 공유 자료에는 위반법규가 없으므로, 배포 때 사용자 결정으로 중앙 공유 자료를 초기화하고 다시 올린다(초기화는 배포 절차, 코드에서 자동 실행하지 않음).
 - 배포 순서: 중앙 SQL·auth 정책 migration → Edge Function → 앱. 앱이 먼저 나가면 중앙이 v2 를 몰라 422 로 보류된다(잃지 않음).

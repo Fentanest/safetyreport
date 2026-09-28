@@ -30,7 +30,7 @@ STATUS_MAP = {
     "처리중": "processing",
 }
 ELIGIBLE = {"accepted", "partial", "rejected", "completed_unknown"}
-PARSER_VERSION = "pc-parser-2"  # 2026-09-28 observation-v2(violation_law)
+PARSER_VERSION = "pc-parser-3"  # 2026-09-28 observation-v3(source_agency_code)
 SCHEMA_VERSION = 1
 
 _AMOUNT_RE = re.compile(r"^(과태료|범칙금):\s*(.+?)\s*원$")
@@ -183,6 +183,8 @@ def build_adapter_input(detail: dict, title_fields: dict | None = None,
         "report_date": report_date,
         "response_date": detail.get("답변일"),
         "processing_agency": detail.get("처리기관"),
+        # observation-v3(2026-09-28): 선택 답변의 C_MANAGE_ORG 원문(TEXT). 없으면 None(명시적 NULL).
+        "agency_code": detail.get("처리기관코드"),
         "person_in_charge": detail.get("담당자"),
         "car_number": detail.get("차량번호"),
         "violation_location": detail.get("위반장소"),
@@ -243,6 +245,8 @@ def build_payload(adapter_input: dict) -> dict:
         "status_raw": status_raw,
         "vehicle_raw": _clean(adapter_input.get("car_number"), 64),
         "violation_law": _clean(adapter_input.get("violation_law"), 60),
+        # v3: 원문 기관코드 그대로(TEXT·선행 0 보존). 신규 형식도 자르지 않고, 없으면 null.
+        "source_agency_code": _clean(adapter_input.get("agency_code"), 32),
     }
 
 
@@ -339,14 +343,19 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
                 else:
                     prev = {"payload_sha256": row["payload_sha256"], "eligible": bool(row["eligible"])}
         if prev is None:
+            # 2026-09-28 계정 규칙: prev 는 현 계정(dataset_key·fingerprint)의 최신 journal 행이다.
+            # 파일 단위 report_latest 포인터를 그대로 쓰면 계정 전환 뒤 B의 제출이 건너뛰어진다.
+            ctx_row = tx.execute("SELECT dataset_key, contributor_fingerprint FROM context WHERE id=1").fetchone()
+            ctx_dataset = ctx_row["dataset_key"] if ctx_row else None
+            ctx_fp = ctx_row["contributor_fingerprint"] if ctx_row else None
             row = tx.execute(
-                "SELECT event_id, payload_sha256, eligible FROM report_latest"
-                " WHERE local_dataset_id=? AND source_report_id=?",
-                (local_dataset_id, source_report_id)).fetchone()
+                "SELECT event_id, payload_sha256, eligible, report_number FROM source_journal"
+                " WHERE local_dataset_id=? AND source_report_id=? AND dataset_key IS ?"
+                " AND contributor_fingerprint IS ? ORDER BY source_revision DESC LIMIT 1",
+                (local_dataset_id, source_report_id, ctx_dataset, ctx_fp)).fetchone()
             if row is not None:
-                journal = tx.execute("SELECT report_number FROM source_journal WHERE event_id=?", (row["event_id"],)).fetchone()
                 prev = {"payload_sha256": row["payload_sha256"], "eligible": bool(row["eligible"]),
-                        "report_number": journal["report_number"] if journal else None}
+                        "report_number": row["report_number"]}
         # 2026-09-28: server_completed 로 prev 를 합성하지 않는다(비적격 관측은 정정을 발급하지 않음).
         # server_completed 표·manifest 신선도 검사는 그대로 유지한다.
         if prev and report_number and prev.get("report_number") != report_number:
