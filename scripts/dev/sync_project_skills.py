@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy only the five blueprint sr-* skills from .agents to .claude.
+"""Copy the project sr-* skills from .agents to .claude.
 Dry-run by default. This script does not install external packages or change permissions.
 """
 from __future__ import annotations
@@ -11,6 +11,7 @@ import sys
 NAMES = (
     'sr-web-contract-audit', 'sr-jinja-theme-renewal', 'sr-browser-visual-qa',
     'sr-multiplatform-packaging', 'sr-statistics-semantics',
+    'sr-agency-registry',
 )
 
 def checked(root: Path, path: Path) -> Path:

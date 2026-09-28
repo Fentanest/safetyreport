@@ -30,7 +30,7 @@ STATUS_MAP = {
     "처리중": "processing",
 }
 ELIGIBLE = {"accepted", "partial", "rejected", "completed_unknown"}
-PARSER_VERSION = "pc-parser-2"  # 2026-09-28 observation-v2(violation_law)
+PARSER_VERSION = "pc-parser-4"  # 2026-09-28 observation-v4(rating)
 SCHEMA_VERSION = 1
 
 _AMOUNT_RE = re.compile(r"^(과태료|범칙금):\s*(.+?)\s*원$")
@@ -60,6 +60,47 @@ def _clean(value, limit: int) -> str | None:
     if not text:
         return None
     return text[:limit]
+
+
+# observation.md §3(서버 edge·DB·JSON 스키마와 동일 상한, 세 층 1:1).
+AGENCY_CODE_LIMIT = 32
+#: 길이 초과 원문 기관코드의 명시적 거절 사유(조용히 null 로 버리지 않음 — REVIEW3 낮음-1).
+AGENCY_CODE_TOO_LONG = "source_agency_code_too_long"
+
+
+def _clean_code(value) -> str | None:
+    """원문 기관코드 정리: 공백 정리만 하고 자르지 않는다.
+
+    길이 상한 초과여도 여기서 null 로 버리지 않는다(조용한 손실 금지).
+    전송 payload 에는 상한 이내일 때만 싣고(build_payload), 초과분은
+    capture() 가 journal/outbox 에 명시적 사유로 기록한다.
+    일반 텍스트 필드는 _clean() 절단을 그대로 쓴다.
+    """
+    if not isinstance(value, str):
+        return None
+    text = "".join(" " if (ord(ch) < 0x20 or ord(ch) == 0x7F) else ch for ch in value)
+    text = _WS_RE.sub(" ", text).strip()
+    if not text:
+        return None
+    return text
+
+
+def agency_code_too_long(value) -> bool:
+    """정리된 원문 기관코드가 계약 상한을 초과하는지."""
+    text = _clean_code(value)
+    return text is not None and len(text) > AGENCY_CODE_LIMIT
+
+
+def _payload_agency_code(value) -> str | None:
+    """전송 payload 용 기관코드: 상한 이내의 정리 원문, 초과·없음은 None.
+
+    초과분을 None 으로 두는 것은 전송 형태 안전장치이며, 명시적 거절 기록은
+    capture() 가 담당한다(조용한 손실이 아님).
+    """
+    text = _clean_code(value)
+    if text is None or len(text) > AGENCY_CODE_LIMIT:
+        return None
+    return text
 
 
 def _parse_day(value) -> str | None:
@@ -178,10 +219,13 @@ def build_adapter_input(detail: dict, title_fields: dict | None = None,
         report_date = detail.get("신고일")
     return {
         "processing_status": detail.get("처리상태"),
+        "report_number": title_fields.get("신고번호") or detail.get("신고번호"),
         "penalty_amount": detail.get("범칙금_과태료"),
         "report_date": report_date,
         "response_date": detail.get("답변일"),
         "processing_agency": detail.get("처리기관"),
+        # observation-v3(2026-09-28): 선택 답변의 C_MANAGE_ORG 원문(TEXT). 없으면 None(명시적 NULL).
+        "agency_code": detail.get("처리기관코드"),
         "person_in_charge": detail.get("담당자"),
         "car_number": detail.get("차량번호"),
         "violation_location": detail.get("위반장소"),
@@ -189,6 +233,7 @@ def build_adapter_input(detail: dict, title_fields: dict | None = None,
         "penalty_points": detail.get("벌점"),
         # observation-v2(2026-09-28): 파서가 처리내용에서 뽑은 법 이름·조항(처리내용 원문은 보내지 않는다)
         "violation_law": detail.get("위반법규"),
+        "rating": title_fields.get("별점"),
         "geocode": {
             "status": geo.get("지오코딩상태"),
             "lat": geo.get("위도"),
@@ -242,6 +287,11 @@ def build_payload(adapter_input: dict) -> dict:
         "status_raw": status_raw,
         "vehicle_raw": _clean(adapter_input.get("car_number"), 64),
         "violation_law": _clean(adapter_input.get("violation_law"), 60),
+        "rating": adapter_input.get("rating") if type(adapter_input.get("rating")) is int and 1 <= adapter_input["rating"] <= 5 else None,
+        # v3: 원문 기관코드 그대로(TEXT·선행 0 보존). 신규 형식도 자르지 않고, 없으면 null.
+        # 상한 초과분은 여기서 null 로 두되(전송 형태 안전), capture() 가 명시적
+        # 사유(blocked:source_agency_code_too_long)로 기록한다 — 조용히 버리지 않음.
+        "source_agency_code": _payload_agency_code(adapter_input.get("agency_code")),
     }
 
 
@@ -260,19 +310,18 @@ def is_eligible(payload: dict) -> bool:
 def decide_event(prev: dict | None, payload: dict) -> str | None:
     """prev = {'payload_sha256': str, 'eligible': bool} 또는 None.
 
-    eligible 이면 prev 가 없고(첫 관측) payload 가 같지 않은 한 completed_observation,
-    not eligible 이면 prev 가 eligible 일 때만 status_correction.
+    2026-09-28: 답변 완료(eligible) 관측만 이벤트를 만든다. 적격이 아닌 관측(처리중·보완요청·취하·이송·other)은
+    prev 와 무관하게 이벤트 없음(`status_correction` 발급 중단). eligible 이면 prev 가 없고(첫 관측) payload 가
+    같지 않은 한 completed_observation.
     """
     eligible = is_eligible(payload)
+    if not eligible:
+        return None
     if prev is None:
-        return "completed_observation" if eligible else None
-    if eligible:
-        if prev.get("eligible") and prev.get("payload_sha256") == payload_sha256(payload):
-            return None
         return "completed_observation"
-    if prev.get("eligible"):
-        return "status_correction"
-    return None
+    if prev.get("eligible") and prev.get("payload_sha256") == payload_sha256(payload):
+        return None
+    return "completed_observation"
 
 
 # ── 저장 ─────────────────────────────────────────────────────────────────────
@@ -296,10 +345,6 @@ def _project_namespace() -> str:
     return project_namespace(url)
 
 
-def _server_key_prefix(source_report_id: str) -> str:
-    return hashlib.sha256(f"safetyreport|{source_report_id}".encode("utf-8")).hexdigest()[:24]
-
-
 def _rebuild_run_id(explicit: str | None) -> str | None:
     if explicit:
         return explicit
@@ -312,6 +357,12 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
     store = _store(data_dir)
     payload = build_payload(adapter_input)
     sha = payload_sha256(payload)
+    # REVIEW3 낮음-1: 상한 초과 원문 기관코드는 조용히 null 로 버리지 않고 명시적
+    # 거절한다. 원문은 크롤 DB(처리기관코드)에 그대로 있고, journal/outbox 에
+    # 사유를 기록한다(서버 edge·모바일과 동일 사유 문자열).
+    code_blocked = agency_code_too_long(adapter_input.get("agency_code"))
+    report_number = adapter_input.get("report_number")
+    report_number = report_number.strip() if isinstance(report_number, str) and report_number.strip() else None
     eligible = is_eligible(payload)
     progress = adapter_input.get("progress_status")
     progress_label = progress if isinstance(progress, str) and progress else None
@@ -333,29 +384,43 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
                 " WHERE run_id=? AND source_report_id=?", (run_id, source_report_id)).fetchone()
             if row is not None:
                 journal = tx.execute(
-                    "SELECT payload_sha256, eligible FROM source_journal WHERE event_id=?",
+                    "SELECT payload_sha256, eligible, report_number, blocked_reason FROM source_journal WHERE event_id=?",
                     (row["event_id"],)).fetchone()
                 if journal is not None:
-                    prev = {"payload_sha256": journal["payload_sha256"], "eligible": bool(journal["eligible"])}
+                    prev = {"payload_sha256": journal["payload_sha256"],
+                            "eligible": bool(journal["eligible"]), "report_number": journal["report_number"],
+                            "blocked_reason": journal["blocked_reason"]}
                 else:
                     prev = {"payload_sha256": row["payload_sha256"], "eligible": bool(row["eligible"])}
         if prev is None:
+            # 2026-09-28 계정 규칙: prev 는 현 계정(dataset_key·fingerprint)의 최신 journal 행이다.
+            # 파일 단위 report_latest 포인터를 그대로 쓰면 계정 전환 뒤 B의 제출이 건너뛰어진다.
+            ctx_row = tx.execute("SELECT dataset_key, contributor_fingerprint FROM context WHERE id=1").fetchone()
+            ctx_dataset = ctx_row["dataset_key"] if ctx_row else None
+            ctx_fp = ctx_row["contributor_fingerprint"] if ctx_row else None
             row = tx.execute(
-                "SELECT event_id, payload_sha256, eligible FROM report_latest"
-                " WHERE local_dataset_id=? AND source_report_id=?",
-                (local_dataset_id, source_report_id)).fetchone()
+                "SELECT event_id, payload_sha256, eligible, report_number, blocked_reason FROM source_journal"
+                " WHERE local_dataset_id=? AND source_report_id=? AND dataset_key IS ?"
+                " AND contributor_fingerprint IS ? ORDER BY source_revision DESC LIMIT 1",
+                (local_dataset_id, source_report_id, ctx_dataset, ctx_fp)).fetchone()
             if row is not None:
-                prev = {"payload_sha256": row["payload_sha256"], "eligible": bool(row["eligible"])}
-        if prev is None:
-            ctx_row = tx.execute("SELECT dataset_key FROM context WHERE id=1").fetchone()
-            dataset_key = ctx_row["dataset_key"] if ctx_row and ctx_row["dataset_key"] else None
-            if dataset_key:
-                hit = tx.execute(
-                    "SELECT 1 FROM server_completed WHERE dataset_key=? AND key_prefix=?",
-                    (dataset_key, _server_key_prefix(source_report_id))).fetchone()
-                if hit is not None:
-                    prev = {"payload_sha256": None, "eligible": True}
+                prev = {"payload_sha256": row["payload_sha256"], "eligible": bool(row["eligible"]),
+                        "report_number": row["report_number"], "blocked_reason": row["blocked_reason"]}
+        # 2026-09-28: server_completed 로 prev 를 합성하지 않는다(비적격 관측은 정정을 발급하지 않음).
+        # server_completed 표·manifest 신선도 검사는 그대로 유지한다.
+        if prev and report_number and prev.get("report_number") != report_number:
+            prev = {**prev, "payload_sha256": None}
         event_type = decide_event(prev, payload)
+        # REVIEW4 낮음: 길이 초과 원문 코드는 payload가 직전과 같아도 명시적
+        # 거절 이벤트를 만든다. 초과분은 payload에서 None으로 두어 sha가 같아
+        # decide_event이 None을 내지만, 사유 없이는 원문 코드가 조용히 버려진
+        # 것처럼 보인다. 이미 같은 sha·같은 blocked 사유로 기록됐으면 quiet 유지.
+        if event_type is None and eligible:
+            prev_blocked = (prev or {}).get("blocked_reason") == f"blocked:{AGENCY_CODE_TOO_LONG}"
+            # REVIEW5: 같은 payload 해시라도 차단 원문을 NULL로 고쳤으면
+            # 차단된 journal 뒤에 전송 가능한 새 관측을 발급해야 한다.
+            if code_blocked != prev_blocked:
+                event_type = "completed_observation"
         if event_type is None:
             return CaptureResult(event_id=None, event_type=None, eligible=eligible, payload_sha256=sha)
 
@@ -367,23 +432,30 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
         payload_text = canonical_json(payload)
         tx.execute(
             "INSERT INTO source_journal(event_id, project_namespace, local_dataset_id, dataset_key,"
-            " source_report_id, source_revision, event_type, captured_at, capture_trigger, rebuild_run_id,"
+            " source_report_id, report_number, source_revision, event_type, captured_at, capture_trigger, rebuild_run_id,"
             " schema_version, parser_version, payload_json, payload_sha256, eligible,"
             " contributor_fingerprint, connection_id, writer_epoch, consent_grant_id,"
             " personal_save_state, blocked_reason)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
             (event_id, namespace, local_dataset_id,
-             ctx["dataset_key"] if ctx else None, source_report_id, revision, event_type, now, trigger, run_id,
+             ctx["dataset_key"] if ctx else None, source_report_id, report_number, revision, event_type, now, trigger, run_id,
              SCHEMA_VERSION, PARSER_VERSION, payload_text, sha, 1 if eligible else 0,
              ctx["contributor_fingerprint"] if ctx else None,
              ctx["connection_id"] if ctx else None,
              ctx["writer_epoch"] if ctx else None,
              ctx["consent_grant_id"] if ctx else None,
-             None if active else "no_active_context"))
+             f"blocked:{AGENCY_CODE_TOO_LONG}" if code_blocked
+             else (None if active else "no_active_context")))
         if active:
-            tx.execute(
-                "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at)"
-                " VALUES (?, 'pending', 0, ?, ?)", (event_id, trigger, now))
+            if code_blocked:
+                tx.execute(
+                    "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at,"
+                    " last_error_code) VALUES (?, 'blocked', 0, ?, ?, ?)",
+                    (event_id, trigger, now, AGENCY_CODE_TOO_LONG))
+            else:
+                tx.execute(
+                    "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at)"
+                    " VALUES (?, 'pending', 0, ?, ?)", (event_id, trigger, now))
         if run_id:
             tx.execute(
                 "INSERT INTO report_latest_staging(run_id, source_report_id, event_id, payload_sha256, eligible)"

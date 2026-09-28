@@ -126,7 +126,9 @@ class ReportsRepoTests(unittest.TestCase):
     def test_rating_submission_stores_score_and_updates_merge(self):
         """S-25: 일괄 별점 제출이 점수까지 기록하고 화면용 표에도 바로 보인다."""
         number = self.row(models.title_table, "90000004")["신고번호"]
-        database.sync_rating_status(self.engine, number, score=4, cause="")
+        with mock.patch("services.community_capture.add_retry_id") as queue:
+            database.sync_rating_status(self.engine, number, score=4, cause="")
+            queue.assert_called_once_with("90000004", "rating_confirmed_refetch")
         merged = self.row(models.merge_traffic_table, "90000004")
         self.assertEqual((merged["만족도조사여부"], merged["별점"], merged["별점사유"]), ("참여 완료", 4, ""))
         database.sync_rating_status(self.engine, number)  # 점수 없이 부르면 점수는 그대로

@@ -104,6 +104,10 @@
             "type": "string",
             "pattern": "^[0-9A-Za-z_-]{1,40}$"
           },
+          "report_number": {
+            "type": ["string", "null"],
+            "pattern": "^SPP-[0-9]{4,6}-[0-9]{6,8}$"
+          },
           "source_revision": {
             "type": "integer",
             "minimum": 1,

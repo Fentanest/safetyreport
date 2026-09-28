@@ -1,0 +1,208 @@
+"""Agency/region registry vectors — shared snapshot resolvers check (seed 2026-09-28.1).
+
+shared/agency-region-registry/vectors/resolve_cases.json 의 16건을 정본 리더(resolve.py)로
+확인한다. Dart/TS 포트는 각 레포의 같은 파일로 검증한다.
+"""
+import json
+import sys
+import unittest
+from pathlib import Path
+
+REGISTRY = Path(__file__).resolve().parents[1] / "shared" / "agency-region-registry"
+sys.path.insert(0, str(REGISTRY / "resolvers"))
+
+from resolve import Snapshot, display_agency, display_region, resolve_agency, resolve_region_gap  # noqa: E402
+
+
+class RegistryVectorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.snap = Snapshot.load(REGISTRY)
+        cls.cases = json.loads((REGISTRY / "vectors" / "resolve_cases.json").read_text(encoding="utf-8"))["cases"]
+        cls.links = json.loads((REGISTRY / "data" / "agency_links.json").read_text(encoding="utf-8"))["links"]
+        cls.events = json.loads((REGISTRY / "data" / "region_events.json").read_text(encoding="utf-8"))["events"]
+
+    def test_case_count(self):
+        self.assertEqual(len(self.cases), 16)
+
+    def test_all_vectors(self):
+        for case in self.cases:
+            with self.subTest(case=case["name"]):
+                if case["kind"] == "agency":
+                    got = resolve_agency(case["input"]["code"], case["input"]["name"],
+                                         case["input"]["answered_at"], self.snap)
+                else:
+                    got = resolve_region_gap(case["input"]["code"], case["input"]["date"], self.snap)
+                for key, want in case["expected"].items():
+                    self.assertEqual(got.get(key), want, f"{case['name']} · {key}")
+
+    def test_display_never_invents_gu_prefix(self):
+        unresolved = resolve_agency("9999999", "어딘가구청", "2026-09-01", self.snap)
+        self.assertEqual(display_agency("어딘가구청", unresolved), "어딘가구청")
+        region = resolve_region_gap("4159100000", "2026-09-01", self.snap)
+        self.assertEqual(display_region("경기도 화성시", region), "경기도 화성시")
+
+    def test_display_uses_historical_prefix_only_for_known_nodes(self):
+        region = resolve_region_gap("2811000000", "2026-09-01", self.snap)
+        self.assertEqual(display_region("인천광역시 중구", region), "(구)인천광역시 중구")
+
+    def test_manifest_matches_snapshot_files(self):
+        import hashlib
+
+        manifest = json.loads((REGISTRY / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["registry_version"], "2026-09-28.1")
+        for rel, digest in manifest["files"].items():
+            target = REGISTRY / rel
+            if target.is_file():
+                self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(), digest, rel)
+
+
+class RegistryDisplayWiringTests(unittest.TestCase):
+    """통계 표시 연결: 확인된 승계만 현행명으로, 나머지는 기존 출력 그대로."""
+
+    def test_resolved_rows_show_current_name(self):
+        import pandas as pd
+
+        from services import report_stats_service as stats
+
+        df = pd.DataFrame([
+            {"처리기관": "광주광역시경찰청", "처리기관코드": "1812314", "답변일": "2026-09-01"},
+            {"처리기관": "광주광역시경찰청", "처리기관코드": "1812314", "답변일": "2026-06-01"},
+            {"처리기관": "광주경찰청", "처리기관코드": "1815198", "답변일": "2026-09-01"},
+            {"처리기관": "서울특별시 중구청", "처리기관코드": None, "답변일": "2026-09-01"},
+            {"처리기관": "서울특별시 강서경찰서 교통과", "처리기관코드": None, "답변일": "2026-09-01"},
+        ])
+        out = stats._apply_registry_agency_display(df)["처리기관"].tolist()
+        # 확인된 1:1 개명: 현행 표시(registry as_of 기준)는 답변일과 무관하게 현행명
+        # (REVIEW2 중간-2: 과거 답변이 과거명으로 남던 문제 수정).
+        # 승계 후 코드(1815198)로 들어와도 같은 현행명(REVIEW3 높음-2).
+        self.assertEqual(out[0], "광주경찰청")
+        self.assertEqual(out[1], "광주경찰청")
+        self.assertEqual(out[2], "광주경찰청")
+        # 미확정은 원문 유지, 기존 normalize 동작 유지(경찰서 뒤 절단)
+        self.assertEqual(out[3], "서울특별시 중구청")
+        self.assertEqual(out[4], "서울특별시 강서경찰서")
+
+    def test_historical_identity_still_available_via_answered_at(self):
+        # 답변일은 당시 식별용으로만 쓴다: 정본 리더에 답변일을 직접 주면
+        # 승계 전 이름이 확인된다. 표시 경로는 현행명을 쓴다(위 테스트).
+        from resolve import resolve_agency
+
+        snap = Snapshot.load(REGISTRY)
+        got = resolve_agency("1812314", "광주광역시경찰청", "2026-06-01", snap)
+        self.assertEqual(got["institution_id"], "ag-gwangju-police-hq")
+        self.assertEqual(got["current_agency_name"], "광주광역시경찰청")
+        self.assertEqual(got["resolution_status"], "resolved_as_of_date")
+
+    def test_missing_columns_keep_legacy_output(self):
+        import pandas as pd
+
+        from services import report_stats_service as stats
+
+        df = pd.DataFrame([{"처리기관": "서울특별시 강서경찰서 교통과"}])
+        out = stats._apply_registry_agency_display(df)["처리기관"].tolist()
+        self.assertEqual(out, ["서울특별시 강서경찰서"])
+
+
+class RegistryStatsWiringTests(unittest.TestCase):
+    """M1: 통계 조회가 처리기관코드를 읽어 현행명으로 묶는다(공개 함수 경유)."""
+
+    def test_stats_columns_carry_agency_code(self):
+        from services import report_stats_service as stats
+
+        self.assertIn("처리기관코드", stats._STATS_COLUMNS)
+        self.assertIn("처리기관코드", stats._MAP_COLUMNS)
+
+    def test_agency_stats_groups_old_code_under_current_name(self):
+        import tempfile
+        import os
+
+        from sqlalchemy import create_engine
+
+        import settings.settings as app_settings
+        from core.database import models
+        from services import report_stats_service as stats
+
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        engine = create_engine(f"sqlite:///{path}")
+        try:
+            with engine.begin() as conn:
+                models.merge_traffic_table.create(conn)
+                models.merge_parking_table.create(conn)
+                models.merge_other_table.create(conn)
+                models.entry_value_table.create(conn)
+                rows = [
+                    # 옛 코드·옛 이름·승계 전 답변일 + 새 코드·새 이름: 한 기관으로 묶여야 한다.
+                    {"ID": "c1", "신고번호": "SPP-2609-000001", "신고명": "신호위반",
+                     "신고일": "2026-05-01 10:00", "답변일": "2026-06-01",
+                     "처리기관": "광주광역시경찰청", "처리기관코드": "1812314",
+                     "담당자": "김담당", "처리상태": "수용", "범칙금_과태료": "과태료: 50000원"},
+                    {"ID": "c2", "신고번호": "SPP-2609-000002", "신고명": "신호위반",
+                     "신고일": "2026-08-01 10:00", "답변일": "2026-09-01",
+                     "처리기관": "광주경찰청", "처리기관코드": "1815198",
+                     "담당자": "이담당", "처리상태": "수용", "범칙금_과태료": "과태료: 50000원"},
+                ]
+                for row in rows:
+                    conn.execute(models.merge_traffic_table.insert().values(**row))
+            saved = app_settings._instance.normalize_police
+            app_settings._instance.normalize_police = True
+            try:
+                got = stats.get_agency_stats(engine, {}, mode="raw")
+            finally:
+                app_settings._instance.normalize_police = saved
+            by_agency = {r["agency"]: r for r in got["traffic"]["by_agency"]}
+            self.assertEqual(set(by_agency), {"광주경찰청"})
+            self.assertEqual(by_agency["광주경찰청"]["total"], 2)
+        finally:
+            engine.dispose()
+            os.remove(path)
+
+    def test_agency_stats_groups_new_code_first_order(self):
+        # REVIEW3 높음-2: 새 코드 행이 먼저 들어와도 같은 현행 기관 1행으로 묶인다.
+        import tempfile
+        import os
+
+        from sqlalchemy import create_engine
+
+        import settings.settings as app_settings
+        from core.database import models
+        from services import report_stats_service as stats
+
+        fd, path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        engine = create_engine(f"sqlite:///{path}")
+        try:
+            with engine.begin() as conn:
+                models.merge_traffic_table.create(conn)
+                models.merge_parking_table.create(conn)
+                models.merge_other_table.create(conn)
+                models.entry_value_table.create(conn)
+                rows = [
+                    {"ID": "c2", "신고번호": "SPP-2609-000002", "신고명": "신호위반",
+                     "신고일": "2026-08-01 10:00", "답변일": "2026-09-01",
+                     "처리기관": "광주경찰청", "처리기관코드": "1815198",
+                     "담당자": "이담당", "처리상태": "수용", "범칙금_과태료": "과태료: 50000원"},
+                    {"ID": "c1", "신고번호": "SPP-2609-000001", "신고명": "신호위반",
+                     "신고일": "2026-05-01 10:00", "답변일": "2026-06-01",
+                     "처리기관": "광주광역시경찰청", "처리기관코드": "1812314",
+                     "담당자": "김담당", "처리상태": "수용", "범칙금_과태료": "과태료: 50000원"},
+                ]
+                for row in rows:
+                    conn.execute(models.merge_traffic_table.insert().values(**row))
+            saved = app_settings._instance.normalize_police
+            app_settings._instance.normalize_police = True
+            try:
+                got = stats.get_agency_stats(engine, {}, mode="raw")
+            finally:
+                app_settings._instance.normalize_police = saved
+            by_agency = {r["agency"]: r for r in got["traffic"]["by_agency"]}
+            self.assertEqual(set(by_agency), {"광주경찰청"})
+            self.assertEqual(by_agency["광주경찰청"]["total"], 2)
+        finally:
+            engine.dispose()
+            os.remove(path)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -182,6 +182,35 @@ def _control_probing(store, scopes: dict[str, str]) -> None:
                        (_iso(_now()), scope))
 
 
+# ── 잔여 status_correction 차단 (2026-09-28: 발급 중단) ─────────────────────────
+
+SUPERSEDED_CORRECTION_CODE = "deprecated_status_correction"
+
+
+def block_superseded_corrections(data_dir=None) -> int:
+    """구버전이 적어 둔 미전송 `status_correction` 잔여 행을 보내지 않고 `blocked` 로 보존한다(명확한 이유 기록, drop 없음).
+
+    대상: outbox 대기(pending/retry_wait/auth_required) 중 journal event_type='status_correction' 인 행 +
+    outbox 에 없고 미ACK 인 같은 event_type journal 행(journal blocked_reason 표시로 enqueue 제외).
+    이미 전송돼 ACK 를 받은 행(역사 기록)은 건드리지 않는다. 반환=새로 차단한 outbox 행 수."""
+    store = _store(data_dir)
+    with store.transaction() as tx:
+        hit = tx.execute(
+            "SELECT 1 FROM source_journal WHERE event_type='status_correction' AND ack_status IS NULL"
+            " AND (blocked_reason IS NULL OR blocked_reason='') LIMIT 1").fetchone()
+        if hit is None:
+            return 0
+        tx.execute(
+            "UPDATE source_journal SET blocked_reason='blocked:deprecated_status_correction'"
+            " WHERE event_type='status_correction' AND ack_status IS NULL"
+            " AND (blocked_reason IS NULL OR blocked_reason='')")
+        cur = tx.execute(
+            "UPDATE outbox SET state='blocked', last_error_code='deprecated_status_correction',"
+            " lease_owner=NULL, lease_until=NULL WHERE state IN ('pending','retry_wait','auth_required')"
+            " AND event_id IN (SELECT event_id FROM source_journal WHERE event_type='status_correction')")
+        return int(cur.rowcount or 0)
+
+
 # ── enqueue ──────────────────────────────────────────────────────────────────
 
 def _enqueue_missing(trigger: str, data_dir=None) -> int:
@@ -233,7 +262,7 @@ def _front_rows(conn, ctx: dict, now: str, limit: int, exclude: set[str]) -> lis
     """신고마다 보낼 수 있는 가장 앞 revision 하나(그 행이 due 일 때만). 앞 revision 이 대기 중이면 그 신고는 건너뛴다."""
     rows = conn.execute(
         "SELECT o.event_id, o.attempt_count, o.state, j.source_report_id, j.source_revision, j.event_type, j.captured_at,"
-        " j.payload_sha256, j.eligible, j.writer_epoch FROM source_journal j JOIN outbox o ON o.event_id=j.event_id"
+        " j.payload_sha256, j.eligible, j.writer_epoch, j.report_number FROM source_journal j JOIN outbox o ON o.event_id=j.event_id"
         " JOIN (SELECT j2.source_report_id AS rid, MIN(j2.source_revision) AS rev FROM source_journal j2"
         "       JOIN outbox o2 ON o2.event_id=j2.event_id WHERE o2.state IN ('pending','retry_wait','in_flight','auth_required')"
         + _CTX_FILTER.replace("j.", "j2.") + " GROUP BY j2.source_report_id) f"
@@ -255,7 +284,7 @@ def _event(row: dict, payload_json: str, ctx: dict) -> dict:
     """저장된 불변 필드를 그대로 쓴다(event_id·event_type·revision·writer_epoch·captured_at·payload·sha).
     중앙은 같은 event_id 의 재전송에서 이 값들이 다르면 conflict 로 본다 — 현재 context 의 epoch 로 바꾸지 않는다."""
     return {"event_id": row["event_id"], "event_type": row["event_type"], "source_system": "safetyreport",
-            "source_report_id": row["source_report_id"], "source_revision": row["source_revision"],
+            "source_report_id": row["source_report_id"], "report_number": row.get("report_number"), "source_revision": row["source_revision"],
             "writer_epoch": row.get("writer_epoch"), "captured_at": row["captured_at"],
             "payload": json.loads(payload_json), "payload_sha256": row["payload_sha256"]}
 
@@ -555,6 +584,10 @@ def _run_upload(run_id: str, trigger: str, data_dir=None, progress=None) -> dict
         with store.transaction() as tx:  # 죽은 실행이 남긴 in_flight(만료 lease)만 되돌린다 — attempt 는 그대로
             tx.execute("UPDATE outbox SET state='retry_wait', next_retry_at=?, lease_owner=NULL, lease_until=NULL"
                        " WHERE state='in_flight' AND (lease_until IS NULL OR lease_until < ?)", (now, now))
+        try:
+            counts["blocked"] += block_superseded_corrections(data_dir)  # 잔여 status_correction 은 보내지 않는다
+        except Exception:
+            _log.info("[community] superseded correction 차단 실패", exc_info=True)
         if trigger in ("manual", "midnight", "recovery"):
             try:
                 _enqueue_missing(trigger, data_dir)
@@ -997,16 +1030,21 @@ def reshare_candidates(data_dir=None) -> int:
         return 0
     conn = store.connect()
     local_id = store.local_dataset_id()
+    # 2026-09-28 계정 규칙: reshare 후보는 현 계정의 최신 eligible 행만 본다.
+    # 타 계정 행을 현 연결로 rebind하여 전송하지 않는다.
     rows = conn.execute(
         "SELECT source_report_id, MAX(source_revision) AS rev FROM source_journal"
-        " WHERE local_dataset_id=? AND eligible=1 GROUP BY source_report_id", (local_id,)).fetchall()
+        " WHERE local_dataset_id=? AND eligible=1 AND dataset_key IS ? AND contributor_fingerprint IS ?"
+        " GROUP BY source_report_id", (local_id, ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchall()
     count = 0
     for item in rows:
         row = conn.execute(
             "SELECT consent_grant_id, connection_id, blocked_reason, ack_status FROM source_journal"
             " WHERE local_dataset_id=? AND source_report_id=? AND source_revision=?"
+            " AND dataset_key IS ? AND contributor_fingerprint IS ?"
             " ORDER BY source_revision DESC LIMIT 1",
-            (local_id, item["source_report_id"], item["rev"])).fetchone()
+            (local_id, item["source_report_id"], item["rev"],
+             ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchone()
         if row is None or row["blocked_reason"]:
             continue
         if row["consent_grant_id"] == ctx.get("consent_grant_id") \
@@ -1029,14 +1067,19 @@ def request_reshare(data_dir=None) -> dict:
     local_id = store.local_dataset_id()
     created: list[str] = []
     with store.transaction() as tx:
+        # 현 계정의 최신 eligible 행만 재발급한다(타 계정 행 rebind 금지 — 위 reshare_candidates와 같은 범위).
         rows = tx.execute(
             "SELECT source_report_id, MAX(source_revision) AS rev FROM source_journal"
-            " WHERE local_dataset_id=? AND eligible=1 GROUP BY source_report_id", (local_id,)).fetchall()
+            " WHERE local_dataset_id=? AND eligible=1 AND dataset_key IS ? AND contributor_fingerprint IS ?"
+            " GROUP BY source_report_id",
+            (local_id, ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchall()
         for item in rows:
             row = tx.execute(
                 "SELECT * FROM source_journal WHERE local_dataset_id=? AND source_report_id=?"
-                " AND source_revision=? ORDER BY source_revision DESC LIMIT 1",
-                (local_id, item["source_report_id"], item["rev"])).fetchone()
+                " AND source_revision=? AND dataset_key IS ? AND contributor_fingerprint IS ?"
+                " ORDER BY source_revision DESC LIMIT 1",
+                (local_id, item["source_report_id"], item["rev"],
+                 ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchone()
             if row is None or row["blocked_reason"]:
                 continue
             if row["consent_grant_id"] == ctx.get("consent_grant_id") \
@@ -1047,12 +1090,12 @@ def request_reshare(data_dir=None) -> dict:
             now = _iso(_now())
             tx.execute(
                 "INSERT INTO source_journal(event_id, project_namespace, local_dataset_id, dataset_key,"
-                " source_report_id, source_revision, event_type, captured_at, capture_trigger,"
+                " source_report_id, report_number, source_revision, event_type, captured_at, capture_trigger,"
                 " schema_version, parser_version, payload_json, payload_sha256, eligible,"
                 " contributor_fingerprint, connection_id, writer_epoch, consent_grant_id, personal_save_state)"
-                " VALUES (?, ?, ?, ?, ?, ?, 'reshare', ?, 'reshare', ?, ?, ?, ?, 1, ?, ?, ?, ?, 'pending')",
+                " VALUES (?, ?, ?, ?, ?, ?, ?, 'reshare', ?, 'reshare', ?, ?, ?, ?, 1, ?, ?, ?, ?, 'pending')",
                 (event_id, row["project_namespace"], local_id, ctx.get("dataset_key"),
-                 row["source_report_id"], revision, row["captured_at"],
+                 row["source_report_id"], row["report_number"], revision, row["captured_at"],
                  row["schema_version"], row["parser_version"], row["payload_json"], row["payload_sha256"],
                  ctx.get("contributor_fingerprint"), ctx.get("connection_id"), ctx.get("writer_epoch"),
                  ctx.get("consent_grant_id")))

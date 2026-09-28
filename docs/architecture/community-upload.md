@@ -3,6 +3,18 @@
 `contracts/community-ingest/` 계약의 PC 쪽 데이터 경로 구현 기록이다.
 게이트·온보딩·초기화 job·`main.py`·스케줄러 본체는 T3 소유이며, 여기서는 인터페이스로만 연결한다.
 
+2026-09-28: 제목의 신고번호를 `report_number` private event 필드로 journal v3에 저장해 업로드한다. Observation 해시는 유지한다. 번호만 새로 확보되면 한 번 더 캡처한다.
+2026-09-28 개정2(계정별 기여, 소유 이전 대체): 같은 신고의 타 계정 업로드는 중앙이 `accepted`로 정상 수신한다(각자의 기여로 남고 전체는 고유 1건).
+중앙 `transferred`·`cross_account_mismatch`·`report_identity_mismatch`·`ambiguous_existing_owners` ACK는 더 발급되지 않는다(구버전 앱이 받아도 무해 — DURABLE_STATUSES 유지).
+새 Edge·migration 배포가 PC 업데이트보다 먼저여야 한다.
+
+2026-09-28(같은 날 확정): 답변 완료만 중앙에 올린다. 적격 = status ∈ {accepted, partial, rejected, completed_unknown}.
+처리중·보완요청·취하·이송·other 관측은 이벤트를 만들지 않는다 — `status_correction` 발급 중단, 로컬 `detail_status` 기록만.
+로컬 prev 합성에 `server_completed` 를 쓰지 않는다(표·manifest 신선도 검사는 유지). 구버전 잔여 미전송 `status_correction` 행은
+업로드 실행 시작 때 `block_superseded_corrections` 가 보내지 않고 `blocked:deprecated_status_correction` 으로 보존한다(drop 없음).
+서버는 비적격 payload·`status_correction` 이벤트를 이벤트 단위 `rejected:non_final_not_accepted`(durable=false)로 거절하며 배치 나머지는 정상 처리한다.
+답변 완료로 올라간 신고가 나중에 비종결 상태로 돌아가면(드묾) 중앙은 마지막 답변 상태를 유지한다.
+
 ## 흐름
 
 ```
@@ -25,7 +37,7 @@
 |---|---|
 | `services/community_capture.py` | 순수 함수(`build_adapter_input/build_payload/canonical_json/payload_sha256/is_eligible/decide_event`) + `capture/mark_personal_save/capture_retry_ids/on_contributions_deleted` |
 | `services/community_ingest_client.py` | `POST {supabase_url}/functions/v1/community-ingest` + manifest 조회, ACK 검증·분류 |
-| `services/community_uploader.py` | `request_upload/wake/start_background/stop_background/upload_status/reshare_candidates/request_reshare/refresh_server_completed/on_contributions_deleted` |
+| `services/community_uploader.py` | `request_upload/wake/start_background/stop_background/upload_status/reshare_candidates/request_reshare/refresh_server_completed/on_contributions_deleted/block_superseded_corrections` |
 | `services/community_crawl_upload.py` | 새 크롤링 전 미전송 자료 소진과 종료 뒤 복구 업로드, 현재 크롤링 로그 기록 |
 | `services/community_schedule.py` | KST 순수 함수(`due_key/next_due_at/should_run`) + `register_community_jobs/run_midnight/catch_up_on_start` |
 | `web/routers/community_upload_route.py` | `router`(관리자 `/community/upload/*`), `api_router`(API 키 `/api/v1/community/upload/*`) |
@@ -83,7 +95,7 @@
   - 재시도 실행기: `start_background` 1초 루프가 wake·`data_version` 변화(실시간)와 **다음 깨울 시각**(가장 이른 next_retry_at·
     cooldown 끝, 실행 뒤마다 다시 계산) 도달(복구)을 본다. 행마다 타이머를 두지 않는다. 종료 때 새 실행을 시작하지 않는다.
 - ACK `projection_status` 5종을 journal 에 저장하고 패널에 표시한다:
-  published=지도 반영됨, removed=지도에서 빠짐(정정),
+  published=지도 반영됨, removed=지도에서 빠짐,
   held=중앙 저장 완료·지도 반영 대기, not_public=중앙 저장(지도 비표시),
   not_applicable=변경 없음.
 - 삭제(`contributions-delete`, `web/routers/community_route.py` `_contributions_delete`) — 두 단계 표시(Sol 3·4차):
@@ -115,8 +127,21 @@
 | 2026-09-27 | UC-1 업로드 장애 대응: 이전 서술(400/413/422 → dead_letter, 1초→1시간 백오프, 401 은 캐시 토큰 재사용, 자정 success/no_change)은 코드와 달라졌다 — 위 규칙이 현재 코드. `community.db` v2(`upload_control`). API `result` 값은 호환 유지, 새 코드는 `outcome`. |
 | 2026-09-26 | `contracts/community-ingest/` 사본이 `.gitignore` 로 2개 파일만 추적되던 것을 857185d 로 21개 전부 추적. 이 문서의 규칙 서술은 코드·계약과 일치함을 벡터 테스트로 확인. |
 
+## 원문 기관코드 수집 (observation-v3, 2026-09-28)
+
+- 파서가 선택 답변의 `C_MANAGE_ORG` 원문을 `처리기관코드`(TEXT, detail·merge·`/api/v1`·교환·백업 동일)로 저장한다. 7자리 영숫자·선행 0 보존, 정수 변환 금지, 없으면 NULL.
+  `처리기관`(원문 기관명)은 덮어쓰지 않으며 개인 수정값은 merge 표시 전용으로 커뮤니티 원문으로 승격하지 않는다(capture는 파서 원본만 읽음).
+- payload `source_agency_code`(v3, null 가능): 같은 답변의 코드·기관명·담당자를 함께 보낸다. 서버는 저장만 하고 공개 projection에 내보내지 않는다(동의 범위 미확정 — 보고).
+  v1/v2 payload 도 계속 받는다. 코드가 새로 확보되면 같은 해시여도 새 이벤트를 발급한다(번호 백필과 같은 규칙).
+- DB 스키마 버전 5(레거시 거부·초기화 후 재수집은 기존 정책 유지). 교환 계약 `storage-contract.json` 동일(서버 5, 모바일 16 — 모바일도 함께 변경).
+- parser_version `pc-parser-3`/`mobile-parser-3`.
+
 ## 위반법규 공유 (observation-v2, 2026-09-28)
 - payload 에 `violation_law` 를 추가했다: 파서가 처리내용에서 뽑아 저장하는 위반법규 열(법 이름·조항, 60자 이내)만 보내고 처리내용 원문은 보내지 않는다. 비어 있으면 null.
-- 계약 `observation-v2`(`contracts/community-ingest`, 지도 레포 정본 사본), 필수 동의 정책 `2026-09-28.2`(위반법규 공개 항목 추가). parser_version `pc-parser-2`/`mobile-parser-2`.
+- 계약 `observation-v2`(`contracts/community-ingest`, 지도 레포 정본 사본), 필수 동의 정책 `2026-09-28.2`(위반법규 공개 항목 추가). 당시 parser_version `pc-parser-2`/`mobile-parser-2`(현행 v3는 위 절).
 - 중앙은 v1(12키) payload 도 받는다. 기존 공유 자료에는 위반법규가 없으므로, 배포 때 사용자 결정으로 중앙 공유 자료를 초기화하고 다시 올린다(초기화는 배포 절차, 코드에서 자동 실행하지 않음).
 - 배포 순서: 중앙 SQL·auth 정책 migration → Edge Function → 앱. 앱이 먼저 나가면 중앙이 v2 를 몰라 422 로 보류된다(잃지 않음).
+
+## 숫자 별점 공유 (observation-v4, 2026-09-28)
+- 상세에서 확인한 별점 정수 1..5만 `rating`으로 캡처하고, 없거나 범위 밖이면 null로 보낸다. 별점사유 자유 텍스트는 전송하지 않는다. PC에서 사이트 별점 확인 뒤 capture 재조회 의도(rating_confirmed_refetch)를 기록해 다음 증분 수집의 공식 상세를 다시 읽는다. 점수가 바뀌면 payload SHA-256이 달라져 `completed_observation`이 발급된다.
+- 동의 정책 2026-09-28.3에서 별점 평균·건수를 공개한다. 기존 .1/.2 계보는 별점을 공개하지 않는다. DB 교환 스키마는 그대로다.
