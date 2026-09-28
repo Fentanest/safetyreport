@@ -1,4 +1,4 @@
-# 공식 관측 → 공유 DTO (observation-v1)
+# 공식 관측 → 공유 DTO (observation-v2)
 
 ## 1. 확정 시점
 공식 상세 응답을 받고 파서가 끝난 직후, **개인 수정값(override)·별점 보강·화면 계산과 합치기 전** 에 DTO 를 만들고 정규 JSON 문자열로 확정한다.
@@ -20,6 +20,7 @@
 | `violation_location` | `violation_location` / 위반장소 | `location` |
 | `entry_value` | `entry_value` | `entryValueFromDetail(...)` |
 | `penalty_points` | `penalty_points` / 벌점 | `penaltyPoints` |
+| `violation_law` | `violation_law` / 위반법규 (2026-09-28, v2) | `law` |
 | `geocode` | 공식 상세 응답의 `C_A_W/E` 또는 완료된 보완의 `SPLMNT_C_A_W/E` | 같은 공식 상세 응답의 `C_A_W/E` 또는 완료된 보완의 `SPLMNT_C_A_W/E` |
 
 `geocode` 는 기존 전송 형식의 좌표 있음 표시값이다. 실제 좌표는 공식 상세 응답에서 읽고, 주소를 카카오 REST API로 변환하지 않는다. 사용자 override 주소·좌표는 읽지 않는다.
@@ -53,11 +54,13 @@
   `penalty_points`: `penalty_points` 입력 전체가 `^벌점:\s*([0-9]{1,4})\s*점$` 이고 값 ≤ 1000 이면 정수, 아니면 null.
 - `disposition`: status=rejected → `none`; 아니면 penalty_amount 가 `범칙금` 으로 시작 → `penalty`, `과태료` 로 시작 → `fine`, `경고` → `warning`, 그 밖(`미확인`·빈 값 포함) → `unknown`. 금액·처분을 추측하지 않는다.
 - `agency_name` = clean(processing_agency, 200), `manager_name` = clean(person_in_charge, 160), `vehicle_raw` = clean(car_number, 64), `address` = clean(violation_location, 200).
+- `violation_law` = clean(violation_law, 60) (v2, 2026-09-28). 파서가 처리내용에서 뽑은 **법 이름·조항만**(예: `도로교통법 제32조`) — 처리내용 원문은 보내지 않는다. 못 뽑았으면 null.
 - `location`: geocode 상태가 `ok` 이고 lat·lng 가 IEEE 754 double 로 해석되며(숫자 또는 10진 문자열) lat ∈ [32, 39.5], lng ∈ [124, 132] 이면
   lat·lng = 그 double 의 **최단 왕복 10진 문자열**(지수 표기 없음, 소수점이 없으면 `.0` 을 붙임 — Python `repr`, Dart `toString`, JS `String()` 후 보정), `source = "geocode"`;
   아니면 lat·lng null, `source = "none"`. 좌표를 반올림·격자화하지 않는다(공개 정책: 입력 좌표 그대로).
 
-payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won, kind, penalty_points}, category, completed_date, disposition, location{lat, lng, source}, manager_name, report_date, status, status_raw, vehicle_raw`.
+payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won, kind, penalty_points}, category, completed_date, disposition, location{lat, lng, source}, manager_name, report_date, status, status_raw, vehicle_raw, violation_law`.
+v1(12키, `violation_law` 없음) payload 도 서버가 받는다(구 앱 호환) — 그 fact 의 위반법규는 "미상"(null 과 구분하지 않음; 2026-09-28 배포 때 중앙 공유 자료를 초기화해 새로 받는다).
 공식 로그인 정보·쿠키·헤더·사진·첨부·신고 본문·처리내용 원문은 넣지 않는다. `source_report_id` 는 envelope 의 event 필드(private)로만 간다.
 
 ## 4. event 결정 (앱의 capture 함수)
@@ -89,6 +92,6 @@ payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won
   `published` = 커밋 뒤 익명 API 가 이 fact 를 보여 줌(ready ∧ generated_at 존재) · `removed` = 보이던 fact 가 이번 변경으로 안 보이게 됨 ·
   `held` = 보일 조건이지만 공개 스위치 꺼짐(ready=false) 또는 계보 비활성 · `not_public` = 저장만 되고 목록에 안 나옴(미완료, 날짜 둘 다 없음) · `not_applicable` = fact 변경 없음.
 - 삭제 보장 범위(S-02-F): 서버가 보장하는 것 — ① 삭제 시점의 모든 writer 연결 폐기(그 연결의 대기 이벤트는 captured_at 과 무관하게 거절), ② 이미 공유된 신고 identity 의 영구 tombstone, ③ 삭제 시각 이전으로 **주장된** captured_at 의 이벤트 거절. captured_at 은 클라이언트 시각이므로 ③은 정상 앱을 위한 보호다. 정상 앱은 삭제 성공 뒤 삭제 이전 journal 을 새 연결로 승계·재발급(reshare 포함)하지 않는다(계약 local-store). 조작된 클라이언트가 미래 시각으로 자기 자료를 다시 올리는 것은 막지 못한다(사용자 자신의 자료, 보안 경계 밖).
-- 파생: `public_state` = eligible ? `completed` : `not_completed`; lat/lng = 문자열을 double 로(원 문자열도 `lat_text`/`lng_text` 로 보존); `point_key = "v1:" + lat + "," + lng`(문자열 그대로);
+- 파생: `violation_law` 는 그대로 저장(공개 필터·법규별 통계용). `public_state` = eligible ? `completed` : `not_completed`; lat/lng = 문자열을 double 로(원 문자열도 `lat_text`/`lng_text` 로 보존); `point_key = "v1:" + lat + "," + lng`(문자열 그대로);
   `region_code` = 주소 앞 두 토큰(공백 분리, 시·도 약칭 정규화) — 공개 필터용 표시 키, 행정코드가 아님;
   `agency_key = "a1:" + sha256(NFC(agency_name))[:24]`, `manager_key = "m1:" + sha256(agency_key + "|" + NFC(manager_name))[:24]`(기관이 다르면 같은 이름도 다른 키).
