@@ -42,6 +42,7 @@ class Snapshot:
     events_by_old: dict
     links_by_from: dict
     registry_version: str
+    as_of_date: str | None = None
 
     @classmethod
     def load(cls, root: Path = SNAPSHOT_DIR) -> "Snapshot":
@@ -55,7 +56,18 @@ class Snapshot:
         by_from: dict[str, list[dict]] = {}
         for link in links:
             by_from.setdefault(link["from_code"], []).append(link)
-        return cls(by_old, by_from, manifest["registry_version"])
+        return cls(by_old, by_from, manifest["registry_version"],
+                   manifest.get("as_of_date"))
+
+
+def resolve_current_agency(code: str | None, name: str | None, snap: Snapshot) -> dict:
+    """현행 표시용: registry as_of_date 기준으로 체인 전체를 적용한다.
+
+    답변일(answered_at)은 과거 식별용이 아니라 현행 표시용이 아니다 — 통계·표시
+    그룹 키는 항상 현행명으로 계산하고, 과거명 확인이 필요하면 resolve_agency 의
+    answered_at 경로를 직접 쓴다.
+    """
+    return resolve_agency(code, name, snap.as_of_date or "9999-12-31", snap)
 
 
 def resolve_agency(code: str | None, name: str | None, answered_at: str | None, snap: Snapshot) -> dict:

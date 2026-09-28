@@ -31,15 +31,18 @@ def _text(value) -> str | None:
     return text or None
 
 
-def resolve_display_agency(code, name, answered_at) -> tuple[str | None, str]:
-    """(현행 표시명, resolution_status). 미확정이면 (원문 strip, 'unresolved')."""
+def resolve_display_agency(code, name, answered_at=None) -> tuple[str | None, str]:
+    """(현행 표시명, resolution_status). 미확정이면 (원문 strip, 'unresolved').
+
+    현행 표시는 registry as_of_date 기준(resolve_current_agency)으로 계산한다.
+    answered_at(답변일)은 과거 식별용으로만 쓰고 현행 표시에는 쓰지 않는다
+    (검수 REVIEW2 중간-2: 과거 답변이 과거명으로 남던 문제).
+    """
     code = _text(code)
     name = _text(name)
-    date = _text(answered_at)
-    date = date[:10] if date else None
     if code is None and name is None:
         return None, "unresolved"
-    from resolve import resolve_agency as _resolve
+    from resolve import resolve_current_agency as _resolve_current
 
-    resolution = _resolve(code, name, date, snapshot())
+    resolution = _resolve_current(code, name, snapshot())
     return display_agency(name, resolution), str(resolution.get("resolution_status"))
