@@ -48,6 +48,10 @@ test_*
 !/shared/agency-region-registry/**/*.py
 !/shared/agency-region-registry/**/*.dart
 !/shared/agency-region-registry/**/*.ts
+# `data/` 디렉터리 무시 규칙 때문에 data/ 하위는 디렉터리부터 다시 허용한다.
+!/shared/agency-region-registry/data/
+# 빌더 검토 원본(seed)은 스크립트 옆에 둔다.
+!/scripts/agency_registry/*.json
 /shared/agency-region-registry/data-sources/official/
 !/tools/web-tests/package.json
 !/tools/web-tests/package-lock.json
