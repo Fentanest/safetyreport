@@ -17,7 +17,7 @@ Outputs (tracked runtime snapshot):
   data/region_events.json      typed region lineage events (relation/handling are
                                data, never parsed at runtime)
   data/agency_links.json       verified 1:1 agency succession links (seed + derived)
-  data/agency_index.json       현존 기관코드 색인 [code,name,agg,type,created]
+  data/agency_index.json       현존 기관코드 색인 [code,name,agg,type,created,lookup_name]
   data/agency_legacy.json      폐지 코드 {forward,multi}
   manifest.json                schema/registry versions, dates, hashes, readers
   provenance.json              input hashes, builder version, evidence pointers
@@ -33,7 +33,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-BUILDER_VERSION = "agency-registry-build/2026-09-29.1"
+BUILDER_VERSION = "agency-registry-build/2026-09-29.2"
 SCHEMA_VERSION = 2
 
 HERE = Path(__file__).resolve().parent
@@ -94,7 +94,7 @@ def main() -> int:
     ap.add_argument("--official-zip", type=Path, required=True,
                     help="Local code.go.kr '기관코드 전체자료' zip (already downloaded; never fetched here, never committed)")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    ap.add_argument("--registry-version", default="2026-09-29.1")
+    ap.add_argument("--registry-version", default="2026-09-29.2")
     ap.add_argument("--as-of-date", default="2026-09-28")
     args = ap.parse_args()
 
@@ -139,7 +139,13 @@ def main() -> int:
     seed_pairs = {(l["from_code"], l["to_code"]) for l in seed_links}
     kept_pairs = {k: v for k, v in derived["link_pairs"].items() if k not in seed_pairs}
     inst_map = official.institution_map(kept_pairs, seed_links, derived, by_code)
-    links = [dict(l) for l in seed_links]
+    links = []
+    for l in seed_links:
+        entry = dict(l)
+        # seed 원본은 그대로 두고, 출력 링크의 표시명에만 표시 규칙을 적용한다.
+        if entry.get("to_name"):
+            entry["to_name"] = official.display_agency_name(entry["to_name"])
+        links.append(entry)
     for (frm, to) in sorted(kept_pairs):
         entry = dict(kept_pairs[(frm, to)])
         entry["institution_id"] = inst_map.get(frm, inst_map.get(to, f"ag-c{frm.lower()}"))
@@ -147,7 +153,7 @@ def main() -> int:
     links.sort(key=lambda l: (l["from_code"], l["to_code"]))
     (data / "agency_links.json").write_text(canon({"links": links}) + "\n", encoding="utf-8")
     (data / "agency_index.json").write_text(canon({
-        "cols": ["code", "name", "agg", "type", "created"],
+        "cols": ["code", "name", "agg", "type", "created", "lookup_name"],
         "rows": derived["index_rows"]}) + "\n", encoding="utf-8")
     (data / "agency_legacy.json").write_text(canon({
         "forward": derived["forward"], "multi": derived["multi"]}) + "\n", encoding="utf-8")
@@ -188,6 +194,12 @@ def main() -> int:
         "official_derivation": {
             "filter": "현존 코드 중 유형분류_대 04/05/06/11-17/18/80 제외 "
                       "(입법·사법·헌법·학교·군·금융 — 안전신문고 답변 기관이 될 수 없는 유형)",
+            "display": "경계 코드 저장명(현행 표시명)은 공식 전체기관명에서 맨 앞의 "
+                       "'경찰청 ' 접두어만 한 번 제거(2026-09-29 사용자 결정). "
+                       "공백 경계의 정확한 접두어만 해당: 본청 '경찰청'·'경찰청장…'·"
+                       "비경찰 이름은 그대로. 집계(경계 판정)의 이름 경로 비교는 "
+                       "공식 원문명으로 하며 multi((구) 역사 표시)는 원문을 둔다. "
+                       "lookup_name은 표시명과 다를 때 공식 전체기관명을 보존한다.",
             "stats": derived["stats"],
         },
         "limits": [

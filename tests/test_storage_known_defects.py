@@ -151,7 +151,7 @@ class ServerKnownDefectTests(_SeededDb):
         from services import report_query_service
 
         old = "경찰청 광주광역시경찰청 광주동부경찰서"
-        current = "경찰청 광주경찰청 광주동부경찰서"
+        current = "광주경찰청 광주동부경찰서"
         with self.engine.begin() as conn:
             conn.execute(update(models.merge_traffic_table)
                          .where(models.merge_traffic_table.c.ID == "90000001")

@@ -101,8 +101,10 @@ def main() -> int:
     # v2 index/legacy/institutions coherence
     cols = index_blob.get("cols")
     rows = index_blob.get("rows", [])
-    if cols != ["code", "name", "agg", "type", "created"]:
+    if cols != ["code", "name", "agg", "type", "created", "lookup_name"]:
         fail(f"agency_index cols wrong: {cols}", problems)
+    if any(len(r) != len(cols) for r in rows):
+        fail("agency_index row width wrong", problems)
     codes = [r[0] for r in rows]
     if codes != sorted(codes):
         fail("agency_index rows not sorted by code", problems)
@@ -110,7 +112,7 @@ def main() -> int:
         fail("agency_index duplicate codes", problems)
     index_map = {r[0]: r for r in rows}
     boundaries = set()
-    for code, name, agg, _type, _created in rows:
+    for code, name, agg, _type, _created, lookup_name in rows:
         if len(code) != 7:
             fail(f"index code not 7 chars: {code}", problems)
         if agg not in index_map and agg != code:
@@ -122,6 +124,10 @@ def main() -> int:
             boundaries.add(code)
             if not name:
                 fail(f"boundary without name: {code}", problems)
+            if lookup_name is not None and (not lookup_name or lookup_name == name):
+                fail(f"redundant/empty lookup_name: {code}", problems)
+        elif lookup_name is not None:
+            fail(f"child with lookup_name: {code}", problems)
     forward, multi = legacy.get("forward", {}), legacy.get("multi", {})
     if set(forward) & set(multi):
         fail("legacy forward/multi overlap", problems)

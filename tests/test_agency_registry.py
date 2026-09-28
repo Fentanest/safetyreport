@@ -1,6 +1,6 @@
-"""Agency/region registry vectors — shared snapshot resolvers check (2026-09-29.1).
+"""Agency/region registry vectors — shared snapshot resolvers check (2026-09-29.2).
 
-shared/agency-region-registry/vectors/resolve_cases.json 의 25건을 정본 리더(resolve.py)로
+shared/agency-region-registry/vectors/resolve_cases.json 의 31건을 정본 리더(resolve.py)로
 확인한다. Dart/TS 포트는 각 레포의 같은 파일로 검증한다.
 """
 import json
@@ -36,7 +36,7 @@ class RegistryVectorTests(unittest.TestCase):
         cls.events = json.loads((REGISTRY / "data" / "region_events.json").read_text(encoding="utf-8"))["events"]
 
     def test_case_count(self):
-        self.assertEqual(len(self.cases), 25)
+        self.assertEqual(len(self.cases), 31)
 
     def test_all_vectors(self):
         for case in self.cases:
@@ -63,7 +63,7 @@ class RegistryVectorTests(unittest.TestCase):
         import hashlib
 
         manifest = json.loads((REGISTRY / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["registry_version"], "2026-09-29.1")
+        self.assertEqual(manifest["registry_version"], "2026-09-29.2")
         self.assertEqual(manifest["schema_version"], 2)
         for rel, digest in manifest["files"].items():
             target = REGISTRY / rel
@@ -90,9 +90,9 @@ class RegistryDisplayWiringTests(unittest.TestCase):
         # 확인된 1:1 개명: 현행 표시(registry as_of 기준)는 답변일과 무관하게 현행명
         # (REVIEW2 중간-2: 과거 답변이 과거명으로 남던 문제 수정).
         # 승계 후 코드(1815198)로 들어와도 같은 현행명(REVIEW3 높음-2).
-        self.assertEqual(out[0], "경찰청 광주경찰청 광주동부경찰서")
-        self.assertEqual(out[1], "경찰청 광주경찰청 광주동부경찰서")
-        self.assertEqual(out[2], "경찰청 광주경찰청 광주동부경찰서")
+        self.assertEqual(out[0], "광주경찰청 광주동부경찰서")
+        self.assertEqual(out[1], "광주경찰청 광주동부경찰서")
+        self.assertEqual(out[2], "광주경찰청 광주동부경찰서")
         # 미확정은 원문 유지
         self.assertEqual(out[3], "서울특별시 중구청")
         self.assertEqual(out[4], "서울특별시 강서경찰서 교통과")
@@ -105,7 +105,9 @@ class RegistryDisplayWiringTests(unittest.TestCase):
         snap = Snapshot.load(REGISTRY)
         got = resolve_agency("1812314", "경찰청 광주광역시경찰청 광주동부경찰서", "2026-06-01", snap)
         self.assertEqual(got["institution_id"], "ag-gwangju-police-hq")
-        self.assertEqual(got["current_agency_name"], "경찰청 광주광역시경찰청 광주동부경찰서")
+        # 답변일 이전 링크까지만 적용된 당시 표시도 스냅샷 표시 규칙을 따른다
+        # (2026-09-29: 맨 앞 '경찰청 ' 제거).
+        self.assertEqual(got["current_agency_name"], "광주광역시경찰청 광주동부경찰서")
         self.assertEqual(got["resolution_status"], "resolved_as_of_date")
 
     def test_missing_columns_keep_legacy_output(self):
@@ -161,10 +163,10 @@ class RegistryStatsWiringTests(unittest.TestCase):
                     conn.execute(models.merge_traffic_table.insert().values(**row))
             got = stats.get_agency_stats(engine, {}, mode="raw")
             by_agency = {r["agency"]: r for r in got["traffic"]["by_agency"]}
-            self.assertEqual(set(by_agency), {"경찰청 광주경찰청 광주동부경찰서"})
-            self.assertEqual(by_agency["경찰청 광주경찰청 광주동부경찰서"]["total"], 2)
+            self.assertEqual(set(by_agency), {"광주경찰청 광주동부경찰서"})
+            self.assertEqual(by_agency["광주경찰청 광주동부경찰서"]["total"], 2)
             exact = stats.get_agency_stats(engine, {
-                "agency": "경찰청 광주경찰청 광주동부경찰서", "agencyExact": True,
+                "agency": "광주경찰청 광주동부경찰서", "agencyExact": True,
             }, mode="raw")
             self.assertEqual(exact["traffic"]["by_agency"][0]["total"], 2)
         finally:
@@ -205,8 +207,8 @@ class RegistryStatsWiringTests(unittest.TestCase):
                     conn.execute(models.merge_traffic_table.insert().values(**row))
             got = stats.get_agency_stats(engine, {}, mode="raw")
             by_agency = {r["agency"]: r for r in got["traffic"]["by_agency"]}
-            self.assertEqual(set(by_agency), {"경찰청 광주경찰청 광주동부경찰서"})
-            self.assertEqual(by_agency["경찰청 광주경찰청 광주동부경찰서"]["total"], 2)
+            self.assertEqual(set(by_agency), {"광주경찰청 광주동부경찰서"})
+            self.assertEqual(by_agency["광주경찰청 광주동부경찰서"]["total"], 2)
         finally:
             engine.dispose()
             os.remove(path)
@@ -249,7 +251,7 @@ class RegistryStatsWiringTests(unittest.TestCase):
             got = stats.get_agency_stats(engine, {}, mode="raw")
             by_agency = got["traffic"]["by_agency"]
             self.assertEqual(len(by_agency), 1)
-            self.assertEqual(by_agency[0]["agency"], "경찰청 충청북도경찰청 청주흥덕경찰서")
+            self.assertEqual(by_agency[0]["agency"], "충청북도경찰청 청주흥덕경찰서")
             self.assertEqual(by_agency[0]["agency_key"], "inst:ag-c1324595")
             self.assertEqual(by_agency[0]["total"], 2)
             by_person = {(r["agency_key"], r["person"]) for r in got["traffic"]["by_person"]}
