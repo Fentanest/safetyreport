@@ -1,30 +1,5 @@
 # Changelog
 
-## 2026-09-28 숫자 별점 공유 (dev 미배포)
-- observation-v4는 공식 상세에서 확인한 `별점` 정수 1..5만 공유한다(null 허용). `별점사유`는 payload에 넣지 않는다. 별점이 있는 재조회는 해시 변경으로 새 완료 관측이 된다.
-- 사이트 별점 확인 뒤 `rating_confirmed_refetch`를 재조회 목록에 기록해 다음 증분 수집에서 공식 상세를 다시 캡처한다.
-- parser_version `pc-parser-4`; DB 교환 스키마·양방향 변환은 변경하지 않았다. 계약 사본은 지도 정본에서 동기화했다.
-
-## 2026-09-28 계정별 기여·원문 기관코드 수집 (dev 미배포)
-
-- 계정별 기여(소유 이전 대체): capture prev·reshare 후보·발급을 현 계정(dataset_key·fingerprint) 범위로만 본다.
-  타 계정 행을 현 연결로 rebind하지 않으며, 같은 신고의 타 계정 제출도 별도 이벤트로 만든다. 서버는 `accepted`로 수신한다.
-- 원문 기관코드 수집(observation-v3): 파서가 선택 답변의 `C_MANAGE_ORG`를 `처리기관코드`(TEXT, detail·merge·`/api/v1`·교환·백업)로 저장하고
-  payload `source_agency_code`로 보낸다(선행 0 보존, 신규 형식 유지, 없으면 NULL). `처리기관` 원문은 덮어쓰지 않는다.
-- DB 스키마 5·교환 계약(서버 5, 모바일 16). parser_version `pc-parser-3`. 계약 사본을 지도 정본에 동기화했다.
-
-## 2026-09-28 답변 완료만 수집·완전 동일만 이전 (dev 미배포, 이전 규칙은 위 2b로 대체)
-
-- 답변 완료(accepted/partial/rejected/completed_unknown) 관측만 이벤트로 만든다. 처리중·보완요청·취하·이송·other 는 이벤트 없음 — `status_correction` 발급 중단, 로컬 `detail_status` 기록만. `server_completed` prev 합성 제거(표·manifest 신선도 검사는 유지).
-- 구버전 잔여 미전송 `status_correction` 행은 `block_superseded_corrections` 가 보내지 않고 `blocked:deprecated_status_correction` 으로 보존한다(모바일 동일, drop 없음).
-- 서버 거절 `non_final_not_accepted`에 맞춰 계약 사본을 지도 정본에 동기화했다. 답변 완료 뒤 비종결 상태로 돌아가도 중앙은 마지막 답변 상태를 유지한다.
-- (대체됨) 완전 동일 이전·`transferred` 성공 ACK는 위 계정별 기여 규칙으로 대체됐다. 구버전 수신분 호환 코드는 유지한다.
-
-## 2026-09-28 신고번호·소유 이전 업로드 (이전 규칙은 위 항목으로 대체)
-
-- 공식 제목 신고번호를 private community journal v3와 ingest event에 포함한다. Observation 해시를 유지하며 번호 백필 때 새 이벤트를 만든다.
-- (대체됨) `transferred` 성공 ACK·계정 간 불일치 거절은 계정별 기여 규칙으로 대체됐다. 구버전 수신분 호환 코드(DURABLE_STATUSES 등)는 유지한다. 계약 사본을 지도 정본에 동기화했다.
-
 작업, 버그 수정, 세션 기록용 문서.
 
 - 구조/운영 컨텍스트는 `docs/architecture/`에 유지(2026-09-24 이전에는 `CLAUDE.md`)
@@ -34,6 +9,21 @@
 ---
 
 ## 2026-09-28 (dev 미배포)
+
+### 커뮤니티 공유: 답변 완료만, 계정별 기여, 원문 기관코드, 숫자 별점 (observation-v4)
+
+- 답변 완료(수용·일부수용·불수용·답변완료/기타) 관측만 업로드한다. 처리중·보완요청·취하·이송은 이벤트를 만들지 않고(`status_correction` 발급 중단) 로컬 `detail_status`만 기록한다. 구버전이 남긴 미전송 `status_correction` 은 보내지 않고 `blocked:deprecated_status_correction` 으로 보존한다. 중앙은 비종결 payload 를 이벤트별 `non_final_not_accepted` 로 거절하며, 답변 완료 뒤 비종결로 돌아간 신고는 마지막 답변 상태를 유지한다.
+- 같은 신고를 다른 카카오 계정이 올리면 두 계정 모두의 내 신고에 연결하고, 전체 지도·기관·담당자 통계는 고유 신고 1건(가장 최근 답변을 대표)으로 센다. 앱의 capture·reshare 는 현 계정 범위만 본다. 공식 제목 신고번호를 private 이벤트 필드로 함께 보낸다(Observation 해시 제외, 공개 안 함). 개발 중 두었던 계정 간 '소유 이전' 규칙은 이 규칙으로 대체했다.
+- 파서가 선택 답변의 `C_MANAGE_ORG` 를 `처리기관코드` 로 저장하고 payload `source_agency_code` 로 보낸다(선행 0 보존, 없으면 NULL, 33자 이상은 명시적으로 차단). `처리기관` 원문은 덮어쓰지 않는다.
+- 공식 상세에서 확인한 `별점` 정수 1..5 만 공유한다(`별점사유` 는 보내지 않음). 별점을 매긴 뒤 재조회하면 새 완료 관측이 된다. 필수 동의 정책 `2026-09-28.3`. parser_version `pc-parser-4`, 계약 사본을 지도 정본에서 동기화했다.
+- DB 스키마 5(모바일 16): `처리기관코드` 열 추가. 이전 버전 DB 는 이전 릴리스와 같이 백업 뒤 비우고 초기화 크롤링으로 다시 수집한다(업데이트 로직은 만들지 않음, 사용자 결정). 서버↔모바일 교환·백업 경로에 새 열을 반영했다.
+- 중앙이 새 계약을 받도록 배포된 뒤에 앱을 배포해야 한다.
+
+### 기관·행정구역 코드 레지스트리와 갱신 스킬
+
+- 공통 자료 `shared/agency-region-registry`(registry `2026-09-28.1`: 검증된 2014년 이후 지역 변경 74건, 기관 코드 승계 1건)와 Python·Dart·TS resolver 를 세 레포에 같은 바이트로 둔다. 추적 가능한 기관·지역은 현행 이름으로 표시하고, 추적할 수 없는 옛 기관·지역은 `(구)` 로 보존한다. 통계 화면은 기준일의 현행 기관명을 보여 준다.
+- 프로젝트 스킬 `sr-agency-registry`(`.agents/skills`, `.claude/skills` 동기화): `scripts/agency_registry/` 로 빌드·검증(`validate.py --snapshot shared/agency-region-registry`)·세 레포 전파. 공식 전체자료 내려받기(`fetch_official.py --confirm-download`)는 사용자가 직접 실행한다.
+- 검증(통합): PC 단위 540건, 모바일 789건, 지도 294건 통과, 지도 migration 22개 로컬 Postgres 적용·통합 테스트 32/32.
 
 ### 커뮤니티 공유에 위반법규 추가 (observation-v2)
 
