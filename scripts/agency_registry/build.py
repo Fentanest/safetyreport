@@ -10,15 +10,17 @@ Inputs (reviewed, tracked):
   data-sources/administrative-region-lineage-2014.csv   (handoff copy, read-only)
   data-sources/administrative-region-notices-2014.csv   (handoff copy, read-only)
   <script-dir>/seed_agency_links.json                  (curated verified links)
+  --official-zip: code.go.kr '기관코드 전체자료' zip (로컬 파일만 사용, Git 미커밋.
+    SHA-256·취득시각·행 수만 provenance에 기록한다. 외부 다운로드는 하지 않음)
 
 Outputs (tracked runtime snapshot):
   data/region_events.json      typed region lineage events (relation/handling are
                                data, never parsed at runtime)
-  data/agency_links.json       verified 1:1 agency succession links only
+  data/agency_links.json       verified 1:1 agency succession links (seed + derived)
+  data/agency_index.json       현존 기관코드 색인 [code,name,agg,type,created]
+  data/agency_legacy.json      폐지 코드 {forward,multi}
   manifest.json                schema/registry versions, dates, hashes, readers
   provenance.json              input hashes, builder version, evidence pointers
-
-Official full snapshots (code.go.kr) are NOT inputs here: see fetch_official.py.
 """
 from __future__ import annotations
 
@@ -26,14 +28,19 @@ import argparse
 import csv
 import hashlib
 import json
+import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-BUILDER_VERSION = "agency-registry-build/2026-09-28.1"
-SCHEMA_VERSION = 1
+BUILDER_VERSION = "agency-registry-build/2026-09-29.1"
+SCHEMA_VERSION = 2
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_OUT = HERE.parent.parent / "shared" / "agency-region-registry"
+
+sys.path.insert(0, str(HERE))
+import build_official_index as official  # noqa: E402
 
 
 def sha256_file(path: Path) -> str:
@@ -84,8 +91,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--references-dir", type=Path, required=True,
                     help="Directory holding the handoff reference CSVs (originals stay untouched)")
+    ap.add_argument("--official-zip", type=Path, required=True,
+                    help="Local code.go.kr '기관코드 전체자료' zip (already downloaded; never fetched here, never committed)")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    ap.add_argument("--registry-version", default="2026-09-28.1")
+    ap.add_argument("--registry-version", default="2026-09-29.1")
     ap.add_argument("--as-of-date", default="2026-09-28")
     args = ap.parse_args()
 
@@ -102,6 +111,10 @@ def main() -> int:
         if not path.is_file():
             print(f"missing input: {path}", flush=True)
             return 1
+    if not args.official_zip.is_file():
+        print(f"missing official zip: {args.official_zip} (local file only; "
+              f"fetch_official.py --confirm-download is user-invoked)", flush=True)
+        return 1
 
     # data-sources: byte-identical copies of the reviewed inputs (never edited).
     lineage_cp = data_sources / lineage_src.name
@@ -113,11 +126,39 @@ def main() -> int:
     (data / "region_events.json").write_text(canon({"events": events}) + "\n", encoding="utf-8")
 
     seed = json.loads(seed_src.read_text(encoding="utf-8"))
-    links = sorted(seed["links"], key=lambda l: (l["from_code"], l["to_code"]))
-    (data / "agency_links.json").write_text(canon({"links": links}) + "\n", encoding="utf-8")
+    seed_links = sorted(seed["links"], key=lambda l: (l["from_code"], l["to_code"]))
 
+    # --- official agency index stage (v2) ---
+    official_rows, zip_sha, inner_sha = official.load_official(args.official_zip)
+    by_code = {r["code"]: r for r in official_rows}
+    for link in seed_links:
+        for side in ("from_code", "to_code"):
+            if link[side] not in by_code:
+                print(f"warning: seed {side} {link[side]} not in official snapshot", flush=True)
+    derived = official.build_derived(by_code)
+    seed_pairs = {(l["from_code"], l["to_code"]) for l in seed_links}
+    kept_pairs = {k: v for k, v in derived["link_pairs"].items() if k not in seed_pairs}
+    inst_map = official.institution_map(kept_pairs, seed_links, derived, by_code)
+    links = [dict(l) for l in seed_links]
+    for (frm, to) in sorted(kept_pairs):
+        entry = dict(kept_pairs[(frm, to)])
+        entry["institution_id"] = inst_map.get(frm, inst_map.get(to, f"ag-c{frm.lower()}"))
+        links.append(entry)
+    links.sort(key=lambda l: (l["from_code"], l["to_code"]))
+    (data / "agency_links.json").write_text(canon({"links": links}) + "\n", encoding="utf-8")
+    (data / "agency_index.json").write_text(canon({
+        "cols": ["code", "name", "agg", "type", "created"],
+        "rows": derived["index_rows"]}) + "\n", encoding="utf-8")
+    (data / "agency_legacy.json").write_text(canon({
+        "forward": derived["forward"], "multi": derived["multi"]}) + "\n", encoding="utf-8")
+    (data / "agency_institutions.json").write_text(canon({
+        "institutions": inst_map}) + "\n", encoding="utf-8")
+
+    zip_mtime = datetime.fromtimestamp(os.stat(args.official_zip).st_mtime,
+                                       tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     generated_at = datetime.fromtimestamp(
-        max(p.stat().st_mtime for p in (lineage_src, notices_src, seed_src)),
+        max([p.stat().st_mtime for p in (lineage_src, notices_src, seed_src)]
+            + [os.stat(args.official_zip).st_mtime]),
         tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     # provenance FIRST: the manifest records the hash of these exact bytes, so the
     # file must exist before the manifest hashes it (REVIEW2 중간-4: changed inputs
@@ -138,17 +179,31 @@ def main() -> int:
              "role": "agency 1:1 evidence (Gwangju Dongbu police), non-link cases, ID rules"},
             {"path": "scripts/agency_registry/seed_agency_links.json",
              "sha256": sha256_file(seed_src), "role": "curated verified agency links (reviewed source)"},
+            {"path": args.official_zip.name,
+             "sha256": zip_sha, "role": "code.go.kr 기관코드 전체자료 zip (local only, never committed)",
+             "inner_file": official.INNER_NAME, "inner_sha256": inner_sha,
+             "acquired_at": zip_mtime, "encoding": "cp949/TAB",
+             "official_rows": derived["stats"]["official_rows"]},
         ],
+        "official_derivation": {
+            "filter": "현존 코드 중 유형분류_대 04/05/06/11-17/18/80 제외 "
+                      "(입법·사법·헌법·학교·군·금융 — 안전신문고 답변 기관이 될 수 없는 유형)",
+            "stats": derived["stats"],
+        },
         "limits": [
             "Region CSV covers abolished si-do/si-gun-gu codes since 2014 (74 rows), not every era/dong/agency.",
             "Notices CSV rows are NOT 1:1 with lineage rows; links between events and notices are by evidence text.",
             "Agency seed holds verified 1:1 links only; empty previous_code never implies succession.",
-            "Full official snapshots (code.go.kr) are fetched separately via fetch_official.py, not bundled here.",
+            "Official snapshot holds one (current) name per code: same-code renames resolve by code, "
+            "past names of the same code are not recoverable from the snapshot alone.",
+            "Excluded-type and successor-less abolished codes stay unresolved (src rows, never merged).",
         ],
     }
     (out / "provenance.json").write_text(canon(provenance) + "\n", encoding="utf-8")
     tracked = ["provenance.json", "schema.md",
                "data/region_events.json", "data/agency_links.json",
+               "data/agency_index.json", "data/agency_legacy.json",
+               "data/agency_institutions.json",
                "data-sources/administrative-region-lineage-2014.csv",
                "data-sources/administrative-region-notices-2014.csv",
                "resolvers/resolve.py", "resolvers/resolve.dart", "resolvers/resolve.ts",
@@ -171,13 +226,18 @@ def main() -> int:
             "administrative-region-lineage-2014.csv": sha256_file(lineage_cp),
             "administrative-region-notices-2014.csv": sha256_file(notices_cp),
             "seed_agency_links.json": sha256_file(seed_src),
+            "orgcode_full_zip": zip_sha,
+            "orgcode_full_inner": inner_sha,
         },
         "files": files,
         "readers": ["resolve.py", "resolve.dart", "resolve.ts"],
         "contract": "shared/agency-region-registry (same bytes in safetyreport, safetyreport-mobile, safetyreport-community-map)",
     }
     (out / "manifest.json").write_text(canon(manifest) + "\n", encoding="utf-8")
-    print(f"built registry {args.registry_version}: {len(events)} region events, {len(links)} agency links -> {out}")
+    print(f"built registry {args.registry_version}: {len(events)} region events, {len(links)} agency links "
+          f"({len(seed_links)} seed + {len(links) - len(seed_links)} derived), "
+          f"{len(derived['index_rows'])} index rows, "
+          f"{len(derived['forward'])} legacy forwards, {len(derived['multi'])} multis -> {out}")
     return 0
 
 

@@ -613,29 +613,40 @@ def _calc_avg_days(group_df):
 
 
 def _apply_registry_agency_display(df: pd.DataFrame) -> pd.DataFrame:
-    """registry가 해석한 현행 기관 표시로 푼다(2026-09-28 seed).
+    """registry가 해석한 현행 기관 표시·통계 키로 푼다(2026-09-29 전체자료 색인).
 
-    확인된 승계만 현행명으로 바꾸고, 미확정·열 없음·NaN이면 기존 normalize를
-    그대로 쓴다 — 기존 통계·parity 출력이 바뀌지 않는다. 원문 열은 건드리지
-    않으며 표시용 변환만 한다.
+    확인된 코드(현존·승계·별칭 유일)는 현행명 + agency_stat_key, (구) 분기는
+    '(구)' 표시 + 별도 src 키, 미확정·열 없음·NaN이면 기존 normalize를
+    그대로 쓰고 src 키를 단다. 원문 열은 건드리지 않으며 표시·키 열만 둔다.
     """
     if "처리기관" not in df.columns:
         return df
     from services import agency_registry
+    from resolve import resolve_current_agency
 
+    snap = agency_registry.snapshot()
     has_code = "처리기관코드" in df.columns
-    has_date = "답변일" in df.columns
 
-    def display(row) -> str:
+    def keyed(row):
         name = row["처리기관"]
-        current, status = agency_registry.resolve_display_agency(
-            row["처리기관코드"] if has_code else None, name,
-            row["답변일"] if has_date else None)
-        if status != "unresolved" and current:
-            return current
-        return database.normalize_police_agency(name if isinstance(name, str) else "")
+        code = row["처리기관코드"] if has_code else None
+        if code is None or (isinstance(code, float) and code != code):
+            code_text = None
+        else:
+            code_text = str(code).strip() or None
+        resolution = resolve_current_agency(code_text, name, snap)
+        status = resolution.get("resolution_status")
+        if status in ("resolved", "resolved_as_of_date"):
+            current = resolution.get("current_agency_name")
+            if current:
+                return pd.Series([current, resolution["agency_stat_key"]])
+        if status == "historical":
+            return pd.Series([resolution.get("current_agency_name") or "",
+                              resolution["agency_stat_key"]])
+        legacy = database.normalize_police_agency(name if isinstance(name, str) else "")
+        return pd.Series([legacy, f"src:{code_text or '-'}:{legacy}"])
 
-    df["처리기관"] = df.apply(display, axis=1)
+    df[["처리기관", "_agency_key"]] = df.apply(keyed, axis=1)
     return df
 
 
@@ -656,6 +667,9 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
     df["처리기관"] = df.get("처리기관", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str).str.strip()
     df["담당자"] = df.get("담당자", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str).str.strip()
     df["범칙금_과태료"] = df.get("범칙금_과태료", pd.Series("", index=df.index, dtype="object")).fillna("")
+    # normalize OFF·표시 미적용 경로: 원문 표시 그대로 묶는 src 키(기존 동작 보존).
+    if "_agency_key" not in df.columns:
+        df["_agency_key"] = "src:-:" + df["처리기관"]
     if category and "category" not in df.columns:
         df["category"] = category
     # 2026-09-28 사용자 결정: 기관·담당자·법규 표는 답변이 완료된 신고만(처리중·보완요청·이송·취하는 넣지 않는다).
@@ -689,13 +703,20 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
         }
 
     stats_person = [
-        {"agency": agency, "person": person, **_row_metrics(group)}
-        for (agency, person), group in df_person.groupby(["처리기관", "담당자"])
+        {"agency": display, "agency_key": key, "person": person, **_row_metrics(group)}
+        for (key, display, person), group in (
+            df_person.assign(_person=df_person["담당자"])
+            .groupby(["_agency_key", "처리기관", "_person"], sort=False)
+        )
     ]
     stats_agency = [
-        {"agency": agency, **_row_metrics(group)}
-        for agency, group in df_agency.groupby("처리기관")
+        {"agency": display, "agency_key": key, **_row_metrics(group)}
+        for (key, display), group in (
+            df_agency.groupby(["_agency_key", "처리기관"], sort=False)
+        )
     ]
+    stats_person.sort(key=lambda r: (r["agency"], r["person"], r["agency_key"]))
+    stats_agency.sort(key=lambda r: (r["agency"], r["agency_key"]))
 
     stats_law = []
     if "위반법규" in df.columns:
@@ -774,7 +795,13 @@ def _compute_agency_stats(available_years, df_t, df_p, df_o, filters=None, mode:
         category_estimates = _estimated_fine_totals(df)
 
         def _sort(items, key="total"):
-            return pd.DataFrame(items).sort_values(by=[key], ascending=False).to_dict("records") if items else []
+            if not items:
+                return []
+            frame = pd.DataFrame(items)
+            # 동점 결정성: total 내림차순, 표시명·키 오름차순(모바일과 같은 규칙).
+            by = [key] + [c for c in ("agency", "person", "agency_key", "law", "month") if c in frame.columns]
+            ascending = [False] + [True] * (len(by) - 1)
+            return frame.sort_values(by=by, ascending=ascending).to_dict("records")
 
         all_agency = _sort(stats_agency)
         all_person = _sort(stats_person)
@@ -1118,24 +1145,24 @@ def _build_disposition_breakdown(group_df: pd.DataFrame) -> list[dict]:
 def _build_agency_breakdown(group_df: pd.DataFrame) -> list[dict]:
     if "처리기관" not in group_df.columns:
         return []
-    agencies = (
-        group_df["처리기관"]
-        .fillna("")
-        .astype(str)
-        .map(lambda value: value.strip())
-    )
-    agencies = agencies[agencies != ""]
-    if agencies.empty:
+    frame = group_df.copy()
+    frame["처리기관"] = frame["처리기관"].fillna("").astype(str).map(lambda value: value.strip())
+    frame = frame[frame["처리기관"] != ""]
+    if frame.empty:
         return []
-    counts = agencies.value_counts()
-    total = int(len(group_df))
+    if "_agency_key" not in frame.columns:
+        frame["_agency_key"] = "src:-:" + frame["처리기관"]
+    grouped = frame.groupby(["_agency_key", "처리기관"], sort=False).size().reset_index(name="count")
+    total = int(len(frame))
     results = []
-    for name, count in counts.items():
+    for _, row in grouped.iterrows():
         results.append({
-            "name": str(name),
-            "count": int(count),
-            "pct": round((int(count) / total) * 100, 1) if total > 0 else 0,
+            "name": str(row["처리기관"]),
+            "agency_key": str(row["_agency_key"]),
+            "count": int(row["count"]),
+            "pct": round((int(row["count"]) / total) * 100, 1) if total > 0 else 0,
         })
+    results.sort(key=lambda item: (-item["count"], item["name"], item["agency_key"]))
     return results
 
 
@@ -1308,8 +1335,11 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
             })
 
     points.sort(key=lambda item: item["total"], reverse=True)
-    agencies = combined_df.get("처리기관", pd.Series(dtype="object")).fillna("").astype(str).map(lambda value: value.strip())
-    agency_count = int((agencies != "").sum()) if agencies.empty else int(agencies[agencies != ""].nunique())
+    if "_agency_key" in combined_df.columns:
+        key_series = combined_df["_agency_key"].fillna("").astype(str).map(lambda value: value.strip())
+    else:
+        key_series = combined_df.get("처리기관", pd.Series(dtype="object")).fillna("").astype(str).map(lambda value: "src:-:" + value.strip())
+    agency_count = int(key_series[key_series != ""].nunique())
     return _sanitize_jsonable({
         "points": points,
         "meta": {

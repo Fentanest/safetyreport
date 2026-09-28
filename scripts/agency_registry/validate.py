@@ -47,9 +47,14 @@ def main() -> int:
         events = json.loads((root / "data" / "region_events.json").read_text(encoding="utf-8"))["events"]
         links = json.loads((root / "data" / "agency_links.json").read_text(encoding="utf-8"))["links"]
         vectors = json.loads((root / "vectors" / "resolve_cases.json").read_text(encoding="utf-8"))["cases"]
+        index_blob = json.loads((root / "data" / "agency_index.json").read_text(encoding="utf-8"))
+        legacy = json.loads((root / "data" / "agency_legacy.json").read_text(encoding="utf-8"))
+        institutions = json.loads((root / "data" / "agency_institutions.json").read_text(encoding="utf-8"))["institutions"]
     except (OSError, ValueError, KeyError) as exc:
         print(f"data unreadable: {exc}")
         return 1
+    if manifest.get("schema_version") != 2:
+        fail(f"schema_version must be 2, got {manifest.get('schema_version')}", problems)
 
     for event in events:
         for key in ("event_id", "effective_date", "old_code", "old_name", "new_codes", "relation"):
@@ -63,9 +68,11 @@ def main() -> int:
 
     by_from: dict[str, list] = {}
     for link in links:
-        for key in ("from_code", "to_code", "effective_date", "institution_id", "evidence"):
+        for key in ("from_code", "to_code", "effective_date", "institution_id"):
             if key not in link:
                 fail(f"agency link missing {key}: {link}", problems)
+        if "evidence" not in link and "rule" not in link:
+            fail(f"agency link missing evidence/rule: {link.get('from_code')}", problems)
         by_from.setdefault(link.get("from_code", ""), []).append(link)
         if link.get("from_code") == link.get("to_code"):
             fail(f"self loop: {link.get('from_code')}", problems)
@@ -91,12 +98,58 @@ def main() -> int:
         if case.get("kind") not in ("agency", "region"):
             fail(f"vector kind wrong: {case.get('name')}", problems)
 
+    # v2 index/legacy/institutions coherence
+    cols = index_blob.get("cols")
+    rows = index_blob.get("rows", [])
+    if cols != ["code", "name", "agg", "type", "created"]:
+        fail(f"agency_index cols wrong: {cols}", problems)
+    codes = [r[0] for r in rows]
+    if codes != sorted(codes):
+        fail("agency_index rows not sorted by code", problems)
+    if len(set(codes)) != len(codes):
+        fail("agency_index duplicate codes", problems)
+    index_map = {r[0]: r for r in rows}
+    boundaries = set()
+    for code, name, agg, _type, _created in rows:
+        if len(code) != 7:
+            fail(f"index code not 7 chars: {code}", problems)
+        if agg not in index_map and agg != code:
+            # agg must be a boundary row of the same index... unless the
+            # boundary itself is abolished (child of a recoded agency).
+            # Those resolve via legacy.forward; flag only when truly dangling.
+            fail(f"index agg dangling (not a boundary row): {code} -> {agg}", problems)
+        if agg == code:
+            boundaries.add(code)
+            if not name:
+                fail(f"boundary without name: {code}", problems)
+    forward, multi = legacy.get("forward", {}), legacy.get("multi", {})
+    if set(forward) & set(multi):
+        fail("legacy forward/multi overlap", problems)
+    for old, target in forward.items():
+        if target not in boundaries and target not in institutions:
+            fail(f"legacy forward target unknown: {old} -> {target}", problems)
+    for old in multi:
+        if old in index_map:
+            fail(f"legacy multi key also in index: {old}", problems)
+    for code in boundaries:
+        if code not in institutions:
+            fail(f"boundary without institution: {code}", problems)
+    for link in links:
+        for side in ("from_code", "to_code"):
+            if link[side] not in institutions:
+                fail(f"link endpoint without institution: {link[side]}", problems)
+        inst = institutions.get(link["from_code"])
+        if inst is not None and link.get("institution_id") != inst and \
+                link.get("institution_id") != institutions.get(link["to_code"]):
+            fail(f"link institution mismatch: {link['from_code']}->{link['to_code']}", problems)
+
     if problems:
         print("registry validation FAILED:")
         for problem in problems:
             print(f"  - {problem}")
         return 1
     print(f"registry ok: {len(events)} region events, {len(links)} agency links, "
+          f"{len(rows)} index rows, {len(forward)} forwards, {len(multi)} multis, "
           f"{len(vectors)} vectors, registry {manifest.get('registry_version')}")
     return 0
 
