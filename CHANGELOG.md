@@ -8,6 +8,26 @@
 
 ---
 
+## 2026-09-29 (dev 미배포)
+
+### 기관명 정규화 옵션 폐지·registry 검수 반영
+
+- PC 설정과 저장·조회·통계의 `normalize_police` 분기를 제거했다. 기관코드 registry를 항상 적용하고 미확정 이름은 원문으로 둔다. 옛 config 키는 무시하며 `/api/v1/app/config`는 구버전 앱을 위해 `normalize_police: false`를 유지하고 쓰기 값은 무시한다.
+- PyInstaller 자료에 registry를 포함하고, 빌더 승계 연쇄에 순환이 있으면 현존 코드로 이어지는 다른 가지가 있어도 전달하지 않도록 고쳤다.
+
+
+
+### 기관코드 전체자료 대조: registry 2026-09-29.1과 통계 키 전환
+
+- `scripts/agency_registry/build.py --official-zip` 이 로컬 공식 기관코드 전체자료(zip 18,339,323 bytes, SHA-256 `7504e6bb…`, 내부 `기관코드 전체자료.txt` cp949 472,175행)로부터 `shared/agency-region-registry` 새 버전을 만든다(원본은 Git 미커밋, 해시·취득시각·행 수만 `provenance.json`에 기록, 외부 다운로드 없음). 스키마 v2.
+- 파생 결과: 현존 134,180개 중 84,750개 색인(경계 23,224·하위 61,526, 제외 유형 입법·사법·헌법·학교·군·금융 49,435 — 제외 코드 신고도 src 행으로 보존), 폐지 337,995개 중 전달 19,847·1:다 37((구) 보존)·미확정 318,111, 경계 수준 링크 9,252개(seed 1 + 파생 9,251, 경계 분기 53개 링크 제외·forward 유지). 번들: index 4.48MB/0.54MB(gzip)·legacy 0.40MB·links 2.63MB·institutions 0.78MB, 합계 raw 약 8.3MB·gzip 약 0.96MB.
+- 통계 묶음 기준을 표시 이름에서 `agency_stat_key` 로 바꿨다(`report_stats_service._build_stats_tables`, 지도 breakdown·기관수 포함). 같은 코드 개명·확인 1:1 승계·하위부서 코드는 같은 키, 코드가 다른 같은 표시는 다른 행으로 갈라진다. 같은 표시 다른 키의 동점 정렬을 `(total 내림, 표시, 키)` 로 고정(모바일과 같은 규칙). 원문 `처리기관` 은 덮어쓰지 않는다. 출력 행에 `agency_key`, breakdown 항목에 `agency_key` 를 추가(하위호환 추가 필드).
+- 공용 벡터 25건(개명·승계·1:다·미확정·코드 없음 이름만 포함, 구 벡터 4건의 표시·as-was 기대값을 전체경로명·전체 연쇄 기준으로 의도적 변경)과 Python·Dart·TS resolver 를 세 레포에 같은 바이트로 전파했다.
+- 스킬 `sr-agency-registry` 를 이 흐름(로컬 전체자료 → 빌드 → 검증 → 3레포 전파)에 맞게 갱신하고 `.claude/skills` 사본과 동기화했다.
+- 검증: PC 전체 543건 통과(skip 5), `logic_parity_check` 48조합 diff 0, validate·sync/check 통과.
+
+---
+
 ## 2026-09-28 (dev 미배포)
 
 ### 커뮤니티 공유: 답변 완료만, 계정별 기여, 원문 기관코드, 숫자 별점 (observation-v4)

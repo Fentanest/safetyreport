@@ -615,7 +615,7 @@ def get_app_config(_: str = Depends(_require_api_key)):
             "support_email": "support@example.com",
             "exclude_withdraw": settings.exclude_withdraw,
             "use_representative_records": settings.use_representative_records,
-            "normalize_police": settings.normalize_police,
+            "normalize_police": False,  # Deprecated compatibility field; registry is always active.
             "auto_export_excel": settings.config.getboolean("SETTINGS", "auto_export_excel", fallback=True),
             "auto_export_sheet": settings.config.getboolean("SETTINGS", "auto_export_sheet", fallback=False),
             # 앱이 서버 기능을 알아보는 목록. rating_cause: /rating/start 가 공통 사유(cause)를 받는다(2026-09-25).
@@ -698,8 +698,6 @@ async def upload_database(file: UploadFile = File(...), _: str = Depends(_requir
 @router.post("/settings")
 async def update_settings(request: Request, _: str = Depends(_require_api_key)):
     body = await request.json()
-    if "normalize_police" in body:
-        settings._instance.update_config("SETTINGS", "normalize_police", body["normalize_police"])
     if "exclude_withdraw" in body:
         settings._instance.update_config("SETTINGS", "exclude_withdraw", body["exclude_withdraw"])
     if "use_representative_records" in body:

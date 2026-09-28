@@ -4,7 +4,7 @@
   서버 DB S0 → (모바일 importFromServerDb) → M1
   서버: S0 에서 get_dashboard_stats / get_agency_stats / get_stats_overview
   모바일: M1 에서 computeSummary / computeStats / computeStatsOverview (test/tool/logic_parity_harness_test.dart)
-  조합: 취하 제외(exclude_withdraw) × 대표건(canonical/raw) × 경찰 기관명 정규화(통계만)
+  조합: 취하 제외(exclude_withdraw) × 대표건(canonical/raw)
 
     .venv/bin/python scripts/dev/logic_parity_check.py --mobile-repo ../safetyreport-mobile-stats
     .venv/bin/python scripts/dev/logic_parity_check.py --mobile-repo ../safetyreport-mobile-stats --server-db <사본> --summary-only
@@ -52,10 +52,7 @@ for ew in (False, True):
         tag = f"ew={str(ew).lower()}|rep={str(rep).lower()}"
         d = rs.get_dashboard_stats(engine, mode=mode)
         out["summary|" + tag] = {k: d.get(k) for k in keys}
-        for np_ in (False, True):
-            st._instance.normalize_police = np_
-            out[f"stats|{tag}|np={str(np_).lower()}"] = rs.get_agency_stats(engine, None, mode=mode)
-        st._instance.normalize_police = False
+        out["stats|" + tag] = rs.get_agency_stats(engine, None, mode=mode)
         out["overview|" + tag] = rs.get_stats_overview(engine, None, mode=mode)
 # 필터 조합: 가장 최근 연도, 교통 첫 법규, 법규 없음, 연도+법규 (값은 이 데이터에서 고른다)
 st._instance.exclude_withdraw = False
@@ -176,14 +173,14 @@ def main() -> int:
 
         by_path: dict[str, int] = {}
         for p, _ in diffs:
-            generic = re.sub(r"(ew|rep|np)=(true|false)", r"\1=*", p)
+            generic = re.sub(r"(ew|rep)=(true|false)", r"\1=*", p)
             generic = re.sub(r"\|f=[^.]*", "|f=*", generic) if args.summary_only else generic
             by_path[generic] = by_path.get(generic, 0) + 1
         report = {
             "combinations": len(server),
             "diff_count": len(diffs),
             "diff_by_path": dict(sorted(by_path.items())),
-            "one_side_keys": sorted({re.sub(r"(ew|rep|np)=(true|false)", r"\1=*", k) for k in one_side}),
+            "one_side_keys": sorted({re.sub(r"(ew|rep)=(true|false)", r"\1=*", k) for k in one_side}),
         }
         if not args.summary_only:
             report["diff_samples"] = [f"{p}: {m}" for p, m in diffs[:40]]

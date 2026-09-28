@@ -1,7 +1,7 @@
 """통계 집계의 현재 의미를 합성 fixture 로 고정한다(docs/design/statistics-spec.md 의 기대값 표와 같다).
 
 기대값은 scripts/dev/fixture_server.py 의 24건을 손으로 센 값이다. 시안 이미지 숫자와 무관하다.
-설정 기본값: use_representative_records(canonical), exclude_withdraw=True, normalize_police=True.
+설정 기본값: use_representative_records(canonical), exclude_withdraw=True.
 """
 import os
 import tempfile
@@ -23,13 +23,12 @@ class StatsFixtureSemanticsTest(unittest.TestCase):
         os.close(fd)
         cls.engine = create_engine(f"sqlite:///{cls.db_path}")
         fixture_server.seed_engine(cls.engine)
-        cls._saved = (app_settings._instance.exclude_withdraw, app_settings._instance.normalize_police)
+        cls._saved = app_settings._instance.exclude_withdraw
         app_settings._instance.exclude_withdraw = True
-        app_settings._instance.normalize_police = True
 
     @classmethod
     def tearDownClass(cls):
-        app_settings._instance.exclude_withdraw, app_settings._instance.normalize_police = cls._saved
+        app_settings._instance.exclude_withdraw = cls._saved
         cls.engine.dispose()
         os.remove(cls.db_path)
 
@@ -58,7 +57,7 @@ class StatsFixtureSemanticsTest(unittest.TestCase):
     def test_traffic_agency_rows(self):
         stats = report_stats_service.get_agency_stats(self.engine, {}, mode="canonical")
         rows = {r["agency"]: r for r in stats["traffic"]["by_agency"]}
-        gangseo = rows["서울특별시 강서경찰서"]  # '교통과' 접미사는 normalize_police 로 제거
+        gangseo = rows["서울특별시 강서경찰서 교통과"]  # 코드 미확정이면 원문 보존
         # 2026-09-28 사용자 결정(S-10 대체): 표는 답변 완료 신고만 — 처리중 90000006·보완요청 90000010 은 기관이 있어도 빠진다.
         self.assertEqual((gangseo["total"], gangseo["fines"], gangseo["warnings"], gangseo["rejects"],
                           gangseo["in_progress"], gangseo["unconfirmed"]), (3, 2, 1, 0, 0, 0))

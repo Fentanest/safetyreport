@@ -76,13 +76,12 @@ class StatsPageAndMapTest(unittest.TestCase):
                 for rid, (lat, lng) in coords.items():
                     conn.execute(update(table).where(table.c.ID == rid).values(위도=lat, 경도=lng))
         database.merge_final(cls.engine)
-        cls._saved = (app_settings._instance.exclude_withdraw, app_settings._instance.normalize_police)
+        cls._saved = app_settings._instance.exclude_withdraw
         app_settings._instance.exclude_withdraw = True
-        app_settings._instance.normalize_police = True
 
     @classmethod
     def tearDownClass(cls):
-        app_settings._instance.exclude_withdraw, app_settings._instance.normalize_police = cls._saved
+        app_settings._instance.exclude_withdraw = cls._saved
         cls.engine.dispose()
         os.remove(cls.db_path)
 
@@ -106,7 +105,7 @@ class StatsPageAndMapTest(unittest.TestCase):
         # 기관표 행에 평균 처리기간 표본 수가 붙는다(합계 행의 가중치)
         records, _ = report_stats_service.get_stats_page(self.engine, {}, mode="canonical")
         rows = {r["agency"]: r for r in records["traffic"]["by_agency"]}
-        self.assertEqual(rows["서울특별시 강서경찰서"]["avg_days_count"], 3)
+        self.assertEqual(rows["서울특별시 강서경찰서 교통과"]["avg_days_count"], 3)
         weighted = sum(r["avg_days"] * r["avg_days_count"] for r in rows.values() if r["avg_days"] is not None)
         base = sum(r["avg_days_count"] for r in rows.values())
         # 이 fixture 는 모든 신고에 처리기관이 있어 기관 가중 평균 = 요약 평균
@@ -122,7 +121,7 @@ class StatsPageAndMapTest(unittest.TestCase):
                 self.assertLessEqual(payload["meta"]["geocoded_reports"], payload["meta"]["total_reports"])
 
     def test_map_target_agency_and_person(self):
-        filters = {"targetAgency": "서울특별시 강서경찰서", "targetPerson": "김담당"}
+        filters = {"targetAgency": "서울특별시 강서경찰서 교통과", "targetPerson": "김담당"}
         payload = report_stats_service.get_report_map_stats(self.engine, category="traffic", mode="canonical", filters=filters)
         # 강서경찰서·김담당: 90000001, 90000002, 90000010, 90000011(대표건) → 좌표는 01·11 두 곳
         self.assertEqual(payload["meta"]["total_reports"], 4)

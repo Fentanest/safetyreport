@@ -118,8 +118,14 @@ def _get_records_from_table(engine, table_obj, filters=None, category: str = "",
     except Exception:
         return []
 
-    if app_settings.normalize_police and not df.empty and "처리기관" in df.columns:
-        df["처리기관"] = df["처리기관"].apply(database.normalize_police_agency)
+    if not exact_values and not df.empty and "처리기관" in df.columns:
+        from services.agency_registry import resolve_display_agency
+
+        codes = df["처리기관코드"] if "처리기관코드" in df.columns else [None] * len(df)
+        df["처리기관"] = [
+            resolve_display_agency(code, name)[0] or (name if isinstance(name, str) else "")
+            for code, name in zip(codes, df["처리기관"])
+        ]
 
     if filters and not df.empty:
         agency = filters.get("agency")

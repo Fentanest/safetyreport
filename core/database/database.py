@@ -193,10 +193,6 @@ def _normalize_processing_layers(engine):
 
     return updated_total
 
-def normalize_police_agency(x: str) -> str:
-    idx = x.find('경찰서')
-    return x[:idx + 3] if idx != -1 else x
-
 def category_from_entry_value(entry_value: str) -> str:
     """entry_value 문자열로부터 카테고리를 결정합니다."""
     if "자동차·교통위반" in entry_value:
@@ -1044,8 +1040,6 @@ def load_results_by_category(engine):
                 df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
                 if settings.exclude_withdraw:
                     df = df[df['처리상태'] != '취하']
-                if settings.normalize_police and '처리기관' in df.columns:
-                    df['처리기관'] = df['처리기관'].apply(normalize_police_agency)
             result[label] = df
         return result
 

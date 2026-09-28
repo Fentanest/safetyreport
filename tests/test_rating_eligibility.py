@@ -215,6 +215,23 @@ class ApiContractTests(unittest.TestCase):
         self.assertIn("rating_cause", data["capabilities"])
         self.assertEqual(data["rating_cause_max"], rating_eligibility.RATING_CAUSE_MAX)
 
+    def test_removed_agency_option_keeps_read_and_write_compatibility(self):
+        import asyncio
+        from web.routers import api_route
+
+        self.assertIs(api_route.get_app_config(_="key")["data"]["normalize_police"], False)
+        request = mock.Mock()
+
+        async def json_body():
+            return {"normalize_police": True}
+
+        request.json = json_body
+        with mock.patch.object(api_route.settings._instance, "update_config") as update, \
+             mock.patch.object(api_route.settings._instance, "save") as save:
+            self.assertEqual(asyncio.run(api_route.update_settings(request, _="key")), {"status": "success"})
+        update.assert_not_called()
+        save.assert_called_once()
+
     def _start(self, body):
         import asyncio
 

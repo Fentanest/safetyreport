@@ -9,8 +9,9 @@ export interface AgencyResolution {
   agency_stat_key: string;
   current_agency_code: string | null;
   current_agency_name: string | null;
-  resolution_status: 'resolved' | 'resolved_as_of_date' | 'unresolved';
+  resolution_status: 'resolved' | 'resolved_as_of_date' | 'unresolved' | 'historical';
   registry_version: string;
+  code_derived?: true;
 }
 
 export interface RegionResolution {
@@ -22,23 +23,26 @@ export interface RegionResolution {
   registry_version: string;
 }
 
+/** Runtime snapshot bundle. index rows follow data/agency_index.json cols:
+ *  [name|null, agg, type|null, created8|null] keyed by code. */
+export interface AgencySnapshot {
+  links: Array<Record<string, string>>;
+  index: Record<string, Array<string | null>>;
+  forward: Record<string, string>;
+  multi: Record<string, string>;
+  institutions: Record<string, string>;
+  registryVersion: string;
+  asOfDate: string | null;
+}
+
 function isSevenAlnum(code: string | null | undefined): code is string {
   return typeof code === 'string' && code.length === 7 && /^[0-9A-Za-z]{7}$/.test(code);
 }
 
-/** Source agency (code/name from one official answer) → identity + display. */
-export function resolveAgency(
-  code: string | null | undefined,
-  name: string | null | undefined,
-  answeredAt: string | null | undefined,
-  links: Array<Record<string, string>>,
-  registryVersion: string,
-): AgencyResolution {
-  const trimmed = (name ?? '').trim();
-  const displayName = trimmed === '' ? null : trimmed;
+function walkChain(start: string, snap: AgencySnapshot): Array<Record<string, string>> {
   const byFrom = new Map<string, Array<Record<string, string>>>();
   const byTo = new Map<string, Array<Record<string, string>>>();
-  for (const link of links) {
+  for (const link of snap.links) {
     const list = byFrom.get(link.from_code) ?? [];
     list.push(link);
     byFrom.set(link.from_code, list);
@@ -47,69 +51,197 @@ export function resolveAgency(
     byTo.set(link.to_code, rlist);
   }
   const chain: Array<Record<string, string>> = [];
-  if (isSevenAlnum(code ?? null)) {
-    const seen = new Set<string>([code as string]);
-    for (;;) {
-      const from = chain.length === 0 ? (code as string) : chain[chain.length - 1].to_code;
-      const outgoing = byFrom.get(from) ?? [];
-      if (outgoing.length !== 1) break;
-      const next = outgoing[0];
-      if (seen.has(next.to_code)) break;
-      chain.push(next);
-      seen.add(next.to_code);
-    }
-    if (chain.length === 0) {
-      // The code starts no forward chain: it may be a post-change code received
-      // after a verified rename (e.g. 1815198 after 1812314 → 1815198). Walk back
-      // over unique incoming links so both sides resolve to the same institution.
-      // Several incoming links (a merge target) stay ambiguous → unresolved.
-      const back: Array<Record<string, string>> = [];
-      let cursor = code as string;
-      for (;;) {
-        const incoming = byTo.get(cursor) ?? [];
-        if (incoming.length !== 1) break;
-        const link = incoming[0];
-        if (seen.has(link.from_code)) break;
-        back.push(link);
-        seen.add(link.from_code);
-        cursor = link.from_code;
-      }
-      chain.push(...back.reverse());
-    }
+  const seen = new Set<string>([start]);
+  for (;;) {
+    const from = chain.length === 0 ? start : chain[chain.length - 1].to_code;
+    const outgoing = byFrom.get(from) ?? [];
+    if (outgoing.length !== 1) break;
+    const next = outgoing[0];
+    if (seen.has(next.to_code)) break;
+    chain.push(next);
+    seen.add(next.to_code);
   }
   if (chain.length === 0) {
-    return {
-      institution_id: null,
-      agency_stat_key: `src:${code ?? '-'}:${displayName ?? '-'}`,
-      current_agency_code: null,
-      current_agency_name: displayName,
-      resolution_status: 'unresolved',
-      registry_version: registryVersion,
-    };
+    const back: Array<Record<string, string>> = [];
+    let cursor = start;
+    for (;;) {
+      const incoming = byTo.get(cursor) ?? [];
+      if (incoming.length !== 1) break;
+      const link = incoming[0];
+      if (seen.has(link.from_code)) break;
+      back.push(link);
+      seen.add(link.from_code);
+      cursor = link.from_code;
+    }
+    chain.push(...back.reverse());
   }
-  const institutionId = chain[0].institution_id;
-  const horizon = answeredAt ?? '9999-12-31';
-  const applied = chain.filter((link) => horizon >= link.effective_date);
-  if (applied.length === chain.length) {
-    const current = chain[chain.length - 1];
+  return chain;
+}
+
+function boundaryName(boundary: string, snap: AgencySnapshot): string | null {
+  const row = snap.index[boundary];
+  const name = row?.[0] ?? null;
+  return name === null || name === '' ? null : name;
+}
+
+function resolveBoundary(
+  boundary: string,
+  name: string | null,
+  answeredAt: string | null | undefined,
+  snap: AgencySnapshot,
+  asWasCode: string | null,
+): AgencyResolution {
+  const chain = walkChain(boundary, snap);
+  const mapped = snap.institutions[boundary] ?? null;
+  if (chain.length === 0) {
+    const institutionId = mapped ?? `ag-c${boundary.toLowerCase()}`;
     return {
       institution_id: institutionId,
       agency_stat_key: `inst:${institutionId}`,
-      current_agency_code: current.to_code,
-      current_agency_name: current.to_name,
+      current_agency_code: boundary,
+      current_agency_name: boundaryName(boundary, snap) ?? name,
       resolution_status: 'resolved',
-      registry_version: registryVersion,
+      registry_version: snap.registryVersion,
+    };
+  }
+  const institutionId = mapped ?? chain[0].institution_id ?? `ag-c${boundary.toLowerCase()}`;
+  const horizon = answeredAt ?? '9999-12-31';
+  const applied = chain.filter((link) => horizon >= link.effective_date);
+  if (applied.length === chain.length) {
+    const head = chain[chain.length - 1].to_code;
+    return {
+      institution_id: institutionId,
+      agency_stat_key: `inst:${institutionId}`,
+      current_agency_code: head,
+      current_agency_name: boundaryName(head, snap) ?? chain[chain.length - 1].to_name ?? name,
+      resolution_status: 'resolved',
+      registry_version: snap.registryVersion,
     };
   }
   const anchor = applied.length === 0 ? null : applied[applied.length - 1];
+  if (anchor === null) {
+    return {
+      institution_id: institutionId,
+      agency_stat_key: `inst:${institutionId}`,
+      current_agency_code: isSevenAlnum(asWasCode) ? asWasCode : null,
+      current_agency_name: name,
+      resolution_status: 'resolved_as_of_date',
+      registry_version: snap.registryVersion,
+    };
+  }
   return {
     institution_id: institutionId,
     agency_stat_key: `inst:${institutionId}`,
-    current_agency_code: anchor === null ? (code as string) : anchor.to_code,
-    current_agency_name: anchor === null ? displayName : anchor.to_name,
+    current_agency_code: anchor.to_code,
+    current_agency_name: anchor.to_name ?? name,
     resolution_status: 'resolved_as_of_date',
-    registry_version: registryVersion,
+    registry_version: snap.registryVersion,
   };
+}
+
+function aliasCandidates(
+  name: string,
+  answeredAt: string | null | undefined,
+  snap: AgencySnapshot,
+): string[] {
+  const ans8 = answeredAt != null ? answeredAt.replace(/-/g, '').slice(0, 8) : null;
+  const found: string[] = [];
+  for (const code of aliasAll(name, snap)) {
+    const row = snap.index[code];
+    const created = (row?.[3] as string | null) ?? '';
+    if (ans8 !== null && ans8 !== '' && created !== '' && created > ans8) continue;
+    found.push(code);
+  }
+  return found;
+}
+
+/** 스냅샷별 별칭 캐시: 8만 행 스캔을 매 신고마다 반복하지 않는다. */
+const aliasCache = new WeakMap<AgencySnapshot, Map<string, string[]>>();
+
+function aliasAll(name: string, snap: AgencySnapshot): string[] {
+  let table = aliasCache.get(snap);
+  if (table === undefined) {
+    table = new Map<string, string[]>();
+    for (const [code, row] of Object.entries(snap.index)) {
+      if (row[0] !== null) {
+        const list = table.get(row[0] as string) ?? [];
+        list.push(code);
+        table.set(row[0] as string, list);
+      }
+    }
+    for (const [old, oldName] of Object.entries(snap.multi)) {
+      const list = table.get(oldName) ?? [];
+      if (!list.includes(old)) list.push(old);
+      table.set(oldName, list);
+    }
+    aliasCache.set(snap, table);
+  }
+  return table.get(name) ?? [];
+}
+
+/** Source agency (code/name from one official answer) → identity + display. */
+export function resolveAgency(
+  code: string | null | undefined,
+  name: string | null | undefined,
+  answeredAt: string | null | undefined,
+  snap: AgencySnapshot,
+): AgencyResolution {
+  const trimmed = (name ?? '').trim();
+  const displayName = trimmed === '' ? null : trimmed;
+  if (isSevenAlnum(code ?? null)) {
+    const c = code as string;
+    const row = snap.index[c];
+    if (row != null) {
+      return resolveBoundary(row[1] as string, displayName, answeredAt, snap, c);
+    }
+    const target = snap.forward[c];
+    if (target != null) {
+      return resolveBoundary(target, displayName, answeredAt, snap, c);
+    }
+    if (c in snap.multi) {
+      const display = displayName !== null ? `(구)${displayName}` : `(구)${snap.multi[c]}`;
+      return {
+        institution_id: null,
+        agency_stat_key: `src:${c}:${displayName ?? '-'}`,
+        current_agency_code: null,
+        current_agency_name: display,
+        resolution_status: 'historical',
+        registry_version: snap.registryVersion,
+      };
+    }
+    return {
+      institution_id: null,
+      agency_stat_key: `src:${c}:${displayName ?? '-'}`,
+      current_agency_code: null,
+      current_agency_name: displayName,
+      resolution_status: 'unresolved',
+      registry_version: snap.registryVersion,
+    };
+  }
+  if (displayName !== null) {
+    const candidates = aliasCandidates(displayName, answeredAt, snap);
+    if (candidates.length === 1) {
+      const got = resolveAgency(candidates[0], displayName, answeredAt, snap);
+      return { ...got, code_derived: true as const };
+    }
+  }
+  return {
+    institution_id: null,
+    agency_stat_key: `src:${code ?? '-'}:${displayName ?? '-'}`,
+    current_agency_code: null,
+    current_agency_name: displayName,
+    resolution_status: 'unresolved',
+    registry_version: snap.registryVersion,
+  };
+}
+
+/** 현행 표시용: registry as_of_date 기준으로 체인 전체를 적용한다. */
+export function resolveCurrentAgency(
+  code: string | null | undefined,
+  name: string | null | undefined,
+  snap: AgencySnapshot,
+): AgencyResolution {
+  return resolveAgency(code, name, snap.asOfDate ?? '9999-12-31', snap);
 }
 
 function findEvent(events: Array<Record<string, unknown>>, code: string): Record<string, unknown> | null {
@@ -194,13 +326,17 @@ export function resolveRegionGap(
   return resolveRegion(code, date, events, registryVersion);
 }
 
-/** Display text: resolved → current name; historical/gap → (구) source;
+/** Display text: resolved → current name; historical/gap → (구) value;
  *  unresolved → source verbatim (never invents the suffix). */
 export function displayAgency(
   sourceName: string | null | undefined,
   resolution: AgencyResolution,
 ): string | null {
-  if (resolution.resolution_status === 'resolved' || resolution.resolution_status === 'resolved_as_of_date') {
+  if (
+    resolution.resolution_status === 'resolved' ||
+    resolution.resolution_status === 'resolved_as_of_date' ||
+    resolution.resolution_status === 'historical'
+  ) {
     return resolution.current_agency_name;
   }
   const clean = (sourceName ?? '').trim();

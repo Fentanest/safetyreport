@@ -1,6 +1,6 @@
 ---
 name: sr-agency-registry
-description: 기관·행정구역 코드 최신 변경을 확인하고, 추적 가능한 변경과 (구)로 남길 변경을 정리해서 safetyreport·safetyreport-mobile·safetyreport-community-map에 반영해. (shared/agency-region-registry seed + resolver + 3-repo sync)
+description: 기관·행정구역 코드 최신 변경을 확인하고, 추적 가능한 변경과 (구)로 남길 변경을 정리해서 safetyreport·safetyreport-mobile·safetyreport-community-map에 반영해. (공식 전체자료 → 빌드 → 검증 → 3레포 sync)
 ---
 
 # 기관·지역 코드 갱신·전파
@@ -16,6 +16,13 @@ description: 기관·행정구역 코드 최신 변경을 확인하고, 추적 �
 이름 해시·문자열 치환으로 기관을 잇지 않으며, `(구)`는 알려진 역사 노드에만
 붙인다(미확정은 원문 유지).
 
+## 입력: 공식 기관코드 전체자료(로컬 파일만)
+
+공식 전체자료(zip)는 Git에 커밋하지 않는다. 이미 내려받아 둔 로컬 파일만
+`--official-zip`으로 지정한다(외부 다운로드는 `fetch_official.py
+--confirm-download`를 사용자가 직접 실행할 때만). 빌더는 zip·내부 파일의
+SHA-256·취득시각·행 수를 `provenance.json`에 기록한다.
+
 ## 모드별 실행 명령 (저장소 루트에서)
 
 세 저장소 루트를 `<pc> <mobile> <map>`이라 한다. 사용자 변경이 있으면 먼저
@@ -25,12 +32,12 @@ description: 기관·행정구역 코드 최신 변경을 확인하고, 추적 �
 # 1. inspect — 세 저장소 경로·remote·버전·dirty 상태 확인(읽기 전용)
 python3 scripts/agency_registry/examine.py --repos <pc> <mobile> <map>
 
-# 2a. 공식 자료 수집 (사용자가 직접 실행할 때만; 기본은 dry-run)
-python3 scripts/agency_registry/fetch_official.py
-python3 scripts/agency_registry/fetch_official.py --confirm-download
+# 2a. 공식 자료 확인 (다운로드 금지 — 로컬 파일 해시만 대조)
+sha256sum <official-zip>
+python3 scripts/agency_registry/fetch_official.py   # dry-run: 받을 URL만 표시
 
-# 2b. build/validate — 검토 입력을 스냅샷으로 빌드하고 검증
-python3 scripts/agency_registry/build.py --references-dir <handoff-references> --registry-version <YYYY-MM-DD.N> --as-of-date <YYYY-MM-DD>
+# 2b. build/validate — 공식 전체자료 + 검토 입력을 스냅샷으로 빌드하고 검증
+python3 scripts/agency_registry/build.py --references-dir <handoff-references> --official-zip <official-zip> --registry-version <YYYY-MM-DD.N> --as-of-date <YYYY-MM-DD>
 python3 scripts/agency_registry/validate.py --snapshot shared/agency-region-registry
 
 # 3. dry-run — 지역/기관 표시·분류 변화와 영향(테스트 포함)을 먼저 보고
@@ -49,6 +56,23 @@ python3 scripts/agency_registry/check.py --repos <pc> <mobile> <map> --run-tests
 # 6. rollback — 전파 실패 시 이전 스냅샷 복원 후 check 재실행
 python3 scripts/agency_registry/rollback.py --repo <mobile>
 ```
+
+## 스냅샷 내용(v2, 2026-09-29~)
+
+- `data/agency_index.json`: 현존 코드 색인 `[code,name,agg,type,created]`
+  (집계기관 접기 완료 — 런타임은 조회만). 제외 유형(입법·사법·헌법·학교·군·금융)
+  과 번들 크기(압축 전/후)는 provenance·보고서에 기록한다.
+- `data/agency_legacy.json`: 폐지 코드 `{forward, multi}`.
+- `data/agency_links.json`: seed(수기·증거) + 공식 1:1 연쇄 파생(`rule`).
+  경계 수준 1:다는 링크 없이 `(구)` 보존한다.
+- `data/agency_institutions.json`: 경계 코드 → 통계 기관 ID.
+- `vectors/resolve_cases.json`: agency 5종(개명·승계·1:다·미확정·코드 없음 이름만)
+  + region. 세 리더가 같은 파일로 통과해야 한다.
+
+통계 묶음 기준은 이름이 아니라 `agency_stat_key`다(PC·모바일 표·지도 팝업 공통).
+원문 `처리기관`은 덮어쓰지 않는다. 저장된 사실의 파생값 재계산은
+MAP `supabase/migrations/2026-09-29*` + `scripts/recompute-agency-keys.mjs`
+(dry-run 먼저), PC·모바일은 조회 시 재계산이라 재크롤링이 필요 없다.
 
 ## 규칙
 
