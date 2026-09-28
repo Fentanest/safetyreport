@@ -628,6 +628,10 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
     df["범칙금_과태료"] = df.get("범칙금_과태료", pd.Series("", index=df.index, dtype="object")).fillna("")
     if category and "category" not in df.columns:
         df["category"] = category
+    # 2026-09-28 사용자 결정: 기관·담당자·법규 표는 답변이 완료된 신고만(처리중·보완요청·이송·취하는 넣지 않는다).
+    # 처리중은 답변이 없어 처리기관·담당자도 없는 게 정상이다(실제 DB 처리중 83건 전부 기관 없음). 모바일 buildStatsCategory 와 같은 규칙.
+    completed = _stats_status_series(df).isin(_OVERVIEW_COMPLETED_STATUSES)
+    df = df[completed].copy()
     df_agency = df[df["처리기관"] != ""]
     df_person = df_agency[~df_agency["담당자"].isin(_UNASSIGNED_PERSON_VALUES)]
 
@@ -996,12 +1000,30 @@ def _stats_row_disposition_counts(group_df: pd.DataFrame) -> dict[str, int]:
     #   no_penalty: 과태료 대상이 아닌 유형(시설물 등)의 완료 신고
     #   unclassified: 나머지(과태료 대상 유형인데 처분 문구 없는 완료, 취하 등)
     eligible = _penalty_eligible_mask(group_df)
-    disposition_unknown = unconfirmed & (fine_series.str.strip() == "미확인")
+    # 과태료 미확인(2026-09-28 이름 변경, 필드명은 그대로): 처분 칸이 '미확인'이거나, 이미 저장된 주정차·버스전용차로·쓰레기 메뉴의
+    # 일부수용 + 처분 없음(파서가 예전엔 비워 뒀다 — 지금은 '미확인'을 넣는다).
+    disposition_unknown = unconfirmed & (
+        (fine_series.str.strip() == "미확인")
+        | ((status_series == "일부수용") & (fine_series.str.strip() == "") & _partial_unknown_menu_mask(group_df))
+    )
     no_penalty = unconfirmed & ~disposition_unknown & ~eligible & status_series.isin(_OVERVIEW_COMPLETED_STATUSES)
     counts["disposition_unknown"] = int(disposition_unknown.sum())
     counts["no_penalty"] = int(no_penalty.sum())
     counts["unclassified"] = int((unconfirmed & ~disposition_unknown & ~no_penalty).sum())
     return counts
+
+
+def _partial_unknown_menu_mask(group_df: pd.DataFrame) -> pd.Series:
+    """주정차·버스전용차로·쓰레기 메뉴(파서 `_PARTIAL_UNKNOWN_MENUS` 와 같은 메뉴, 주정차 분류 포함)."""
+    index = group_df.index
+    category = group_df.get("category", pd.Series("", index=index, dtype="object")).fillna("").astype(str)
+    entry = group_df.get("entry_value", pd.Series("", index=index, dtype="object")).fillna("").astype(str)
+    return (
+        (category == "parking")
+        | entry.str.contains("불법주정차신고", regex=False)
+        | entry.str.contains("버스전용차로 위반", regex=False)
+        | entry.str.contains("쓰레기, 폐기물", regex=False)
+    )
 
 
 def _penalty_eligible_mask(group_df: pd.DataFrame) -> pd.Series:

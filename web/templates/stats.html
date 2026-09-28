@@ -245,7 +245,6 @@
                     <td data-order="{{ r.fines }}" class="sr-n sr-metric"><span class="sr-metric-n sr-fines-n">{{ r.fines }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.fines_pct or 0) }}%</span></td>
                     <td data-order="{{ r.warnings }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ r.warnings }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.warnings_pct or 0) }}%</span></td>
                     <td data-order="{{ r.rejects }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ r.rejects }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.rejects_pct or 0) }}%</span></td>
-                    <td data-order="{{ (r.in_progress or 0) }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ (r.in_progress or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.in_progress_pct or 0) }}%</span></td>
                     <td data-order="{{ (r.disposition_unknown or 0) }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ (r.disposition_unknown or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.disposition_unknown_pct or 0) }}%</span></td>
                     <td data-order="{{ (r.no_penalty or 0) }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ (r.no_penalty or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.no_penalty_pct or 0) }}%</span></td>
                     <td data-order="{{ (r.unclassified or 0) }}" class="sr-n sr-metric"><span class="sr-metric-n">{{ (r.unclassified or 0) }}</span><span class="sr-metric-pct">{{ '%.1f'|format(r.unclassified_pct or 0) }}%</span></td>
@@ -289,10 +288,10 @@
                 {% endfor %}
             {% endmacro %}
             {#- 머리글 글자는 열 선택 저장 키(sessionStorage stats_column_visibility)다. 바꾸면 저장된 선택이 끊긴다. -#}
-            {% set metric_heads %}<th class="sr-n">확정 과태료</th><th class="sr-n">추정 과태료</th><th class="sr-n">과태료</th><th class="sr-n">경고장/<wbr>범칙금</th><th class="sr-n">불수용/<wbr>기타</th><th class="sr-n">처리중</th><th class="sr-n">처분 미확인</th><th class="sr-n">처분 대상 아님</th><th class="sr-n">기타·<wbr>미분류</th><th class="sr-n" title="별점 평균(평가 수)">★</th>{% endset %}
+            {% set metric_heads %}<th class="sr-n">확정 과태료</th><th class="sr-n">추정 과태료</th><th class="sr-n">과태료</th><th class="sr-n">경고장/<wbr>범칙금</th><th class="sr-n">불수용/<wbr>기타</th><th class="sr-n">과태료 미확인</th><th class="sr-n">처분 대상 아님</th><th class="sr-n">기타·<wbr>미분류</th><th class="sr-n" title="별점 평균(평가 수)">★</th>{% endset %}
             {% set agency_thead %}<tr><th>처리기관</th><th class="sr-n">총 건수</th><th class="sr-n">답변 소요</th>{{ metric_heads }}</tr>{% endset %}
             {% set person_thead %}<tr><th>처리기관</th><th>담당자</th><th class="sr-n">총 건수</th><th class="sr-n">답변 소요</th>{{ metric_heads }}</tr>{% endset %}
-            {% set foot_metrics %}<td class="sr-n sr-fine-confirmed"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td>{% endset %}
+            {% set foot_metrics %}<td class="sr-n sr-fine-confirmed"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td><td class="sr-n sr-metric"></td>{% endset %}
             {% set agency_tfoot %}<tr class="table-secondary fw-bold"><td>합계</td><td class="sr-n"></td><td class="sr-n"></td>{{ foot_metrics }}</tr>{% endset %}
             {% set person_tfoot %}<tr class="table-secondary fw-bold"><td>합계</td><td></td><td class="sr-n"></td><td class="sr-n"></td>{{ foot_metrics }}</tr>{% endset %}
 

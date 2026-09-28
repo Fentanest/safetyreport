@@ -53,7 +53,7 @@ test('dashboard cards match api and links', async ({ page, request }) => {
 
   await expect(getCard('과태료 부과')).toHaveAttribute('onclick', "window.location.href='/data/traffic?fine=과태료'");
   await expect(getCard('경고장/범칙금 발부')).toHaveAttribute('onclick', "window.location.href='/data/traffic?fine=경고'");
-  await expect(getCard('미확인')).toHaveAttribute('onclick', "window.location.href='/data/traffic?fine=미확인'");
+  await expect(getCard('과태료 미확인')).toHaveAttribute('onclick', "window.location.href='/data/traffic?fine=미확인'");
 
   // 전국 안전신고 현황(Sunwi)은 2026-09-28 통계 화면으로 옮겼다(stats-renewal.spec.ts). 대시보드에는 없어야 한다.
   await expect(page.locator('#sunwiContent')).toHaveCount(0);

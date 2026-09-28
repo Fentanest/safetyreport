@@ -74,6 +74,9 @@ by_law (법규별, 같은 필드 + law)
   예외: 대표건 projection 을 지도는 고른 분류의 행만으로, 통계는 세 분류를 합쳐서 한다 — 분류를 넘나드는 중복군이 있으면 달라질 수 있다(기존 동작, 바꾸지 않음).
 - 목록 `/data/<분류>` 는 통계에서 넘어온 `reportName reportDateStart/End occurDateStart/End responseDateStart/End occurTimeStart/End` 를 같은 이름의 상세 검색칸에 채운다(연도 → 답변일 범위).
 
+- (2026-09-28 추가) `/stats` 기관·담당자·법규 행은 답변 완료 신고만 집계한다. `in_progress`·`in_progress_pct` 필드는 남지만 0이다(의미 축소, 삭제 아님 — 구 앱 호환).
+  `disposition_unknown` 은 저장값 '미확인' + 주정차·버스전용차로·쓰레기 메뉴의 일부수용·처분 빈값. 파서는 그 일부수용에 '미확인'을 저장한다(parser-vectors).
+
 ## 2026-09-24 사진 촬영 시각 컬럼 (주정차 과태료 추정용)
 
 - detail/merge 3개 테이블에 `사진_첫촬영`(TEXT `YYYY-MM-DD HH:MM:SS`), `사진_끝촬영`(TEXT), `사진_촬영수`(INTEGER) 추가. `upgrade_schema()` 가 자동 ALTER.

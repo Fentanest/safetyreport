@@ -59,14 +59,14 @@ test('column panel is collapsed by default and hiding a column updates the count
   const toggle = page.locator('#statsColumnsToggle');
   await expect(toggle).toHaveAttribute('aria-expanded', 'false');
   await expect(page.locator('#statsColumnBody')).toBeHidden();
-  await expect(page.locator('#statsColumnCount')).toHaveText('(13/13)');
+  await expect(page.locator('#statsColumnCount')).toHaveText('(12/12)');
   await toggle.click();
   await expect(page.locator('#statsColumnBody')).toBeVisible();
   await page.locator('.stats-column-checkbox[data-column-key="별점"]').uncheck();
-  await expect(page.locator('#statsColumnCount')).toHaveText('(12/13)');
+  await expect(page.locator('#statsColumnCount')).toHaveText('(11/12)');
   await expect(page.locator('.stats-pane:visible thead th', { hasText: '★' })).toHaveCount(0);
   await page.locator('#statsColumnsSelectAll').click();
-  await expect(page.locator('#statsColumnCount')).toHaveText('(13/13)');
+  await expect(page.locator('#statsColumnCount')).toHaveText('(12/12)');
 });
 
 test('summary cards match the mobile overview API for each category', async ({ page, request }) => {
