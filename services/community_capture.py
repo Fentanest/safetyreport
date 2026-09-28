@@ -62,13 +62,19 @@ def _clean(value, limit: int) -> str | None:
     return text[:limit]
 
 
-def _clean_code(value, limit: int) -> str | None:
-    """원문 기관코드 정리: 검증되지 않은 신규 형식은 자르지 않는다(REVIEW2 낮음).
+# observation.md §3(서버 edge·DB·JSON 스키마와 동일 상한, 세 층 1:1).
+AGENCY_CODE_LIMIT = 32
+#: 길이 초과 원문 기관코드의 명시적 거절 사유(조용히 null 로 버리지 않음 — REVIEW3 낮음-1).
+AGENCY_CODE_TOO_LONG = "source_agency_code_too_long"
 
-    limit(32 code points)을 넘으면 앞부분만 남기지 않고 None(없음)으로 둔다 —
-    잘린 코드가 엉뚱한 기관으로 해석되는 것보다 없는 게 낫다. edge 스키마(32자
-    상한)가 최종 강제 지점이며, 잘림 없는 원문만 보낸다. 일반 텍스트 필드는
-    _clean() 절단을 그대로 쓴다.
+
+def _clean_code(value) -> str | None:
+    """원문 기관코드 정리: 공백 정리만 하고 자르지 않는다.
+
+    길이 상한 초과여도 여기서 null 로 버리지 않는다(조용한 손실 금지).
+    전송 payload 에는 상한 이내일 때만 싣고(build_payload), 초과분은
+    capture() 가 journal/outbox 에 명시적 사유로 기록한다.
+    일반 텍스트 필드는 _clean() 절단을 그대로 쓴다.
     """
     if not isinstance(value, str):
         return None
@@ -76,7 +82,23 @@ def _clean_code(value, limit: int) -> str | None:
     text = _WS_RE.sub(" ", text).strip()
     if not text:
         return None
-    if len(text) > limit:
+    return text
+
+
+def agency_code_too_long(value) -> bool:
+    """정리된 원문 기관코드가 계약 상한을 초과하는지."""
+    text = _clean_code(value)
+    return text is not None and len(text) > AGENCY_CODE_LIMIT
+
+
+def _payload_agency_code(value) -> str | None:
+    """전송 payload 용 기관코드: 상한 이내의 정리 원문, 초과·없음은 None.
+
+    초과분을 None 으로 두는 것은 전송 형태 안전장치이며, 명시적 거절 기록은
+    capture() 가 담당한다(조용한 손실이 아님).
+    """
+    text = _clean_code(value)
+    if text is None or len(text) > AGENCY_CODE_LIMIT:
         return None
     return text
 
@@ -265,8 +287,9 @@ def build_payload(adapter_input: dict) -> dict:
         "vehicle_raw": _clean(adapter_input.get("car_number"), 64),
         "violation_law": _clean(adapter_input.get("violation_law"), 60),
         # v3: 원문 기관코드 그대로(TEXT·선행 0 보존). 신규 형식도 자르지 않고, 없으면 null.
-        # 32자를 넘으면 _clean_code 가 None 으로 둔다(잘라서 보내지 않음 — REVIEW2 낮음).
-        "source_agency_code": _clean_code(adapter_input.get("agency_code"), 32),
+        # 상한 초과분은 여기서 null 로 두되(전송 형태 안전), capture() 가 명시적
+        # 사유(blocked:source_agency_code_too_long)로 기록한다 — 조용히 버리지 않음.
+        "source_agency_code": _payload_agency_code(adapter_input.get("agency_code")),
     }
 
 
@@ -332,6 +355,10 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
     store = _store(data_dir)
     payload = build_payload(adapter_input)
     sha = payload_sha256(payload)
+    # REVIEW3 낮음-1: 상한 초과 원문 기관코드는 조용히 null 로 버리지 않고 명시적
+    # 거절한다. 원문은 크롤 DB(처리기관코드)에 그대로 있고, journal/outbox 에
+    # 사유를 기록한다(서버 edge·모바일과 동일 사유 문자열).
+    code_blocked = agency_code_too_long(adapter_input.get("agency_code"))
     report_number = adapter_input.get("report_number")
     report_number = report_number.strip() if isinstance(report_number, str) and report_number.strip() else None
     eligible = is_eligible(payload)
@@ -404,11 +431,18 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
              ctx["connection_id"] if ctx else None,
              ctx["writer_epoch"] if ctx else None,
              ctx["consent_grant_id"] if ctx else None,
-             None if active else "no_active_context"))
+             f"blocked:{AGENCY_CODE_TOO_LONG}" if code_blocked
+             else (None if active else "no_active_context")))
         if active:
-            tx.execute(
-                "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at)"
-                " VALUES (?, 'pending', 0, ?, ?)", (event_id, trigger, now))
+            if code_blocked:
+                tx.execute(
+                    "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at,"
+                    " last_error_code) VALUES (?, 'blocked', 0, ?, ?, ?)",
+                    (event_id, trigger, now, AGENCY_CODE_TOO_LONG))
+            else:
+                tx.execute(
+                    "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at)"
+                    " VALUES (?, 'pending', 0, ?, ?)", (event_id, trigger, now))
         if run_id:
             tx.execute(
                 "INSERT INTO report_latest_staging(run_id, source_report_id, event_id, payload_sha256, eligible)"

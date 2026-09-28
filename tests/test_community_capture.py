@@ -346,9 +346,42 @@ class AgencyCodePayloadTests(unittest.TestCase):
         self.assertEqual(cc.build_payload(dict(inp, agency_code="X-12"))["source_agency_code"], "X-12")
         self.assertIsNone(cc.build_payload(dict(inp, agency_code=None))["source_agency_code"])
         self.assertIsNone(cc.build_payload(cc.build_adapter_input({"처리상태": "수용"}, {}, "", {}))["source_agency_code"])
-        # REVIEW2 낮음: 32자를 넘는 신규 형식은 앞부분만 남기지 않고 None(없음)으로 둔다.
+        # REVIEW3 낮음-1: 32자를 넘는 신규 형식은 잘라서 보내지 않는다. 전송 payload
+        # 에는 싣지 않지만(None), capture() 가 journal/outbox 에 명시적 사유로 기록한다.
         self.assertIsNone(cc.build_payload(dict(inp, agency_code="N" * 33))["source_agency_code"])
         self.assertEqual(cc.build_payload(dict(inp, agency_code="N" * 32))["source_agency_code"], "N" * 32)
+        self.assertTrue(cc.agency_code_too_long("N" * 33))
+        self.assertFalse(cc.agency_code_too_long("N" * 32))
+        self.assertFalse(cc.agency_code_too_long(None))
+
+    def test_overlong_agency_code_is_blocked_with_explicit_reason(self):
+        # REVIEW3 낮음-1: 길이 초과 기관코드를 조용히 NULL 로 버리지 않는다.
+        # journal/outbox 에 명시적 사유로 남고 전송 후보에서 제외된다.
+        res = cap.capture(dict(eligible_input(), agency_code="N" * 33),
+                          source_report_id="LONG1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(res.event_type, "completed_observation")
+        conn = self.store.connect()
+        journal = conn.execute(
+            "SELECT blocked_reason, payload_json FROM source_journal WHERE event_id=?",
+            (res.event_id,)).fetchone()
+        self.assertEqual(journal["blocked_reason"], "blocked:source_agency_code_too_long")
+        self.assertNotIn("N" * 33, journal["payload_json"])
+        outbox = conn.execute(
+            "SELECT state, last_error_code FROM outbox WHERE event_id=?", (res.event_id,)).fetchone()
+        self.assertEqual(outbox["state"], "blocked")
+        self.assertEqual(outbox["last_error_code"], "source_agency_code_too_long")
+        # 같은 관측 반복 수집은 조용히 유지된다(저널 폭증 없음).
+        again = cap.capture(dict(eligible_input(), agency_code="N" * 33),
+                            source_report_id="LONG1", trigger="realtime", data_dir=self.tmp)
+        self.assertIsNone(again.event_type)
+        # 32자 이내는 정상 pending 전송 후보가 된다.
+        ok = cap.capture(dict(eligible_input(), agency_code="N" * 32),
+                         source_report_id="LONG2", trigger="realtime", data_dir=self.tmp)
+        conn2 = self.store.connect()
+        self.assertIsNone(conn2.execute(
+            "SELECT blocked_reason FROM source_journal WHERE event_id=?", (ok.event_id,)).fetchone()["blocked_reason"])
+        self.assertEqual(conn2.execute(
+            "SELECT state FROM outbox WHERE event_id=?", (ok.event_id,)).fetchone()["state"], "pending")
 
     def test_same_report_two_accounts_create_separate_events(self):
         # A가 올린 동일 신고를 B도 제출: A 큐·연결을 건드리지 않고 B의 이벤트를 만든다(전역 중복 제거는 서버 몫).

@@ -57,12 +57,16 @@
 - `agency_name` = clean(processing_agency, 200), `manager_name` = clean(person_in_charge, 160), `vehicle_raw` = clean(car_number, 64), `address` = clean(violation_location, 200).
   `agency_name` 은 선택된 답변의 기관명 **원문**이며 현행 표시명으로 재정의하지 않는다(원문·현행 분리 — handoff §4).
 - `violation_law` = clean(violation_law, 60) (v2, 2026-09-28). 파서가 처리내용에서 뽑은 **법 이름·조항만**(예: `도로교통법 제32조`) — 처리내용 원문은 보내지 않는다. 못 뽑았으면 null.
-- `source_agency_code` = 원문(32자 이내, 2026-09-28; 32자를 넘으면 앱이 null 로 둔다 — 잘라서 보내지 않음) (v3).
+- `source_agency_code` = 원문(32자 이내, 2026-09-28) (v3).
   선택된 답변의 `C_MANAGE_ORG` **원문**(TEXT, 7자리 영숫자·선행 0 보존, 정수 변환 금지).
   HTML fallback 등 코드를 얻지 못하면 null(후보 코드를 원문 필드에 써넣지 않음). 검증되지 않은 신규 형식도 원문 그대로 보존한다.
+  32자를 초과하면 앱이 조용히 null 로 버리지 않는다 — 수집 단계에서 `blocked:source_agency_code_too_long` 사유로
+  전송 제외하고 journal 에 명시 기록한다(명시적 거절, REVIEW3 낮음-1). 서버 edge 는 같은 값을 422 `schema_invalid`
+  (사유 `source_agency_code_too_long`)로 거절한다. 세 층(서버·PC·모바일)의 규칙·사유 문자열은 동일하다.
   서버는 7자리 영숫자만 기관 해석에 쓰고 나머지는 미확인으로 둔다. `agency_name` 과 같은 답변에서 가져온다(섞지 않음).
   v1/v2 payload 에는 이 키가 없다 — **키 부재는 명시적 null 이 아니다**.
-  중앙은 키가 없을 때 저장된 코드를 NULL 로 지우지 않고 보존한다(REVIEW2 높음-4).
+  중앙은 키가 없을 때 저장된 코드를 NULL 로 지우지 않고 보존한다. 단 키 없는 payload 가 기관명이 바뀐 새 답변을
+  보내면 옛 기관코드는 붙이지 않는다(같은 기관명이면 보존, 바뀌면 NULL — REVIEW3 중간-4).
 - `location`: geocode 상태가 `ok` 이고 lat·lng 가 IEEE 754 double 로 해석되며(숫자 또는 10진 문자열) lat ∈ [32, 39.5], lng ∈ [124, 132] 이면
   lat·lng = 그 double 의 **최단 왕복 10진 문자열**(지수 표기 없음, 소수점이 없으면 `.0` 을 붙임 — Python `repr`, Dart `toString`, JS `String()` 후 보정), `source = "geocode"`;
   아니면 lat·lng null, `source = "none"`. 좌표를 반올림·격자화하지 않는다(공개 정책: 입력 좌표 그대로).
@@ -108,7 +112,12 @@ writer 전환·재설치 뒤 첫 비적격 관측도 이벤트 없음이 된다.
 - 계정별 기여와 전역 중복 제거(2026-09-28 사용자 규칙 — 소유 이전 대체): 같은 신고를 다른 카카오 계정이 올려도 먼저 올린 계정의 fact·연결을 지우거나 옮기지 않는다. 업로더의 fact만 만들거나 갱신하고 `accepted`(또는 변경 없음 `no_change`)로 수신한다. 기관명만 달라도 정상 수신이며, 신고번호가 다르거나 없어도 거절하지 않는다(구 `cross_account_mismatch`·`report_identity_mismatch`·`ambiguous_existing_owners`·`transferred`는 폐기 — errors.md).
   신고번호 격리(2026-09-28 REVIEW2 높음-1): `report_identity = source_report_key || '|' || coalesce(자기 번호, 키의 최초 번호, 'legacy')`.
   둘 다 번호가 있는데 다르면 별도 identity 로 격리해 각각 공개 집계한다(서로 다른 실제 신고). 번호가 없는 구버전 관측은 같은 키의 최초 번호 그룹에 붙고, 번호가 하나도 없는 키는 `legacy` 그룹 하나로 묶는다.
-  공개 projection(`internal_analytics_v2_facts`)은 identity 당 공개 목록 중 **최신 실제 처리 결과**(가장 나중에 처음 관측된 서로 다른 답변 — 같은 답변의 단순 재전송은 대표를 뒤집지 않음) 하나를 대표(`is_representative`)로 내보내고, 범위 필터(category·region·agency·manager·bbox)는 확정된 대표에만 적용한다(REVIEW2 높음-2).
+  키의 번호(최초 번호)는 동의 유효 행의 전체 이력에서 확정하므로 조회 기간과 무관하다(조회 창 안의 키만 번호를 매겨 창을 넓혀도 기존 키의 번호가 바뀌지 않음 — REVIEW3 중간-3).
+  공개 projection(`internal_analytics_v2_facts`)은 identity 당 공개 목록 중 **서버가 가장 나중에 수신한 서로 다른 답변** 하나를
+  대표(`is_representative`)로 내보낸다: 답변 그룹의 수신 시각(`max(answer_accepted_at)`, fact 의 새 답변 수신 때만 갱신) DESC,
+  답변일(`completed_date`) DESC NULLS LAST, `first_accepted_at`·`contributor_id` 순. 동일 내용의 단순 재전송(`no_change`·
+  `stale_ignored`)과 내용 없는 재공유(grant 만 바뀜)는 수신 시각을 갱신하지 않아 대표를 뒤집지 않는다(REVIEW3 높음-1).
+  범위 필터(category·region·agency·manager·bbox)는 확정된 대표에만 적용한다(REVIEW2 높음-2).
   전체 지도·기관·담당자 통계는 대표행만 센다(고유 1건). 각 행은 기여 수(`contribution_count`, 필터 전 identity 전체)와 대표의 `report_number`·`report_identity`를 함께 싣는다.
   개인 범위(my-analytics)는 목록의 모든 행을 그대로 받아 계정별로 자신의 기여를 센다(같은 계정의 두 dataset도 identity당 1건).
   실제 처리 결과가 계정마다 다르면 각 관측을 그대로 보존하고 대표는 최신 답변으로 정한다. 한 계정의 삭제/철회는 그 계정의 관계만 처리하고, 남은 유효 기여가 있으면 대표가 승계된다.
@@ -121,5 +130,7 @@ writer 전환·재설치 뒤 첫 비적격 관측도 이벤트 없음이 된다.
 - 파생: `violation_law` 는 그대로 저장(공개 필터·법규별 통계용). `public_state` = eligible ? `completed` : `not_completed`; lat/lng = 문자열을 double 로(원 문자열도 `lat_text`/`lng_text` 로 보존); `point_key = "v1:" + lat + "," + lng`(문자열 그대로);
   `region_code` = 주소 앞 두 토큰(공백 분리, 시·도 약칭 정규화) — 공개 필터용 표시 키, 행정코드가 아님. 폐지 행정구역명은 현행 귀속표로 푼다(예: `충북 청원군` → 현행 청주시 — 공유 registry 2014_cheongju 단일 후계, regions-20260701.json `renamed`);
   `agency_key` = 확인된 1:1 승계(공유 registry as_of 기준, 원문 기관코드로 해석)면 `"inst:" + institution_id`, 아니면 `"a1:" + sha256(NFC(agency_name))[:24]`;
+  승계 전·후 어느 코드로 들어와도(어떤 순서로 수신돼도) 같은 현행 기관 키로 묶인다 — resolver 가 후계 코드를 역방향으로
+  따라가 같은 institution 으로 해석하고(합류 대상 등 모호하면 미해결 유지), 신규 수신 행·기존 행 백필에 동일하게 적용된다(REVIEW3 높음-2);
   `agency_current_name` = 승계면 현행명, 아니면 원문 기관명(원문 `agency_name` 은 그대로 저장 — 원문·현행 분리);
   `manager_key = "m1:" + sha256(agency_key + "|" + NFC(manager_name))[:24]`(agency_key 기준이므로 같은 기관의 같은 담당자는 개명 전후 한 키로 묶임).
