@@ -69,7 +69,7 @@ by_law (법규별, 같은 필드 + law)
   실제 fixture DB 로 `scripts/dev/logic_parity_check.py` 48개 조합 차이 0(2026-09-28).
 - 웹 전용(세션 인증): `GET /stats/map/points?category=&year=&<통계 조건>&targetAgency=&targetPerson=` → `get_report_map_stats` 와 같은 `{points, meta}`.
   `/stats/map`·`/stats/map/missing` 도 같은 통계 조건 이름(`law reportName location reportDate* occurDate* responseDate* occurTime* agency agencyExact excludePolice onlyPolice`)과
-  `targetAgency`(경찰서 정규화 뒤 정확히 일치)·`targetPerson`(정확히 일치)을 선택적으로 받는다. 없으면 예전과 같은 전체 지도. `/api/v1/stats/map` 은 바꾸지 않았다.
+  `targetAgency`(registry 현행 표시명과 정확히 일치)·`targetPerson`(정확히 일치)을 선택적으로 받는다. 없으면 예전과 같은 전체 지도. `/api/v1/stats/map` 은 바꾸지 않았다.
   지도 모집단은 통계와 같은 순서(SQL 조건 → 대표건 → 행 조건 → 취하 제외 → 법규)라 `meta.total_reports` 가 요약 `total` 과 같다(분류를 고른 경우. 테스트 `test_map_uses_same_population_as_stats`).
   예외: 대표건 projection 을 지도는 고른 분류의 행만으로, 통계는 세 분류를 합쳐서 한다 — 분류를 넘나드는 중복군이 있으면 달라질 수 있다(기존 동작, 바꾸지 않음).
 - 목록 `/data/<분류>` 는 통계에서 넘어온 `reportName reportDateStart/End occurDateStart/End responseDateStart/End occurTimeStart/End` 를 같은 이름의 상세 검색칸에 채운다(연도 → 답변일 범위).
@@ -101,7 +101,7 @@ by_law (법규별, 같은 필드 + law)
 
 - `scripts/dev/logic_parity_check.py --mobile-repo <모바일 작업트리> [--server-db <사본> --summary-only]` — 같은 DB(S0 → 모바일 가져오기 M1)로
   서버 `get_dashboard_stats`/`get_agency_stats`/`get_stats_overview` 와 모바일 `computeSummary`/`computeStats`/`computeStatsOverview`
-  (`test/tool/logic_parity_harness_test.dart`)를 각각 계산해 비교한다. 조합: 취하 제외 × 대표건(raw/canonical) × 경찰 기관명 정규화 + 필터(최근 연도, 첫 법규, 연도+법규, 법규 없음) = 48.
+  (`test/tool/logic_parity_harness_test.dart`)를 각각 계산해 비교한다. 조합: 취하 제외 × 대표건(raw/canonical) + 필터(최근 연도, 첫 법규, 연도+법규, 법규 없음) = 44.
 - 한쪽에만 있는 키(서버 `by_law`·`traffic_total_fine`·`estimate_rule_version`·`dedupe_mode` 등 모바일 화면이 쓰지 않는 필드)는 따로 세고 실패로 치지 않는다.
 - 첫 실행에서 찾은 차이: 통계 법규 선택지(`available_laws`) 범위가 달랐다(모바일은 필터 없이 전체, 서버는 연도·취하 제외 적용 후) · 법규 필터로 카테고리가 비면 서버가 선택지를 비웠다. 둘 다 맞췄다 → fixture·운영 사본(3,063건) 모두 48조합 차이 0.
 - 변경 판정 열 목록은 계약 `change_tracked`(서버 `CHANGE_TRACKED_COLUMNS`, 모바일 `_syncedAtTrackedKeys`)로 묶었다.
@@ -275,7 +275,7 @@ username / password / phone_number
 telegram_token / chat_id / telegram_enabled
 google_api_auth_file / google_sheet_key / google_sheet_enabled
 scheduler_enabled / scheduler_mode / scheduler_interval_hours / scheduler_cron_times / scheduler_interval_start
-normalize_police / exclude_withdraw / use_representative_records / auto_export_excel / auto_export_sheet
+exclude_withdraw / use_representative_records / auto_export_excel / auto_export_sheet
 crawl_mode / crawl_type / max_empty_pages / retry_interval / max_retry_attemps
 session_max_age / log_level / TZ / trusted_proxies
 ```
@@ -287,7 +287,7 @@ session_max_age / log_level / TZ / trusted_proxies
 [TELEGRAM]    telegram_token / chat_id
 [SCHEDULER]   enabled / mode / interval_hours / cron_times / interval_start
 [RATING]      phone_number
-[SETTINGS]    normalize_police / auto_export_excel / auto_export_sheet / crawl_mode
+[SETTINGS]    auto_export_excel / auto_export_sheet / crawl_mode
               exclude_withdraw / use_representative_records
               retry_interval / max_retry_attemps / max_empty_pages
               session_max_age / log_level / TZ / trusted_proxies
@@ -448,7 +448,7 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 | `crawl_type` | `Crawler` | (2026-09-25 제거) 저장값과 무관하게 늘 `api` 로 읽는다. `/api/v1/crawl/config` 는 구앱 호환으로 `api` 를 돌려준다 | `api` |
 | `crawl_mode` | `SETTINGS` | 늘 `full`(`min` 제거, reset 은 저장 안 함) | `full` |
 | `max_empty_pages` | `SETTINGS` | (최소 크롤링 제거로 사용 안 함, `/crawl/config` 호환 필드만) | `3` |
-| `normalize_police` | `SETTINGS` | 경찰 기관명 정규화 | `True` |
+| `normalize_police` | `SETTINGS` | 폐지된 저장 키. 읽거나 적용하지 않음. `/api/v1/app/config`만 호환 필드 `false` 반환 | 무시 |
 | `exclude_withdraw` | `SETTINGS` | 취하 데이터 숨기기 | `True` |
 | `use_representative_records` | `SETTINGS` | 대표건 기준 canonical 집계를 전역 기본값으로 사용 | `True` |
 | `auto_export_excel` | `SETTINGS` | 크롤링 후 엑셀 자동 저장 | `True` |
@@ -560,10 +560,10 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 - `/summary` 의 취하 필드 규칙
   - `exclude_withdraw=True` 이면 그래프/모바일 카드 기준 `withdrawCount=0`, `withdraw_pct=0`
   - 실제 원본 취하 건수는 `withdrawRawCount` 로 별도 전달
-| GET | `/app/config` | 앱 설정 (`exclude_withdraw`, `normalize_police`, `use_representative_records` 등). `capabilities`(기능 목록: `rating_cause`, `community_account`)·`rating_cause_max` — 앱이 서버 기능을 알아본다(2026-09-25) |
+| GET | `/app/config` | 앱 설정 (`exclude_withdraw`, `use_representative_records` 등). `normalize_police`는 구버전 앱 호환용 고정 `false`(registry는 항상 적용, 값이 동작을 제어하지 않음). `capabilities`(기능 목록: `rating_cause`, `community_account`)·`rating_cause_max` — 앱이 서버 기능을 알아본다(2026-09-25) |
 | GET | `/community-auth/status` | 서버의 커뮤니티 계정 상태 DTO(`{"data": …}`). 모든 키 가능, 관리 권한 없는 키는 `can_manage=false`·연결 링크 없음 (2026-09-25) |
 | POST | `/community-auth/start` · `/confirm` · `/cancel` | 커뮤니티 계정 연결 관리(`/disconnect` 는 2026-09-27 삭제). `[COMMUNITY] api_key_managers` 에 허용된 키만(아니면 403 `permission_required`). 본문·오류 코드는 `community-account.md` |
-| POST | `/settings` | 필터 설정 저장 (`normalize_police`, `exclude_withdraw`, `use_representative_records`) |
+| POST | `/settings` | 필터 설정 저장 (`exclude_withdraw`, `use_representative_records`; 옛 `normalize_police` 요청은 오류 없이 무시) |
 | GET | `/files?path=` | 서버 파일 브라우저 (logs/results 한정) |
 | GET | `/files/download?path=&api_key=` | 파일 다운로드 (헤더 또는 쿼리 파라미터 인증) |
 | GET | `/server/version` | 서버 버전 + GitHub 최신 버전 (모바일·크롬 확장 공통) |

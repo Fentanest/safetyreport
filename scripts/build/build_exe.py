@@ -92,6 +92,7 @@ def build():
         # Add Jinja2 templates, Static files, and VERSION
         f'--add-data=web/templates{sep}web/templates',
         f'--add-data=web/static{sep}web/static',
+        f'--add-data=shared/agency-region-registry{sep}shared/agency-region-registry',
         f'--add-data=VERSION{sep}.',
         # Include hidden imports for dynamic loading frameworks
         '--hidden-import=uvicorn',

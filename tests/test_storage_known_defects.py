@@ -147,6 +147,21 @@ class ServerKnownDefectTests(_SeededDb):
         web = {r["ID"]: r for r in report_query_service.get_traffic_records(self.engine)}
         self.assertEqual(web["90000001"]["담당자"], "")
 
+    def test_web_agency_display_uses_registry_and_api_keeps_source(self):
+        from services import report_query_service
+
+        old = "경찰청 광주광역시경찰청 광주동부경찰서"
+        current = "경찰청 광주경찰청 광주동부경찰서"
+        with self.engine.begin() as conn:
+            conn.execute(update(models.merge_traffic_table)
+                         .where(models.merge_traffic_table.c.ID == "90000001")
+                         .values(처리기관=old, 처리기관코드="1812314"))
+        raw = report_query_service.get_traffic_records(self.engine, exact_values=True)
+        self.assertEqual(next(r for r in raw if r["ID"] == "90000001")["처리기관"], old)
+        shown = report_query_service.get_traffic_records(self.engine,
+                                                         filters={"agency": current, "agencyExact": True})
+        self.assertEqual(next(r for r in shown if r["ID"] == "90000001")["처리기관"], current)
+
     def test_edited_address_keeps_official_coordinates_even_with_old_cache(self):
         from services import db_editor_service
 

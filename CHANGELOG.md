@@ -10,6 +10,13 @@
 
 ## 2026-09-29 (dev 미배포)
 
+### 기관명 정규화 옵션 폐지·registry 검수 반영
+
+- PC 설정과 저장·조회·통계의 `normalize_police` 분기를 제거했다. 기관코드 registry를 항상 적용하고 미확정 이름은 원문으로 둔다. 옛 config 키는 무시하며 `/api/v1/app/config`는 구버전 앱을 위해 `normalize_police: false`를 유지하고 쓰기 값은 무시한다.
+- PyInstaller 자료에 registry를 포함하고, 빌더 승계 연쇄에 순환이 있으면 현존 코드로 이어지는 다른 가지가 있어도 전달하지 않도록 고쳤다.
+
+
+
 ### 기관코드 전체자료 대조: registry 2026-09-29.1과 통계 키 전환
 
 - `scripts/agency_registry/build.py --official-zip` 이 로컬 공식 기관코드 전체자료(zip 18,339,323 bytes, SHA-256 `7504e6bb…`, 내부 `기관코드 전체자료.txt` cp949 472,175행)로부터 `shared/agency-region-registry` 새 버전을 만든다(원본은 Git 미커밋, 해시·취득시각·행 수만 `provenance.json`에 기록, 외부 다운로드 없음). 스키마 v2.

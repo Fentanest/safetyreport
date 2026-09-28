@@ -16,6 +16,18 @@ from resolve import Snapshot, display_agency, display_region, resolve_agency, re
 
 
 class RegistryVectorTests(unittest.TestCase):
+    def test_cycle_branch_cannot_forward_through_live_branch(self):
+        from scripts.agency_registry.build_official_index import build_derived
+
+        rows = {
+            "A": {"code": "A", "name": "A", "alive": False, "prev": "B"},
+            "B": {"code": "B", "name": "B", "alive": False, "prev": "A"},
+            "C": {"code": "C", "name": "C", "alive": True, "prev": "A"},
+        }
+        derived = build_derived(rows)
+        self.assertNotIn("A", derived["forward"])
+        self.assertNotIn("B", derived["forward"])
+
     @classmethod
     def setUpClass(cls):
         cls.snap = Snapshot.load(REGISTRY)
@@ -81,9 +93,9 @@ class RegistryDisplayWiringTests(unittest.TestCase):
         self.assertEqual(out[0], "경찰청 광주경찰청 광주동부경찰서")
         self.assertEqual(out[1], "경찰청 광주경찰청 광주동부경찰서")
         self.assertEqual(out[2], "경찰청 광주경찰청 광주동부경찰서")
-        # 미확정은 원문 유지, 기존 normalize 동작 유지(경찰서 뒤 절단)
+        # 미확정은 원문 유지
         self.assertEqual(out[3], "서울특별시 중구청")
-        self.assertEqual(out[4], "서울특별시 강서경찰서")
+        self.assertEqual(out[4], "서울특별시 강서경찰서 교통과")
 
     def test_historical_identity_still_available_via_answered_at(self):
         # 답변일은 당시 식별용으로만 쓴다: 정본 리더에 답변일을 직접 주면
@@ -103,7 +115,7 @@ class RegistryDisplayWiringTests(unittest.TestCase):
 
         df = pd.DataFrame([{"처리기관": "서울특별시 강서경찰서 교통과"}])
         out = stats._apply_registry_agency_display(df)["처리기관"].tolist()
-        self.assertEqual(out, ["서울특별시 강서경찰서"])
+        self.assertEqual(out, ["서울특별시 강서경찰서 교통과"])
 
 
 class RegistryStatsWiringTests(unittest.TestCase):
@@ -147,15 +159,14 @@ class RegistryStatsWiringTests(unittest.TestCase):
                 ]
                 for row in rows:
                     conn.execute(models.merge_traffic_table.insert().values(**row))
-            saved = app_settings._instance.normalize_police
-            app_settings._instance.normalize_police = True
-            try:
-                got = stats.get_agency_stats(engine, {}, mode="raw")
-            finally:
-                app_settings._instance.normalize_police = saved
+            got = stats.get_agency_stats(engine, {}, mode="raw")
             by_agency = {r["agency"]: r for r in got["traffic"]["by_agency"]}
             self.assertEqual(set(by_agency), {"경찰청 광주경찰청 광주동부경찰서"})
             self.assertEqual(by_agency["경찰청 광주경찰청 광주동부경찰서"]["total"], 2)
+            exact = stats.get_agency_stats(engine, {
+                "agency": "경찰청 광주경찰청 광주동부경찰서", "agencyExact": True,
+            }, mode="raw")
+            self.assertEqual(exact["traffic"]["by_agency"][0]["total"], 2)
         finally:
             engine.dispose()
             os.remove(path)
@@ -192,12 +203,7 @@ class RegistryStatsWiringTests(unittest.TestCase):
                 ]
                 for row in rows:
                     conn.execute(models.merge_traffic_table.insert().values(**row))
-            saved = app_settings._instance.normalize_police
-            app_settings._instance.normalize_police = True
-            try:
-                got = stats.get_agency_stats(engine, {}, mode="raw")
-            finally:
-                app_settings._instance.normalize_police = saved
+            got = stats.get_agency_stats(engine, {}, mode="raw")
             by_agency = {r["agency"]: r for r in got["traffic"]["by_agency"]}
             self.assertEqual(set(by_agency), {"경찰청 광주경찰청 광주동부경찰서"})
             self.assertEqual(by_agency["경찰청 광주경찰청 광주동부경찰서"]["total"], 2)
@@ -240,12 +246,7 @@ class RegistryStatsWiringTests(unittest.TestCase):
             self._row("d2", "1336464", "경찰청 충청북도경찰청 청주흥덕경찰서", "이담당"),
         ])
         try:
-            saved = app_settings._instance.normalize_police
-            app_settings._instance.normalize_police = True
-            try:
-                got = stats.get_agency_stats(engine, {}, mode="raw")
-            finally:
-                app_settings._instance.normalize_police = saved
+            got = stats.get_agency_stats(engine, {}, mode="raw")
             by_agency = got["traffic"]["by_agency"]
             self.assertEqual(len(by_agency), 1)
             self.assertEqual(by_agency[0]["agency"], "경찰청 충청북도경찰청 청주흥덕경찰서")
@@ -264,12 +265,7 @@ class RegistryStatsWiringTests(unittest.TestCase):
             self._row("s2", "9999992", "어딘가구청 교통과"),
         ])
         try:
-            saved = app_settings._instance.normalize_police
-            app_settings._instance.normalize_police = True
-            try:
-                got = stats.get_agency_stats(engine, {}, mode="raw")
-            finally:
-                app_settings._instance.normalize_police = saved
+            got = stats.get_agency_stats(engine, {}, mode="raw")
             by_agency = got["traffic"]["by_agency"]
             # normalize가 '어딘가구청'으로 합치던 표시가 코드별로 갈라진다.
             self.assertEqual(len(by_agency), 2)
@@ -287,12 +283,7 @@ class RegistryStatsWiringTests(unittest.TestCase):
             self._row("h2", "1815198", "경찰청 광주경찰청 광주동부경찰서"),
         ])
         try:
-            saved = app_settings._instance.normalize_police
-            app_settings._instance.normalize_police = True
-            try:
-                got = stats.get_agency_stats(engine, {}, mode="raw")
-            finally:
-                app_settings._instance.normalize_police = saved
+            got = stats.get_agency_stats(engine, {}, mode="raw")
             by_agency = {r["agency_key"]: r for r in got["traffic"]["by_agency"]}
             self.assertIn("src:1270379:법무부 대구지방교정청 부산교도소 서무과", by_agency)
             self.assertEqual(

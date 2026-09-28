@@ -34,7 +34,6 @@ def view_settings(request: Request):
         "telegram_token": app_settings.config.get('TELEGRAM', 'telegram_token', fallback=""),
         "chat_id": app_settings.config.get('TELEGRAM', 'chat_id', fallback=""),
         "sheet_key": app_settings.config.get('GOOGLESHEET', 'sheet_key', fallback=""),
-        "normalize_police": app_settings.config.getboolean('SETTINGS', 'normalize_police', fallback=True),
         "exclude_withdraw": app_settings.config.getboolean('SETTINGS', 'exclude_withdraw', fallback=True),
         "use_representative_records": app_settings.config.getboolean('SETTINGS', 'use_representative_records', fallback=True),
         "auto_export_excel": app_settings.config.getboolean('SETTINGS', 'auto_export_excel', fallback=True),
@@ -66,7 +65,6 @@ def save_settings(
     telegram_token: str = Form(""),
     chat_id: str = Form(""),
     sheet_key: str = Form(""),
-    normalize_police: bool = Form(False),
     exclude_withdraw: bool = Form(False),
     use_representative_records: bool = Form(False),
     auto_export_excel: bool = Form(False),
@@ -113,7 +111,6 @@ def save_settings(
 
     app_settings._instance.update_config('RATING', 'phone_number', re.sub(r'[^0-9]', '', phone_number))
 
-    app_settings._instance.update_config('SETTINGS', 'normalize_police', normalize_police)
     app_settings._instance.update_config('SETTINGS', 'exclude_withdraw', exclude_withdraw)
     app_settings._instance.update_config('SETTINGS', 'use_representative_records', use_representative_records)
     app_settings._instance.update_config('SETTINGS', 'auto_export_excel', auto_export_excel)

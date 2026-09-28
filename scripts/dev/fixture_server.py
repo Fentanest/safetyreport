@@ -110,7 +110,6 @@ def _write_config(data_dir: Path) -> None:
         return
     config.write_text(
         "[SETTINGS]\n"
-        "normalize_police = True\n"
         "exclude_withdraw = True\n"
         "use_representative_records = True\n"
         "auto_export_excel = False\n"

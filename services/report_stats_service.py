@@ -276,13 +276,6 @@ def _build_stats_query(table_obj, filters=None, column_names=None):
     if location and "위반장소" in table_obj.c and _can_push_simple_text_query(location):
         query = query.where(table_obj.c["위반장소"].contains(_text_or_empty(location)))
 
-    agency = filters.get("agency")
-    if agency and "처리기관" in table_obj.c and _can_push_simple_text_query(agency):
-        if filters.get("agencyExact") and not app_settings.normalize_police:
-            query = query.where(table_obj.c["처리기관"] == _text_or_empty(agency))
-        elif not filters.get("agencyExact"):
-            query = query.where(table_obj.c["처리기관"].contains(_text_or_empty(agency)))
-
     return query
 
 
@@ -581,6 +574,8 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
 
     combined_df = pd.concat([df_t, df_p, df_o], ignore_index=True) if not (df_t.empty and df_p.empty and df_o.empty) else pd.DataFrame()
     combined_df = _project_stats_frame(engine, combined_df, mode=mode)
+    if not combined_df.empty and "처리기관" in combined_df.columns:
+        combined_df = _apply_registry_agency_display(combined_df)
     if not combined_df.empty and "ID" in combined_df.columns:
         # 처분 분류(처분 대상 아님)와 추정 과태료 규칙이 신고 메뉴(entry_value)를 쓴다.
         entry_map = dict(zip(df_entry["ID"].astype(str), df_entry["entry_value"].fillna("").astype(str)))
@@ -643,8 +638,8 @@ def _apply_registry_agency_display(df: pd.DataFrame) -> pd.DataFrame:
         if status == "historical":
             return pd.Series([resolution.get("current_agency_name") or "",
                               resolution["agency_stat_key"]])
-        legacy = database.normalize_police_agency(name if isinstance(name, str) else "")
-        return pd.Series([legacy, f"src:{code_text or '-'}:{legacy}"])
+        raw = name.strip() if isinstance(name, str) else ""
+        return pd.Series([raw, f"src:{code_text or '-'}:{raw}"])
 
     df[["처리기관", "_agency_key"]] = df.apply(keyed, axis=1)
     return df
@@ -667,7 +662,7 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
     df["처리기관"] = df.get("처리기관", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str).str.strip()
     df["담당자"] = df.get("담당자", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str).str.strip()
     df["범칙금_과태료"] = df.get("범칙금_과태료", pd.Series("", index=df.index, dtype="object")).fillna("")
-    # normalize OFF·표시 미적용 경로: 원문 표시 그대로 묶는 src 키(기존 동작 보존).
+    # 표시 미적용 경로: 원문 표시 그대로 묶는 src 키.
     if "_agency_key" not in df.columns:
         df["_agency_key"] = "src:-:" + df["처리기관"]
     if category and "category" not in df.columns:
@@ -785,9 +780,6 @@ def _compute_agency_stats(available_years, df_t, df_p, df_o, filters=None, mode:
                 "available_laws": available_laws,
                 "has_empty_law": has_empty_law,
             })
-
-        if app_settings.normalize_police and "처리기관" in df.columns:
-            df = _apply_registry_agency_display(df)
 
         stats_agency, stats_person, stats_law = _build_stats_tables(df, category)
 
@@ -1246,6 +1238,8 @@ def _load_map_records_frame(
 
     combined_df = _ensure_id_column(combined_df)
     combined_df = _project_stats_frame(engine, combined_df, mode=mode)
+    if not combined_df.empty and "처리기관" in combined_df.columns:
+        combined_df = _apply_registry_agency_display(combined_df)
     if stats_filters and not combined_df.empty:
         combined_df = _apply_stats_row_filters(combined_df, filters)
     combined_df = _exclude_withdraw_rows(combined_df)
@@ -1258,8 +1252,6 @@ def _load_map_records_frame(
     if "category" not in combined_df.columns:
         combined_df["category"] = normalized_category if normalized_category != "all" else "other"
 
-    if app_settings.normalize_police and "처리기관" in combined_df.columns:
-        combined_df = _apply_registry_agency_display(combined_df)
     if target_agency and "처리기관" in combined_df.columns:
         combined_df = combined_df[combined_df["처리기관"].fillna("").astype(str).str.strip() == target_agency].copy()
     if target_person and "담당자" in combined_df.columns:

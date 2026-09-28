@@ -63,7 +63,6 @@ class AppSettings:
 
         self.phone_number = self.config.get('RATING', 'phone_number', fallback='')
 
-        self.normalize_police = self.config.getboolean('SETTINGS', 'normalize_police', fallback=True)
         self.auto_export_excel = self.config.getboolean('SETTINGS', 'auto_export_excel', fallback=True)
         self.auto_export_sheet = self.config.getboolean('SETTINGS', 'auto_export_sheet', fallback=False)
         # 크롤링은 API 방식·전체(full)만 있다(레거시·최소 크롤링은 2026-09-25 제거). 예전 설정값(legacy/min)은 무시한다.

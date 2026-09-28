@@ -163,15 +163,13 @@ def build_derived(by_code: dict[str, dict]) -> dict:
 
     final_cache: dict[str, frozenset[str] | None] = {}
 
-    def final_alive(code: str, stack: tuple[str, ...] = ()) -> frozenset[str]:
+    def final_alive(code: str, stack: tuple[str, ...] = ()) -> frozenset[str] | None:
         """code의 후속들을 현존 경계 집합으로. 순환이면 None."""
         if code in final_cache:
             cached = final_cache[code]
-            if cached is None:
-                return frozenset()
             return cached
         if code in stack:
-            return frozenset()  # cycle → unresolvable here; caller omits
+            return None  # Any reachable cycle makes the whole lineage ambiguous.
         row = by_code.get(code)
         if row is None:
             return frozenset()
@@ -180,13 +178,16 @@ def build_derived(by_code: dict[str, dict]) -> dict:
         out: set[str] = set()
         for s in succ.get(code, set()):
             sub = final_alive(s, stack + (code,))
+            if sub is None:
+                final_cache[code] = None
+                return None
             out |= set(sub)
         result = frozenset(out)
         final_cache[code] = result
         return result
 
-    # NOTE: final_cache stores frozenset() both for "no successor" and "cycle";
-    # both mean "omit" so conflation is safe.
+    # None is deliberately distinct from no successor: it propagates a cycle
+    # even when another branch reaches a live code.
 
     index_rows: list[list] = []
     boundary_names: dict[str, dict] = {}
@@ -251,14 +252,14 @@ def build_derived(by_code: dict[str, dict]) -> dict:
             stats["legacy_unresolved"] += 1
             continue
         finals = final_alive(code)
-        if len(finals) == 1:
+        if finals is not None and len(finals) == 1:
             target = next(iter(finals))
             trow = by_code.get(target, {})
             boundary_names.setdefault(target, {
                 "name": trow.get("name") or "", "created": trow.get("created")})
             forward[code] = target
             stats["legacy_forward"] += 1
-        elif len(finals) >= 2:
+        elif finals is not None and len(finals) >= 2:
             multi[code] = row.get("name") or ""
             stats["legacy_multi"] += 1
         else:
