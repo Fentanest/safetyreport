@@ -357,7 +357,7 @@
    "expected_agency_rows": [
     {
      "agency": "A경찰서",
-     "total": 5,
+     "total": 2,
      "avg_days": 4.5,
      "avg_days_count": 2,
      "fines": 2,
@@ -365,10 +365,10 @@
      "total_fine_amount": 100000,
      "estimated_fine_amount": 0,
      "estimated_fine_count": 0,
-     "in_progress": 2,
+     "in_progress": 0,
      "disposition_unknown": 0,
      "no_penalty": 0,
-     "unclassified": 1
+     "unclassified": 0
     },
     {
      "agency": "B구청",
@@ -600,6 +600,221 @@
      "in_progress": 0,
      "disposition_unknown": 0,
      "no_penalty": 1,
+     "unclassified": 0
+    },
+    {
+     "agency": "F공사",
+     "total": 1,
+     "avg_days": 1.0,
+     "avg_days_count": 1,
+     "fines": 0,
+     "fine_amount_unknown": 0,
+     "total_fine_amount": 0,
+     "estimated_fine_amount": 0,
+     "estimated_fine_count": 0,
+     "in_progress": 0,
+     "disposition_unknown": 0,
+     "no_penalty": 1,
+     "unclassified": 0
+    }
+   ]
+  },
+  {
+   "name": "partial_accept_menus",
+   "rows": [
+    {
+     "category": "parking",
+     "처리상태": "일부수용",
+     "신고일": "2026-03-01",
+     "답변일": "2026-03-04",
+     "범칙금_과태료": "",
+     "신고명": "불법주정차신고",
+     "처리기관": "D구청",
+     "담당자": "정",
+     "entry_value": "불법주정차신고-소화전",
+     "차량번호": "56다7892",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "traffic",
+     "처리상태": "일부수용",
+     "신고일": "2026-03-02",
+     "답변일": "2026-03-06",
+     "범칙금_과태료": "",
+     "신고명": "버스전용차로 위반",
+     "처리기관": "B구청",
+     "담당자": "박",
+     "entry_value": "자동차·교통위반-버스전용차로 위반",
+     "차량번호": "34나5679",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "other",
+     "처리상태": "일부수용",
+     "신고일": "2026-03-03",
+     "답변일": "2026-03-05",
+     "범칙금_과태료": "",
+     "신고명": "쓰레기, 폐기물",
+     "처리기관": "E구청",
+     "담당자": "한",
+     "entry_value": "안전신고-쓰레기, 폐기물",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "other",
+     "처리상태": "일부수용",
+     "신고일": "2026-03-03",
+     "답변일": "2026-03-04",
+     "범칙금_과태료": "",
+     "신고명": "가로등 고장",
+     "처리기관": "F공사",
+     "담당자": "오",
+     "entry_value": "안전신고-생활안전",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    },
+    {
+     "category": "parking",
+     "처리상태": "처리중",
+     "신고일": "2026-03-09",
+     "답변일": null,
+     "범칙금_과태료": "",
+     "신고명": "불법주정차신고",
+     "처리기관": "",
+     "담당자": "",
+     "entry_value": "불법주정차신고-기타",
+     "차량번호": "",
+     "위반법규": "",
+     "별점": null,
+     "발생시각": "",
+     "사진_첫촬영": null,
+     "사진_끝촬영": null
+    }
+   ],
+   "expected_overview": {
+    "total": 5,
+    "completed": 4,
+    "accept": 0,
+    "partial": 4,
+    "reject": 0,
+    "supplement": 0,
+    "processing": 1,
+    "withdraw": 0,
+    "avg_days": 2.5,
+    "avg_days_count": 4,
+    "reversed_date_count": 0,
+    "undated_report_count": 0,
+    "monthly_reported": [
+     {
+      "month": "2026-03",
+      "count": 5
+     }
+    ],
+    "monthly_answered": [
+     {
+      "month": "2026-03",
+      "count": 4
+     }
+    ],
+    "monthly_answered_fine": [],
+    "disposition": {
+     "fines": 0,
+     "warnings": 0,
+     "rejects": 0,
+     "unconfirmed": 4,
+     "in_progress": 1,
+     "disposition_unknown": 3,
+     "no_penalty": 1,
+     "unclassified": 0,
+     "overlap": 0
+    },
+    "fine_amount": {
+     "confirmed_amount": 0,
+     "confirmed_count": 0,
+     "unknown_count": 0,
+     "estimated_amount": 0,
+     "estimated_count": 0
+    },
+    "report_types": [
+     {
+      "name": "불법주정차신고",
+      "count": 2
+     },
+     {
+      "name": "가로등 고장",
+      "count": 1
+     },
+     {
+      "name": "버스전용차로 위반",
+      "count": 1
+     },
+     {
+      "name": "쓰레기, 폐기물",
+      "count": 1
+     }
+    ]
+   },
+   "expected_agency_rows": [
+    {
+     "agency": "B구청",
+     "total": 1,
+     "avg_days": 4.0,
+     "avg_days_count": 1,
+     "fines": 0,
+     "fine_amount_unknown": 0,
+     "total_fine_amount": 0,
+     "estimated_fine_amount": 0,
+     "estimated_fine_count": 0,
+     "in_progress": 0,
+     "disposition_unknown": 1,
+     "no_penalty": 0,
+     "unclassified": 0
+    },
+    {
+     "agency": "D구청",
+     "total": 1,
+     "avg_days": 3.0,
+     "avg_days_count": 1,
+     "fines": 0,
+     "fine_amount_unknown": 0,
+     "total_fine_amount": 0,
+     "estimated_fine_amount": 0,
+     "estimated_fine_count": 0,
+     "in_progress": 0,
+     "disposition_unknown": 1,
+     "no_penalty": 0,
+     "unclassified": 0
+    },
+    {
+     "agency": "E구청",
+     "total": 1,
+     "avg_days": 2.0,
+     "avg_days_count": 1,
+     "fines": 0,
+     "fine_amount_unknown": 0,
+     "total_fine_amount": 0,
+     "estimated_fine_amount": 0,
+     "estimated_fine_count": 0,
+     "in_progress": 0,
+     "disposition_unknown": 1,
+     "no_penalty": 0,
      "unclassified": 0
     },
     {

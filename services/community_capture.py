@@ -30,7 +30,7 @@ STATUS_MAP = {
     "처리중": "processing",
 }
 ELIGIBLE = {"accepted", "partial", "rejected", "completed_unknown"}
-PARSER_VERSION = "pc-parser-1"
+PARSER_VERSION = "pc-parser-2"  # 2026-09-28 observation-v2(violation_law)
 SCHEMA_VERSION = 1
 
 _AMOUNT_RE = re.compile(r"^(과태료|범칙금):\s*(.+?)\s*원$")
@@ -188,6 +188,8 @@ def build_adapter_input(detail: dict, title_fields: dict | None = None,
         "violation_location": detail.get("위반장소"),
         "entry_value": entry_value,
         "penalty_points": detail.get("벌점"),
+        # observation-v2(2026-09-28): 파서가 처리내용에서 뽑은 법 이름·조항(처리내용 원문은 보내지 않는다)
+        "violation_law": detail.get("위반법규"),
         "geocode": {
             "status": geo.get("지오코딩상태"),
             "lat": geo.get("위도"),
@@ -240,6 +242,7 @@ def build_payload(adapter_input: dict) -> dict:
         "status": status,
         "status_raw": status_raw,
         "vehicle_raw": _clean(adapter_input.get("car_number"), 64),
+        "violation_law": _clean(adapter_input.get("violation_law"), 60),
     }
 
 

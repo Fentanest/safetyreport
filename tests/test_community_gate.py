@@ -413,6 +413,41 @@ class GateServiceTests(GateTestBase):
         self.assertEqual(self.account.connections[first]["status"], "superseded")
         self.assertEqual(ctx["contributor_fingerprint"], community_gate.account_fingerprint(USER_B["id"]))
 
+    def _other_device_takes_writer(self, first):
+        conn = self.account.connections[first]
+        conn["status"] = "superseded"
+        other = str(uuid.uuid4())
+        self.account.connections[other] = {**conn, "status": "active", "writer_epoch": conn["writer_epoch"] + 1,
+                                           "device_label": "다른 휴대폰", "platform": "android", "session": "other"}
+        return other
+
+    def test_plain_refresh_does_not_take_back_from_other_device(self):
+        # 2026-09-28: 다른 기기가 가져간 업로드 연결을 서버 재시작·주기 확인만으로 되찾지 않는다(기기끼리 서로 뺏지 않게).
+        self.open_gate(USER_A)
+        other = self._other_device_takes_writer(self.store.context()["connection_id"])
+        community_gate.invalidate("poll")
+        self.assertTrue(community_gate.refresh_now()["can_enter"])
+        self.assertEqual(community_gate.status_view()["writer"]["code"], "connection_superseded")
+        self.assertEqual(self.store.context()["state"], "inactive")
+        self.assertEqual(self.account.connections[other]["status"], "active")
+
+    def test_login_or_consent_here_takes_the_writer_back(self):
+        # 이 서버에서 카카오 로그인 확정·공유 동의를 마치면(_regate login/consent_saved) 업로드 연결을 이 서버로 가져온다.
+        self.open_gate(USER_A)
+        other = self._other_device_takes_writer(self.store.context()["connection_id"])
+        from web.routers import community_route
+
+        community_route._regate("consent_saved")
+        ctx = self.store.context()
+        self.assertEqual(ctx["state"], "active")
+        self.assertNotIn(ctx["connection_id"], (other,))
+        self.assertEqual(self.account.connections[other]["status"], "superseded")
+        # 한 번만: 다음 주기 확인은 새로 등록하지 않는다
+        before = self.account.count("connections")
+        community_gate.invalidate("poll")
+        community_gate.refresh_now()
+        self.assertEqual(self.account.count("connections"), before)
+
     def test_official_account_missing_blocks_upload_not_entry(self):
         self.official = None
         result = self.open_gate()

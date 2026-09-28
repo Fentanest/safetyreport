@@ -2,7 +2,7 @@
 
 POST {supabase_url}/functions/v1/community-ingest — 헤더 apikey(publishable) +
 Authorization: Bearer <get_access_token()>, connect 5s / read 30s, 리다이렉트 금지.
-envelope 는 envelope.schema.json 그대로 (client_version=VERSION, parser_version=pc-parser-1).
+envelope 는 envelope.schema.json 그대로 (client_version=VERSION, parser_version=pc-parser-2).
 응답은 ack.schema.json 형태로 검증하고 errors.md 코드로 분류한 결과 객체를 돌린다.
 토큰·payload 원문은 로그에 남기지 않는다.
 """

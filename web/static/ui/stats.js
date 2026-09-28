@@ -22,8 +22,7 @@
         { key: 'fines', label: '과태료', hint: '처분 문구에 과태료' },
         { key: 'warnings', label: '경고/범칙금', hint: '처분 문구에 경고 또는 범칙금' },
         { key: 'rejects', label: '불수용/기타', hint: '처리상태 불수용·기타' },
-        { key: 'in_progress', label: '처리중', hint: '완료도 취하도 아닌 상태(처리중·보완요청·이송 등)' },
-        { key: 'disposition_unknown', label: '처분 미확인', hint: '처분 칸이 미확인인 완료 신고' },
+        { key: 'disposition_unknown', label: '과태료 미확인', hint: '답변은 완료됐지만 처분(과태료 여부·금액)을 답변에서 읽지 못한 신고 — 교통위반 수용·일부수용, 주정차·버스전용차로·쓰레기 일부수용' },
         { key: 'no_penalty', label: '처분 대상 아님', hint: '과태료 대상이 아닌 유형의 완료 신고' },
         { key: 'unclassified', label: '기타·미분류', hint: '위에 해당하지 않는 신고(처분 문구 없는 완료·취하 등)' }
     ];
@@ -321,8 +320,10 @@
             $('#statsDispositionBase').text('');
             return;
         }
-        var total = Number(s.total || 0);
-        $('#statsDispositionBase').text('신고 ' + num(total) + '건 기준');
+        // 처리중(답변 전)은 처분이 없으니 빼고, 답변된 신고를 분모로 한다(2026-09-28).
+        var inProgress = Number(d.in_progress || 0);
+        var total = Math.max(0, Number(s.total || 0) - inProgress);
+        $('#statsDispositionBase').text('답변된 신고 ' + num(total) + '건 기준');
         var html = DISP.map(function (item) {
             var n = Number(d[item.key] || 0);
             var width = total > 0 ? Math.min(100, n / total * 100) : 0;
@@ -333,9 +334,12 @@
         }).join('');
         $list.html(html);
         var overlap = Number(d.overlap || 0);
-        $note.text(overlap > 0
-            ? '과태료·경고/범칙금·불수용이 함께 적힌 신고 ' + num(overlap) + '건은 두 항목에 모두 세어, 항목 합이 총 건수보다 ' + num(overlap) + '건 많습니다.'
-            : '일곱 항목은 서로 겹치지 않으며 합계가 총 건수와 같습니다. 답변 완료는 처리상태 기준이라 따로 셉니다.');
+        var notes = [];
+        if (inProgress > 0) notes.push('처리 중(답변 전) ' + num(inProgress) + '건은 처분이 없어 뺐습니다.');
+        notes.push(overlap > 0
+            ? '과태료·경고/범칙금·불수용이 함께 적힌 신고 ' + num(overlap) + '건은 두 항목에 모두 세어, 항목 합이 기준 건수보다 ' + num(overlap) + '건 많습니다.'
+            : '여섯 항목은 서로 겹치지 않으며 합계가 기준 건수와 같습니다.');
+        $note.text(notes.join(' '));
     }
 
     // ── 위반 유형 ──
@@ -461,7 +465,7 @@
         aria: { sortAscending: ': 오름차순 정렬', sortDescending: ': 내림차순 정렬' }
     };
     // 합계 행. 열을 숨기면 td 순서가 바뀌므로 DataTables API 로 열 번호를 지정해 읽고 쓴다(D-STAT-7).
-    var COUNT_KEYS = ['fines', 'warn', 'rejects', 'inProgress', 'dispositionUnknown', 'noPenalty', 'unclassified'];
+    var COUNT_KEYS = ['fines', 'warn', 'rejects', 'dispositionUnknown', 'noPenalty', 'unclassified'];
     function makeDrawCallback(cfg) {
         return function () {
             var api = this.api();
@@ -506,7 +510,7 @@
     }
     function columnMap(lead) {
         return { total: lead, avg: lead + 1, fine: lead + 2, est: lead + 3, fines: lead + 4, warn: lead + 5, rejects: lead + 6,
-                 inProgress: lead + 7, dispositionUnknown: lead + 8, noPenalty: lead + 9, unclassified: lead + 10, rating: lead + 11 };
+                 dispositionUnknown: lead + 7, noPenalty: lead + 8, unclassified: lead + 9, rating: lead + 10 };
     }
 
     // 상세표 이름 검색: 기관명(담당자 보기는 담당자명도)에만 적용. 숫자 열은 검색하지 않는다.

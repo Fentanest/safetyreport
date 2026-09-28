@@ -288,7 +288,13 @@ _ACCOUNT_ERRORS = {
 }
 
 
+# 사용자가 이 서버에서 직접 한 행동(카카오 로그인 확정·공유 동의). 업로드 연결이 다른 기기에 있으면 이 서버로 가져온다(2026-09-28).
+_CLAIM_REASONS = {"login", "consent_saved"}
+
+
 def _regate(reason: str) -> dict:
+    if reason in _CLAIM_REASONS:
+        community_gate.claim_for_this_device()
     community_gate.invalidate(reason)
     community_gate.refresh_now()
     return community_gate.status_view()

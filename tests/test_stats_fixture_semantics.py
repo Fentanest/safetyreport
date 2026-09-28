@@ -59,9 +59,9 @@ class StatsFixtureSemanticsTest(unittest.TestCase):
         stats = report_stats_service.get_agency_stats(self.engine, {}, mode="canonical")
         rows = {r["agency"]: r for r in stats["traffic"]["by_agency"]}
         gangseo = rows["서울특별시 강서경찰서"]  # '교통과' 접미사는 normalize_police 로 제거
-        # S-10: 담당자 없는 처리중(90000006)도 처리기관이 있으면 기관표에 들어가고 in_progress 로 센다(보완요청 포함 2건).
+        # 2026-09-28 사용자 결정(S-10 대체): 표는 답변 완료 신고만 — 처리중 90000006·보완요청 90000010 은 기관이 있어도 빠진다.
         self.assertEqual((gangseo["total"], gangseo["fines"], gangseo["warnings"], gangseo["rejects"],
-                          gangseo["in_progress"], gangseo["unconfirmed"]), (5, 2, 1, 0, 2, 0))
+                          gangseo["in_progress"], gangseo["unconfirmed"]), (3, 2, 1, 0, 0, 0))
         # 처리일 = 답변일(날짜) − 신고일(날짜): 12/30→1/2=3, 1/3→1/9=6, 9/1→9/20=19 → 9.3 (완료 건만)
         self.assertEqual(gangseo["avg_days"], 9.3)
         self.assertEqual(gangseo["total_fine_amount"], 80000)
@@ -77,14 +77,14 @@ class StatsFixtureSemanticsTest(unittest.TestCase):
         self.assertEqual((rows[long_name]["total_fine_amount"], rows[long_name]["fine_amount_unknown"]), (0, 1))
         self.assertEqual((rows[long_name]["estimated_fine_amount"], rows[long_name]["estimated_fine_count"]), (50000, 1))
         self.assertEqual(rows[long_name]["avg_days"], 7.0)
-        # 취하(90000009)만 빠진다
-        self.assertEqual(sum(r["total"] for r in rows.values()), 10)
+        # 교통 10건(대표건·취하 제외) 중 답변 전인 처리중 90000006·보완요청 90000010 이 빠진다(2026-09-28)
+        self.assertEqual(sum(r["total"] for r in rows.values()), 8)
 
     def test_other_category_split_no_penalty(self):
         stats = report_stats_service.get_agency_stats(self.engine, {}, mode="canonical")
         rows = {r["agency"]: r for r in stats["other"]["by_agency"]}
-        road = rows["서울특별시 강서구청 도로과"]  # 도로 파손 수용 1 + 보완요청 1 (시설물 = 과태료 대상 아님)
-        self.assertEqual((road["no_penalty"], road["in_progress"], road["unconfirmed"]), (1, 1, 1))
+        road = rows["서울특별시 강서구청 도로과"]  # 도로 파손 수용 1 (시설물 = 과태료 대상 아님). 보완요청 1건은 답변 전이라 표에서 빠진다(2026-09-28)
+        self.assertEqual((road["total"], road["no_penalty"], road["in_progress"], road["unconfirmed"]), (1, 1, 0, 1))
         # 쓰레기 메뉴가 아닌 '쓰레기, 폐기물' 신고명은 기타 메뉴(안전신고-생활안전)라 추정하지 않는다
         self.assertEqual(stats["other"]["estimated_fine_count"], 0)
 

@@ -300,5 +300,21 @@ class CaptureTest(unittest.TestCase):
         self.assertEqual(conn.execute("SELECT COUNT(*) v FROM server_completed").fetchone()["v"], 0)
 
 
+
+class ViolationLawPayloadTests(unittest.TestCase):
+    """observation-v2(2026-09-28): 파서 결과 열 위반법규만 payload 로(처리내용 원문은 보내지 않는다)."""
+
+    def test_adapter_and_payload_carry_violation_law(self):
+        from services import community_capture as cc
+
+        detail = {"처리상태": "수용", "범칙금_과태료": "범칙금: 60,000원", "위반법규": " 도로교통법  제5조 ",
+                  "처리내용": "도로교통법 제5조 위반으로 범칙금을 부과하였습니다."}
+        inp = cc.build_adapter_input(detail, {"신고일": "2026-09-01"}, "자동차·교통위반 > 신호위반", {})
+        payload = cc.build_payload(inp)
+        self.assertEqual(payload["violation_law"], "도로교통법 제5조")
+        self.assertNotIn("처리내용", str(payload))
+        self.assertEqual(cc.build_payload(cc.build_adapter_input({"처리상태": "수용"}, {}, "", {}))["violation_law"], None)
+
+
 if __name__ == "__main__":
     unittest.main()

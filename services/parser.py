@@ -10,6 +10,7 @@ _FULLWIDTH_TRANSLATION = str.maketrans('０１２３４５６７８９，', '012
 _NOT_FINAL_ANSWER_STATUSES = ("진행", "처리중", "검토중")  # 이 값이면 다른 칸(C_R_PROC_STAT_NM)·신고 상태로 보완 — 모바일과 같은 규칙
 
 _REJECT_KEYWORDS = ['부득이하게', '종결합니다', '처벌이 어려운 점', '처분이 불가']
+_PARTIAL_UNKNOWN_MENUS = ("버스전용차로 위반", "쓰레기, 폐기물", "불법주정차신고")
 _WARNING_KEYWORDS = ['교통질서 안내장', '훈방권', '증거에 의해서만', '12대 중과실', '82도117', '관리대상으로', '12개 중과실']
 
 
@@ -26,6 +27,9 @@ def _apply_penalty_corrections(processing_status, processing_finish, penalty_amo
     if not penalty_amount and any(kw in text for kw in _WARNING_KEYWORDS):
         return processing_status, processing_finish, "경고", penalty_points
     if not penalty_amount and "자동차·교통위반" in entry_value and processing_status in ("수용", "일부수용", "기타"):
+        return processing_status, processing_finish, "미확인", penalty_points
+    # 2026-09-28 사용자 결정: 주정차·버스전용차로·쓰레기 메뉴의 '일부수용'은 보통 과태료 처분이 아니다 — 금액 없는 '과태료' 대신 '미확인'(과태료 미확인).
+    if not penalty_amount and processing_status == "일부수용" and any(m in entry_value for m in _PARTIAL_UNKNOWN_MENUS):
         return processing_status, processing_finish, "미확인", penalty_points
     return processing_status, processing_finish, penalty_amount, penalty_points
 
