@@ -39,6 +39,16 @@ test_*
 !/contracts/community-ingest/**/*.json
 !/contracts/community-ingest/**/*.md
 !/contracts/upload-control/*.json
+# 기관·지역 registry 실행 산출물(스냅샷·리더·벡터)은 추적한다. 공식 원본 캐시는 제외.
+!/shared/agency-region-registry/*.md
+!/shared/agency-region-registry/*.json
+!/shared/agency-region-registry/**/*.md
+!/shared/agency-region-registry/**/*.json
+!/shared/agency-region-registry/**/*.csv
+!/shared/agency-region-registry/**/*.py
+!/shared/agency-region-registry/**/*.dart
+!/shared/agency-region-registry/**/*.ts
+/shared/agency-region-registry/data-sources/official/
 !/tools/web-tests/package.json
 !/tools/web-tests/package-lock.json
 !/tools/web-tests/tsconfig.json
