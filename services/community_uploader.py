@@ -233,7 +233,7 @@ def _front_rows(conn, ctx: dict, now: str, limit: int, exclude: set[str]) -> lis
     """신고마다 보낼 수 있는 가장 앞 revision 하나(그 행이 due 일 때만). 앞 revision 이 대기 중이면 그 신고는 건너뛴다."""
     rows = conn.execute(
         "SELECT o.event_id, o.attempt_count, o.state, j.source_report_id, j.source_revision, j.event_type, j.captured_at,"
-        " j.payload_sha256, j.eligible, j.writer_epoch FROM source_journal j JOIN outbox o ON o.event_id=j.event_id"
+        " j.payload_sha256, j.eligible, j.writer_epoch, j.report_number FROM source_journal j JOIN outbox o ON o.event_id=j.event_id"
         " JOIN (SELECT j2.source_report_id AS rid, MIN(j2.source_revision) AS rev FROM source_journal j2"
         "       JOIN outbox o2 ON o2.event_id=j2.event_id WHERE o2.state IN ('pending','retry_wait','in_flight','auth_required')"
         + _CTX_FILTER.replace("j.", "j2.") + " GROUP BY j2.source_report_id) f"
@@ -255,7 +255,7 @@ def _event(row: dict, payload_json: str, ctx: dict) -> dict:
     """저장된 불변 필드를 그대로 쓴다(event_id·event_type·revision·writer_epoch·captured_at·payload·sha).
     중앙은 같은 event_id 의 재전송에서 이 값들이 다르면 conflict 로 본다 — 현재 context 의 epoch 로 바꾸지 않는다."""
     return {"event_id": row["event_id"], "event_type": row["event_type"], "source_system": "safetyreport",
-            "source_report_id": row["source_report_id"], "source_revision": row["source_revision"],
+            "source_report_id": row["source_report_id"], "report_number": row.get("report_number"), "source_revision": row["source_revision"],
             "writer_epoch": row.get("writer_epoch"), "captured_at": row["captured_at"],
             "payload": json.loads(payload_json), "payload_sha256": row["payload_sha256"]}
 
@@ -1047,12 +1047,12 @@ def request_reshare(data_dir=None) -> dict:
             now = _iso(_now())
             tx.execute(
                 "INSERT INTO source_journal(event_id, project_namespace, local_dataset_id, dataset_key,"
-                " source_report_id, source_revision, event_type, captured_at, capture_trigger,"
+                " source_report_id, report_number, source_revision, event_type, captured_at, capture_trigger,"
                 " schema_version, parser_version, payload_json, payload_sha256, eligible,"
                 " contributor_fingerprint, connection_id, writer_epoch, consent_grant_id, personal_save_state)"
-                " VALUES (?, ?, ?, ?, ?, ?, 'reshare', ?, 'reshare', ?, ?, ?, ?, 1, ?, ?, ?, ?, 'pending')",
+                " VALUES (?, ?, ?, ?, ?, ?, ?, 'reshare', ?, 'reshare', ?, ?, ?, ?, 1, ?, ?, ?, ?, 'pending')",
                 (event_id, row["project_namespace"], local_id, ctx.get("dataset_key"),
-                 row["source_report_id"], revision, row["captured_at"],
+                 row["source_report_id"], row["report_number"], revision, row["captured_at"],
                  row["schema_version"], row["parser_version"], row["payload_json"], row["payload_sha256"],
                  ctx.get("contributor_fingerprint"), ctx.get("connection_id"), ctx.get("writer_epoch"),
                  ctx.get("consent_grant_id")))

@@ -1,4 +1,4 @@
-# 앱 쪽 `community.db` v1 (PC·모바일 같은 의미)
+# 앱 쪽 `community.db` v3 (PC·모바일 같은 의미)
 
 위치: PC `<data>/community.db`, 모바일 앱 문서 폴더 `community.db`. 개인 DB(`data.db`, `mysafetyreport.db`)와 **별도 파일**이다.
 DB 백업·다운로드·DB 편집기·서버↔모바일 변환·clearAll·초기화는 이 파일을 읽거나 지우지 않는다(교환 계약 3-1 불변).
@@ -7,7 +7,7 @@ WAL, `synchronous=FULL`(PC) / sqflite 기본 + `PRAGMA synchronous=FULL`, 일반
 
 ```sql
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
--- schema_version=1, project_namespace=sha256(COMMUNITY_SUPABASE_URL 정규화)[:16], local_dataset_id=uuid,
+-- schema_version=3 (v3에서 source_journal.report_number 추가), project_namespace=sha256(COMMUNITY_SUPABASE_URL 정규화)[:16], local_dataset_id=uuid,
 -- source_account_namespace=dataset_key 와 같은 값(공식 계정), next_revision=정수, dataset_history=JSON 배열
 
 CREATE TABLE context (            -- 단일 행(id=1). 메인 프로세스/앱이 중앙 status 확인 뒤 기록, 수집 쪽은 읽기만
@@ -20,7 +20,7 @@ CREATE TABLE context (            -- 단일 행(id=1). 메인 프로세스/앱�
 CREATE TABLE source_journal (      -- 불변 관측 사본. ack/save 상태 열만 갱신
   event_id TEXT PRIMARY KEY,
   project_namespace TEXT NOT NULL, local_dataset_id TEXT NOT NULL, dataset_key TEXT,
-  source_report_id TEXT NOT NULL, source_revision INTEGER NOT NULL,
+  source_report_id TEXT NOT NULL, report_number TEXT, source_revision INTEGER NOT NULL,
   event_type TEXT NOT NULL, captured_at TEXT NOT NULL, capture_trigger TEXT NOT NULL,
   rebuild_run_id TEXT, schema_version INTEGER NOT NULL, parser_version TEXT NOT NULL,
   payload_json TEXT NOT NULL, payload_sha256 TEXT NOT NULL, eligible INTEGER NOT NULL,

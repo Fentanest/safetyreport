@@ -3,6 +3,8 @@
 `contracts/community-ingest/` 계약의 PC 쪽 데이터 경로 구현 기록이다.
 게이트·온보딩·초기화 job·`main.py`·스케줄러 본체는 T3 소유이며, 여기서는 인터페이스로만 연결한다.
 
+2026-09-28: 제목의 신고번호를 `report_number` private event 필드로 journal v3에 저장해 업로드한다. Observation 해시는 유지한다. 번호만 새로 확보되면 한 번 더 캡처한다. 중앙 `transferred` ACK는 저장 성공, 계정 간 불일치 `rejected`는 재시도하지 않는 blocked 상태이며 지도 패널에 사유를 표시한다. 새 Edge·migration 배포가 PC 업데이트보다 먼저여야 한다.
+
 ## 흐름
 
 ```

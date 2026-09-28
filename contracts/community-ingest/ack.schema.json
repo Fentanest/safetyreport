@@ -41,6 +41,7 @@
               "status": {
                 "enum": [
                   "accepted",
+                  "transferred",
                   "duplicate",
                   "no_change",
                   "stale_ignored",

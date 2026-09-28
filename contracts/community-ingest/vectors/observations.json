@@ -1,5 +1,11 @@
 {
   "contract": "observation-v1",
+  "report_number_transport": {
+    "source_report_id": "40871819",
+    "report_number": "SPP-2609-8000001",
+    "observation_case": "accepted_fine",
+    "payload_sha256": "66af3ac4da0f04dedee4928902c5ac87c132dae5e8cd80a8ca3f90716a7908b4"
+  },
   "cases": [
     {
       "name": "accepted_fine",

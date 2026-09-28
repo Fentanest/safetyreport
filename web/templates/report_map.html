@@ -359,7 +359,10 @@
                 rate_limited: '요청이 많아 서버가 잠시 대기를 요청함(429)', busy: '서버 혼잡(503)',
                 service_unavailable: '서비스 일시 중단(503)', server_error: '서버 일시 오류(500)',
                 offline: '네트워크 연결 실패', invalid_ack: '서버 응답 형식 이상', ack_missing: '일부 응답 누락',
-                auth_unavailable: '인증 서버 연결 실패'
+                auth_unavailable: '인증 서버 연결 실패',
+                'blocked:cross_account_mismatch': '다른 계정의 같은 신고와 처리상태 외 내용이 달라 이전할 수 없음',
+                'blocked:report_identity_mismatch': '같은 링크 ID의 신고번호가 다르거나 이전 계정에 신고번호가 없어 이전할 수 없음',
+                'blocked:ambiguous_existing_owners': '기존 소유 계정이 여럿이라 자동 이전할 수 없음'
             };
             var PROJECTION_TEXT = {
                 published: '지도 반영됨', removed: '지도에서 빠짐(정정)',
@@ -388,6 +391,9 @@
                     var bits = ['전송 대기 ' + pending + '건'];
                     if (auth > 0) { bits.push('인증 필요 ' + auth + '건'); }
                     bits.push('확인 필요 ' + attention + '건');
+                    Object.keys(data.blocked || {}).forEach(function (reason) {
+                        if (Number(data.blocked[reason] || 0) > 0) { bits.push(errText(reason) + ' ' + data.blocked[reason] + '건'); }
+                    });
                     if (quarantined > 0) { bits.push('중앙 보관·지도 미반영 ' + quarantined + '건'); }
                     if (data.oldest_unsent_kst) { bits.push('가장 오래된 미전송 ' + data.oldest_unsent_kst); }
                     if (data.next_retry_kst) { bits.push('다음 재시도 ' + data.next_retry_kst); }

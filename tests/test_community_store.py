@@ -39,7 +39,7 @@ class CommunityStoreTest(unittest.TestCase):
         for t in ("meta", "context", "source_journal", "outbox", "report_latest", "report_latest_staging", "detail_status",
                   "server_completed", "upload_runs", "schedule_runs", "leases", "rebuild_jobs", "rebuild_items"):
             self.assertIn(t, tables)
-        self.assertEqual(self.store.meta("schema_version"), "2")
+        self.assertEqual(self.store.meta("schema_version"), "3")
         self.assertIn("upload_control", tables)
         self.assertTrue(self.store.local_dataset_id())
         self.assertEqual(self.store.connect().execute("PRAGMA journal_mode").fetchone()[0], "wal")
@@ -67,7 +67,7 @@ class CommunityStoreTest(unittest.TestCase):
         con.close()
         store = CommunityStore.open(tmp)
         try:
-            self.assertEqual(store.meta("schema_version"), "2")
+            self.assertEqual(store.meta("schema_version"), "3")
             self.assertEqual(store.local_dataset_id(), "ds-1")
             row = dict(store.connect().execute("SELECT * FROM outbox").fetchone())
             self.assertEqual((row["state"], row["attempt_count"], row["next_retry_at"]),
@@ -120,8 +120,8 @@ class CommunityStoreTest(unittest.TestCase):
                 mock.patch.object(cs.CommunityStore, "transaction", racing_tx):
             store = cs.CommunityStore(path)
         try:
-            self.assertEqual(Counting.used, 1, "v2 단계는 먼저 올린 프로세스에서 한 번만")
-            self.assertEqual(store.meta("schema_version"), "2")
+            self.assertEqual(Counting.used, 2, "v2·v3 단계는 먼저 올린 프로세스에서 각 한 번만")
+            self.assertEqual(store.meta("schema_version"), "3")
             self.assertEqual(store.connect().execute("SELECT result FROM upload_runs").fetchone()[0], "deferred")
         finally:
             store.close()

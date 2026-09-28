@@ -178,6 +178,7 @@ def build_adapter_input(detail: dict, title_fields: dict | None = None,
         report_date = detail.get("신고일")
     return {
         "processing_status": detail.get("처리상태"),
+        "report_number": title_fields.get("신고번호") or detail.get("신고번호"),
         "penalty_amount": detail.get("범칙금_과태료"),
         "report_date": report_date,
         "response_date": detail.get("답변일"),
@@ -309,6 +310,8 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
     store = _store(data_dir)
     payload = build_payload(adapter_input)
     sha = payload_sha256(payload)
+    report_number = adapter_input.get("report_number")
+    report_number = report_number.strip() if isinstance(report_number, str) and report_number.strip() else None
     eligible = is_eligible(payload)
     progress = adapter_input.get("progress_status")
     progress_label = progress if isinstance(progress, str) and progress else None
@@ -330,10 +333,11 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
                 " WHERE run_id=? AND source_report_id=?", (run_id, source_report_id)).fetchone()
             if row is not None:
                 journal = tx.execute(
-                    "SELECT payload_sha256, eligible FROM source_journal WHERE event_id=?",
+                    "SELECT payload_sha256, eligible, report_number FROM source_journal WHERE event_id=?",
                     (row["event_id"],)).fetchone()
                 if journal is not None:
-                    prev = {"payload_sha256": journal["payload_sha256"], "eligible": bool(journal["eligible"])}
+                    prev = {"payload_sha256": journal["payload_sha256"],
+                            "eligible": bool(journal["eligible"]), "report_number": journal["report_number"]}
                 else:
                     prev = {"payload_sha256": row["payload_sha256"], "eligible": bool(row["eligible"])}
         if prev is None:
@@ -342,7 +346,9 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
                 " WHERE local_dataset_id=? AND source_report_id=?",
                 (local_dataset_id, source_report_id)).fetchone()
             if row is not None:
-                prev = {"payload_sha256": row["payload_sha256"], "eligible": bool(row["eligible"])}
+                journal = tx.execute("SELECT report_number FROM source_journal WHERE event_id=?", (row["event_id"],)).fetchone()
+                prev = {"payload_sha256": row["payload_sha256"], "eligible": bool(row["eligible"]),
+                        "report_number": journal["report_number"] if journal else None}
         if prev is None:
             ctx_row = tx.execute("SELECT dataset_key FROM context WHERE id=1").fetchone()
             dataset_key = ctx_row["dataset_key"] if ctx_row and ctx_row["dataset_key"] else None
@@ -352,6 +358,8 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
                     (dataset_key, _server_key_prefix(source_report_id))).fetchone()
                 if hit is not None:
                     prev = {"payload_sha256": None, "eligible": True}
+        if prev and report_number and prev.get("report_number") != report_number:
+            prev = {**prev, "payload_sha256": None}
         event_type = decide_event(prev, payload)
         if event_type is None:
             return CaptureResult(event_id=None, event_type=None, eligible=eligible, payload_sha256=sha)
@@ -364,13 +372,13 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
         payload_text = canonical_json(payload)
         tx.execute(
             "INSERT INTO source_journal(event_id, project_namespace, local_dataset_id, dataset_key,"
-            " source_report_id, source_revision, event_type, captured_at, capture_trigger, rebuild_run_id,"
+            " source_report_id, report_number, source_revision, event_type, captured_at, capture_trigger, rebuild_run_id,"
             " schema_version, parser_version, payload_json, payload_sha256, eligible,"
             " contributor_fingerprint, connection_id, writer_epoch, consent_grant_id,"
             " personal_save_state, blocked_reason)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
             (event_id, namespace, local_dataset_id,
-             ctx["dataset_key"] if ctx else None, source_report_id, revision, event_type, now, trigger, run_id,
+             ctx["dataset_key"] if ctx else None, source_report_id, report_number, revision, event_type, now, trigger, run_id,
              SCHEMA_VERSION, PARSER_VERSION, payload_text, sha, 1 if eligible else 0,
              ctx["contributor_fingerprint"] if ctx else None,
              ctx["connection_id"] if ctx else None,

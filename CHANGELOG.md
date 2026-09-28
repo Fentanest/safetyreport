@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-28 신고번호·소유 이전 업로드
+
+- 공식 제목 신고번호를 private community journal v3와 ingest event에 포함한다. Observation 해시를 유지하며 번호 백필 때 새 이벤트를 만든다.
+- `transferred`를 성공 ACK로, 계정 간 불일치 거절을 재시도 없는 blocked와 지도 패널 사유로 처리한다. 계약 사본을 지도 정본에 동기화했다.
+
 작업, 버그 수정, 세션 기록용 문서.
 
 - 구조/운영 컨텍스트는 `docs/architecture/`에 유지(2026-09-24 이전에는 `CLAUDE.md`)

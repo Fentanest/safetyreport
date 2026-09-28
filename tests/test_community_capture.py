@@ -40,6 +40,14 @@ def withdrawn_input():
 
 
 class CaptureTest(unittest.TestCase):
+    def test_report_number_backfill_keeps_observation_hash(self):
+        first = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        numbered = dict(eligible_input(), report_number="SPP-2609-8000001")
+        second = cap.capture(numbered, source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(first.payload_sha256, second.payload_sha256)
+        self.assertEqual(second.event_type, "completed_observation")
+        self.assertEqual(self.store.connect().execute("SELECT report_number FROM source_journal WHERE event_id=?", (second.event_id,)).fetchone()[0], "SPP-2609-8000001")
+
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.store = CommunityStore.open(self.tmp)

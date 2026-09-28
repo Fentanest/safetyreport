@@ -18,6 +18,7 @@ from services import community_capture as cap
 from services import community_ingest_client as client
 from services import community_schedule as sched
 from services import community_uploader as up
+from services import community_upload_policy as policy
 from services.community_store import CommunityStore
 
 CTX = {"contributor_fingerprint": "f" * 32, "connection_id": "11111111-2222-4333-8444-555555555555",
@@ -32,6 +33,19 @@ INPUT = {"processing_status": "수용", "penalty_amount": "과태료: 40,000원"
          "penalty_points": "", "geocode": {"status": "ok", "lat": 37.5662952, "lng": 126.9779451}}
 T0 = datetime(2026, 9, 27, 0, 0, tzinfo=timezone.utc)
 RECEIPT = "11111111-1111-4111-8111-111111111111"
+
+
+class OwnerTransferAckTest(unittest.TestCase):
+    def test_transferred_succeeds_and_mismatch_blocks_without_retry(self):
+        event_id = "e1"
+        ok = {"protocol": 1, "request_id": "r", "results": [{"event_id": event_id, "status": "transferred",
+              "durable": True, "receipt_id": RECEIPT, "projection_status": "published"}]}
+        denied = {"protocol": 1, "request_id": "r", "results": [{"event_id": event_id, "status": "rejected",
+                  "durable": False, "receipt_id": None, "projection_status": "not_applicable",
+                  "error": {"code": "cross_account_mismatch", "retryable": False}}]}
+        self.assertEqual(policy.interpret_ack([event_id], ok).events[event_id].outcome, "done")
+        result = policy.interpret_ack([event_id], denied).events[event_id]
+        self.assertEqual((result.outcome, result.error_code), ("blocked", "cross_account_mismatch"))
 
 
 def ack_body(events, status="accepted", durable=True, request_id="req-1", only=None):
@@ -56,6 +70,14 @@ def err_body(status, code, retry_after=None, header=None):
 
 
 class UploadControlTest(unittest.TestCase):
+    def test_report_number_is_sent_outside_observation(self):
+        result = self.capture("R1", report_number="SPP-2609-8000001")
+        self.assertEqual(self.upload()["result"], "sent")
+        sent = self.requests[-1][1]["events"][0]
+        self.assertEqual(sent["event_id"], result.event_id)
+        self.assertEqual(sent["report_number"], "SPP-2609-8000001")
+        self.assertNotIn("report_number", sent["payload"])
+
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.store = CommunityStore.open(self.tmp)

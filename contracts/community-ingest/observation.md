@@ -11,6 +11,7 @@
 | 입력 키 | PC(`services/parser.py` 출력 / 저장 열) | 모바일(`Report`) |
 |---|---|---|
 | `processing_status` | `processing_status` / 처리상태 | `status` |
+| `report_number` | `title_fields['신고번호']`(없으면 상세의 신고번호) | `reportNumber` |
 | `penalty_amount` | `penalty_amount` / 범칙금_과태료 | `fineInfo` |
 | `report_date` | `title_fields['신고일']` | `date` |
 | `response_date` | `response_date` / 답변일 | `responseDate` |
@@ -59,11 +60,13 @@
 
 payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won, kind, penalty_points}, category, completed_date, disposition, location{lat, lng, source}, manager_name, report_date, status, status_raw, vehicle_raw`.
 공식 로그인 정보·쿠키·헤더·사진·첨부·신고 본문·처리내용 원문은 넣지 않는다. `source_report_id` 는 envelope 의 event 필드(private)로만 간다.
+`report_number` 역시 Observation 밖의 private event 필드다. 공백을 잘라 빈 값은 null로 보낸다. 중앙은 `^SPP-[0-9]{4,6}-[0-9]{6,8}$`만 받는다. 기존 이벤트의 필드 생략도 null로 해석한다. 번호만 뒤늦게 채워졌으면 payload_sha256이 같아도 새 이벤트를 발급한다. Observation 해시와 parser/contract 버전은 그대로이며 기존 전체 신고를 일괄 update하지 않는다.
 
 ## 4. event 결정 (앱의 capture 함수)
 `prev` = 같은 로컬 데이터셋에서 같은 신고의 **가장 최근 journal 행**(rebuild 중이면 이번 run 의 staging 을 먼저 본다).
 로컬 prev 가 없고 그 신고의 `source_report_key` 앞 24hex 가 `server_completed`(중앙 manifest — 이 dataset 에서 이미 completed 로 저장된 신고)에 있으면 prev 를 "eligible, 해시 불명"으로 본다(S-04: writer 전환·재설치 뒤 첫 비적격 관측도 정정을 보냄).
 - eligible: prev 가 있고 payload_sha256 이 같으면 새 이벤트 없음(내용 변화 없음). 아니면 `completed_observation`.
+- 단, 새로 얻은 non-null `report_number`가 최신 journal 번호와 다르면 같은 해시여도 `completed_observation`을 발급한다(레거시 백필). 로컬 이전 journal은 불변이다.
 - not eligible: prev 가 eligible 이면 `status_correction`(payload = 이번 관측 그대로). 아니면 이벤트 없음.
 - 이벤트가 없고 prev 도 없으면(예: 처음 본 처리중·취하 신고) `detail_status` 만 기록하고 report_latest/staging 은 쓰지 않는다(가리킬 journal 행이 없음). 이것은 capture 성공이다(S-06).
 - `location_supplement`: 기존 자료와의 호환을 위해 서버가 받는 이벤트 종류로 남긴다. 새 앱/서버는 사용하지 않는다. 재조회에서 공식 좌표가 새로 생기거나 바뀌면 변경된 payload의 `completed_observation`을 보낸다.
@@ -75,7 +78,7 @@ payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won
 
 ## 5. 서버 검증·파생(ingest)
 - 한 요청 안에서 같은 신고(`source_report_id`)의 이벤트는 하나만(S-11-B). 업로더는 같은 신고의 다음 이벤트를 앞 요청의 ACK 뒤에 보낸다.
-- 같은 event_id 재전송 판정: 불변 필드(event_type, source_report_id, source_revision, writer_epoch, captured_at, payload_sha256, 연결의 dataset_key)가 모두 같으면 `duplicate`, 하나라도 다르면 `conflict`. grant·connection·trigger·request_id 는 전송 문맥이라 비교하지 않는다(재로그인 rebind·정책 재동의 뒤 재전송 허용).
+- 같은 event_id 재전송 판정: 불변 필드(event_type, source_report_id, report_number, source_revision, writer_epoch, captured_at, payload_sha256, 연결의 dataset_key)가 모두 같으면 `duplicate`, 하나라도 다르면 `conflict`. grant·connection·trigger·request_id 는 전송 문맥이라 비교하지 않는다(재로그인 rebind·정책 재동의 뒤 재전송 허용).
 스키마(`observation.schema.json`)가 형식·enum·길이·상한을 검사하고, 서버 코드가 아래 **값 규칙**을 추가로 검사한다(위반 = 422 `schema_invalid`, 쓰기 0):
 - 날짜: 실제 달력 날짜(`2026-02-30` 거부). `completed_date` 는 payload 가 eligible 일 때만 값을 가질 수 있다(not eligible 인데 값이 있으면 거부).
 - 좌표: `source="none"` ⇒ lat·lng 둘 다 null. `source="geocode"` ⇒ 둘 다 문자열, double 로 해석되고 lat ∈ [32, 39.5]·lng ∈ [124, 132], 그리고 **정규형**(해석한 double 의 최단 왕복 표기 + `.0` 규칙)과 문자열이 정확히 같아야 한다(`37.000`·`+37.5` 거부).

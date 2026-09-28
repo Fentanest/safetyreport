@@ -35,6 +35,10 @@ class ObservationVectorTest(unittest.TestCase):
                 self.assertEqual(cap.is_eligible(payload), case["eligible"])
                 self.assertEqual(cap.canonical_json(payload), case["canonical_json"])
                 self.assertEqual(cap.payload_sha256(payload), case["payload_sha256"])
+        transport = self.data["report_number_transport"]
+        source = self.by_name[transport["observation_case"]]
+        numbered = dict(source["input"], report_number=transport["report_number"])
+        self.assertEqual(cap.payload_sha256(cap.build_payload(numbered)), transport["payload_sha256"])
 
     def test_event_decisions(self):
         for item in self.data["event_decisions"]:
@@ -52,10 +56,11 @@ class ObservationVectorTest(unittest.TestCase):
         detail = {"처리상태": "수용", "범칙금_과태료": "과태료: 40,000원", "답변일": "2026-09-10",
                   "처리기관": "서울특별시 중구청", "담당자": "홍길동", "차량번호": "12가3456",
                   "위반장소": "서울특별시 중구 세종대로 110", "벌점": ""}
-        adapter = cap.build_adapter_input(detail, {"신고일": "2026-09-01"}, "불법주정차신고",
+        adapter = cap.build_adapter_input(detail, {"신고일": "2026-09-01", "신고번호": "SPP-2609-8000001"}, "불법주정차신고",
                                           {"위도": 37.5, "경도": 127.0, "지오코딩상태": "ok"}, "답변완료")
         self.assertEqual(adapter["processing_status"], "수용")
         self.assertEqual(adapter["report_date"], "2026-09-01")
+        self.assertEqual(adapter["report_number"], "SPP-2609-8000001")
         self.assertEqual(adapter["entry_value"], "불법주정차신고")
         self.assertEqual(adapter["geocode"], {"status": "ok", "lat": 37.5, "lng": 127.0})
         self.assertEqual(adapter["progress_status"], "답변완료")
