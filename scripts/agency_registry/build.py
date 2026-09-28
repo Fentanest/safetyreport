@@ -119,6 +119,34 @@ def main() -> int:
     generated_at = datetime.fromtimestamp(
         max(p.stat().st_mtime for p in (lineage_src, notices_src, seed_src)),
         tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # provenance FIRST: the manifest records the hash of these exact bytes, so the
+    # file must exist before the manifest hashes it (REVIEW2 중간-4: changed inputs
+    # used to fail validate.py with a stale provenance hash).
+    # provenance.json is therefore listed in the manifest files[] below and verified.
+    provenance = {
+        "builder": BUILDER_VERSION,
+        "inputs": [
+            {"path": "agency-registry-handoff/references/administrative-region-lineage-2014.csv",
+             "sha256": sha256_file(lineage_src), "role": "region lineage survey (74 abolished codes, si-do/si-gun-gu)"},
+            {"path": "agency-registry-handoff/references/administrative-region-notices-2014.csv",
+             "sha256": sha256_file(notices_src), "role": "official change notices (evidence pointers, not lineage)"},
+            {"path": "agency-registry-handoff/references/administrative-region-lineage-2014.md",
+             "sha256": sha256_file(args.references_dir / "administrative-region-lineage-2014.md"),
+             "role": "survey method, event table, non-auto rules"},
+            {"path": "agency-registry-handoff/references/agency-lineage-registry.md",
+             "sha256": sha256_file(args.references_dir / "agency-lineage-registry.md"),
+             "role": "agency 1:1 evidence (Gwangju Dongbu police), non-link cases, ID rules"},
+            {"path": "scripts/agency_registry/seed_agency_links.json",
+             "sha256": sha256_file(seed_src), "role": "curated verified agency links (reviewed source)"},
+        ],
+        "limits": [
+            "Region CSV covers abolished si-do/si-gun-gu codes since 2014 (74 rows), not every era/dong/agency.",
+            "Notices CSV rows are NOT 1:1 with lineage rows; links between events and notices are by evidence text.",
+            "Agency seed holds verified 1:1 links only; empty previous_code never implies succession.",
+            "Full official snapshots (code.go.kr) are fetched separately via fetch_official.py, not bundled here.",
+        ],
+    }
+    (out / "provenance.json").write_text(canon(provenance) + "\n", encoding="utf-8")
     tracked = ["provenance.json", "schema.md",
                "data/region_events.json", "data/agency_links.json",
                "data-sources/administrative-region-lineage-2014.csv",
@@ -149,30 +177,6 @@ def main() -> int:
         "contract": "shared/agency-region-registry (same bytes in safetyreport, safetyreport-mobile, safetyreport-community-map)",
     }
     (out / "manifest.json").write_text(canon(manifest) + "\n", encoding="utf-8")
-    provenance = {
-        "builder": BUILDER_VERSION,
-        "inputs": [
-            {"path": "agency-registry-handoff/references/administrative-region-lineage-2014.csv",
-             "sha256": sha256_file(lineage_src), "role": "region lineage survey (74 abolished codes, si-do/si-gun-gu)"},
-            {"path": "agency-registry-handoff/references/administrative-region-notices-2014.csv",
-             "sha256": sha256_file(notices_src), "role": "official change notices (evidence pointers, not lineage)"},
-            {"path": "agency-registry-handoff/references/administrative-region-lineage-2014.md",
-             "sha256": sha256_file(args.references_dir / "administrative-region-lineage-2014.md"),
-             "role": "survey method, event table, non-auto rules"},
-            {"path": "agency-registry-handoff/references/agency-lineage-registry.md",
-             "sha256": sha256_file(args.references_dir / "agency-lineage-registry.md"),
-             "role": "agency 1:1 evidence (Gwangju Dongbu police), non-link cases, ID rules"},
-            {"path": "scripts/agency_registry/seed_agency_links.json",
-             "sha256": sha256_file(seed_src), "role": "curated verified agency links (reviewed source)"},
-        ],
-        "limits": [
-            "Region CSV covers abolished si-do/si-gun-gu codes since 2014 (74 rows), not every era/dong/agency.",
-            "Notices CSV rows are NOT 1:1 with lineage rows; links between events and notices are by evidence text.",
-            "Agency seed holds verified 1:1 links only; empty previous_code never implies succession.",
-            "Full official snapshots (code.go.kr) are fetched separately via fetch_official.py, not bundled here.",
-        ],
-    }
-    (out / "provenance.json").write_text(canon(provenance) + "\n", encoding="utf-8")
     print(f"built registry {args.registry_version}: {len(events)} region events, {len(links)} agency links -> {out}")
     return 0
 

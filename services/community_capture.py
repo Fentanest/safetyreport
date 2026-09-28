@@ -62,6 +62,25 @@ def _clean(value, limit: int) -> str | None:
     return text[:limit]
 
 
+def _clean_code(value, limit: int) -> str | None:
+    """원문 기관코드 정리: 검증되지 않은 신규 형식은 자르지 않는다(REVIEW2 낮음).
+
+    limit(32 code points)을 넘으면 앞부분만 남기지 않고 None(없음)으로 둔다 —
+    잘린 코드가 엉뚱한 기관으로 해석되는 것보다 없는 게 낫다. edge 스키마(32자
+    상한)가 최종 강제 지점이며, 잘림 없는 원문만 보낸다. 일반 텍스트 필드는
+    _clean() 절단을 그대로 쓴다.
+    """
+    if not isinstance(value, str):
+        return None
+    text = "".join(" " if (ord(ch) < 0x20 or ord(ch) == 0x7F) else ch for ch in value)
+    text = _WS_RE.sub(" ", text).strip()
+    if not text:
+        return None
+    if len(text) > limit:
+        return None
+    return text
+
+
 def _parse_day(value) -> str | None:
     if not isinstance(value, str):
         return None
@@ -246,7 +265,8 @@ def build_payload(adapter_input: dict) -> dict:
         "vehicle_raw": _clean(adapter_input.get("car_number"), 64),
         "violation_law": _clean(adapter_input.get("violation_law"), 60),
         # v3: 원문 기관코드 그대로(TEXT·선행 0 보존). 신규 형식도 자르지 않고, 없으면 null.
-        "source_agency_code": _clean(adapter_input.get("agency_code"), 32),
+        # 32자를 넘으면 _clean_code 가 None 으로 둔다(잘라서 보내지 않음 — REVIEW2 낮음).
+        "source_agency_code": _clean_code(adapter_input.get("agency_code"), 32),
     }
 
 
