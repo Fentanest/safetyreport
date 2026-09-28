@@ -120,6 +120,9 @@ class _Gate:
         self._writer_note: dict | None = None
         self._last_error: str | None = None
         self._takeover_requested = False
+        # 이 서버에서 카카오 로그인 확정·공유 동의를 방금 마쳤다(2026-09-28): 업로드 연결이 다른 기기에 있으면 이 서버로 가져온다.
+        # 서버 재시작·주기 확인만으로는 세우지 않는다(기기끼리 서로 뺏지 않게). 모바일 `CommunityGate._claimRequested` 와 같은 규칙.
+        self._claim_requested = False
         self._last_attempt: float | None = None
         # 신고 자료 주인 확인(services/account_data.py): None=아직 확인 안 함, 'ok', 'mismatch', 'unknown'(카카오 번호 확인 실패)
         self._owner: str | None = None
@@ -287,6 +290,7 @@ class _Gate:
             return
         conn = status.get("connection") if writer and writer.get("dataset_key") == dkey else None
         takeover, self._takeover_requested = self._takeover_requested, False
+        claim, self._claim_requested = self._claim_requested, False
         try:
             if conn and conn.get("status") == "active" and not takeover:
                 epoch, last = conn.get("writer_epoch"), conn.get("last_accepted_revision")
@@ -294,13 +298,13 @@ class _Gate:
                     res = client.rebind_connection(token, writer["connection_id"], writer["connection_secret"])
                     epoch, last = res.get("writer_epoch", epoch), res.get("last_accepted_revision", last)
                 writer = {**writer, "writer_epoch": epoch}
-            elif conn and conn.get("status") in ("superseded", "suspended") and not takeover:
+            elif conn and (conn.get("status") == "suspended" or (conn.get("status") == "superseded" and not claim)) and not takeover:
                 self._set_writer_note(f"connection_{conn['status']}")
                 return
-            else:  # 연결 없음·다른 사용자·다른 공식 계정·폐기됨·사용자가 전환 요청
+            else:  # 연결 없음·다른 사용자·다른 공식 계정·폐기됨·사용자가 전환 요청·방금 로그인/동의(다른 기기에서 가져옴)
                 secret = cas.random_b64url(32)
                 res = client.register_connection(token, platform=_platform(), device_label=service.default_device_label(),
-                                                 dataset_key=dkey, connection_secret=secret, takeover=takeover)
+                                                 dataset_key=dkey, connection_secret=secret, takeover=takeover or claim)
                 writer = {"connection_id": res["connection_id"], "connection_secret": secret,
                           "writer_epoch": res["writer_epoch"], "dataset_key": dkey, "user_id": user_id}
                 last = 0
@@ -337,6 +341,10 @@ class _Gate:
 
     def writer_note(self) -> dict | None:
         return self._writer_note
+
+    def claim_for_this_device(self) -> None:
+        """이 서버에서 카카오 로그인 확정 또는 공유 동의를 마쳤을 때: 다음 확인에서 업로드 연결을 이 서버로 가져온다."""
+        self._claim_requested = True
 
     def request_takeover(self) -> dict:
         """다른 기기가 업로드 연결을 쓰고 있을 때 관리자가 '이 서버로 업로드 전환'을 누르면."""
@@ -404,6 +412,7 @@ class _Gate:
             self._status, self._verified_at, self._invalidated = None, None, True
             self._last_state, self._writer_note, self._last_error = None, None, None
             self._takeover_requested = False
+            self._claim_requested = False
             self._last_attempt = None
             self._owner = None
             self._listeners.clear()
@@ -442,6 +451,10 @@ def verify_client_user_token(token: str | None) -> bool:
 
 def request_takeover() -> dict:
     return _gate.request_takeover()
+
+
+def claim_for_this_device() -> None:
+    _gate.claim_for_this_device()
 
 
 def status_view() -> dict:

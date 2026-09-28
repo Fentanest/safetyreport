@@ -84,3 +84,9 @@
 공개 설정 우선순위: 환경변수(`SAFETYREPORT_COMMUNITY_*` = `COMMUNITY_*` 별칭, 둘 다 있고 다르면 `config_conflict`) > `config.ini [COMMUNITY]` >
 빌드가 넣은 `community_public.json`(supabase_url·publishable_key·site_url). 비밀 키(`sb_secret_`·service_role)는 어느 경로로도 거부.
 fixture 모드는 `127.0.0.1` 스택에만 연결한다(계정 API·`/user` 확인 포함).
+
+## 업로드 연결 자동 전환 (2026-09-28)
+이 PC·서버(또는 모바일 기기)에서 카카오 로그인을 확정하거나(`/settings/community/confirm`, `/api/v1/community-auth/confirm`) 공유 동의를 저장하면
+게이트가 `claim_for_this_device()` 를 세우고, 다음 writer 확인 한 번에서 `superseded` 연결·`writer_conflict` 를 takeover 로 등록한다.
+재시작·60초 주기 확인만으로는 세우지 않는다. `suspended` 는 가져오지 않는다. 모바일 `CommunityGate._claimRequested`(로그인 단계가 브라우저·교환·계정 확인에서 연결로 바뀔 때, 온보딩 동의 저장 때)와 같은 규칙.
+설정 화면의 '이 기기로 업로드 전환' 버튼은 그대로 둔다.
