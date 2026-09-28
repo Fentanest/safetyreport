@@ -48,8 +48,7 @@ class ObservationVectorTest(unittest.TestCase):
                 if item.get("prev") is not None:
                     prev = {"payload_sha256": item["prev"]["payload_sha256"],
                             "eligible": item["prev"]["eligible"]}
-                elif item.get("server_completed"):
-                    prev = {"payload_sha256": None, "eligible": True}
+                # 2026-09-28: server_completed 합성 prev 없음 — 비적격 관측은 prev 와 무관하게 이벤트 없음
                 self.assertEqual(cap.decide_event(prev, payload), item["expect"])
 
     def test_build_adapter_input_maps_pc_columns(self):

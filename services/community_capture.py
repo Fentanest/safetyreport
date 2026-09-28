@@ -258,19 +258,18 @@ def is_eligible(payload: dict) -> bool:
 def decide_event(prev: dict | None, payload: dict) -> str | None:
     """prev = {'payload_sha256': str, 'eligible': bool} 또는 None.
 
-    eligible 이면 prev 가 없고(첫 관측) payload 가 같지 않은 한 completed_observation,
-    not eligible 이면 prev 가 eligible 일 때만 status_correction.
+    2026-09-28: 답변 완료(eligible) 관측만 이벤트를 만든다. 적격이 아닌 관측(처리중·보완요청·취하·이송·other)은
+    prev 와 무관하게 이벤트 없음(`status_correction` 발급 중단). eligible 이면 prev 가 없고(첫 관측) payload 가
+    같지 않은 한 completed_observation.
     """
     eligible = is_eligible(payload)
+    if not eligible:
+        return None
     if prev is None:
-        return "completed_observation" if eligible else None
-    if eligible:
-        if prev.get("eligible") and prev.get("payload_sha256") == payload_sha256(payload):
-            return None
         return "completed_observation"
-    if prev.get("eligible"):
-        return "status_correction"
-    return None
+    if prev.get("eligible") and prev.get("payload_sha256") == payload_sha256(payload):
+        return None
+    return "completed_observation"
 
 
 # ── 저장 ─────────────────────────────────────────────────────────────────────
@@ -292,10 +291,6 @@ def _project_namespace() -> str:
     except Exception:
         url = ""
     return project_namespace(url)
-
-
-def _server_key_prefix(source_report_id: str) -> str:
-    return hashlib.sha256(f"safetyreport|{source_report_id}".encode("utf-8")).hexdigest()[:24]
 
 
 def _rebuild_run_id(explicit: str | None) -> str | None:
@@ -349,15 +344,8 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
                 journal = tx.execute("SELECT report_number FROM source_journal WHERE event_id=?", (row["event_id"],)).fetchone()
                 prev = {"payload_sha256": row["payload_sha256"], "eligible": bool(row["eligible"]),
                         "report_number": journal["report_number"] if journal else None}
-        if prev is None:
-            ctx_row = tx.execute("SELECT dataset_key FROM context WHERE id=1").fetchone()
-            dataset_key = ctx_row["dataset_key"] if ctx_row and ctx_row["dataset_key"] else None
-            if dataset_key:
-                hit = tx.execute(
-                    "SELECT 1 FROM server_completed WHERE dataset_key=? AND key_prefix=?",
-                    (dataset_key, _server_key_prefix(source_report_id))).fetchone()
-                if hit is not None:
-                    prev = {"payload_sha256": None, "eligible": True}
+        # 2026-09-28: server_completed 로 prev 를 합성하지 않는다(비적격 관측은 정정을 발급하지 않음).
+        # server_completed 표·manifest 신선도 검사는 그대로 유지한다.
         if prev and report_number and prev.get("report_number") != report_number:
             prev = {**prev, "payload_sha256": None}
         event_type = decide_event(prev, payload)

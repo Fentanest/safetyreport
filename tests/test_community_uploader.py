@@ -358,6 +358,45 @@ class UploaderTest(unittest.TestCase):
         for projection in ("published", "removed", "held", "not_public", "not_applicable"):
             self.assertEqual(status["projections"].get(projection), 1, projection)
 
+    def test_superseded_corrections_blocked_not_sent(self):
+        """2026-09-28: 구버전 잔여 status_correction 은 보내지 않고 blocked 로 보존(명확한 이유 기록, drop 없음)."""
+        good = self._capture("R1")
+        local_id = self.store.local_dataset_id()
+        ctx = self.store.active_context()
+        with self.store.transaction() as tx:
+            tx.execute(
+                "INSERT INTO source_journal(event_id, project_namespace, local_dataset_id, dataset_key,"
+                " source_report_id, source_revision, event_type, captured_at, capture_trigger,"
+                " schema_version, parser_version, payload_json, payload_sha256, eligible,"
+                " contributor_fingerprint, connection_id, writer_epoch, consent_grant_id, personal_save_state)"
+                " VALUES ('aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', 'ns', ?, ?, 'R9', 99, 'status_correction',"
+                " '2026-09-01T00:00:00.000Z', 'realtime', 1, 'pc-parser-1', '{}', '00', 0, ?, ?, 1, ?, 'saved')",
+                (local_id, ctx["dataset_key"], ctx["contributor_fingerprint"],
+                 ctx["connection_id"], ctx["consent_grant_id"]))
+            tx.execute(
+                "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at)"
+                " VALUES ('aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa', 'pending', 0, 'realtime',"
+                " '2026-09-01T00:00:00.000Z')")
+        self.assertEqual(up.block_superseded_corrections(self.tmp), 1)
+        conn = self.store.connect()
+        outbox = conn.execute(
+            "SELECT state, last_error_code FROM outbox WHERE event_id='aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa'").fetchone()
+        self.assertEqual((outbox["state"], outbox["last_error_code"]), ("blocked", "deprecated_status_correction"))
+        journal = conn.execute(
+            "SELECT blocked_reason FROM source_journal WHERE event_id='aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa'").fetchone()
+        self.assertEqual(journal["blocked_reason"], "blocked:deprecated_status_correction")
+        # eligible 행은 그대로, 다시 호출해도 0 (멱등)
+        pending = conn.execute("SELECT state FROM outbox WHERE event_id=?", (good.event_id,)).fetchone()
+        self.assertEqual(pending["state"], "pending")
+        self.assertEqual(up.block_superseded_corrections(self.tmp), 0)
+        # 업로드 실행에서 correction 을 보내지 않고 eligible 만 보낸다
+        result = self._run_with(ok_resp([ack(good.event_id)]), trigger="manual")
+        self.assertEqual(result["result"], "sent")
+        sent_types = [e["event_type"] for env in self.posts for e in env["events"]]
+        self.assertNotIn("status_correction", sent_types)
+        kept = conn.execute("SELECT state FROM outbox WHERE event_id='aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa'").fetchone()
+        self.assertEqual(kept["state"], "blocked")
+
 
 class UploaderBranchesTest(UploaderTest):
     def setUp(self):

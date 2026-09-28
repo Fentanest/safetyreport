@@ -182,6 +182,35 @@ def _control_probing(store, scopes: dict[str, str]) -> None:
                        (_iso(_now()), scope))
 
 
+# ── 잔여 status_correction 차단 (2026-09-28: 발급 중단) ─────────────────────────
+
+SUPERSEDED_CORRECTION_CODE = "deprecated_status_correction"
+
+
+def block_superseded_corrections(data_dir=None) -> int:
+    """구버전이 적어 둔 미전송 `status_correction` 잔여 행을 보내지 않고 `blocked` 로 보존한다(명확한 이유 기록, drop 없음).
+
+    대상: outbox 대기(pending/retry_wait/auth_required) 중 journal event_type='status_correction' 인 행 +
+    outbox 에 없고 미ACK 인 같은 event_type journal 행(journal blocked_reason 표시로 enqueue 제외).
+    이미 전송돼 ACK 를 받은 행(역사 기록)은 건드리지 않는다. 반환=새로 차단한 outbox 행 수."""
+    store = _store(data_dir)
+    with store.transaction() as tx:
+        hit = tx.execute(
+            "SELECT 1 FROM source_journal WHERE event_type='status_correction' AND ack_status IS NULL"
+            " AND (blocked_reason IS NULL OR blocked_reason='') LIMIT 1").fetchone()
+        if hit is None:
+            return 0
+        tx.execute(
+            "UPDATE source_journal SET blocked_reason='blocked:deprecated_status_correction'"
+            " WHERE event_type='status_correction' AND ack_status IS NULL"
+            " AND (blocked_reason IS NULL OR blocked_reason='')")
+        cur = tx.execute(
+            "UPDATE outbox SET state='blocked', last_error_code='deprecated_status_correction',"
+            " lease_owner=NULL, lease_until=NULL WHERE state IN ('pending','retry_wait','auth_required')"
+            " AND event_id IN (SELECT event_id FROM source_journal WHERE event_type='status_correction')")
+        return int(cur.rowcount or 0)
+
+
 # ── enqueue ──────────────────────────────────────────────────────────────────
 
 def _enqueue_missing(trigger: str, data_dir=None) -> int:
@@ -555,6 +584,10 @@ def _run_upload(run_id: str, trigger: str, data_dir=None, progress=None) -> dict
         with store.transaction() as tx:  # 죽은 실행이 남긴 in_flight(만료 lease)만 되돌린다 — attempt 는 그대로
             tx.execute("UPDATE outbox SET state='retry_wait', next_retry_at=?, lease_owner=NULL, lease_until=NULL"
                        " WHERE state='in_flight' AND (lease_until IS NULL OR lease_until < ?)", (now, now))
+        try:
+            counts["blocked"] += block_superseded_corrections(data_dir)  # 잔여 status_correction 은 보내지 않는다
+        except Exception:
+            _log.info("[community] superseded correction 차단 실패", exc_info=True)
         if trigger in ("manual", "midnight", "recovery"):
             try:
                 _enqueue_missing(trigger, data_dir)

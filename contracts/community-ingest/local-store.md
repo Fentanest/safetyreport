@@ -83,6 +83,10 @@ CREATE TABLE rebuild_items (run_id TEXT NOT NULL, source_report_id TEXT NOT NULL
 
 규칙
 - capture: detail_status UPSERT + (이벤트면) journal INSERT·outbox INSERT(context active 일 때)·meta.next_revision 증가 + report_latest UPSERT(rebuild 중이면 report_latest_staging 에 유효 최신 포인터 — 새 이벤트면 그 id, 이벤트가 없으면 기존 최신 id, **둘 다 없으면 쓰지 않음**) 를 **한 트랜잭션**으로 commit 한 뒤 개인 DB 저장. capture 가 실패하면 그 신고의 개인 저장을 하지 않는다. 저장 결과로 최신 journal 행의 `personal_save_state` 갱신.
+  적격이 아닌 관측(처리중·보완요청·취하·이송·other)은 이벤트를 만들지 않는다 — `status_correction` 발급 없음(2026-09-28 결정).
+- 잔여 `status_correction` (구버전이 이미 적어 둔 미전송 행): 업로더가 전송하지 않고 `blocked` 로 보존한다 —
+  outbox `state='blocked'`, `last_error_code='deprecated_status_correction'`, journal `blocked_reason='blocked:deprecated_status_correction'`.
+  drop(삭제)하지 않고 이유를 남긴다. PC·모바일 동일. `blocked` 행은 reshare 후보·재전송 대상에서 제외된다.
 - 시작 시 정리: `personal_save_state='pending'` 이고 10분 지난 행은 개인 DB 의 원본 상세 행이 그 payload 의 status_raw 와 같으면 saved, 아니면 failed 로 맞춘다(표시용; 전송 가능 여부와 무관).
 - `source_revision` 은 `meta.next_revision` 하나로 파일 전체 단조 증가(데이터셋 회전으로 초기화하지 않음). 중앙 status·manifest 의 `last_accepted_revision` 보다 작으면 그 값+1 로 올린다.
 - capture 재시도 의도 기록(S-03): community.db 자체가 실패할 수 있으므로 **별도 파일** `<data>/community_capture_retry.json`(PC) / 앱 폴더 같은 이름(모바일) — `[{source_report_id, reason, failed_at, attempts}]`, 원자적 쓰기(임시 파일→fsync→rename).
@@ -93,5 +97,6 @@ CREATE TABLE rebuild_items (run_id TEXT NOT NULL, source_report_id TEXT NOT NULL
 - 전송 대상 = outbox 행 중 journal 의 (project_namespace, contributor_fingerprint, connection_id, consent_grant_id) 가 현재 `context` 와 같은 것. 다르면 `blocked:context_mismatch`.
 - 삭제: outbox 는 durable ACK 때 삭제. journal 은 신고별 최신 행 + 미ACK 전부 보존, 나머지 ACK 행은 90일 뒤 정리. 파일 200MB 초과 시 경고(자동 삭제 안 함).
 - `rotate_dataset(reason)`: 개인 DB 교체(복원·가져오기·모드 전환)·공식 계정 변경 **직전에** 호출(보수적 선회전, S-20) → 새 local_dataset_id, 이전 id 를 dataset_history 에. 교체가 실패해도 되돌리지 않는다(초기화를 한 번 더 요구할 뿐 데이터 손실·오귀속 없음). 이전 journal/outbox 삭제 안 함.
-- `server_completed` 는 writer 등록·rebind·takeover 직후와 초기화 시작 때 `community-ingest/manifest` 로 새로 받아 dataset 단위로 교체한다. 해당 신고의 correction 이 ACK 되면 그 행을 지운다.
+- `server_completed` 는 writer 등록·rebind·takeover 직후와 초기화 시작 때 `community-ingest/manifest` 로 새로 받아 dataset 단위로 교체한다(manifest 신선도 증명·fail-closed용).
+  capture 의 prev 합성에는 쓰지 않는다(2026-09-28 결정: 비적격 관측은 정정을 발급하지 않음).
 - `project_namespace` 가 바뀌면 이전 namespace 행은 `blocked:namespace_changed`(E05).

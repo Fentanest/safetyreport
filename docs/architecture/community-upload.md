@@ -5,6 +5,13 @@
 
 2026-09-28: 제목의 신고번호를 `report_number` private event 필드로 journal v3에 저장해 업로드한다. Observation 해시는 유지한다. 번호만 새로 확보되면 한 번 더 캡처한다. 중앙 `transferred` ACK는 저장 성공, 계정 간 불일치 `rejected`는 재시도하지 않는 blocked 상태이며 지도 패널에 사유를 표시한다. 새 Edge·migration 배포가 PC 업데이트보다 먼저여야 한다.
 
+2026-09-28(같은 날 확정): 답변 완료만 중앙에 올린다. 적격 = status ∈ {accepted, partial, rejected, completed_unknown}.
+처리중·보완요청·취하·이송·other 관측은 이벤트를 만들지 않는다 — `status_correction` 발급 중단, 로컬 `detail_status` 기록만.
+로컬 prev 합성에 `server_completed` 를 쓰지 않는다(표·manifest 신선도 검사는 유지). 구버전 잔여 미전송 `status_correction` 행은
+업로드 실행 시작 때 `block_superseded_corrections` 가 보내지 않고 `blocked:deprecated_status_correction` 으로 보존한다(drop 없음).
+서버는 비적격 payload·`status_correction` 이벤트를 이벤트 단위 `rejected:non_final_not_accepted`(durable=false)로 거절하며 배치 나머지는 정상 처리한다.
+답변 완료로 올라간 신고가 나중에 비종결 상태로 돌아가면(드묾) 중앙은 마지막 답변 상태를 유지한다.
+
 ## 흐름
 
 ```
@@ -27,7 +34,7 @@
 |---|---|
 | `services/community_capture.py` | 순수 함수(`build_adapter_input/build_payload/canonical_json/payload_sha256/is_eligible/decide_event`) + `capture/mark_personal_save/capture_retry_ids/on_contributions_deleted` |
 | `services/community_ingest_client.py` | `POST {supabase_url}/functions/v1/community-ingest` + manifest 조회, ACK 검증·분류 |
-| `services/community_uploader.py` | `request_upload/wake/start_background/stop_background/upload_status/reshare_candidates/request_reshare/refresh_server_completed/on_contributions_deleted` |
+| `services/community_uploader.py` | `request_upload/wake/start_background/stop_background/upload_status/reshare_candidates/request_reshare/refresh_server_completed/on_contributions_deleted/block_superseded_corrections` |
 | `services/community_crawl_upload.py` | 새 크롤링 전 미전송 자료 소진과 종료 뒤 복구 업로드, 현재 크롤링 로그 기록 |
 | `services/community_schedule.py` | KST 순수 함수(`due_key/next_due_at/should_run`) + `register_community_jobs/run_midnight/catch_up_on_start` |
 | `web/routers/community_upload_route.py` | `router`(관리자 `/community/upload/*`), `api_router`(API 키 `/api/v1/community/upload/*`) |
@@ -85,7 +92,7 @@
   - 재시도 실행기: `start_background` 1초 루프가 wake·`data_version` 변화(실시간)와 **다음 깨울 시각**(가장 이른 next_retry_at·
     cooldown 끝, 실행 뒤마다 다시 계산) 도달(복구)을 본다. 행마다 타이머를 두지 않는다. 종료 때 새 실행을 시작하지 않는다.
 - ACK `projection_status` 5종을 journal 에 저장하고 패널에 표시한다:
-  published=지도 반영됨, removed=지도에서 빠짐(정정),
+  published=지도 반영됨, removed=지도에서 빠짐,
   held=중앙 저장 완료·지도 반영 대기, not_public=중앙 저장(지도 비표시),
   not_applicable=변경 없음.
 - 삭제(`contributions-delete`, `web/routers/community_route.py` `_contributions_delete`) — 두 단계 표시(Sol 3·4차):

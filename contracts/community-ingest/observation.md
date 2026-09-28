@@ -64,11 +64,14 @@ payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won
 
 ## 4. event 결정 (앱의 capture 함수)
 `prev` = 같은 로컬 데이터셋에서 같은 신고의 **가장 최근 journal 행**(rebuild 중이면 이번 run 의 staging 을 먼저 본다).
-로컬 prev 가 없고 그 신고의 `source_report_key` 앞 24hex 가 `server_completed`(중앙 manifest — 이 dataset 에서 이미 completed 로 저장된 신고)에 있으면 prev 를 "eligible, 해시 불명"으로 본다(S-04: writer 전환·재설치 뒤 첫 비적격 관측도 정정을 보냄).
+중앙 manifest(`server_completed`)는 prev 합성에 쓰지 않는다 — 2026-09-28 결정으로 답변 완료가 아닌 관측은 정정 이벤트를 발급하지 않으므로,
+writer 전환·재설치 뒤 첫 비적격 관측도 이벤트 없음이 된다. `server_completed` 표 자체는 manifest 신선도 증명용으로 유지한다(local-store.md).
 - eligible: prev 가 있고 payload_sha256 이 같으면 새 이벤트 없음(내용 변화 없음). 아니면 `completed_observation`.
 - 단, 새로 얻은 non-null `report_number`가 최신 journal 번호와 다르면 같은 해시여도 `completed_observation`을 발급한다(레거시 백필). 로컬 이전 journal은 불변이다.
-- not eligible: prev 가 eligible 이면 `status_correction`(payload = 이번 관측 그대로). 아니면 이벤트 없음.
-- 이벤트가 없고 prev 도 없으면(예: 처음 본 처리중·취하 신고) `detail_status` 만 기록하고 report_latest/staging 은 쓰지 않는다(가리킬 journal 행이 없음). 이것은 capture 성공이다(S-06).
+- not eligible(처리중·보완요청·취하·이송·other 전부): **이벤트 없음**. prev 가 eligible 이었어도 `status_correction` 을 발급하지 않는다.
+  중앙은 마지막 답변 상태를 유지한다(드물게 답변이 비종결 상태로 돌아가도 중앙 fact 는 바뀌지 않는다).
+- 이벤트가 없으면 `detail_status` 만 기록하고 report_latest/staging 은 쓰지 않는다(가리킬 journal 행이 없음). 이것은 capture 성공이다(S-06).
+  처음 본 처리중·취하 신고도 마찬가지다.
 - `location_supplement`: 기존 자료와의 호환을 위해 서버가 받는 이벤트 종류로 남긴다. 새 앱/서버는 사용하지 않는다. 재조회에서 공식 좌표가 새로 생기거나 바뀌면 변경된 payload의 `completed_observation`을 보낸다.
 - `reshare`: 재동의·writer 전환 뒤 사용자가 지도 탭에서 **명시적으로** 요청할 때만. 신고별 최신 eligible journal 행의 payload·captured_at 을 그대로 두고 새 event_id·새 source_revision·현재 grant/connection/epoch 로 발급. 자동 실행 금지.
 - 개인 편집·백업 복원·DB 변환·가져오기·모바일 Client 는 이벤트를 만들지 않는다.
@@ -84,7 +87,11 @@ payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won
 - 좌표: `source="none"` ⇒ lat·lng 둘 다 null. `source="geocode"` ⇒ 둘 다 문자열, double 로 해석되고 lat ∈ [32, 39.5]·lng ∈ [124, 132], 그리고 **정규형**(해석한 double 의 최단 왕복 표기 + `.0` 규칙)과 문자열이 정확히 같아야 한다(`37.000`·`+37.5` 거부).
 - 금액: `confirmed_won` ≤ 100,000,000, `penalty_points` ≤ 1000(스키마), kind=unknown 이면 confirmed_won 은 null.
 - `status == map(status_raw)` 가 아니면 그 이벤트는 `quarantined:status_mapping_mismatch`(durable, fact 반영 안 함).
-- event_type 일관성: `completed_observation`·`location_supplement`·`reshare` 는 eligible payload 만, `status_correction` 은 not eligible payload 만, `location_supplement` 는 `location.source="geocode"` 만. 어기면 422. `reshare` 이벤트는 envelope `trigger="reshare"` 에서만 허용.
+- event_type 일관성: `completed_observation`·`location_supplement`·`reshare` 는 eligible payload 만 받는다.
+  payload 가 적격이 아니거나 event_type 이 `status_correction` 이면 그 이벤트는 `rejected:non_final_not_accepted`(durable=false, 재시도 불가)로
+  개별 거절하고 배치의 나머지 이벤트는 정상 처리한다(요청 전체 422가 아님). `status_correction` 이름은 envelope 스키마에 남겨
+  구버전 앱 배치가 전체 422 대신 이벤트별 거절을 받도록 인식만 유지한다(새 앱은 발급하지 않는다).
+  `location_supplement` 는 `location.source="geocode"` 만. 어기면 422. `reshare` 이벤트는 envelope `trigger="reshare"` 에서만 허용.
 - 서버가 `source_report_key = sha256(utf8("safetyreport|" + source_report_id))` 를 계산한다(클라이언트 값 받지 않음). fact 키는 (contributor, 연결의 dataset_key, source_report_key).
 - 삭제 tombstone 은 (contributor, source_report_key) — dataset_key 와 무관 — 이고, 그 신고의 이벤트는 captured_at·dataset_key 와 무관하게 영구 `rejected:deleted`.
 - grant 귀속: 기존 fact 의 grant 계보가 **사용자 철회로 비활성**이면, `reshare` 가 아닌 이벤트는 내용·순서만 갱신하고 fact 는 옛 (비공개) grant 에 남긴다 → 공개되지 않음(`projection_status=held`). `reshare` 이거나 계보가 활성(정책 갱신 재동의 포함)이면 현재 grant 로 귀속(S-02).

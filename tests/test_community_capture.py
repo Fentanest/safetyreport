@@ -113,7 +113,8 @@ class CaptureTest(unittest.TestCase):
         self.assertIsNone(result2.event_id)
         self.assertEqual(self._counts(), (0, 0, 0, 1))
 
-    def test_s04_server_completed_first_withdrawn_is_correction(self):
+    def test_s04_server_completed_does_not_create_correction(self):
+        # 2026-09-28: server_completed 적중해도 첫 비적격 관측은 이벤트 없음(정정 발급 중단).
         prefix = hashlib.sha256(b"safetyreport|R7").hexdigest()[:24]
         with self.store.transaction() as tx:
             tx.execute("INSERT INTO server_completed(dataset_key, key_prefix, fetched_at) VALUES (?, ?, ?)",
@@ -121,25 +122,32 @@ class CaptureTest(unittest.TestCase):
         adapter = dict(withdrawn_input())
         adapter["progress_status"] = "취하"
         result = cap.capture(adapter, source_report_id="R7", trigger="realtime", data_dir=self.tmp)
-        self.assertEqual(result.event_type, "status_correction")
-        self.assertEqual(self._counts(), (1, 1, 1, 1))
+        self.assertIsNone(result.event_id)
+        self.assertFalse(result.eligible)
+        self.assertEqual(self._counts(), (0, 0, 0, 1))
 
-    def test_withdrawn_after_shared_is_correction_then_stable(self):
+    def test_withdrawn_after_shared_creates_no_event(self):
         cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
         result = cap.capture(dict(withdrawn_input()), source_report_id="R1", trigger="realtime",
                              data_dir=self.tmp)
-        self.assertEqual(result.event_type, "status_correction")
+        self.assertIsNone(result.event_id)
+        # 같은 비적격 반복도 이벤트 없음. 중앙은 마지막 답변 상태를 유지한다.
         again = cap.capture(dict(withdrawn_input()), source_report_id="R1", trigger="realtime",
                             data_dir=self.tmp)
         self.assertIsNone(again.event_id)
-        self.assertEqual(self._counts(), (2, 2, 1, 0))
+        self.assertEqual(self._counts(), (1, 1, 1, 0))
 
-    def test_eligible_again_after_correction(self):
+    def test_eligible_again_after_not_eligible(self):
         cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
         cap.capture(dict(withdrawn_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        # 비적격 관측은 journal 에 남지 않으므로 같은 답변의 재관측은 무변경이다.
         result = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime",
                              data_dir=self.tmp)
-        self.assertEqual(result.event_type, "completed_observation")
+        self.assertIsNone(result.event_id)
+        edited = dict(eligible_input())
+        edited["processing_agency"] = "부산광역시 해운대구청"
+        changed = cap.capture(edited, source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(changed.event_type, "completed_observation")
 
     def test_inactive_context_writes_journal_without_outbox(self):
         self.store.deactivate_context("consent_revoked")

@@ -1453,8 +1453,7 @@
       "name": "first_eligible_creates_completed",
       "prev": null,
       "observation": "accepted_fine",
-      "expect": "completed_observation",
-      "server_completed": false
+      "expect": "completed_observation"
     },
     {
       "name": "same_content_again_creates_nothing",
@@ -1463,8 +1462,7 @@
         "eligible": true
       },
       "observation": "accepted_fine",
-      "expect": null,
-      "server_completed": false
+      "expect": null
     },
     {
       "name": "changed_eligible_creates_completed",
@@ -1473,66 +1471,40 @@
         "eligible": true
       },
       "observation": "partial_penalty_traffic",
-      "expect": "completed_observation",
-      "server_completed": false
+      "expect": "completed_observation"
     },
     {
-      "name": "withdrawn_after_shared_creates_correction",
+      "name": "withdrawn_after_shared_creates_nothing",
       "prev": {
         "payload_sha256": "66af3ac4da0f04dedee4928902c5ac87c132dae5e8cd80a8ca3f90716a7908b4",
         "eligible": true
       },
       "observation": "withdrawn_not_eligible",
-      "expect": "status_correction",
-      "server_completed": false
+      "expect": null
     },
     {
       "name": "not_eligible_never_shared_creates_nothing",
       "prev": null,
       "observation": "processing_not_eligible",
-      "expect": null,
-      "server_completed": false
+      "expect": null
     },
     {
-      "name": "not_eligible_after_correction_creates_nothing",
+      "name": "not_eligible_after_not_eligible_creates_nothing",
       "prev": {
         "payload_sha256": "98978b1257ff8c4c807163fb1003824f6475751b5c526ddff953092079522ba2",
         "eligible": false
       },
       "observation": "transferred_not_eligible",
-      "expect": null,
-      "server_completed": false
+      "expect": null
     },
     {
-      "name": "eligible_again_after_correction",
+      "name": "eligible_after_not_eligible_creates_completed",
       "prev": {
         "payload_sha256": "98978b1257ff8c4c807163fb1003824f6475751b5c526ddff953092079522ba2",
         "eligible": false
       },
       "observation": "accepted_fine",
-      "expect": "completed_observation",
-      "server_completed": false
-    },
-    {
-      "name": "server_known_completed_then_withdrawn",
-      "prev": null,
-      "server_completed": true,
-      "observation": "withdrawn_not_eligible",
-      "expect": "status_correction"
-    },
-    {
-      "name": "server_known_completed_same_eligible_is_sent",
-      "prev": null,
-      "server_completed": true,
-      "observation": "accepted_fine",
       "expect": "completed_observation"
-    },
-    {
-      "name": "server_unknown_not_eligible_creates_nothing",
-      "prev": null,
-      "server_completed": false,
-      "observation": "withdrawn_not_eligible",
-      "expect": null
     }
   ]
 }

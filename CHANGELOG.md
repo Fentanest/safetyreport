@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-28 답변 완료만 수집·완전 동일만 이전 (dev 미배포)
+
+- 답변 완료(accepted/partial/rejected/completed_unknown) 관측만 이벤트로 만든다. 처리중·보완요청·취하·이송·other 는 이벤트 없음 — `status_correction` 발급 중단, 로컬 `detail_status` 기록만. `server_completed` prev 합성 제거(표·manifest 신선도 검사는 유지).
+- 구버전 잔여 미전송 `status_correction` 행은 `block_superseded_corrections` 가 보내지 않고 `blocked:deprecated_status_correction` 으로 보존한다(모바일 동일, drop 없음).
+- 서버 거절 `non_final_not_accepted`·완전 동일 조건 변경에 맞춰 계약 사본을 지도 정본에 동기화했다. 답변 완료 뒤 비종결 상태로 돌아가도 중앙은 마지막 답변 상태를 유지한다.
+
 ## 2026-09-28 신고번호·소유 이전 업로드
 
 - 공식 제목 신고번호를 private community journal v3와 ingest event에 포함한다. Observation 해시를 유지하며 번호 백필 때 새 이벤트를 만든다.
