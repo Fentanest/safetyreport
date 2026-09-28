@@ -1,7 +1,7 @@
 # Agency/region resolver — algorithm (3 ports, one spec)
 
 `resolve.py`가 정본이다. `resolve.dart`·`resolve.ts`는 같은 입력에서 같은 값을
-반환해야 하며 `vectors/resolve_cases.json` 28건으로 확인한다.
+반환해야 하며 `vectors/resolve_cases.json` 31건으로 확인한다.
 
 ## 입력·출력
 
@@ -26,8 +26,9 @@
 3. 폐지 코드는 legacy `forward`(최종 현존 경계)로 귀결하고, 후속이 둘 이상이면
    `historical`((구) 표시, 별도 src 행)으로 보존한다. 후속 없음·순환·공란은
    `unresolved`(원문 유지)이다.
-4. 코드가 없으면 전체기관명 정확 일치 + 해당 시점 유일 후보만 파생한다
-   (`code_derived: true`). 둘 이상·없음이면 `unresolved`이다.
+4. 코드가 없으면 경계 코드의 표시명(`name`)과 공식 전체기관명(`lookup_name`)
+   양쪽을 정확 일치로 찾고, 해당 시점의 유일한 코드 후보만 파생한다
+   (`code_derived: true`). 동일 코드는 한 번만 센다. 둘 이상·없음이면 `unresolved`이다.
 5. 지역은 `old_code` 일치 사건만 본다. `effective_date` 이전이면
    `current_then`(당시 현행), 이후면 relation별 판정:
    `rename`/`rename_under_merge`/`transfer`/`merge` → `resolved`,

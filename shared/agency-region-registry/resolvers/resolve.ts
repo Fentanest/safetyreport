@@ -24,7 +24,7 @@ export interface RegionResolution {
 }
 
 /** Runtime snapshot bundle. index rows follow data/agency_index.json cols:
- *  [name|null, agg, type|null, created8|null] keyed by code. */
+ *  [name|null, agg, type|null, created8|null, lookupName|null] keyed by code. */
 export interface AgencySnapshot {
   links: Array<Record<string, string>>;
   index: Record<string, Array<string | null>>;
@@ -163,10 +163,12 @@ function aliasAll(name: string, snap: AgencySnapshot): string[] {
   if (table === undefined) {
     table = new Map<string, string[]>();
     for (const [code, row] of Object.entries(snap.index)) {
-      if (row[0] !== null) {
-        const list = table.get(row[0] as string) ?? [];
-        list.push(code);
-        table.set(row[0] as string, list);
+      for (const key of [row[0], row[4]]) {
+        if (key != null) {
+          const list = table.get(key) ?? [];
+          if (!list.includes(code)) list.push(code);
+          table.set(key, list);
+        }
       }
     }
     for (const [old, oldName] of Object.entries(snap.multi)) {

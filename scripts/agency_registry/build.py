@@ -17,7 +17,7 @@ Outputs (tracked runtime snapshot):
   data/region_events.json      typed region lineage events (relation/handling are
                                data, never parsed at runtime)
   data/agency_links.json       verified 1:1 agency succession links (seed + derived)
-  data/agency_index.json       현존 기관코드 색인 [code,name,agg,type,created]
+  data/agency_index.json       현존 기관코드 색인 [code,name,agg,type,created,lookup_name]
   data/agency_legacy.json      폐지 코드 {forward,multi}
   manifest.json                schema/registry versions, dates, hashes, readers
   provenance.json              input hashes, builder version, evidence pointers
@@ -153,7 +153,7 @@ def main() -> int:
     links.sort(key=lambda l: (l["from_code"], l["to_code"]))
     (data / "agency_links.json").write_text(canon({"links": links}) + "\n", encoding="utf-8")
     (data / "agency_index.json").write_text(canon({
-        "cols": ["code", "name", "agg", "type", "created"],
+        "cols": ["code", "name", "agg", "type", "created", "lookup_name"],
         "rows": derived["index_rows"]}) + "\n", encoding="utf-8")
     (data / "agency_legacy.json").write_text(canon({
         "forward": derived["forward"], "multi": derived["multi"]}) + "\n", encoding="utf-8")
@@ -198,7 +198,8 @@ def main() -> int:
                        "'경찰청 ' 접두어만 한 번 제거(2026-09-29 사용자 결정). "
                        "공백 경계의 정확한 접두어만 해당: 본청 '경찰청'·'경찰청장…'·"
                        "비경찰 이름은 그대로. 집계(경계 판정)의 이름 경로 비교는 "
-                       "공식 원문명으로 하며 multi((구) 역사 표시)는 원문을 둔다.",
+                       "공식 원문명으로 하며 multi((구) 역사 표시)는 원문을 둔다. "
+                       "lookup_name은 표시명과 다를 때 공식 전체기관명을 보존한다.",
             "stats": derived["stats"],
         },
         "limits": [

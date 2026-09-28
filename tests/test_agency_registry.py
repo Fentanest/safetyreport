@@ -1,6 +1,6 @@
-"""Agency/region registry vectors — shared snapshot resolvers check (2026-09-29.1).
+"""Agency/region registry vectors — shared snapshot resolvers check (2026-09-29.2).
 
-shared/agency-region-registry/vectors/resolve_cases.json 의 25건을 정본 리더(resolve.py)로
+shared/agency-region-registry/vectors/resolve_cases.json 의 31건을 정본 리더(resolve.py)로
 확인한다. Dart/TS 포트는 각 레포의 같은 파일로 검증한다.
 """
 import json
@@ -36,7 +36,7 @@ class RegistryVectorTests(unittest.TestCase):
         cls.events = json.loads((REGISTRY / "data" / "region_events.json").read_text(encoding="utf-8"))["events"]
 
     def test_case_count(self):
-        self.assertEqual(len(self.cases), 28)
+        self.assertEqual(len(self.cases), 31)
 
     def test_all_vectors(self):
         for case in self.cases:

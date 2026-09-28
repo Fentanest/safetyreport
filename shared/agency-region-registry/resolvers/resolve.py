@@ -97,15 +97,18 @@ class Snapshot:
         return name or None
 
     def alias_all(self, name: str) -> list[str]:
-        """해당 전체기관명을 가진 모든 코드(시대 무관). 결과는 호출자가 시대로 거른다.
+        """표시명 또는 공식 전체기관명을 가진 모든 코드. 호출자가 시대로 거른다.
 
         8만 행 스캔을 매 신고마다 반복하지 않기 위한 스냅샷별 캐시다.
         """
         if self._alias_all is None:
             table: dict[str, list[str]] = {}
             for code, row in self.index.items():
-                if row.get("name"):
-                    table.setdefault(row["name"], []).append(code)
+                for key in (row.get("name"), row.get("lookup_name")):
+                    if key:
+                        codes = table.setdefault(key, [])
+                        if code not in codes:
+                            codes.append(code)
             for old, old_name in self.multi.items():
                 table.setdefault(old_name, [])
                 if old not in table[old_name]:

@@ -9,7 +9,7 @@
 같은 행 집합이므로 읽지 않는다(조사용으로만 둔다).
 
 출력(결정적: 코드 정렬, canon JSON):
-  data/agency_index.json   현존 코드 색인 {cols, rows:[code,name,agg,type,created]}
+  data/agency_index.json   현존 코드 색인 {cols, rows:[code,name,agg,type,created,lookup_name]}
   data/agency_legacy.json  폐지 코드 {forward:{old:final}, multi:{old:name}}
   derived links 목록        경계-수준 1:1 이전기관코드 연쇄 (build.py가 seed와 합쳐 기록)
 
@@ -39,7 +39,8 @@
   본청 '경찰청'(접두어 뒤에 아무것도 없음) → '경찰청' 그대로,
   '경찰청장…' 같은 다른 이름·비경찰 이름 → 그대로.
   집계(경계 판정)의 이름 경로 비교는 공식 원문명으로 하며, 제거는 출력 단계에서만
-  적용한다. multi(폐지 (구) 표시용 마지막 알려진 이름)는 역사 표시이므로 원문을 둔다.
+  적용한다. 별칭 조회용 lookup_name은 표시명과 다를 때 공식 원문명을 보존한다.
+  multi(폐지 (구) 표시용 마지막 알려진 이름)는 역사 표시이므로 원문을 둔다.
 """
 from __future__ import annotations
 
@@ -61,6 +62,12 @@ def display_agency_name(official_name: str | None) -> str:
     if name.startswith(POLICE_DISPLAY_PREFIX):
         return name[len(POLICE_DISPLAY_PREFIX):]
     return name
+
+
+def lookup_agency_name(official_name: str | None) -> str | None:
+    """표시명과 다른 공식 전체기관명만 별칭 조회용으로 추가한다."""
+    name = (official_name or "").strip()
+    return name if name and name != display_agency_name(name) else None
 
 EXCLUDED_TOP_TYPES = {"04", "05", "06", "11", "12", "13", "14", "15", "16", "17", "18", "80"}
 
@@ -244,10 +251,11 @@ def build_derived(by_code: dict[str, dict]) -> dict:
             if agg == code:
                 stats["boundaries"] += 1
                 index_rows.append([code, display_agency_name(row.get("name")),
-                                   code, _type_tag(row), row.get("created")])
+                                   code, _type_tag(row), row.get("created"),
+                                   lookup_agency_name(row.get("name"))])
             else:
                 stats["children"] += 1
-                index_rows.append([code, None, agg, None, None])
+                index_rows.append([code, None, agg, None, None, None])
 
     # kept 자식이 참조하는데 제외 유형이라 빠진 경계(대학 등)는 이름과 함께 포함한다.
     # 제외 취지는 번들 크기이며 참조된 경계는 소수이므로, dangling agg를 남기지 않는다.
@@ -263,7 +271,8 @@ def build_derived(by_code: dict[str, dict]) -> dict:
         boundary_names.setdefault(agg, {
             "name": display_agency_name(agg_row.get("name")), "created": agg_row.get("created")})
         index_rows.append([agg, display_agency_name(agg_row.get("name")),
-                           agg, _type_tag(agg_row), agg_row.get("created")])
+                           agg, _type_tag(agg_row), agg_row.get("created"),
+                           lookup_agency_name(agg_row.get("name"))])
     index_rows.sort(key=lambda r: r[0])
 
     for code, row in sorted(by_code.items()):
