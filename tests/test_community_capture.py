@@ -77,6 +77,18 @@ class CaptureTest(unittest.TestCase):
         self.assertIsNone(result2.event_id)
         self.assertEqual(self._counts(), (1, 1, 1, 0))
 
+    def test_later_numeric_rating_changes_hash_and_emits_event_without_reason(self):
+        first = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        rated = dict(eligible_input(), rating=4, rating_reason="비공개 사유")
+        second = cap.capture(rated, source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(second.event_type, "completed_observation")
+        self.assertNotEqual(first.payload_sha256, second.payload_sha256)
+        self.assertIsNone(cap.capture(rated, source_report_id="R1", trigger="realtime", data_dir=self.tmp).event_id)
+        payload = cap.build_payload(rated)
+        self.assertEqual(payload["rating"], 4)
+        self.assertNotIn("reason", cap.canonical_json(payload))
+        self.assertIsNone(cap.build_payload(dict(rated, rating=6))["rating"])
+
     def test_changed_official_coordinates_emit_new_completed_observation(self):
         first = eligible_input()
         first["geocode"] = {"status": "ok", "lat": 37.560123456789, "lng": 126.830123456789}
@@ -407,6 +419,12 @@ class AgencyCodePayloadTests(unittest.TestCase):
         again = cap.capture(dict(eligible_input(), agency_code="N" * 33),
                             source_report_id="LONG-SAME", trigger="realtime", data_dir=self.tmp)
         self.assertIsNone(again.event_type)
+        fixed = cap.capture(dict(eligible_input(), agency_code=None),
+                            source_report_id="LONG-SAME", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(fixed.event_type, "completed_observation")
+        self.assertEqual(fixed.payload_sha256, blocked.payload_sha256)
+        self.assertIsNone(conn.execute("SELECT blocked_reason FROM source_journal WHERE event_id=?",
+                                       (fixed.event_id,)).fetchone()[0])
 
     def test_same_report_two_accounts_create_separate_events(self):
         # A가 올린 동일 신고를 B도 제출: A 큐·연결을 건드리지 않고 B의 이벤트를 만든다(전역 중복 제거는 서버 몫).

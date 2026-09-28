@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-28 숫자 별점 공유 (dev 미배포)
+- observation-v4는 공식 상세에서 확인한 `별점` 정수 1..5만 공유한다(null 허용). `별점사유`는 payload에 넣지 않는다. 별점이 있는 재조회는 해시 변경으로 새 완료 관측이 된다.
+- 사이트 별점 확인 뒤 `rating_confirmed_refetch`를 재조회 목록에 기록해 다음 증분 수집에서 공식 상세를 다시 캡처한다.
+- parser_version `pc-parser-4`; DB 교환 스키마·양방향 변환은 변경하지 않았다. 계약 사본은 지도 정본에서 동기화했다.
+
 ## 2026-09-28 계정별 기여·원문 기관코드 수집 (dev 미배포)
 
 - 계정별 기여(소유 이전 대체): capture prev·reshare 후보·발급을 현 계정(dataset_key·fingerprint) 범위로만 본다.

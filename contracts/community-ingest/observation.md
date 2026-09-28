@@ -1,7 +1,7 @@
-# 공식 관측 → 공유 DTO (observation-v3)
+# 공식 관측 → 공유 DTO (observation-v4)
 
 ## 1. 확정 시점
-공식 상세 응답을 받고 파서가 끝난 직후, **개인 수정값(override)·별점 보강·화면 계산과 합치기 전** 에 DTO 를 만들고 정규 JSON 문자열로 확정한다.
+공식 상세 응답을 받고 파서가 끝난 직후, **개인 수정값(override)·별점사유 보강·화면 계산과 합치기 전** 에 DTO 를 만들고 정규 JSON 문자열로 확정한다.
 그 문자열을 앱의 `community.db` source journal 에 먼저 commit 한 뒤에 개인 DB 저장을 진행한다. 이후 어떤 경로도 journal 의 payload 를 바꾸지 않는다.
 전송·재시도·수동·자정 업로드는 journal 의 문자열을 그대로 보낸다(개인 DB 재조회 금지).
 
@@ -21,6 +21,7 @@
 | `violation_location` | `violation_location` / 위반장소 | `location` |
 | `entry_value` | `entry_value` | `entryValueFromDetail(...)` |
 | `penalty_points` | `penalty_points` / 벌점 | `penaltyPoints` |
+| `rating` | `title_fields['별점']`(공식 상세의 만족도 점수) | `rating` |
 | `violation_law` | `violation_law` / 위반법규 (2026-09-28, v2) | `law` |
 | `geocode` | 공식 상세 응답의 `C_A_W/E` 또는 완료된 보완의 `SPLMNT_C_A_W/E` | 같은 공식 상세 응답의 `C_A_W/E` 또는 완료된 보완의 `SPLMNT_C_A_W/E` |
 
@@ -56,12 +57,13 @@
 - `disposition`: status=rejected → `none`; 아니면 penalty_amount 가 `범칙금` 으로 시작 → `penalty`, `과태료` 로 시작 → `fine`, `경고` → `warning`, 그 밖(`미확인`·빈 값 포함) → `unknown`. 금액·처분을 추측하지 않는다.
 - `agency_name` = clean(processing_agency, 200), `manager_name` = clean(person_in_charge, 160), `vehicle_raw` = clean(car_number, 64), `address` = clean(violation_location, 200).
   `agency_name` 은 선택된 답변의 기관명 **원문**이며 현행 표시명으로 재정의하지 않는다(원문·현행 분리 — handoff §4).
+- `rating` = 공식 상세의 숫자 별점이 정수 1..5이면 그 값, 아니면 null (v4, 2026-09-28). `별점사유`는 입력·payload·해시에 넣지 않는다. 나중에 공식 상세에서 별점이 확인되면 변경된 payload 해시로 `completed_observation`을 발급한다.
 - `violation_law` = clean(violation_law, 60) (v2, 2026-09-28). 파서가 처리내용에서 뽑은 **법 이름·조항만**(예: `도로교통법 제32조`) — 처리내용 원문은 보내지 않는다. 못 뽑았으면 null.
 - `source_agency_code` = 원문(32자 이내, 2026-09-28) (v3).
   선택된 답변의 `C_MANAGE_ORG` **원문**(TEXT, 7자리 영숫자·선행 0 보존, 정수 변환 금지).
   HTML fallback 등 코드를 얻지 못하면 null(후보 코드를 원문 필드에 써넣지 않음). 검증되지 않은 신규 형식도 원문 그대로 보존한다.
   32자를 초과하면 앱이 조용히 null 로 버리지 않는다 — 수집 단계에서 `blocked:source_agency_code_too_long` 사유로
-  전송 제외하고 journal 에 명시 기록한다(명시적 거절, REVIEW3 낮음-1). 서버 edge 는 같은 값을 422 `schema_invalid`
+  전송 제외하고 journal 에 명시 기록한다(명시적 거절, REVIEW3 낮음-1). 차단된 코드를 null 또는 정상 코드로 고치면 payload 해시가 같더라도 새 완료 관측을 발급해 전송 가능 상태로 복구한다(REVIEW5). 서버 edge 는 같은 값을 422 `schema_invalid`
   (사유 `source_agency_code_too_long`)로 거절한다. 세 층(서버·PC·모바일)의 규칙·사유 문자열은 동일하다.
   서버는 7자리 영숫자만 기관 해석에 쓰고 나머지는 미확인으로 둔다. `agency_name` 과 같은 답변에서 가져온다(섞지 않음).
   v1/v2 payload 에는 이 키가 없다 — **키 부재는 명시적 null 이 아니다**.
@@ -71,8 +73,8 @@
   lat·lng = 그 double 의 **최단 왕복 10진 문자열**(지수 표기 없음, 소수점이 없으면 `.0` 을 붙임 — Python `repr`, Dart `toString`, JS `String()` 후 보정), `source = "geocode"`;
   아니면 lat·lng null, `source = "none"`. 좌표를 반올림·격자화하지 않는다(공개 정책: 입력 좌표 그대로).
 
-payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won, kind, penalty_points}, category, completed_date, disposition, location{lat, lng, source}, manager_name, report_date, status, status_raw, vehicle_raw, violation_law, source_agency_code`.
-v1(12키, `violation_law`·`source_agency_code` 없음)·v2(13키, `source_agency_code` 없음) payload 도 서버가 받는다(구 앱 호환) — 키가 없는 관측의 해당 값은 null(명시적 null 과 구별은 journal 의 parser 버전으로 한다).
+payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won, kind, penalty_points}, category, completed_date, disposition, location{lat, lng, source}, manager_name, report_date, status, status_raw, vehicle_raw, violation_law, source_agency_code, rating`.
+v1(12키)·v2(13키)·v3(14키, `rating` 없음) payload 도 서버가 받는다(구 앱 호환) — 키가 없는 관측의 해당 값은 null(명시적 null 과 구별은 journal 의 parser 버전으로 한다).
 공식 로그인 정보·쿠키·헤더·사진·첨부·신고 본문·처리내용 원문은 넣지 않는다. `source_report_id` 는 envelope 의 event 필드(private)로만 간다.
 `report_number` 역시 Observation 밖의 private event 필드다. 공백을 잘라 빈 값은 null로 보낸다. 중앙은 `^SPP-[0-9]{4,6}-[0-9]{6,8}$`만 받는다. 기존 이벤트의 필드 생략도 null로 해석한다. 번호만 뒤늦게 채워졌으면 payload_sha256이 같아도 새 이벤트를 발급한다. Observation 해시와 parser/contract 버전은 그대로이며 기존 전체 신고를 일괄 update하지 않는다.
 
@@ -80,7 +82,8 @@ v1(12키, `violation_law`·`source_agency_code` 없음)·v2(13키, `source_agenc
 `prev` = 같은 로컬 데이터셋에서 같은 신고의 **가장 최근 journal 행**(rebuild 중이면 이번 run 의 staging 을 먼저 본다).
 중앙 manifest(`server_completed`)는 prev 합성에 쓰지 않는다 — 2026-09-28 결정으로 답변 완료가 아닌 관측은 정정 이벤트를 발급하지 않으므로,
 writer 전환·재설치 뒤 첫 비적격 관측도 이벤트 없음이 된다. `server_completed` 표 자체는 manifest 신선도 증명용으로 유지한다(local-store.md).
-- eligible: prev 가 있고 payload_sha256 이 같으면 새 이벤트 없음(내용 변화 없음). 아니면 `completed_observation`.
+- PC·모바일 Standalone에서 별점 제출 뒤 사이트가 1..5점을 확인하면 로컬 capture 재조회 의도(`rating_confirmed_refetch`)를 남긴다. 다음 증분 수집은 이 신고의 공식 상세를 다시 읽는다. 확인 전 입력 점수나 자유 텍스트를 공유하지 않는다.
+- eligible: 별점의 null→1..5 또는 점수 변경은 payload 해시 변경이다. prev 가 있고 payload_sha256 이 같으면 새 이벤트 없음(내용 변화 없음). 아니면 `completed_observation`.
 - 단, 새로 얻은 non-null `report_number`가 최신 journal 번호와 다르면 같은 해시여도 `completed_observation`을 발급한다(레거시 백필). 로컬 이전 journal은 불변이다.
 - not eligible(처리중·보완요청·취하·이송·other 전부): **이벤트 없음**. prev 가 eligible 이었어도 `status_correction` 을 발급하지 않는다.
   중앙은 마지막 답변 상태를 유지한다(드물게 답변이 비종결 상태로 돌아가도 중앙 fact 는 바뀌지 않는다).

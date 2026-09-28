@@ -30,7 +30,7 @@ STATUS_MAP = {
     "처리중": "processing",
 }
 ELIGIBLE = {"accepted", "partial", "rejected", "completed_unknown"}
-PARSER_VERSION = "pc-parser-3"  # 2026-09-28 observation-v3(source_agency_code)
+PARSER_VERSION = "pc-parser-4"  # 2026-09-28 observation-v4(rating)
 SCHEMA_VERSION = 1
 
 _AMOUNT_RE = re.compile(r"^(과태료|범칙금):\s*(.+?)\s*원$")
@@ -233,6 +233,7 @@ def build_adapter_input(detail: dict, title_fields: dict | None = None,
         "penalty_points": detail.get("벌점"),
         # observation-v2(2026-09-28): 파서가 처리내용에서 뽑은 법 이름·조항(처리내용 원문은 보내지 않는다)
         "violation_law": detail.get("위반법규"),
+        "rating": title_fields.get("별점"),
         "geocode": {
             "status": geo.get("지오코딩상태"),
             "lat": geo.get("위도"),
@@ -286,6 +287,7 @@ def build_payload(adapter_input: dict) -> dict:
         "status_raw": status_raw,
         "vehicle_raw": _clean(adapter_input.get("car_number"), 64),
         "violation_law": _clean(adapter_input.get("violation_law"), 60),
+        "rating": adapter_input.get("rating") if type(adapter_input.get("rating")) is int and 1 <= adapter_input["rating"] <= 5 else None,
         # v3: 원문 기관코드 그대로(TEXT·선행 0 보존). 신규 형식도 자르지 않고, 없으면 null.
         # 상한 초과분은 여기서 null 로 두되(전송 형태 안전), capture() 가 명시적
         # 사유(blocked:source_agency_code_too_long)로 기록한다 — 조용히 버리지 않음.
@@ -413,8 +415,11 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
         # 거절 이벤트를 만든다. 초과분은 payload에서 None으로 두어 sha가 같아
         # decide_event이 None을 내지만, 사유 없이는 원문 코드가 조용히 버려진
         # 것처럼 보인다. 이미 같은 sha·같은 blocked 사유로 기록됐으면 quiet 유지.
-        if event_type is None and code_blocked and eligible:
-            if (prev or {}).get("blocked_reason") != f"blocked:{AGENCY_CODE_TOO_LONG}":
+        if event_type is None and eligible:
+            prev_blocked = (prev or {}).get("blocked_reason") == f"blocked:{AGENCY_CODE_TOO_LONG}"
+            # REVIEW5: 같은 payload 해시라도 차단 원문을 NULL로 고쳤으면
+            # 차단된 journal 뒤에 전송 가능한 새 관측을 발급해야 한다.
+            if code_blocked != prev_blocked:
                 event_type = "completed_observation"
         if event_type is None:
             return CaptureResult(event_id=None, event_type=None, eligible=eligible, payload_sha256=sha)

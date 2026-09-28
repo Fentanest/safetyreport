@@ -141,3 +141,7 @@
 - 계약 `observation-v2`(`contracts/community-ingest`, 지도 레포 정본 사본), 필수 동의 정책 `2026-09-28.2`(위반법규 공개 항목 추가). 당시 parser_version `pc-parser-2`/`mobile-parser-2`(현행 v3는 위 절).
 - 중앙은 v1(12키) payload 도 받는다. 기존 공유 자료에는 위반법규가 없으므로, 배포 때 사용자 결정으로 중앙 공유 자료를 초기화하고 다시 올린다(초기화는 배포 절차, 코드에서 자동 실행하지 않음).
 - 배포 순서: 중앙 SQL·auth 정책 migration → Edge Function → 앱. 앱이 먼저 나가면 중앙이 v2 를 몰라 422 로 보류된다(잃지 않음).
+
+## 숫자 별점 공유 (observation-v4, 2026-09-28)
+- 상세에서 확인한 별점 정수 1..5만 `rating`으로 캡처하고, 없거나 범위 밖이면 null로 보낸다. 별점사유 자유 텍스트는 전송하지 않는다. PC에서 사이트 별점 확인 뒤 capture 재조회 의도(rating_confirmed_refetch)를 기록해 다음 증분 수집의 공식 상세를 다시 읽는다. 점수가 바뀌면 payload SHA-256이 달라져 `completed_observation`이 발급된다.
+- 동의 정책 2026-09-28.3에서 별점 평균·건수를 공개한다. 기존 .1/.2 계보는 별점을 공개하지 않는다. DB 교환 스키마는 그대로다.

@@ -55,7 +55,7 @@ class ObservationVectorTest(unittest.TestCase):
         detail = {"처리상태": "수용", "범칙금_과태료": "과태료: 40,000원", "답변일": "2026-09-10",
                   "처리기관": "서울특별시 중구청", "담당자": "홍길동", "차량번호": "12가3456",
                   "위반장소": "서울특별시 중구 세종대로 110", "벌점": ""}
-        adapter = cap.build_adapter_input(detail, {"신고일": "2026-09-01", "신고번호": "SPP-2609-8000001"}, "불법주정차신고",
+        adapter = cap.build_adapter_input(detail, {"신고일": "2026-09-01", "신고번호": "SPP-2609-8000001", "별점": 5, "별점사유": "비공개"}, "불법주정차신고",
                                           {"위도": 37.5, "경도": 127.0, "지오코딩상태": "ok"}, "답변완료")
         self.assertEqual(adapter["processing_status"], "수용")
         self.assertEqual(adapter["report_date"], "2026-09-01")
@@ -63,9 +63,12 @@ class ObservationVectorTest(unittest.TestCase):
         self.assertEqual(adapter["entry_value"], "불법주정차신고")
         self.assertEqual(adapter["geocode"], {"status": "ok", "lat": 37.5, "lng": 127.0})
         self.assertEqual(adapter["progress_status"], "답변완료")
+        self.assertEqual(adapter["rating"], 5)
         payload = cap.build_payload(adapter)
         self.assertNotIn("progress_status", cap.canonical_json(payload))
         self.assertEqual(payload["status"], "accepted")
+        self.assertEqual(payload["rating"], 5)
+        self.assertNotIn("별점사유", cap.canonical_json(payload))
 
 
 class CanonicalJsonVectorTest(unittest.TestCase):
