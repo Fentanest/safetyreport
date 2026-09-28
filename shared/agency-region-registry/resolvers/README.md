@@ -1,7 +1,7 @@
 # Agency/region resolver — algorithm (3 ports, one spec)
 
 `resolve.py`가 정본이다. `resolve.dart`·`resolve.ts`는 같은 입력에서 같은 값을
-반환해야 하며 `vectors/resolve_cases.json` 25건으로 확인한다.
+반환해야 하며 `vectors/resolve_cases.json` 28건으로 확인한다.
 
 ## 입력·출력
 

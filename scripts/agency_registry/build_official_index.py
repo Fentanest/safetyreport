@@ -31,6 +31,15 @@
   폐지 코드 X의 후속 = 이전기관코드가 X인 행. 각 후속을 경계 코드로 매핑한 집합이
   정확히 1개(현존 경계 B)면 X→B 전달(forward). 2개 이상이면 multi((구) 보존),
   0개·순환이면 미기록(미확정). 공란(NULL)이면 연결하지 않는다.
+
+표시명 규칙(2026-09-29 사용자 결정):
+  경계 코드의 저장명(= 현행 표시명)은 공식 '전체기관명'에서 맨 앞의 '경찰청 '
+  접두어만 한 번 뗀다. 공백 경계가 있는 정확한 접두어만 해당한다:
+  '경찰청 광주경찰청 광주동부경찰서' → '광주경찰청 광주동부경찰서',
+  본청 '경찰청'(접두어 뒤에 아무것도 없음) → '경찰청' 그대로,
+  '경찰청장…' 같은 다른 이름·비경찰 이름 → 그대로.
+  집계(경계 판정)의 이름 경로 비교는 공식 원문명으로 하며, 제거는 출력 단계에서만
+  적용한다. multi(폐지 (구) 표시용 마지막 알려진 이름)는 역사 표시이므로 원문을 둔다.
 """
 from __future__ import annotations
 
@@ -40,6 +49,18 @@ import zipfile
 from pathlib import Path
 
 INNER_NAME = "기관코드 전체자료.txt"
+
+# 현행 표시명 접두어 규칙(2026-09-29 사용자 결정): 공식 전체기관명 맨 앞의
+# '경찰청 ' 한 번만. 공백 경계가 있는 정확한 접두어만 뗀다.
+POLICE_DISPLAY_PREFIX = "경찰청 "
+
+
+def display_agency_name(official_name: str | None) -> str:
+    """공식 전체기관명 → 현행 표시명. '경찰청 ' 접두어 한 번만 제거한다."""
+    name = (official_name or "").strip()
+    if name.startswith(POLICE_DISPLAY_PREFIX):
+        return name[len(POLICE_DISPLAY_PREFIX):]
+    return name
 
 EXCLUDED_TOP_TYPES = {"04", "05", "06", "11", "12", "13", "14", "15", "16", "17", "18", "80"}
 
@@ -217,12 +238,12 @@ def build_derived(by_code: dict[str, dict]) -> dict:
             agg = boundary(code)
             agg_row = by_code.get(agg, row)
             boundary_names.setdefault(agg, {
-                "name": agg_row.get("name") or row.get("name") or "",
+                "name": display_agency_name(agg_row.get("name") or row.get("name")),
                 "created": agg_row.get("created"),
             })
             if agg == code:
                 stats["boundaries"] += 1
-                index_rows.append([code, row.get("name") or "",
+                index_rows.append([code, display_agency_name(row.get("name")),
                                    code, _type_tag(row), row.get("created")])
             else:
                 stats["children"] += 1
@@ -240,8 +261,8 @@ def build_derived(by_code: dict[str, dict]) -> dict:
         stats["boundaries"] += 1
         stats["referenced_excluded_boundaries"] = stats.get("referenced_excluded_boundaries", 0) + 1
         boundary_names.setdefault(agg, {
-            "name": agg_row.get("name") or "", "created": agg_row.get("created")})
-        index_rows.append([agg, agg_row.get("name") or "",
+            "name": display_agency_name(agg_row.get("name")), "created": agg_row.get("created")})
+        index_rows.append([agg, display_agency_name(agg_row.get("name")),
                            agg, _type_tag(agg_row), agg_row.get("created")])
     index_rows.sort(key=lambda r: r[0])
 
@@ -256,10 +277,11 @@ def build_derived(by_code: dict[str, dict]) -> dict:
             target = next(iter(finals))
             trow = by_code.get(target, {})
             boundary_names.setdefault(target, {
-                "name": trow.get("name") or "", "created": trow.get("created")})
+                "name": display_agency_name(trow.get("name")), "created": trow.get("created")})
             forward[code] = target
             stats["legacy_forward"] += 1
         elif finals is not None and len(finals) >= 2:
+            # (구) 표시용 역사 이름: 현행 표시가 아니라 마지막 알려진 원문을 둔다.
             multi[code] = row.get("name") or ""
             stats["legacy_multi"] += 1
         else:
@@ -275,7 +297,7 @@ def build_derived(by_code: dict[str, dict]) -> dict:
                 if nxt not in boundary_names:
                     nrow = by_code.get(nxt, {})
                     boundary_names[nxt] = {
-                        "name": nrow.get("name") or "", "created": nrow.get("created")}
+                        "name": display_agency_name(nrow.get("name")), "created": nrow.get("created")}
                 key = (bx, nxt)
                 if key not in link_pairs:
                     bx_row = by_code.get(bx, {})
