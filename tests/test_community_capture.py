@@ -383,6 +383,31 @@ class AgencyCodePayloadTests(unittest.TestCase):
         self.assertEqual(conn2.execute(
             "SELECT state FROM outbox WHERE event_id=?", (ok.event_id,)).fetchone()["state"], "pending")
 
+    def test_same_payload_long_code_is_recorded_explicitly(self):
+        # REVIEW4 낮음: 원문 코드만 33자가 된 관측은 전송 payload(코드 None)가
+        # 직전과 같아도 조용히 버리지 않고 blocked 이벤트로 명시 기록한다.
+        # 원문은 크롤 DB에 보존되고 journal/outbox에 사유가 남는다(서버·모바일 1:1).
+        first = cap.capture(dict(eligible_input(), agency_code=None),
+                            source_report_id="LONG-SAME", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(first.event_type, "completed_observation")
+        blocked = cap.capture(dict(eligible_input(), agency_code="N" * 33),
+                              source_report_id="LONG-SAME", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(blocked.event_type, "completed_observation")
+        conn = self.store.connect()
+        journal = conn.execute(
+            "SELECT blocked_reason, payload_json FROM source_journal WHERE event_id=?",
+            (blocked.event_id,)).fetchone()
+        self.assertEqual(journal["blocked_reason"], "blocked:source_agency_code_too_long")
+        self.assertNotIn("N" * 33, journal["payload_json"])
+        outbox = conn.execute(
+            "SELECT state, last_error_code FROM outbox WHERE event_id=?", (blocked.event_id,)).fetchone()
+        self.assertEqual(outbox["state"], "blocked")
+        self.assertEqual(outbox["last_error_code"], "source_agency_code_too_long")
+        # 같은 장문 코드 반복은 조용히 유지(저널 폭증 없음 — 이미 명시 기록됨).
+        again = cap.capture(dict(eligible_input(), agency_code="N" * 33),
+                            source_report_id="LONG-SAME", trigger="realtime", data_dir=self.tmp)
+        self.assertIsNone(again.event_type)
+
     def test_same_report_two_accounts_create_separate_events(self):
         # A가 올린 동일 신고를 B도 제출: A 큐·연결을 건드리지 않고 B의 이벤트를 만든다(전역 중복 제거는 서버 몫).
         first = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)

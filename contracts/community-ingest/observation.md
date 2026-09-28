@@ -114,7 +114,7 @@ writer 전환·재설치 뒤 첫 비적격 관측도 이벤트 없음이 된다.
   둘 다 번호가 있는데 다르면 별도 identity 로 격리해 각각 공개 집계한다(서로 다른 실제 신고). 번호가 없는 구버전 관측은 같은 키의 최초 번호 그룹에 붙고, 번호가 하나도 없는 키는 `legacy` 그룹 하나로 묶는다.
   키의 번호(최초 번호)는 동의 유효 행의 전체 이력에서 확정하므로 조회 기간과 무관하다(조회 창 안의 키만 번호를 매겨 창을 넓혀도 기존 키의 번호가 바뀌지 않음 — REVIEW3 중간-3).
   공개 projection(`internal_analytics_v2_facts`)은 identity 당 공개 목록 중 **서버가 가장 나중에 수신한 서로 다른 답변** 하나를
-  대표(`is_representative`)로 내보낸다: 답변 그룹의 수신 시각(`max(answer_accepted_at)`, fact 의 새 답변 수신 때만 갱신) DESC,
+  대표(`is_representative`)로 내보낸다: 답변 그룹의 수신 시각(`max(answer_accepted_at)`, fact 의 새 답변 수신 때만 갱신, 잠금 획득 뒤 `clock_timestamp()` 기록 — `now()`는 트랜잭션 시작 시각이라 동시 제출 순서가 뒤집힐 수 있음, REVIEW4) DESC,
   답변일(`completed_date`) DESC NULLS LAST, `first_accepted_at`·`contributor_id` 순. 동일 내용의 단순 재전송(`no_change`·
   `stale_ignored`)과 내용 없는 재공유(grant 만 바뀜)는 수신 시각을 갱신하지 않아 대표를 뒤집지 않는다(REVIEW3 높음-1).
   범위 필터(category·region·agency·manager·bbox)는 확정된 대표에만 적용한다(REVIEW2 높음-2).
@@ -134,3 +134,4 @@ writer 전환·재설치 뒤 첫 비적격 관측도 이벤트 없음이 된다.
   따라가 같은 institution 으로 해석하고(합류 대상 등 모호하면 미해결 유지), 신규 수신 행·기존 행 백필에 동일하게 적용된다(REVIEW3 높음-2);
   `agency_current_name` = 승계면 현행명, 아니면 원문 기관명(원문 `agency_name` 은 그대로 저장 — 원문·현행 분리);
   `manager_key = "m1:" + sha256(agency_key + "|" + NFC(manager_name))[:24]`(agency_key 기준이므로 같은 기관의 같은 담당자는 개명 전후 한 키로 묶임).
+  키 없는 구버전 갱신(v1/v2, payload에 `source_agency_code` 키 없음)은 기관명이 기존 fact와 같으면 저장된 기관코드뿐 아니라 기관 키·현행명·담당자 키도 보존한다(코드 없는 derived의 기관명 해시로 덮으면 승계 기관 통계가 갈라짐 — REVIEW4). 기관명이 다르면 코드 NULL·새 derived 키(새 기관 답변에 옛 코드·옛 키 부착 금지). 키가 있으면(명시적 null 포함) 그대로 쓴다.

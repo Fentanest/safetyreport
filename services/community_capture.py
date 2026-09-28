@@ -382,11 +382,12 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
                 " WHERE run_id=? AND source_report_id=?", (run_id, source_report_id)).fetchone()
             if row is not None:
                 journal = tx.execute(
-                    "SELECT payload_sha256, eligible, report_number FROM source_journal WHERE event_id=?",
+                    "SELECT payload_sha256, eligible, report_number, blocked_reason FROM source_journal WHERE event_id=?",
                     (row["event_id"],)).fetchone()
                 if journal is not None:
                     prev = {"payload_sha256": journal["payload_sha256"],
-                            "eligible": bool(journal["eligible"]), "report_number": journal["report_number"]}
+                            "eligible": bool(journal["eligible"]), "report_number": journal["report_number"],
+                            "blocked_reason": journal["blocked_reason"]}
                 else:
                     prev = {"payload_sha256": row["payload_sha256"], "eligible": bool(row["eligible"])}
         if prev is None:
@@ -396,18 +397,25 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
             ctx_dataset = ctx_row["dataset_key"] if ctx_row else None
             ctx_fp = ctx_row["contributor_fingerprint"] if ctx_row else None
             row = tx.execute(
-                "SELECT event_id, payload_sha256, eligible, report_number FROM source_journal"
+                "SELECT event_id, payload_sha256, eligible, report_number, blocked_reason FROM source_journal"
                 " WHERE local_dataset_id=? AND source_report_id=? AND dataset_key IS ?"
                 " AND contributor_fingerprint IS ? ORDER BY source_revision DESC LIMIT 1",
                 (local_dataset_id, source_report_id, ctx_dataset, ctx_fp)).fetchone()
             if row is not None:
                 prev = {"payload_sha256": row["payload_sha256"], "eligible": bool(row["eligible"]),
-                        "report_number": row["report_number"]}
+                        "report_number": row["report_number"], "blocked_reason": row["blocked_reason"]}
         # 2026-09-28: server_completed 로 prev 를 합성하지 않는다(비적격 관측은 정정을 발급하지 않음).
         # server_completed 표·manifest 신선도 검사는 그대로 유지한다.
         if prev and report_number and prev.get("report_number") != report_number:
             prev = {**prev, "payload_sha256": None}
         event_type = decide_event(prev, payload)
+        # REVIEW4 낮음: 길이 초과 원문 코드는 payload가 직전과 같아도 명시적
+        # 거절 이벤트를 만든다. 초과분은 payload에서 None으로 두어 sha가 같아
+        # decide_event이 None을 내지만, 사유 없이는 원문 코드가 조용히 버려진
+        # 것처럼 보인다. 이미 같은 sha·같은 blocked 사유로 기록됐으면 quiet 유지.
+        if event_type is None and code_blocked and eligible:
+            if (prev or {}).get("blocked_reason") != f"blocked:{AGENCY_CODE_TOO_LONG}":
+                event_type = "completed_observation"
         if event_type is None:
             return CaptureResult(event_id=None, event_type=None, eligible=eligible, payload_sha256=sha)
 
