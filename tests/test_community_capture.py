@@ -40,6 +40,14 @@ def withdrawn_input():
 
 
 class CaptureTest(unittest.TestCase):
+    def test_report_number_backfill_keeps_observation_hash(self):
+        first = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        numbered = dict(eligible_input(), report_number="SPP-2609-8000001")
+        second = cap.capture(numbered, source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(first.payload_sha256, second.payload_sha256)
+        self.assertEqual(second.event_type, "completed_observation")
+        self.assertEqual(self.store.connect().execute("SELECT report_number FROM source_journal WHERE event_id=?", (second.event_id,)).fetchone()[0], "SPP-2609-8000001")
+
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
         self.store = CommunityStore.open(self.tmp)
@@ -68,6 +76,18 @@ class CaptureTest(unittest.TestCase):
                               data_dir=self.tmp)
         self.assertIsNone(result2.event_id)
         self.assertEqual(self._counts(), (1, 1, 1, 0))
+
+    def test_later_numeric_rating_changes_hash_and_emits_event_without_reason(self):
+        first = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        rated = dict(eligible_input(), rating=4, rating_reason="비공개 사유")
+        second = cap.capture(rated, source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(second.event_type, "completed_observation")
+        self.assertNotEqual(first.payload_sha256, second.payload_sha256)
+        self.assertIsNone(cap.capture(rated, source_report_id="R1", trigger="realtime", data_dir=self.tmp).event_id)
+        payload = cap.build_payload(rated)
+        self.assertEqual(payload["rating"], 4)
+        self.assertNotIn("reason", cap.canonical_json(payload))
+        self.assertIsNone(cap.build_payload(dict(rated, rating=6))["rating"])
 
     def test_changed_official_coordinates_emit_new_completed_observation(self):
         first = eligible_input()
@@ -105,7 +125,8 @@ class CaptureTest(unittest.TestCase):
         self.assertIsNone(result2.event_id)
         self.assertEqual(self._counts(), (0, 0, 0, 1))
 
-    def test_s04_server_completed_first_withdrawn_is_correction(self):
+    def test_s04_server_completed_does_not_create_correction(self):
+        # 2026-09-28: server_completed 적중해도 첫 비적격 관측은 이벤트 없음(정정 발급 중단).
         prefix = hashlib.sha256(b"safetyreport|R7").hexdigest()[:24]
         with self.store.transaction() as tx:
             tx.execute("INSERT INTO server_completed(dataset_key, key_prefix, fetched_at) VALUES (?, ?, ?)",
@@ -113,25 +134,32 @@ class CaptureTest(unittest.TestCase):
         adapter = dict(withdrawn_input())
         adapter["progress_status"] = "취하"
         result = cap.capture(adapter, source_report_id="R7", trigger="realtime", data_dir=self.tmp)
-        self.assertEqual(result.event_type, "status_correction")
-        self.assertEqual(self._counts(), (1, 1, 1, 1))
+        self.assertIsNone(result.event_id)
+        self.assertFalse(result.eligible)
+        self.assertEqual(self._counts(), (0, 0, 0, 1))
 
-    def test_withdrawn_after_shared_is_correction_then_stable(self):
+    def test_withdrawn_after_shared_creates_no_event(self):
         cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
         result = cap.capture(dict(withdrawn_input()), source_report_id="R1", trigger="realtime",
                              data_dir=self.tmp)
-        self.assertEqual(result.event_type, "status_correction")
+        self.assertIsNone(result.event_id)
+        # 같은 비적격 반복도 이벤트 없음. 중앙은 마지막 답변 상태를 유지한다.
         again = cap.capture(dict(withdrawn_input()), source_report_id="R1", trigger="realtime",
                             data_dir=self.tmp)
         self.assertIsNone(again.event_id)
-        self.assertEqual(self._counts(), (2, 2, 1, 0))
+        self.assertEqual(self._counts(), (1, 1, 1, 0))
 
-    def test_eligible_again_after_correction(self):
+    def test_eligible_again_after_not_eligible(self):
         cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
         cap.capture(dict(withdrawn_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        # 비적격 관측은 journal 에 남지 않으므로 같은 답변의 재관측은 무변경이다.
         result = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime",
                              data_dir=self.tmp)
-        self.assertEqual(result.event_type, "completed_observation")
+        self.assertIsNone(result.event_id)
+        edited = dict(eligible_input())
+        edited["processing_agency"] = "부산광역시 해운대구청"
+        changed = cap.capture(edited, source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(changed.event_type, "completed_observation")
 
     def test_inactive_context_writes_journal_without_outbox(self):
         self.store.deactivate_context("consent_revoked")
@@ -298,6 +326,128 @@ class ViolationLawPayloadTests(unittest.TestCase):
         self.assertEqual(payload["violation_law"], "도로교통법 제5조")
         self.assertNotIn("처리내용", str(payload))
         self.assertEqual(cc.build_payload(cc.build_adapter_input({"처리상태": "수용"}, {}, "", {}))["violation_law"], None)
+
+
+CTX_B = {"contributor_fingerprint": "b" * 32, "connection_id": "99999999-2222-4333-8444-555555555555",
+         "writer_epoch": 1, "dataset_key": "e" * 16, "consent_grant_id": "aaaaaaaa-3333-4444-8444-666666666666",
+         "policy_version": "2026-09-26.1", "consent_text_sha256": "h" * 64,
+         "source_app": "safetyreport", "source_mode": "server"}
+
+
+class AgencyCodePayloadTests(unittest.TestCase):
+    """observation-v3(2026-09-28): 선택 답변의 C_MANAGE_ORG 원문을 TEXT 그대로 payload 로."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.store = CommunityStore.open(self.tmp)
+        self.store.set_context(**CTX)
+
+    def tearDown(self):
+        self.store.close()
+        CommunityStore._forget(os.path.join(self.tmp, "community.db"))
+
+    def test_adapter_and_payload_carry_agency_code_verbatim(self):
+        from services import community_capture as cc
+
+        detail = {"처리상태": "수용", "처리기관": "서울특별시 중구청", "처리기관코드": "B410002"}
+        inp = cc.build_adapter_input(detail, {"신고일": "2026-09-01"}, "불법주정차신고", {})
+        self.assertEqual(inp["agency_code"], "B410002")
+        self.assertEqual(cc.build_payload(inp)["source_agency_code"], "B410002")
+        # 선행 0·영문 보존, 신규 형식도 자르지 않음, 없으면 null(명시적 NULL)
+        self.assertEqual(cc.build_payload(dict(inp, agency_code="0123456"))["source_agency_code"], "0123456")
+        self.assertEqual(cc.build_payload(dict(inp, agency_code="X-12"))["source_agency_code"], "X-12")
+        self.assertIsNone(cc.build_payload(dict(inp, agency_code=None))["source_agency_code"])
+        self.assertIsNone(cc.build_payload(cc.build_adapter_input({"처리상태": "수용"}, {}, "", {}))["source_agency_code"])
+        # REVIEW3 낮음-1: 32자를 넘는 신규 형식은 잘라서 보내지 않는다. 전송 payload
+        # 에는 싣지 않지만(None), capture() 가 journal/outbox 에 명시적 사유로 기록한다.
+        self.assertIsNone(cc.build_payload(dict(inp, agency_code="N" * 33))["source_agency_code"])
+        self.assertEqual(cc.build_payload(dict(inp, agency_code="N" * 32))["source_agency_code"], "N" * 32)
+        self.assertTrue(cc.agency_code_too_long("N" * 33))
+        self.assertFalse(cc.agency_code_too_long("N" * 32))
+        self.assertFalse(cc.agency_code_too_long(None))
+
+    def test_overlong_agency_code_is_blocked_with_explicit_reason(self):
+        # REVIEW3 낮음-1: 길이 초과 기관코드를 조용히 NULL 로 버리지 않는다.
+        # journal/outbox 에 명시적 사유로 남고 전송 후보에서 제외된다.
+        res = cap.capture(dict(eligible_input(), agency_code="N" * 33),
+                          source_report_id="LONG1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(res.event_type, "completed_observation")
+        conn = self.store.connect()
+        journal = conn.execute(
+            "SELECT blocked_reason, payload_json FROM source_journal WHERE event_id=?",
+            (res.event_id,)).fetchone()
+        self.assertEqual(journal["blocked_reason"], "blocked:source_agency_code_too_long")
+        self.assertNotIn("N" * 33, journal["payload_json"])
+        outbox = conn.execute(
+            "SELECT state, last_error_code FROM outbox WHERE event_id=?", (res.event_id,)).fetchone()
+        self.assertEqual(outbox["state"], "blocked")
+        self.assertEqual(outbox["last_error_code"], "source_agency_code_too_long")
+        # 같은 관측 반복 수집은 조용히 유지된다(저널 폭증 없음).
+        again = cap.capture(dict(eligible_input(), agency_code="N" * 33),
+                            source_report_id="LONG1", trigger="realtime", data_dir=self.tmp)
+        self.assertIsNone(again.event_type)
+        # 32자 이내는 정상 pending 전송 후보가 된다.
+        ok = cap.capture(dict(eligible_input(), agency_code="N" * 32),
+                         source_report_id="LONG2", trigger="realtime", data_dir=self.tmp)
+        conn2 = self.store.connect()
+        self.assertIsNone(conn2.execute(
+            "SELECT blocked_reason FROM source_journal WHERE event_id=?", (ok.event_id,)).fetchone()["blocked_reason"])
+        self.assertEqual(conn2.execute(
+            "SELECT state FROM outbox WHERE event_id=?", (ok.event_id,)).fetchone()["state"], "pending")
+
+    def test_same_payload_long_code_is_recorded_explicitly(self):
+        # REVIEW4 낮음: 원문 코드만 33자가 된 관측은 전송 payload(코드 None)가
+        # 직전과 같아도 조용히 버리지 않고 blocked 이벤트로 명시 기록한다.
+        # 원문은 크롤 DB에 보존되고 journal/outbox에 사유가 남는다(서버·모바일 1:1).
+        first = cap.capture(dict(eligible_input(), agency_code=None),
+                            source_report_id="LONG-SAME", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(first.event_type, "completed_observation")
+        blocked = cap.capture(dict(eligible_input(), agency_code="N" * 33),
+                              source_report_id="LONG-SAME", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(blocked.event_type, "completed_observation")
+        conn = self.store.connect()
+        journal = conn.execute(
+            "SELECT blocked_reason, payload_json FROM source_journal WHERE event_id=?",
+            (blocked.event_id,)).fetchone()
+        self.assertEqual(journal["blocked_reason"], "blocked:source_agency_code_too_long")
+        self.assertNotIn("N" * 33, journal["payload_json"])
+        outbox = conn.execute(
+            "SELECT state, last_error_code FROM outbox WHERE event_id=?", (blocked.event_id,)).fetchone()
+        self.assertEqual(outbox["state"], "blocked")
+        self.assertEqual(outbox["last_error_code"], "source_agency_code_too_long")
+        # 같은 장문 코드 반복은 조용히 유지(저널 폭증 없음 — 이미 명시 기록됨).
+        again = cap.capture(dict(eligible_input(), agency_code="N" * 33),
+                            source_report_id="LONG-SAME", trigger="realtime", data_dir=self.tmp)
+        self.assertIsNone(again.event_type)
+        fixed = cap.capture(dict(eligible_input(), agency_code=None),
+                            source_report_id="LONG-SAME", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(fixed.event_type, "completed_observation")
+        self.assertEqual(fixed.payload_sha256, blocked.payload_sha256)
+        self.assertIsNone(conn.execute("SELECT blocked_reason FROM source_journal WHERE event_id=?",
+                                       (fixed.event_id,)).fetchone()[0])
+
+    def test_same_report_two_accounts_create_separate_events(self):
+        # A가 올린 동일 신고를 B도 제출: A 큐·연결을 건드리지 않고 B의 이벤트를 만든다(전역 중복 제거는 서버 몫).
+        first = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(first.event_type, "completed_observation")
+        self.store.set_context(**CTX_B)
+        second = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        self.assertEqual(second.event_type, "completed_observation")
+        self.assertNotEqual(first.event_id, second.event_id)
+        rows = self.store.connect().execute(
+            "SELECT contributor_fingerprint, connection_id FROM source_journal ORDER BY source_revision").fetchall()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["contributor_fingerprint"], CTX["contributor_fingerprint"])
+        self.assertEqual(rows[1]["contributor_fingerprint"], CTX_B["contributor_fingerprint"])
+        # A의 전송 완료가 B의 제출을 차단하지 않는다: A 행만 ACK 처리해도 B 행은 미ACK·대기로 남는다.
+        conn = self.store.connect()
+        conn.execute("UPDATE source_journal SET ack_status='accepted' WHERE event_id=?", (first.event_id,))
+        conn.execute("DELETE FROM outbox WHERE event_id=?", (first.event_id,))
+        conn.commit()
+        b_row = conn.execute("SELECT ack_status FROM source_journal WHERE event_id=?", (second.event_id,)).fetchone()
+        self.assertIsNone(b_row["ack_status"])
+        b_out = conn.execute("SELECT state FROM outbox WHERE event_id=?", (second.event_id,)).fetchone()
+        self.assertEqual(b_out["state"], "pending")
 
 
 if __name__ == "__main__":

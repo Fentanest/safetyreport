@@ -11,20 +11,21 @@
   "server_only": "서버 전용(교환 안 함).",
   "legacy": "옛 열. 새 코드는 쓰지 않는다."
  },
- "schema_version": {
-  "server": 4,
-  "mobile": 15,
-  "note": "서버는 PRAGMA user_version(core/database/database.py SCHEMA_VERSION), 모바일은 openDatabase version."
- },
+"schema_version": {
+ "server": 5,
+ "mobile": 16,
+ "note": "서버는 PRAGMA user_version(core/database/database.py SCHEMA_VERSION), 모바일은 openDatabase version."
+},
  "change_tracked": {
-  "columns": [
-   "처리상태",
-   "차량번호",
-   "위반법규",
-   "범칙금_과태료",
-   "벌점",
-   "처리기관",
-   "담당자",
+   "columns": [
+    "처리상태",
+    "차량번호",
+    "위반법규",
+    "범칙금_과태료",
+    "벌점",
+    "처리기관",
+    "처리기관코드",
+    "담당자",
    "답변일",
    "발생일자",
    "발생시각",
@@ -226,6 +227,17 @@
     },
     {
      "name": "처리기관",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "detail",
+      "merge"
+     ],
+     "mobile": true,
+     "exchange": true
+    },
+    {
+     "name": "처리기관코드",
      "type": "text",
      "owner": "site",
      "server": [

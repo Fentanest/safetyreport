@@ -340,7 +340,7 @@ def upgrade_schema(engine, *, maintenance: bool = True, backup_dir: str | None =
 
 # 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다.
 # 위의 열 추가식 upgrade 는 그대로 두고, 이후 데이터 이동이 필요한 변경은 번호 붙은 단계로 쌓는다(저장 계층 재설계 R1).
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def _migration_1_storage_tables(conn):
@@ -1151,6 +1151,12 @@ def sync_rating_status(engine, report_id, status_str="참여 완료", *, score=N
         ids = conn.execute(select(title_table.c.ID).where(title_table.c.신고번호 == report_id)).scalars().all()
         if ids:
             reports_repo.refresh_merge_rows(conn, ids)
+    # 사이트가 별점을 확인한 뒤 다음 증분 수집에서 공식 상세를 반드시 다시 읽는다.
+    # 개인 DB의 별점/사유를 공유 DTO로 승격하지 않고 상세 파서의 숫자만 캡처한다.
+    if score is not None and ids:
+        from services import community_capture
+        for source_id in ids:
+            community_capture.add_retry_id(str(source_id), "rating_confirmed_refetch")
 
 
 # ── API Key CRUD ──────────────────────────────────────────────────────────────

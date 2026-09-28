@@ -21,7 +21,7 @@ BACKOFF_BASE_SECONDS = 5.0
 BACKOFF_CAP_SECONDS = 300.0
 SERVER_HINT_CAP_SECONDS = 24 * 3600
 
-DURABLE_STATUSES = frozenset({"accepted", "duplicate", "no_change", "stale_ignored", "quarantined"})
+DURABLE_STATUSES = frozenset({"accepted", "transferred", "duplicate", "no_change", "stale_ignored", "quarantined"})
 NON_DURABLE_STATUSES = frozenset({"rejected", "conflict"})
 PROJECTIONS = frozenset({"published", "removed", "held", "not_public", "not_applicable"})
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")

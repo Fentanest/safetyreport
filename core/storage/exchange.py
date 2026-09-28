@@ -39,7 +39,7 @@ class RestoreRefused(RuntimeError):
 
 
 # 모바일 앱 DB 스키마 버전(openDatabase version). contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
-MOBILE_SCHEMA_VERSION = 15
+MOBILE_SCHEMA_VERSION = 16
 
 
 class LegacyDatabaseRefused(RestoreRefused):

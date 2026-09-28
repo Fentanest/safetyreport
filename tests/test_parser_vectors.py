@@ -19,7 +19,7 @@ def as_columns(detail: dict) -> dict:
         "신고번호": title["신고번호"], "신고명": title["신고명"], "신고일": title["신고일"], "상태": title["상태"],
         "만족도조사여부": title["만족도조사여부"], "별점": title.get("별점"),
         "entry_value": d["entry_value"], "처리상태": d["processing_status"], "종결여부": d["processing_finish"],
-        "처리기관": d["processing_agency"], "담당자": d["person_in_charge"], "답변일": d["response_date"],
+        "처리기관": d["processing_agency"], "처리기관코드": d["processing_agency_code"], "담당자": d["person_in_charge"], "답변일": d["response_date"],
         "처리내용": d["processing_content"], "위반법규": d["violation_law"], "범칙금_과태료": d["penalty_amount"], "벌점": d["penalty_points"],
         "차량번호": d["car_number"], "발생일자": d["occurrence_date"], "발생시각": d["occurrence_time"], "위반장소": d["violation_location"],
         "위도": d["violation_latitude"], "경도": d["violation_longitude"],

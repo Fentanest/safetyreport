@@ -163,6 +163,7 @@ def parse_json_details(result_data):
     # 3. Agency Answers & Results Processing
     processing_status = ""
     processing_agency = ""
+    processing_agency_code = ""
     person_in_charge = ""
     response_date = ""
     processing_content = ""
@@ -183,6 +184,9 @@ def parse_json_details(result_data):
             processing_finish = "Y"
         # 값이 null 인 키는 "없음"으로 본다(모바일 `??` 와 같게)
         processing_agency = latest_ans.get("C_MANAGE_ORG_NAME") or latest_ans.get("C_MANAGER_TYPE_NM") or ""
+        # 기관코드 원문(TEXT): 같은 선택 답변의 C_MANAGE_ORG. 7자리 영숫자·선행 0 보존, 정수 변환 금지.
+        # 없으면 ""(저장 단계에서 NULL). 이름으로 찾은 후보를 여기에 쓰지 않는다.
+        processing_agency_code = str(latest_ans.get("C_MANAGE_ORG") or "").strip()
         person_in_charge = latest_ans.get("C_MANAGE_MAN") or latest_ans.get("C_R_MOD_ID") or ""
         response_date = latest_ans.get("C_DATE") or latest_ans.get("C_R_MOD_DATE") or ""
         if response_date and len(response_date) >= 10:
@@ -348,6 +352,7 @@ def parse_json_details(result_data):
         "processing_status": processing_status,
         "processing_finish": processing_finish,
         "processing_agency": processing_agency,
+        "processing_agency_code": processing_agency_code,
         "person_in_charge": person_in_charge,
         "response_date": response_date,
         "processing_content": processing_content,
