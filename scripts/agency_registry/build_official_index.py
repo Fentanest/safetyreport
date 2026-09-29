@@ -32,6 +32,17 @@
   정확히 1개(현존 경계 B)면 X→B 전달(forward). 2개 이상이면 multi((구) 보존),
   0개·순환이면 미기록(미확정). 공란(NULL)이면 연결하지 않는다.
 
+폐지 하위조직 색인 규칙(2026-09-29.3):
+  후속 없는(forward/multi에 없는) 폐지 비제외 코드는 색인에 둔다. agg는
+  차상위기관코드 연쇄로 찾은 답변 당시 소속 집계기관이며 현행과 같은
+  compute_boundary 규칙을 쓴다(경찰은 경찰서 단위에서 멈춘다 — 대표기관코드로
+  올리지 않는다). 집계기관이 이후 개명·1:1 승계됐으면(forward 보유) agg는 그
+  최종 현존 경계를 가리킨다. 집계기관 자체가 후속 없이 폐지됐으면(예: 여수시
+  4810000 — 전남광주통합특별시 출범 2026-07-01로 폐지, 새 코드 5785000의
+  이전기관코드가 NULL이라 자동 연결 금지) 그 경계 행도 마지막 알려진 이름과
+  함께 둔다. forward/multi 보유 코드는 기존 귀결을 유지하므로 색인에
+  중복 등재하지 않는다(리졸버가 색인을 먼저 보므로 순서가 바뀌면 안 된다).
+
 표시명 규칙(2026-09-29 사용자 결정):
   경계 코드의 저장명(= 현행 표시명)은 공식 '전체기관명'에서 맨 앞의 '경찰청 '
   접두어만 한 번 뗀다. 공백 경계가 있는 정확한 접두어만 해당한다:
@@ -228,6 +239,8 @@ def build_derived(by_code: dict[str, dict]) -> dict:
         "boundaries": 0, "children": 0,
         "abolished_total": 0, "legacy_forward": 0, "legacy_multi": 0,
         "legacy_unresolved": 0, "derived_links": 0,
+        "abolished_index_children": 0, "abolished_index_boundaries": 0,
+        "abolished_index_forward_agg": 0, "abolished_index_self_agg": 0,
     }
 
     for code, row in by_code.items():
@@ -328,6 +341,70 @@ def build_derived(by_code: dict[str, dict]) -> dict:
                     }
 
     stats["derived_links"] = len(link_pairs)
+    # --- 폐지 하위조직 색인(2026-09-29.3): 후속 없는 폐지 비제외 코드 ---
+    # forward/multi 보유 코드는 건드리지 않는다(기존 귀결 유지 — 리졸버가 색인을
+    # 먼저 보므로 중복 등재하면 순서가 바뀐다). 하위조직 행은 차상위 연쇄의 답변
+    # 당시 소속 집계기관을 agg로 가지며, 집계기관 자체가 후속 없이 폐지됐으면
+    # 그 경계 행을 마지막 알려진 이름과 함께 둔다. dangling agg를 남기지 않는다.
+    for code, row in sorted(by_code.items()):
+        if row.get("alive"):
+            continue
+        if (row.get("type_top") or "") in EXCLUDED_TOP_TYPES:
+            continue
+        if code in forward or code in multi:
+            continue
+        agg0 = boundary(code)
+        if agg0 == code:
+            stats["alive_kept"] += 1
+            stats["boundaries"] += 1
+            stats["abolished_index_boundaries"] += 1
+            index_rows.append([code, display_agency_name(row.get("name")),
+                               code, _type_tag(row), row.get("created"),
+                               lookup_agency_name(row.get("name"))])
+            continue
+        agg_row = by_code.get(agg0)
+        if agg_row is not None and (agg_row.get("type_top") or "") not in EXCLUDED_TOP_TYPES \
+                and agg0 not in forward and agg0 not in multi:
+            agg = agg0
+        elif agg_row is not None and agg0 in forward:
+            # 집계기관이 이후 개명·1:1 승계됐으면 기존 규칙대로 현행 경계로 잇는다.
+            agg = forward[agg0]
+            stats["abolished_index_forward_agg"] += 1
+        else:
+            # 집계기관이 제외 유형·다분기(multi)·원자료 부재면 자기 경계로 둔다
+            # (알려진 역사 노드로서 스스로 묶이며 미확정 src 행은 피한다).
+            stats["alive_kept"] += 1
+            stats["boundaries"] += 1
+            stats["abolished_index_boundaries"] += 1
+            stats["abolished_index_self_agg"] += 1
+            index_rows.append([code, display_agency_name(row.get("name")),
+                               code, _type_tag(row), row.get("created"),
+                               lookup_agency_name(row.get("name"))])
+            continue
+        stats["alive_kept"] += 1
+        stats["children"] += 1
+        stats["abolished_index_children"] += 1
+        index_rows.append([code, None, agg, None, None, None])
+    # 폐지 자식이 참조하는데 행이 없는 집계기관은 이름과 함께 포함한다.
+    # dangling agg를 남기지 않는다.
+    have = {r[0] for r in index_rows}
+    missing_agg = sorted({r[2] for r in index_rows if r[2] not in have})
+    for agg in missing_agg:
+        agg_row = by_code.get(agg)
+        if agg_row is None:
+            continue
+        stats["alive_kept"] += 1
+        stats["boundaries"] += 1
+        stats["abolished_index_boundaries"] += 1
+        boundary_names.setdefault(agg, {
+            "name": display_agency_name(agg_row.get("name")), "created": agg_row.get("created")})
+        index_rows.append([agg, display_agency_name(agg_row.get("name")),
+                           agg, _type_tag(agg_row), agg_row.get("created"),
+                           lookup_agency_name(agg_row.get("name"))])
+    if missing_agg:
+        stats["abolished_backfill_boundaries"] = len(missing_agg)
+    index_rows.sort(key=lambda r: r[0])
+
     # 경계 수준 1:다: 같은 from에 후속이 2개 이상이면 링크를 만들지 않는다
     # (handoff: 1:다는 연결하지 않고 (구)/미확정으로 보존). legacy.forward가
     # 현행 귀결을 보장하므로 현행 표시·통계 키는 그대로 정확하다.
