@@ -36,7 +36,7 @@ class RegistryVectorTests(unittest.TestCase):
         cls.events = json.loads((REGISTRY / "data" / "region_events.json").read_text(encoding="utf-8"))["events"]
 
     def test_case_count(self):
-        self.assertEqual(len(self.cases), 36)
+        self.assertEqual(len(self.cases), 37)
 
     def test_all_vectors(self):
         for case in self.cases:
@@ -312,6 +312,10 @@ class RegistryStatsWiringTests(unittest.TestCase):
              "신고일": "2025-01-01 10:00", "답변일": "2025-01-02",
              "처리기관": "전라남도 여수시 교통도로국 주차차량과", "처리기관코드": "4810475",
              "담당자": "박담당", "처리상태": "수용", "범칙금_과태료": "과태료: 40000원"},
+            self._row("a4", "4060425", "경기도 파주시 안전건설교통국 도시경관과"),
+            self._row("a5", "4060000", "경기도 파주시"),
+            self._row("a6", "3000188", "서울특별시 종로구 행정국 총무과"),
+            self._row("a7", "3000000", "서울특별시 종로구"),
         ])
         try:
             got = stats.get_agency_stats(engine, {}, mode="raw")
@@ -324,6 +328,10 @@ class RegistryStatsWiringTests(unittest.TestCase):
             # 집계기관 자체가 폐지된 경우(여수시)도 당시 소속으로 묶인다.
             self.assertIn("inst:ag-c4810000", by_agency)
             self.assertEqual(by_agency["inst:ag-c4810000"]["agency"], "전라남도 여수시")
+            self.assertEqual(by_agency["inst:ag-c4060000"]["total"], 2)
+            self.assertEqual(by_agency["inst:ag-c4060000"]["agency"], "경기도 파주시")
+            self.assertEqual(by_agency["inst:ag-c3000000"]["total"], 2)
+            self.assertEqual(by_agency["inst:ag-c3000000"]["agency"], "서울특별시 종로구")
             keys = set(by_agency)
             self.assertFalse({k for k in keys if k.startswith("src:")}, keys)
         finally:
