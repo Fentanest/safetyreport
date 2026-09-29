@@ -17,7 +17,7 @@ Outputs (tracked runtime snapshot):
   data/region_events.json      typed region lineage events (relation/handling are
                                data, never parsed at runtime)
   data/agency_links.json       verified 1:1 agency succession links (seed + derived)
-  data/agency_index.json       현존 기관코드 색인 [code,name,agg,type,created,lookup_name]
+  data/agency_index.json       현존·폐지 경계 rows + 폐지 하위조직 compact_rows [code,agg]
   data/agency_legacy.json      폐지 코드 {forward,multi}
   manifest.json                schema/registry versions, dates, hashes, readers
   provenance.json              input hashes, builder version, evidence pointers
@@ -33,7 +33,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-BUILDER_VERSION = "agency-registry-build/2026-09-29.2"
+BUILDER_VERSION = "agency-registry-build/2026-09-29.3"
 SCHEMA_VERSION = 2
 
 HERE = Path(__file__).resolve().parent
@@ -94,7 +94,7 @@ def main() -> int:
     ap.add_argument("--official-zip", type=Path, required=True,
                     help="Local code.go.kr '기관코드 전체자료' zip (already downloaded; never fetched here, never committed)")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    ap.add_argument("--registry-version", default="2026-09-29.2")
+    ap.add_argument("--registry-version", default="2026-09-29.3")
     ap.add_argument("--as-of-date", default="2026-09-28")
     args = ap.parse_args()
 
@@ -154,7 +154,8 @@ def main() -> int:
     (data / "agency_links.json").write_text(canon({"links": links}) + "\n", encoding="utf-8")
     (data / "agency_index.json").write_text(canon({
         "cols": ["code", "name", "agg", "type", "created", "lookup_name"],
-        "rows": derived["index_rows"]}) + "\n", encoding="utf-8")
+        "rows": derived["index_rows"],
+        "compact_rows": derived["compact_rows"]}) + "\n", encoding="utf-8")
     (data / "agency_legacy.json").write_text(canon({
         "forward": derived["forward"], "multi": derived["multi"]}) + "\n", encoding="utf-8")
     (data / "agency_institutions.json").write_text(canon({
@@ -193,7 +194,12 @@ def main() -> int:
         ],
         "official_derivation": {
             "filter": "현존 코드 중 유형분류_대 04/05/06/11-17/18/80 제외 "
-                      "(입법·사법·헌법·학교·군·금융 — 안전신문고 답변 기관이 될 수 없는 유형)",
+                      "(입법·사법·헌법·학교·군·금융 — 안전신문고 답변 기관이 될 수 없는 유형). "
+                      "2026-09-29.3부터 2014-01-01 이후 후속 없는(forward/multi 없음) 폐지 비제외 코드도 색인에 둔다: "
+                      "하위조직은 답변 당시 소속 집계기관(지자체는 대표기관이 차상위 조상일 때 시도/시군구까지, "
+                      "경찰은 경찰서 단위)을 agg로 하고 [code,agg] 압축 행으로 기록, "
+                      "집계기관이 개명·1:1 승계됐으면 현행 경계로, 후속 없이 폐지된 집계기관은 "
+                      "마지막 알려진 이름의 경계 행과 함께. forward/multi 보유 코드는 기존 귀결 유지.",
             "display": "경계 코드 저장명(현행 표시명)은 공식 전체기관명에서 맨 앞의 "
                        "'경찰청 ' 접두어만 한 번 제거(2026-09-29 사용자 결정). "
                        "공백 경계의 정확한 접두어만 해당: 본청 '경찰청'·'경찰청장…'·"
@@ -208,7 +214,7 @@ def main() -> int:
             "Agency seed holds verified 1:1 links only; empty previous_code never implies succession.",
             "Official snapshot holds one (current) name per code: same-code renames resolve by code, "
             "past names of the same code are not recoverable from the snapshot alone.",
-            "Excluded-type and successor-less abolished codes stay unresolved (src rows, never merged).",
+            "Excluded-type and pre-2014 successor-less abolished codes stay unresolved (src rows, never merged).",
         ],
     }
     (out / "provenance.json").write_text(canon(provenance) + "\n", encoding="utf-8")
@@ -248,7 +254,7 @@ def main() -> int:
     (out / "manifest.json").write_text(canon(manifest) + "\n", encoding="utf-8")
     print(f"built registry {args.registry_version}: {len(events)} region events, {len(links)} agency links "
           f"({len(seed_links)} seed + {len(links) - len(seed_links)} derived), "
-          f"{len(derived['index_rows'])} index rows, "
+          f"{len(derived['index_rows'])} index rows + {len(derived['compact_rows'])} compact rows, "
           f"{len(derived['forward'])} legacy forwards, {len(derived['multi'])} multis -> {out}")
     return 0
 

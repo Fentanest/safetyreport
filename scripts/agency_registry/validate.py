@@ -101,6 +101,9 @@ def main() -> int:
     # v2 index/legacy/institutions coherence
     cols = index_blob.get("cols")
     rows = index_blob.get("rows", [])
+    compact_rows = index_blob.get("compact_rows", [])
+    if "compact_rows" not in index_blob:
+        fail("agency_index compact_rows missing", problems)
     if cols != ["code", "name", "agg", "type", "created", "lookup_name"]:
         fail(f"agency_index cols wrong: {cols}", problems)
     if any(len(r) != len(cols) for r in rows):
@@ -110,6 +113,14 @@ def main() -> int:
         fail("agency_index rows not sorted by code", problems)
     if len(set(codes)) != len(codes):
         fail("agency_index duplicate codes", problems)
+    if any(not isinstance(r, list) or len(r) != 2 for r in compact_rows):
+        fail("agency_index compact row width wrong", problems)
+        compact_rows = []
+    compact_codes = [r[0] for r in compact_rows]
+    if compact_codes != sorted(compact_codes):
+        fail("agency_index compact rows not sorted by code", problems)
+    if len(set(compact_codes)) != len(compact_codes) or set(compact_codes) & set(codes):
+        fail("agency_index compact/regular duplicate codes", problems)
     index_map = {r[0]: r for r in rows}
     boundaries = set()
     for code, name, agg, _type, _created, lookup_name in rows:
@@ -128,6 +139,11 @@ def main() -> int:
                 fail(f"redundant/empty lookup_name: {code}", problems)
         elif lookup_name is not None:
             fail(f"child with lookup_name: {code}", problems)
+    for code, agg in compact_rows:
+        if not isinstance(code, str) or len(code) != 7 or not isinstance(agg, str):
+            fail(f"invalid compact row: {code} -> {agg}", problems)
+        if agg not in boundaries:
+            fail(f"compact agg missing boundary: {code} -> {agg}", problems)
     forward, multi = legacy.get("forward", {}), legacy.get("multi", {})
     if set(forward) & set(multi):
         fail("legacy forward/multi overlap", problems)
@@ -135,8 +151,10 @@ def main() -> int:
         if target not in boundaries and target not in institutions:
             fail(f"legacy forward target unknown: {old} -> {target}", problems)
     for old in multi:
-        if old in index_map:
+        if old in index_map or old in compact_codes:
             fail(f"legacy multi key also in index: {old}", problems)
+    if set(forward) & (set(index_map) | set(compact_codes)):
+        fail("legacy forward key also in index", problems)
     for code in boundaries:
         if code not in institutions:
             fail(f"boundary without institution: {code}", problems)
@@ -155,7 +173,7 @@ def main() -> int:
             print(f"  - {problem}")
         return 1
     print(f"registry ok: {len(events)} region events, {len(links)} agency links, "
-          f"{len(rows)} index rows, {len(forward)} forwards, {len(multi)} multis, "
+          f"{len(rows)} index rows + {len(compact_rows)} compact rows, {len(forward)} forwards, {len(multi)} multis, "
           f"{len(vectors)} vectors, registry {manifest.get('registry_version')}")
     return 0
 

@@ -22,6 +22,7 @@ class AgencySnapshot {
   AgencySnapshot({
     required this.links,
     required this.index,
+    this.compact = const {},
     required this.forward,
     required this.multi,
     required this.institutions,
@@ -31,6 +32,7 @@ class AgencySnapshot {
 
   final List<dynamic> links;
   final Map<String, dynamic> index;
+  final Map<String, dynamic> compact;
   final Map<String, dynamic> forward;
   final Map<String, dynamic> multi;
   final Map<String, dynamic> institutions;
@@ -192,6 +194,10 @@ Map<String, dynamic> resolveAgency(
     final row = snap.index[c] as List?;
     if (row != null) {
       return _resolveBoundary(row[1] as String, displayName, answeredAt, snap, c);
+    }
+    final compactAgg = snap.compact[c] as String?;
+    if (compactAgg != null) {
+      return _resolveBoundary(compactAgg, displayName, answeredAt, snap, c);
     }
     final target = snap.forward[c] as String?;
     if (target != null) {

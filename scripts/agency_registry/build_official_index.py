@@ -9,7 +9,7 @@
 같은 행 집합이므로 읽지 않는다(조사용으로만 둔다).
 
 출력(결정적: 코드 정렬, canon JSON):
-  data/agency_index.json   현존 코드 색인 {cols, rows:[code,name,agg,type,created,lookup_name]}
+  data/agency_index.json   현존·폐지 경계 rows + 폐지 하위조직 compact_rows:[code,agg]
   data/agency_legacy.json  폐지 코드 {forward:{old:final}, multi:{old:name}}
   derived links 목록        경계-수준 1:1 이전기관코드 연쇄 (build.py가 seed와 합쳐 기록)
 
@@ -25,12 +25,26 @@
           (03,05),(03,07),(03,08)} 또는 (그 외 유형에서 부모와 (대,중)이 같은 경우).
   단, 부모 전체기관명+' '이 자식 이름의 접두어일 때만 올라간다(다른 조직 병합 방지),
   부모의 차수가 자식보다 작을 때만 올라간다. 나머지는 자기 자신이 집계기관이다.
-  대표기관코드를 통계 키로 쓰지 않는다(여러 경찰서가 경찰청으로 합쳐지는 것을 방지).
+  지방자치단체(유형 02)는 대표기관이 실제 차상위 연쇄의 시도/시군구 조상이면
+  그 자치단체까지 올린다. 경찰은 경찰서(시도경찰청 직할이면 시도경찰청)에서 멈추며
+  대표기관코드 1320000을 집계 경계로 쓰지 않는다.
 
 승계 규칙(handoff §6.1 그대로):
   폐지 코드 X의 후속 = 이전기관코드가 X인 행. 각 후속을 경계 코드로 매핑한 집합이
   정확히 1개(현존 경계 B)면 X→B 전달(forward). 2개 이상이면 multi((구) 보존),
   0개·순환이면 미기록(미확정). 공란(NULL)이면 연결하지 않는다.
+
+폐지 하위조직 색인 규칙(2026-09-29.3):
+  2014-01-01 이후 폐지된 후속 없는(forward/multi에 없는) 비제외 코드는 색인에 둔다. agg는
+  차상위기관코드 연쇄로 찾은 답변 당시 소속 집계기관이며 현행과 같은
+  compute_boundary 규칙을 쓴다(경찰은 경찰서 단위에서 멈춘다 — 대표기관코드로
+  올리지 않는다). 집계기관이 이후 개명·1:1 승계됐으면(forward 보유) agg는 그
+  최종 현존 경계를 가리킨다. 집계기관 자체가 후속 없이 폐지됐으면(예: 여수시
+  4810000 — 전남광주통합특별시 출범 2026-07-01로 폐지, 새 코드 5785000의
+  이전기관코드가 NULL이라 자동 연결 금지) 그 경계 행도 마지막 알려진 이름과
+  함께 둔다. 폐지 하위조직 행은 [code,agg]로 압축한다.
+  forward/multi 보유 코드는 기존 귀결을 유지하므로 색인에
+  중복 등재하지 않는다(리졸버가 색인을 먼저 보므로 순서가 바뀌면 안 된다).
 
 표시명 규칙(2026-09-29 사용자 결정):
   경계 코드의 저장명(= 현행 표시명)은 공식 '전체기관명'에서 맨 앞의 '경찰청 '
@@ -84,6 +98,8 @@ AGGREGATE_DA_JUNG = {
     ("02", "01"), ("02", "02"),
     ("03", "01"), ("03", "04"),
 }
+
+ABOLISHED_SINCE = "20140101"
 
 
 def _norm(value: str | None) -> str | None:
@@ -150,6 +166,21 @@ def compute_boundary(code: str, by_code: dict[str, dict]) -> str:
     node = by_code.get(code)
     if node is None:
         return code
+    # 유형 02-02는 시·군·구 자체와 그 내부의 '국'에 함께 쓰인다.
+    # 대표기관이 실제 차상위 연쇄의 지자체인 경우에만 그 지자체까지 올린다.
+    # 경찰(유형 01)은 이 경로를 타지 않아 경찰서 경계가 유지된다.
+    rep = node.get("rep")
+    if node.get("type_top") == "02" and rep and rep != code:
+        ancestor = node
+        for _ in range(32):
+            parent = by_code.get(ancestor.get("parent") or "")
+            if parent is None or parent["code"] == ancestor["code"]:
+                break
+            if parent["code"] == rep:
+                if parent.get("type_top") == "02" and parent.get("type_mid") in {"01", "02"}:
+                    return rep
+                break
+            ancestor = parent
     for _ in range(32):
         da, jung = node.get("type_top"), node.get("type_mid")
         if (da, jung) in AGGREGATE_DA_JUNG:
@@ -218,6 +249,7 @@ def build_derived(by_code: dict[str, dict]) -> dict:
     # even when another branch reaches a live code.
 
     index_rows: list[list] = []
+    compact_rows: list[list[str]] = []
     boundary_names: dict[str, dict] = {}
     forward: dict[str, str] = {}
     multi: dict[str, str] = {}
@@ -228,6 +260,9 @@ def build_derived(by_code: dict[str, dict]) -> dict:
         "boundaries": 0, "children": 0,
         "abolished_total": 0, "legacy_forward": 0, "legacy_multi": 0,
         "legacy_unresolved": 0, "derived_links": 0,
+        "abolished_index_children": 0, "abolished_index_boundaries": 0,
+        "abolished_index_forward_agg": 0, "abolished_index_self_agg": 0,
+        "abolished_before_2014_omitted": 0,
     }
 
     for code, row in by_code.items():
@@ -328,6 +363,75 @@ def build_derived(by_code: dict[str, dict]) -> dict:
                     }
 
     stats["derived_links"] = len(link_pairs)
+    # --- 폐지 하위조직 색인(2026-09-29.3): 후속 없는 폐지 비제외 코드 ---
+    # forward/multi 보유 코드는 건드리지 않는다(기존 귀결 유지 — 리졸버가 색인을
+    # 먼저 보므로 중복 등재하면 순서가 바뀐다). 하위조직 행은 차상위 연쇄의 답변
+    # 당시 소속 집계기관을 agg로 가지며, 집계기관 자체가 후속 없이 폐지됐으면
+    # 그 경계 행을 마지막 알려진 이름과 함께 둔다. dangling agg를 남기지 않는다.
+    for code, row in sorted(by_code.items()):
+        if row.get("alive"):
+            continue
+        if not row.get("closed") or row["closed"] < ABOLISHED_SINCE:
+            stats["abolished_before_2014_omitted"] += 1
+            continue
+        if (row.get("type_top") or "") in EXCLUDED_TOP_TYPES:
+            continue
+        if code in forward or code in multi:
+            continue
+        agg0 = boundary(code)
+        if agg0 == code:
+            stats["alive_kept"] += 1
+            stats["boundaries"] += 1
+            stats["abolished_index_boundaries"] += 1
+            index_rows.append([code, display_agency_name(row.get("name")),
+                               code, _type_tag(row), row.get("created"),
+                               lookup_agency_name(row.get("name"))])
+            continue
+        agg_row = by_code.get(agg0)
+        if agg_row is not None and (agg_row.get("type_top") or "") not in EXCLUDED_TOP_TYPES \
+                and agg0 not in forward and agg0 not in multi:
+            agg = agg0
+        elif agg_row is not None and agg0 in forward:
+            # 집계기관이 이후 개명·1:1 승계됐으면 기존 규칙대로 현행 경계로 잇는다.
+            agg = forward[agg0]
+            stats["abolished_index_forward_agg"] += 1
+        else:
+            # 집계기관이 제외 유형·다분기(multi)·원자료 부재면 자기 경계로 둔다
+            # (알려진 역사 노드로서 스스로 묶이며 미확정 src 행은 피한다).
+            stats["alive_kept"] += 1
+            stats["boundaries"] += 1
+            stats["abolished_index_boundaries"] += 1
+            stats["abolished_index_self_agg"] += 1
+            index_rows.append([code, display_agency_name(row.get("name")),
+                               code, _type_tag(row), row.get("created"),
+                               lookup_agency_name(row.get("name"))])
+            continue
+        stats["alive_kept"] += 1
+        stats["children"] += 1
+        stats["abolished_index_children"] += 1
+        compact_rows.append([code, agg])
+    # 폐지 자식이 참조하는데 행이 없는 집계기관은 이름과 함께 포함한다.
+    # dangling agg를 남기지 않는다.
+    have = {r[0] for r in index_rows}
+    missing_agg = sorted({r[2] for r in index_rows if r[2] not in have}
+                         | {r[1] for r in compact_rows if r[1] not in have})
+    for agg in missing_agg:
+        agg_row = by_code.get(agg)
+        if agg_row is None:
+            continue
+        stats["alive_kept"] += 1
+        stats["boundaries"] += 1
+        stats["abolished_index_boundaries"] += 1
+        boundary_names.setdefault(agg, {
+            "name": display_agency_name(agg_row.get("name")), "created": agg_row.get("created")})
+        index_rows.append([agg, display_agency_name(agg_row.get("name")),
+                           agg, _type_tag(agg_row), agg_row.get("created"),
+                           lookup_agency_name(agg_row.get("name"))])
+    if missing_agg:
+        stats["abolished_backfill_boundaries"] = len(missing_agg)
+    index_rows.sort(key=lambda r: r[0])
+    compact_rows.sort(key=lambda r: r[0])
+
     # 경계 수준 1:다: 같은 from에 후속이 2개 이상이면 링크를 만들지 않는다
     # (handoff: 1:다는 연결하지 않고 (구)/미확정으로 보존). legacy.forward가
     # 현행 귀결을 보장하므로 현행 표시·통계 키는 그대로 정확하다.
@@ -341,6 +445,7 @@ def build_derived(by_code: dict[str, dict]) -> dict:
     stats["boundary_branch_dropped"] = dropped
     return {
         "index_rows": index_rows,
+        "compact_rows": compact_rows,
         "boundary_names": boundary_names,
         "forward": forward,
         "multi": multi,
@@ -419,6 +524,7 @@ def institution_map(link_pairs: dict[tuple[str, str], dict],
         return b
 
     alive_boundaries = {row[2] for row in derived["index_rows"]}
+    alive_boundaries.update(row[1] for row in derived["compact_rows"])
     for old, target in derived["forward"].items():
         alive_boundaries.add(target)
         alive_boundaries.add(boundary(old))

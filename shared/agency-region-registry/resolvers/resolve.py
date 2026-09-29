@@ -61,6 +61,7 @@ class Snapshot:
     as_of_date: str | None = None
     # code -> [name|None, agg, type|None, created8|None]
     index: dict = field(default_factory=dict)
+    compact: dict = field(default_factory=dict)
     forward: dict = field(default_factory=dict)
     multi: dict = field(default_factory=dict)
     institutions: dict = field(default_factory=dict)
@@ -77,6 +78,7 @@ class Snapshot:
         institutions = json.loads((data / "agency_institutions.json").read_text(encoding="utf-8"))["institutions"]
         cols = index_blob["cols"]
         index = {row[0]: dict(zip(cols[1:], row[1:])) for row in index_blob["rows"]}
+        compact = {code: agg for code, agg in index_blob.get("compact_rows", [])}
         by_old: dict[str, dict] = {}
         for event in events:
             by_old.setdefault(event["old_code"], event)
@@ -88,7 +90,7 @@ class Snapshot:
         return cls(events_by_old=by_old, links_by_from=by_from, links_by_to=by_to,
                    registry_version=manifest["registry_version"],
                    as_of_date=manifest.get("as_of_date"),
-                   index=index, forward=legacy.get("forward", {}),
+                   index=index, compact=compact, forward=legacy.get("forward", {}),
                    multi=legacy.get("multi", {}), institutions=institutions)
 
     def boundary_name(self, code: str) -> str | None:
@@ -231,6 +233,9 @@ def resolve_agency(code: str | None, name: str | None, answered_at: str | None, 
         row = snap.index.get(code)
         if row is not None:
             return _resolve_boundary(row["agg"], name, answered_at, snap, as_was_code=code)
+        compact_agg = snap.compact.get(code)
+        if compact_agg is not None:
+            return _resolve_boundary(compact_agg, name, answered_at, snap, as_was_code=code)
         target = snap.forward.get(code)
         if target is not None:
             got = _resolve_boundary(target, name, answered_at, snap, as_was_code=code)

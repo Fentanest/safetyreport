@@ -28,6 +28,7 @@ export interface RegionResolution {
 export interface AgencySnapshot {
   links: Array<Record<string, string>>;
   index: Record<string, Array<string | null>>;
+  compact?: Record<string, string>;
   forward: Record<string, string>;
   multi: Record<string, string>;
   institutions: Record<string, string>;
@@ -195,6 +196,10 @@ export function resolveAgency(
     const row = snap.index[c];
     if (row != null) {
       return resolveBoundary(row[1] as string, displayName, answeredAt, snap, c);
+    }
+    const compactAgg = snap.compact?.[c];
+    if (compactAgg != null) {
+      return resolveBoundary(compactAgg, displayName, answeredAt, snap, c);
     }
     const target = snap.forward[c];
     if (target != null) {

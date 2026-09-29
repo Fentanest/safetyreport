@@ -1,6 +1,6 @@
-"""Agency/region registry vectors — shared snapshot resolvers check (2026-09-29.2).
+"""Agency/region registry vectors — shared snapshot resolvers check (2026-09-29.3).
 
-shared/agency-region-registry/vectors/resolve_cases.json 의 31건을 정본 리더(resolve.py)로
+shared/agency-region-registry/vectors/resolve_cases.json 의 36건을 정본 리더(resolve.py)로
 확인한다. Dart/TS 포트는 각 레포의 같은 파일로 검증한다.
 """
 import json
@@ -36,7 +36,7 @@ class RegistryVectorTests(unittest.TestCase):
         cls.events = json.loads((REGISTRY / "data" / "region_events.json").read_text(encoding="utf-8"))["events"]
 
     def test_case_count(self):
-        self.assertEqual(len(self.cases), 31)
+        self.assertEqual(len(self.cases), 37)
 
     def test_all_vectors(self):
         for case in self.cases:
@@ -63,7 +63,7 @@ class RegistryVectorTests(unittest.TestCase):
         import hashlib
 
         manifest = json.loads((REGISTRY / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["registry_version"], "2026-09-29.2")
+        self.assertEqual(manifest["registry_version"], "2026-09-29.3")
         self.assertEqual(manifest["schema_version"], 2)
         for rel, digest in manifest["files"].items():
             target = REGISTRY / rel
@@ -292,6 +292,48 @@ class RegistryStatsWiringTests(unittest.TestCase):
                 by_agency["src:1270379:법무부 대구지방교정청 부산교도소 서무과"]["agency"],
                 "(구)법무부 대구지방교정청 부산교도소 서무과")
             self.assertIn("inst:ag-gwangju-police-hq", by_agency)
+        finally:
+            engine.dispose()
+            os.remove(path)
+
+    def test_agency_stats_groups_abolished_dept_codes(self):
+        """2026-09-29.3: 폐지 부서 코드는 답변 당시 소속 집계기관으로 묶인다
+        (재크롤링 없이 파생 재계산 — 운영 86건 미확정 결함 대응)."""
+        engine, path, app_settings, stats = self._engine_with_rows([
+            {"ID": "a1", "신고번호": "SPP-2306-a1", "신고명": "신호위반",
+             "신고일": "2023-06-01 10:00", "답변일": "2023-06-02",
+             "처리기관": "경찰청 서울특별시경찰청 서울강서경찰서 교통과", "처리기관코드": "1810341",
+             "담당자": "김담당", "처리상태": "수용", "범칙금_과태료": "과태료: 50000원"},
+            {"ID": "a2", "신고번호": "SPP-2501-a2", "신고명": "신호위반",
+             "신고일": "2025-01-01 10:00", "답변일": "2025-01-02",
+             "처리기관": "경찰청 경기도남부경찰청 김포경찰서 교통과", "처리기관코드": "1814146",
+             "담당자": "이담당", "처리상태": "수용", "범칙금_과태료": "과태료: 50000원"},
+            {"ID": "a3", "신고번호": "SPP-2501-a3", "신고명": "불법주정차",
+             "신고일": "2025-01-01 10:00", "답변일": "2025-01-02",
+             "처리기관": "전라남도 여수시 교통도로국 주차차량과", "처리기관코드": "4810475",
+             "담당자": "박담당", "처리상태": "수용", "범칙금_과태료": "과태료: 40000원"},
+            self._row("a4", "4060425", "경기도 파주시 안전건설교통국 도시경관과"),
+            self._row("a5", "4060000", "경기도 파주시"),
+            self._row("a6", "3000188", "서울특별시 종로구 행정국 총무과"),
+            self._row("a7", "3000000", "서울특별시 종로구"),
+        ])
+        try:
+            got = stats.get_agency_stats(engine, {}, mode="raw")
+            by_agency = {r["agency_key"]: r for r in got["traffic"]["by_agency"]}
+            # 이전기관코드가 있는 폐지 부서도 경찰서 단위로 묶인다.
+            self.assertIn("inst:ag-c1321068", by_agency)
+            self.assertEqual(by_agency["inst:ag-c1321068"]["agency"], "서울특별시경찰청 서울강서경찰서")
+            self.assertIn("inst:ag-c1811029", by_agency)
+            self.assertEqual(by_agency["inst:ag-c1811029"]["agency"], "경기도남부경찰청 김포경찰서")
+            # 집계기관 자체가 폐지된 경우(여수시)도 당시 소속으로 묶인다.
+            self.assertIn("inst:ag-c4810000", by_agency)
+            self.assertEqual(by_agency["inst:ag-c4810000"]["agency"], "전라남도 여수시")
+            self.assertEqual(by_agency["inst:ag-c4060000"]["total"], 2)
+            self.assertEqual(by_agency["inst:ag-c4060000"]["agency"], "경기도 파주시")
+            self.assertEqual(by_agency["inst:ag-c3000000"]["total"], 2)
+            self.assertEqual(by_agency["inst:ag-c3000000"]["agency"], "서울특별시 종로구")
+            keys = set(by_agency)
+            self.assertFalse({k for k in keys if k.startswith("src:")}, keys)
         finally:
             engine.dispose()
             os.remove(path)
