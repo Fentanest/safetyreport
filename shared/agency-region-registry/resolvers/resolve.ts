@@ -40,17 +40,36 @@ function isSevenAlnum(code: string | null | undefined): code is string {
   return typeof code === 'string' && code.length === 7 && /^[0-9A-Za-z]{7}$/.test(code);
 }
 
-function walkChain(start: string, snap: AgencySnapshot): Array<Record<string, string>> {
-  const byFrom = new Map<string, Array<Record<string, string>>>();
-  const byTo = new Map<string, Array<Record<string, string>>>();
-  for (const link of snap.links) {
-    const list = byFrom.get(link.from_code) ?? [];
-    list.push(link);
-    byFrom.set(link.from_code, list);
-    const rlist = byTo.get(link.to_code) ?? [];
-    rlist.push(link);
-    byTo.set(link.to_code, rlist);
+type LinkIndex = {
+  byFrom: Map<string, Array<Record<string, string>>>;
+  byTo: Map<string, Array<Record<string, string>>>;
+};
+
+// 스냅샷별 링크 색인 캐시 (resolve.py `Snapshot.load` 의 links_by_from/links_by_to 와 같음).
+// 호출마다 links 전체(약 9천 건)로 색인을 다시 만들지 않는다.
+const linkIndexCache = new WeakMap<AgencySnapshot, LinkIndex>();
+
+function linkIndex(snap: AgencySnapshot): LinkIndex {
+  let cached = linkIndexCache.get(snap);
+  if (!cached) {
+    const byFrom = new Map<string, Array<Record<string, string>>>();
+    const byTo = new Map<string, Array<Record<string, string>>>();
+    for (const link of snap.links) {
+      const list = byFrom.get(link.from_code) ?? [];
+      list.push(link);
+      byFrom.set(link.from_code, list);
+      const rlist = byTo.get(link.to_code) ?? [];
+      rlist.push(link);
+      byTo.set(link.to_code, rlist);
+    }
+    cached = { byFrom, byTo };
+    linkIndexCache.set(snap, cached);
   }
+  return cached;
+}
+
+function walkChain(start: string, snap: AgencySnapshot): Array<Record<string, string>> {
+  const { byFrom, byTo } = linkIndex(snap);
   const chain: Array<Record<string, string>> = [];
   const seen = new Set<string>([start]);
   for (;;) {
