@@ -65,13 +65,27 @@ class AgencySnapshot {
   }
 }
 
-List<dynamic> _walkChain(String start, AgencySnapshot snap) {
+/// 스냅샷별 링크 색인 캐시 (resolve.py `Snapshot.load` 의 links_by_from/links_by_to 와 같음).
+/// 호출마다 links 전체(약 9천 건)로 색인을 다시 만들지 않는다.
+final Expando<(Map<String, List<dynamic>>, Map<String, List<dynamic>>)>
+    _linkIndexCache = Expando();
+
+(Map<String, List<dynamic>>, Map<String, List<dynamic>>) _linkIndex(
+  AgencySnapshot snap,
+) {
+  final cached = _linkIndexCache[snap];
+  if (cached != null) return cached;
   final byFrom = <String, List<dynamic>>{};
   final byTo = <String, List<dynamic>>{};
   for (final l in snap.links) {
     (byFrom[l['from_code'] as String] ??= []).add(l);
     (byTo[l['to_code'] as String] ??= []).add(l);
   }
+  return _linkIndexCache[snap] = (byFrom, byTo);
+}
+
+List<dynamic> _walkChain(String start, AgencySnapshot snap) {
+  final (byFrom, byTo) = _linkIndex(snap);
   final chain = <dynamic>[];
   final seen = <String>{start};
   while (true) {

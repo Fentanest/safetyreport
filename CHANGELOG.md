@@ -8,6 +8,13 @@
 
 ---
 
+## 2026-09-30 (dev 미배포)
+
+### 공유 기관 resolver 링크 색인 캐시(resolve.ts·resolve.dart)
+
+- 모바일 앱이 신고 3천 건에서 ANR 이 난 원인(벤더 Dart 복사본 `_walkChain` 이 호출마다 links 9,185건으로 색인 재구축)이 공유 `resolve.ts`·`resolve.dart` 에도 있었다. 스냅샷별 링크 색인 캐시(TS `WeakMap`, Dart `Expando`)로 바꿨다 — 정본 `resolve.py` 는 이미 `Snapshot.load` 에서 한 번만 색인하므로 PC 동작·성능은 변화 없음(실측 3,000건 9ms).
+- registry 데이터·`registry_version 2026-09-29.3` 은 그대로이고 manifest 의 두 resolver 해시만 바뀌었다. 세 레포 바이트 동일(`scripts/agency_registry/check.py` 통과), `tests.test_agency_registry` 16건 통과.
+
 ## 2026-09-29 (dev 미배포)
 
 ### 폐지 하위조직 코드 색인 포함·registry 2026-09-29.3
