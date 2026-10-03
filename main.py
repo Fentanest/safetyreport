@@ -456,10 +456,10 @@ _PUBLIC_PREFIXES = ("/static/", "/api/v1/", "/ws/", "/media/")
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    # WebSocket 및 공개 경로는 인증 없이 통과
+    # 실제 WebSocket은 HTTP 미들웨어를 거치지 않는다. Upgrade 헤더는
+    # 일반 HTTP 클라이언트도 임의로 보낼 수 있으므로 세션 예외가 아니다.
     if (path in _PUBLIC_PATHS
-            or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
-            or request.headers.get("upgrade", "").lower() == "websocket"):
+            or any(path.startswith(p) for p in _PUBLIC_PREFIXES)):
         try:
             return await call_next(request)
         except Exception:

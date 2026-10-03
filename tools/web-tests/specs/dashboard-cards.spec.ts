@@ -20,7 +20,7 @@ test('dashboard cards match api and links', async ({ page, request }) => {
 
   // fetch api
   const key = fs.readFileSync(path.join(fixtureDataDir, 'fixture-api-key.txt'), 'utf8').trim();
-  const res = await request.get('/api/v1/summary', { headers: { 'X-API-Key': key } });
+  const res = await request.get('/api/v1/summary', { headers: { 'X-API-Key': key, 'X-SafetyReport-Client': 'mobile', 'X-SafetyReport-Version': '2.0.0+31', 'X-SafetyReport-Protocol': '3' } });
   expect(res.ok()).toBeTruthy();
   const json = await res.json();
   const apiData = json.data;

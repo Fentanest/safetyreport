@@ -632,32 +632,13 @@ def _apply_registry_agency_display(df: pd.DataFrame) -> pd.DataFrame:
     if "처리기관" not in df.columns:
         return df
     from services import agency_registry
-    from resolve import resolve_current_agency
-
-    snap = agency_registry.snapshot()
     has_code = "처리기관코드" in df.columns
-
-    def keyed(name, code):
-        if code is None or (isinstance(code, float) and code != code):
-            code_text = None
-        else:
-            code_text = str(code).strip() or None
-        resolution = resolve_current_agency(code_text, name, snap)
-        status = resolution.get("resolution_status")
-        if status in ("resolved", "resolved_as_of_date"):
-            current = resolution.get("current_agency_name")
-            if current:
-                return current, resolution["agency_stat_key"]
-        if status == "historical":
-            return resolution.get("current_agency_name") or "", resolution["agency_stat_key"]
-        raw = name.strip() if isinstance(name, str) else ""
-        return raw, f"src:{code_text or '-'}:{raw}"
 
     # Resolve each distinct code/name pair once, then map vectorially.
     names = df["처리기관"].fillna("").astype(str)
     codes = df["처리기관코드"].fillna("").astype(str) if has_code else pd.Series("", index=df.index)
     pairs = list(zip(names, codes))
-    resolved = {pair: keyed(*pair) for pair in set(pairs)}
+    resolved = {pair: agency_registry.resolve_stats_agency(pair[1], pair[0]) for pair in set(pairs)}
     df["처리기관"] = [resolved[pair][0] for pair in pairs]
     df["_agency_key"] = [resolved[pair][1] for pair in pairs]
     return df
@@ -1226,7 +1207,7 @@ def _is_finite_number(value) -> bool:
         return False
 
 
-_MAP_TARGET_KEYS = ("targetAgency", "targetPerson")
+_MAP_TARGET_KEYS = ("targetAgency", "targetPerson", "targetAgencyKey", "completedOnly")
 
 
 @cached
@@ -1246,7 +1227,9 @@ def _load_map_records_frame(
     """
     stats_filters = {key: value for key, value in (filters or {}).items() if key not in _MAP_TARGET_KEYS and value not in (None, "", False)}
     target_agency = _text_or_empty((filters or {}).get("targetAgency"))
+    target_agency_key = _text_or_empty((filters or {}).get("targetAgencyKey"))
     target_person = _text_or_empty((filters or {}).get("targetPerson"))
+    completed_only = (filters or {}).get("completedOnly") is True
     filters = dict(stats_filters)
     if year and year not in ("all", "", None):
         filters["year"] = str(year)
@@ -1296,7 +1279,11 @@ def _load_map_records_frame(
     if "category" not in combined_df.columns:
         combined_df["category"] = normalized_category if normalized_category != "all" else "other"
 
-    if target_agency and "처리기관" in combined_df.columns:
+    if completed_only:
+        combined_df = combined_df[_stats_status_series(combined_df).isin(_OVERVIEW_COMPLETED_STATUSES)].copy()
+    if target_agency_key:
+        combined_df = combined_df[combined_df["_agency_key"] == target_agency_key].copy()
+    elif target_agency and "처리기관" in combined_df.columns:
         combined_df = combined_df[combined_df["처리기관"].fillna("").astype(str).str.strip() == target_agency].copy()
     if target_person and "담당자" in combined_df.columns:
         combined_df = combined_df[combined_df["담당자"].fillna("").astype(str).str.strip() == target_person].copy()

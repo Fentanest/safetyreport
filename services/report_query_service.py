@@ -69,7 +69,7 @@ def _build_records_query(table_obj, filters=None):
         if status == "처리중":
             query = query.where(table_obj.c["처리상태"].in_(["처리중", "진행", "진행중", "검토중"]))
         elif status == "완료":
-            query = query.where(table_obj.c["처리상태"].in_(["수용", "불수용", "일부수용", "기타", "답변완료"]))
+            query = query.where(func.trim(table_obj.c["처리상태"]).in_(["수용", "불수용", "일부수용", "기타", "답변완료"]))
         elif status == "불수용":
             query = query.where(table_obj.c["처리상태"].in_(["불수용", "기타"]))
         else:
@@ -153,6 +153,15 @@ def _get_records_from_table(engine, table_obj, filters=None, category: str = "",
     except Exception:
         return []
 
+    agency_key = (filters or {}).get("agencyKey")
+    if agency_key and not df.empty and "처리기관" in df.columns:
+        from services.agency_registry import resolve_stats_agency
+        names = df["처리기관"].fillna("").astype(str)
+        codes = df["처리기관코드"].fillna("").astype(str) if "처리기관코드" in df else [""] * len(df)
+        pairs = list(zip(codes, names))
+        keys = {pair: resolve_stats_agency(*pair)[1] for pair in set(pairs)}
+        df = df[[keys[pair] == agency_key for pair in pairs]]
+
     if not exact_values and not df.empty and "처리기관" in df.columns:
         from services.agency_registry import resolve_display_agency
 
@@ -164,7 +173,7 @@ def _get_records_from_table(engine, table_obj, filters=None, category: str = "",
 
     if filters and not df.empty:
         agency = filters.get("agency")
-        if agency and "처리기관" in df.columns:
+        if agency and not agency_key and "처리기관" in df.columns:
             if filters.get("agencyExact"):
                 df = df[df["처리기관"] == agency]
             else:

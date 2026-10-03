@@ -13,6 +13,10 @@
 | 웹 통계 탭 구조 | 위반법규는 탭이 아니라 오른쪽 사이드바 버튼(`#statsLawSidebar`, `?law=`)이다. 라우터가 `records_*_law` 를 넘기지만 템플릿은 렌더하지 않는다. 차트 라이브러리는 없다(표만 있음). | 정정 |
 | 웹 통계 탭 구조 (2026-09-28) | 통계 화면 개편: 법규는 검색 가능한 선택창, 행 클릭은 선택 항목 상세(목록 이동은 상세의 버튼), 요약 카드 6개·지도·차트 추가, 전국 안전신고 현황(Sunwi)은 대시보드에서 통계 하단으로. 사이드바 이름 '통계'. 상세는 [statistics-spec §9](../design/statistics-spec.md) | 정정 |
 | 공통 | DataTables 한국어 파일을 `//cdn.datatables.net/...` 로 불러 http 접속(로컬/LAN)에서는 301→CORS 로 실패하고 영문 UI 가 나온다(2026-09-24 fixture 실측). | 기존 결함 기록 |
+| 목록 초기화 | 현행 언어 URL은 HTTPS. 최초 검색/자동 상세/폭 조정은 `initComplete`를 기다리고 모든 이벤트 등록 뒤 수행한다. CDN 실패는 라이브러리 기본 언어로 동작한다. | 정정 |
+| 목록 검색칸 반응형 | DataTables의 Bootstrap 두 열 도구 모음에서도 검색 input은 부모 폭 안에서 축소한다. viewport 폭만으로 판단하지 않으며 표 자체의 내부 가로 스크롤은 유지한다. | 정정 |
+| HTTP 관리자 인증 | 임의 `Upgrade: websocket` 헤더는 세션 예외가 아니다. 실제 WebSocket ASGI scope는 HTTP middleware 밖에서 기존 WS 인증·protocol 검사로 처리한다. | 정정 |
+| 통계 초기 셸·상세 이동 | 초기 버튼은 loader가 즉시 연결한다. 서버 `agency_key`로 행을 선택하고 완료 모집단을 목록/상세 지도에 전달한다. [통계 명세](../design/statistics-spec.md#9-6-코드-대조-정정) 참조. | 정정 |
 
 ## 이관 원문
 

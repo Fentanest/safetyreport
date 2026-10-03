@@ -4,6 +4,7 @@ import functools
 import os
 import sys
 import threading
+from core.utils import logger
 
 import settings.settings as settings
 
@@ -137,8 +138,23 @@ def _start_after_crawl_hook(log_file: str, queue_file: str | None = None):
     process = crawl_manager.get_process()
     if not process:
         return
+    _prepare_after_crawl_hook(log_file, queue_file)(process)
+
+
+def _prepare_after_crawl_hook(log_file: str, queue_file: str | None = None):
+    """완료 감시 스레드를 먼저 준비한다. bind(None)은 시작 실패 시 감시를 끝낸다."""
+    ready = threading.Event()
+    process_ref = []
+
+    def bind(process):
+        process_ref.append(process)
+        ready.set()
 
     def _after():
+        ready.wait()
+        process = process_ref[0]
+        if process is None:
+            return
         try:
             crawl_manager.run_after_crawl(process, log_file)
         finally:
@@ -146,6 +162,7 @@ def _start_after_crawl_hook(log_file: str, queue_file: str | None = None):
                 crawl_manager.record_direct_queue_result(queue_file)
 
     threading.Thread(target=_after, daemon=True, name="crawl-direct-after").start()
+    return bind
 
 
 @_serialized
@@ -157,13 +174,25 @@ def start_rebuild(run_id: str):
         raise RuntimeError("크롤링이 이미 실행 중입니다.")
     command = _build_rebuild_command(run_id)
     log_file, prepare = _log_header(f"=== [초기화 크롤링] run {run_id} ===")
-    if not _manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare):
+    # Thread.start 실패는 프로세스를 만들기 전에 발생해야 한다. 이미 시작한
+    # 프로세스를 WS 알림 실패만으로 failed 처리/lease 해제하지 않는다.
+    bind_completion = _prepare_after_crawl_hook(log_file)
+    process = None
+    try:
+        started = _manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare)
+        if started:
+            process = _manager.get_process()
+    finally:
+        bind_completion(process)
+    if not started:
         raise RuntimeError("크롤링 프로세스를 시작하지 못했습니다.")
-    ws_manager.broadcast_from_thread(
-        "crawl_started",
-        {"source": "community_rebuild", "run_id": str(run_id), "crawl_type": "api"},
-    )
-    _start_after_crawl_hook(log_file)
+    try:
+        ws_manager.broadcast_from_thread(
+            "crawl_started",
+            {"source": "community_rebuild", "run_id": str(run_id), "crawl_type": "api"},
+        )
+    except Exception as exc:
+        logger.LoggerFactory.logbot.warning(f"[rebuild] 시작 알림 실패: {type(exc).__name__}")
     return log_file
 
 

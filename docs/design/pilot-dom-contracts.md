@@ -32,6 +32,9 @@
 - stats 헤더 텍스트 = sessionStorage `stats_column_visibility` 키(`getColumnLabel`, `★`→`별점`, `비율`→`<앞 열> 비율`). 바꾸면 저장된 열 설정이 끊긴다.
   2026-09-24 표 폭 조정으로 `비율` 열을 건수 칸에 합쳤다(13열). 예전 `… 비율` 키는 남아 있어도 무시된다. 합계 행 칸 수 = 머리글 칸 수(`tools/web-tests/specs/stats-layout.spec.ts`).
 - sessionStorage 키: `stats_cat`, `stats_type`, `stats_column_visibility`, `stats_columns_open`(P2 열 패널 펼침), `stats_view_state`(2026-09-28 돌아올 때 보기·검색·정렬·쪽·선택·스크롤, 같은 주소일 때만). localStorage 사용 없음(테마 저장 키를 새로 만들 때 충돌 없음).
+- `tr.sr-drill[data-key]`: JSON 배열 문자열이다. 기관은 `[agency_key]`, 담당자는 `[agency_key, person]`. Jinja `tojson` 결과를 JS에서 parse/stringify해 정규화한다.
+  표시명/탭 구분 문자열을 식별자로 쓰지 않는다. 예전 저장 선택 키는 일치하지 않으면 복원하지 않으며 검색·열·쪽 설정은 유지한다.
+- 목록의 최초 검색·`?open=` 자동 상세·열 폭 조정은 DataTables `initComplete` 이후 microtask에서 수행한다. 한국어 파일 응답 속도에 따른 고정 타이머는 없다.
 
 ## 3. JS 가 클래스 이름으로 색을 바꾸는 곳 (CSS 만 바꾸면 되돌아감)
 - (P2, 2026-09-24 이후) stats.html 연도·분류·구분·법규 버튼은 색 클래스를 바꾸지 않는다. 선택 표시는 `.active` + `aria-pressed` 만 토글하고 색은 CSS(`#statsCatGroup .btn[data-cat]` 의 `--sr-seg-accent`, 법규 `.sr-law-none`)가 정한다. `catColorMap` 삭제.

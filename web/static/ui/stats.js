@@ -89,12 +89,15 @@
         var urlDedupe = new URLSearchParams(window.location.search).get('dedupe');
         if (urlDedupe) p.set('dedupe', urlDedupe); // 통계가 고른 대표건 모드를 지도도 따른다
         if (target && target.agency) p.set('targetAgency', target.agency);
+        if (target && target.agencyKey) p.set('targetAgencyKey', target.agencyKey);
         if (target && target.person) p.set('targetPerson', target.person);
+        if (target) p.set('completedOnly', 'true'); // 상세 표의 모집단. 요약 지도는 전체 그대로.
         return p;
     }
 
     // ── 상태 ──
-    var currentCat = storageGet(sessionStorage, 'stats_cat') || 'traffic';
+    var currentCat = window.srPendingStatsCat || storageGet(sessionStorage, 'stats_cat') || 'traffic';
+    delete window.srPendingStatsCat;
     var currentType = storageGet(sessionStorage, 'stats_type') || 'agency';
     if (!CAT_LABELS[currentCat]) currentCat = 'traffic';
     if (!TYPE_LABELS[currentType]) currentType = 'agency';
@@ -116,10 +119,18 @@
     // 행 자료(상세 패널·CSV): 분류별 기관/담당자 목록을 키로 찾는다
     var rowIndex = {};
     ['traffic', 'parking', 'other'].forEach(function (cat) {
-        rowIndex[cat] = { agency: {}, person: {} };
+        rowIndex[cat] = { agency: Object.create(null), person: Object.create(null) };
         var rows = (DATA.rows && DATA.rows[cat]) || { agency: [], person: [] };
-        (rows.agency || []).forEach(function (r) { rowIndex[cat].agency[r.agency] = r; });
-        (rows.person || []).forEach(function (r) { rowIndex[cat].person[r.agency + '\t' + r.person] = r; });
+        (rows.agency || []).forEach(function (r) { rowIndex[cat].agency[rowKey(r, false)] = r; });
+        (rows.person || []).forEach(function (r) { rowIndex[cat].person[rowKey(r, true)] = r; });
+    });
+    function rowKey(row, person) {
+        var key = row.agency_key || 'src:-:' + row.agency;
+        // Jinja tojson의 공백·비ASCII escape와 무관하게 같은 키로 정규화한다.
+        return JSON.stringify(person ? [key, row.person] : [key]);
+    }
+    $('#statsTabsContent tr.sr-drill').each(function () {
+        $(this).attr('data-key', JSON.stringify(JSON.parse($(this).attr('data-key'))));
     });
     function isPersonType(type) { return /person$/.test(type); }
     function rowFor(cat, type, key) {
@@ -585,12 +596,14 @@
         var unit = isPersonType(currentType) ? '명' : '곳';
         var parts = ['<b>' + esc(CAT_LABELS[currentCat]) + ' · ' + esc(TYPE_LABELS[currentType]) + '</b>', '현재 조건'];
         parts.push(searchTerm ? '검색 “' + esc(searchTerm) + '” ' + num(shown) + unit + ' / 전체 ' + num(all) + unit : '전체 ' + num(all) + unit);
-        // 표에 들어가지 않는 신고(처리기관·담당자 없음)를 요약 총 건수와 비교해 밝힌다.
+        parts.push('답변 완료 신고만 집계');
         var s = overview && overview[currentCat];
         var rows = DATA.rows && DATA.rows[currentCat];
         if (s && rows) {
             var base = isPersonType(currentType) ? sumTotals(rows.person) : sumTotals(rows.agency);
-            var missing = Number(s.total || 0) - base;
+            var excluded = Math.max(0, Number(s.total || 0) - Number(s.completed || 0));
+            if (excluded > 0) parts.push('답변 완료 전·그 외 상태 ' + num(excluded) + '건은 표에서 제외');
+            var missing = Math.max(0, Number(s.completed || 0) - base);
             if (missing > 0) {
                 parts.push(isPersonType(currentType)
                     ? '처리기관·담당자가 없는 ' + num(missing) + '건은 담당자 표에 없음'
@@ -740,12 +753,12 @@
         html.push('<li><span>금액 미확인 과태료</span><b>' + num(unknown) + '건</b></li>');
         html.push('<li><span>추정 과태료(법정 최저)</span><b>' + (row.estimated_fine_count ? won(row.estimated_fine_amount) + ' <small class="text-muted fw-normal">(' + num(row.estimated_fine_count) + '건)</small>' : '—') + '</b></li>');
         html.push('</ul>');
-        var mapHref = '/stats/map?' + mapParams(cat, { agency: row.agency, person: person ? row.person : '' }).toString();
+        var mapHref = '/stats/map?' + mapParams(cat, { agency: row.agency, agencyKey: row.agency_key || 'src:-:' + row.agency, person: person ? row.person : '' }).toString();
         html.push('<div class="sr-panel-actions">');
         html.push('<a class="btn btn-primary btn-sm" data-stats-nav href="' + esc(href) + '"><i class="fas fa-list-ul me-1"></i>해당 신고 내역 보기</a>');
         html.push('<a class="btn btn-outline-secondary btn-sm" data-stats-nav href="' + esc(mapHref) + '"><i class="fas fa-map-location-dot me-1"></i>지도에서 보기</a>');
         html.push('</div>');
-        var note = '표와 같은 값입니다. 목록·지도에는 분류·' + (person ? '기관·담당자' : '기관') + '·답변 연도' + (FILTERS.law ? '·위반법규' : '') + ' 조건이 함께 넘어갑니다.';
+        var note = '표와 같은 값입니다. 목록·지도에는 답변 완료·분류·' + (person ? '기관·담당자' : '기관') + '·답변 연도' + (FILTERS.law ? '·위반법규' : '') + ' 조건이 함께 넘어갑니다.';
         if (FILTERS.excludePolice || FILTERS.onlyPolice) note += ' 경찰기관 제외/만 조건은 목록 주소로 넘기지 못합니다(이 행은 이미 한 기관이라 결과는 같습니다).';
         html.push('<div class="sr-panel-note">' + esc(note) + '</div>');
         html.push('</div>');
@@ -960,7 +973,7 @@
             '추정 과태료(원)', '추정 과태료 건수'
         ]);
         DISP.forEach(function (item) { header.push(item.label + ' 건수', item.label + ' 비율(%)'); });
-        header.push('별점 평균', '평가 수');
+        header.push('별점 평균', '평가 수', '기관 집계 키');
         var lines = [header.map(csvCell).join(',')];
         api.rows({ search: 'applied', order: 'applied' }).nodes().each(function (tr) {
             var row = rowFor(currentCat, currentType, $(tr).attr('data-key'));
@@ -977,7 +990,7 @@
                 var n = row[item.key] == null ? null : Number(row[item.key]);
                 cells.push(n, n == null ? null : pctValue(n, total));
             });
-            cells.push(row.avg_rating == null ? null : Number(row.avg_rating), Number(row.rating_count || 0));
+            cells.push(row.avg_rating == null ? null : Number(row.avg_rating), Number(row.rating_count || 0), row.agency_key || 'src:-:' + row.agency);
             lines.push(cells.map(csvCell).join(','));
         });
         var name = ['통계', CAT_LABELS[currentCat], TYPE_LABELS[currentType], YEAR === 'all' ? '전체연도' : YEAR + '년'].join('_').replace(/\s+/g, '') + '.csv';

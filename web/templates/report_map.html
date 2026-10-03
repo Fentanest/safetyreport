@@ -495,7 +495,10 @@
         if (respStart) { listParams.responseDateStart = respStart; }
         if (respEnds.length) { listParams.responseDateEnd = respEnds[0]; }
         if (mapFilters.targetAgency) { listParams.agency = mapFilters.targetAgency; listParams.agencyExact = 'true'; }
+        if (mapFilters.targetAgencyKey) { listParams.agencyKey = mapFilters.targetAgencyKey; }
         if (mapFilters.targetPerson) { listParams.person = mapFilters.targetPerson; }
+        if (mapFilters.completedOnly) { listParams.status = '완료'; }
+        if (mapFilters.law) { listParams.lawExact = 'true'; }
 
         function updateQuery(key, value) {
             var params = new URLSearchParams(window.location.search);

@@ -56,6 +56,16 @@ class CompatibilityApp(unittest.TestCase):
             r = self.client.get(path + sep + 'api_key=' + self.key, headers={'User-Agent':'Mozilla/5.0','X-Admin':'true'})
             self.assertEqual(r.status_code,409)
 
+    def test_http_upgrade_header_is_not_a_websocket_or_admin_session(self):
+        with mock.patch('services.community_gate.check_for_request', return_value={'can_enter':True}):
+            for path in ('/data/all','/backup/download','/settings/','/stats','/crawl/'):
+                with self.subTest(path=path):
+                    r = self.client.get(path, headers={'Upgrade':'websocket', 'Connection':'Upgrade', **HEADERS}, follow_redirects=False)
+                    self.assertEqual(r.status_code,302)
+                    self.assertTrue(r.headers['location'].startswith('/login'))
+            r = self.client.post('/backup/upload',headers={'Upgrade':'websocket','Accept':'application/json'},follow_redirects=False)
+            self.assertEqual(r.status_code,401)
+
     def test_probe_is_minimal_and_auth_still_required(self):
         self.assertEqual(self.client.get('/api/v1/server/version').status_code,401)
         r = self.client.get('/api/v1/server/version', headers={'X-API-Key':self.key})

@@ -103,6 +103,9 @@ capture 재시도 ID(T4 `capture_retry_ids()`, 없으면 빈 집합 — 파일 �
 | 문서 | 코드 | 상태 |
 |---|---|---|
 | `rebuild.md` preparing_backup 실패 | `start()` → `failed`, 개인 DB 무변경 | 일치 (G07) |
+| 크롤러 실행 실패 | `start/resume/resume_on_startup`의 launch 예외는 `running`을 `failed`로 바꾸고 **해당 run 소유 lease만** 같은 트랜잭션에서 해제한다. 완료/일시정지 상태를 덮지 않으며 즉시 같은 run으로 재개 가능. 초기화 필요 판정은 유지 | 정정 |
+| 중복 제어 요청 | 같은 서버 프로세스의 start/resume/startup은 RLock으로 직렬화한다. DB의 scope별 active job 유일성도 유지한다. 건강한 live lease는 startup에서 재실행하지 않는다 | 일치 |
+| 실행·완료 감시·알림 경계 | 완료 감시 스레드를 프로세스 시작 **전에** 준비하고 성공한 process를 인계한다. Thread.start 실패는 launch 이전 실패, launch 실패는 대기 감시를 종료한다. WS 시작 알림 실패는 이미 실행된 job/lease/완료 감시를 실패로 바꾸지 않는다 | 정정 |
 | `interfaces.md` `rotate_dataset` 호출자 | `exchange.restore()` 가 `_swap_in` 직전 호출 | 일치 |
 | `schedule.md` 커뮤니티 job id | T4 `register_community_jobs` 제공 전 — 호출 자리·멱등 재확인만 구현, fake 로 검증 | T4 대기 |
 | 게이트 `require_fresh`·`verify_client_user_token`, `refresh_server_completed` | T3a·T4 제공 전 — 함수 안 import + 부재 시 통과, fake 로 검증 | T3a·T4 대기 |

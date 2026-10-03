@@ -11,6 +11,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--data-dir',required=True)
     p.add_argument('--port',type=int,default=18703)
+    p.add_argument('--review-fixture',action='store_true',help='동일명 기관 충돌 합성 자료 추가')
     args=p.parse_args()
     root=prepare_data_dir(args.data_dir,reset=False)
     activate_environment(root)
@@ -23,6 +24,9 @@ def main():
     import settings.settings as settings
     from core.database.engine import get_engine
     from core.database import models
+    if args.review_fixture:
+        from review_regression_fixture import seed_collision_rows
+        seed_collision_rows(get_engine())
     from sqlalchemy import update
     fake=FakeSupabase()
     account=FakeAccount(fake)

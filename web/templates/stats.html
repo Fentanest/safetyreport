@@ -29,7 +29,7 @@
 } %}
 {% set query_items = request.query_params.multi_items() %}
 
-<div class="sr-stats-page">
+<div class="sr-stats-page" aria-busy="{{ 'true' if pending else 'false' }}">
 {% if pending %}<p id="statsLoading" role="status">지도와 상세 통계를 각각 불러오고 있습니다.</p>{% endif %}
 <div class="sr-stats" id="statsRoot">
 
@@ -64,7 +64,7 @@
             </div>
             <div class="sr-cond-group dropdown sr-law-picker">
                 <span class="sr-seg-label" id="statsLawLabel"><i class="fas fa-gavel me-1"></i>위반법규</span>
-                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" id="statsLawToggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-labelledby="statsLawLabel statsLawToggle">
+                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" id="statsLawToggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-labelledby="statsLawLabel statsLawToggle" {% if pending %}disabled title="상세 통계가 준비되면 법규를 선택할 수 있습니다"{% endif %}>
                     <span class="sr-law-current" id="statsLawCurrent">{{ '없음' if f.law == '__없음__' else (f.law or '전체') }}</span>
                 </button>
                 <div class="dropdown-menu sr-law-menu" aria-labelledby="statsLawToggle">
@@ -260,7 +260,8 @@
             {% set resp_start = [yr_start, f.responseDateStart or ''] | max %}
             {% set resp_end_candidates = [yr_end, f.responseDateEnd or ''] | reject('equalto', '') | list %}
             {% set resp_end = (resp_end_candidates | min) if resp_end_candidates else '' %}
-            {% set drill_base = {} %}
+            {% set drill_base = {'dedupe': dedupe_mode, 'status': '완료'} %}
+            {% if f.law %}{% set _ = drill_base.update({'lawExact': 'true'}) %}{% endif %}
             {% for key, value in [('law', f.law), ('responseDateStart', resp_start), ('responseDateEnd', resp_end),
                                   ('reportName', f.reportName), ('location', f.location),
                                   ('reportDateStart', f.reportDateStart), ('reportDateEnd', f.reportDateEnd),
@@ -270,9 +271,10 @@
             {% endfor %}
             {% macro agency_rows(records, base_url) %}
                 {% for r in records %}
-                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'agencyExact': 'true'}) %}
-                <tr class="sr-drill" tabindex="0" data-key="{{ r.agency }}" data-href="{{ base_url }}?{{ q | urlencode }}">
-                    <td class="sr-name" title="{{ r.agency }}">{{ r.agency }}</td>
+                {% set key = r.agency_key or ('src:-:' ~ r.agency) %}
+                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'agencyExact': 'true', 'agencyKey': key}) %}
+                <tr class="sr-drill" tabindex="0" data-key="{{ [key] | tojson | forceescape }}" data-href="{{ base_url }}?{{ q | urlencode }}">
+                    <td class="sr-name" title="{{ r.agency }} · 기관 집계 키: {{ key }}">{{ r.agency }}</td>
                     <td data-order="{{ r.total }}" class="sr-n"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" data-count="{{ r.avg_days_count or 0 }}" class="sr-n">{{ avg_display(r.avg_days) }}</td>
                     {{ metric_cells(r) }}
@@ -281,9 +283,10 @@
             {% endmacro %}
             {% macro person_rows(records, base_url) %}
                 {% for r in records %}
-                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'person': r.person, 'agencyExact': 'true'}) %}
-                <tr class="sr-drill" tabindex="0" data-key="{{ r.agency }}&#9;{{ r.person }}" data-href="{{ base_url }}?{{ q | urlencode }}">
-                    <td class="sr-name" title="{{ r.agency }}">{{ r.agency }}</td>
+                {% set key = r.agency_key or ('src:-:' ~ r.agency) %}
+                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'person': r.person, 'agencyExact': 'true', 'agencyKey': key}) %}
+                <tr class="sr-drill" tabindex="0" data-key="{{ [key, r.person] | tojson | forceescape }}" data-href="{{ base_url }}?{{ q | urlencode }}">
+                    <td class="sr-name" title="{{ r.agency }} · 기관 집계 키: {{ key }}">{{ r.agency }}</td>
                     <td class="sr-person" title="{{ r.person }}">{{ r.person }}</td>
                     <td data-order="{{ r.total }}" class="sr-n"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" data-count="{{ r.avg_days_count or 0 }}" class="sr-n">{{ avg_display(r.avg_days) }}</td>

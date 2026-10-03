@@ -91,9 +91,13 @@ by_law (법규별, 같은 필드 + law)
 - 웹 전용(세션 인증): `GET /stats/map/points?category=&year=&<통계 조건>&targetAgency=&targetPerson=` → `get_report_map_stats` 와 같은 `{points, meta}`.
   `/stats/map`·`/stats/map/missing` 도 같은 통계 조건 이름(`law reportName location reportDate* occurDate* responseDate* occurTime* agency agencyExact excludePolice onlyPolice`)과
   `targetAgency`(registry 현행 표시명과 정확히 일치)·`targetPerson`(정확히 일치)을 선택적으로 받는다. 없으면 예전과 같은 전체 지도. `/api/v1/stats/map` 은 바꾸지 않았다.
+  상세 표의 지도 링크는 `targetAgencyKey=<행 agency_key>`와 `completedOnly=true`도 전달한다. 키가 있으면 표시명보다 키가 우선하며,
+  완료 상태(수용·일부수용·불수용·기타·답변완료)만 남긴다. 두 필드가 없는 요약 지도와 기존 이름 조회의 모집단은 바꾸지 않는다.
   지도 모집단은 통계와 같은 순서(SQL 조건 → 대표건 → 행 조건 → 취하 제외 → 법규)라 `meta.total_reports` 가 요약 `total` 과 같다(분류를 고른 경우. 테스트 `test_map_uses_same_population_as_stats`).
   예외: 대표건 projection 을 지도는 고른 분류의 행만으로, 통계는 세 분류를 합쳐서 한다 — 분류를 넘나드는 중복군이 있으면 달라질 수 있다(기존 동작, 바꾸지 않음).
 - 목록 `/data/<분류>` 는 통계에서 넘어온 `reportName reportDateStart/End occurDateStart/End responseDateStart/End occurTimeStart/End` 를 같은 이름의 상세 검색칸에 채운다(연도 → 답변일 범위).
+  기관·담당자 상세 링크는 `agencyKey=<행 agency_key>`와 `status=완료`를 추가한다. registry 집계 키를 동일 resolver로 해석하며
+  같은 표시명의 서로 다른 코드가 합쳐지지 않는다. `agencyKey`가 없으면 기존 `agency/agencyExact` 동작을 유지한다(외부 API 응답 변경 없음).
 
 - (2026-09-28 추가) `/stats` 기관·담당자·법규 행은 답변 완료 신고만 집계한다. `in_progress`·`in_progress_pct` 필드는 남지만 0이다(의미 축소, 삭제 아님 — 구 앱 호환).
   `disposition_unknown` 은 저장값 '미확인' + 주정차·버스전용차로·쓰레기 메뉴의 일부수용·처분 빈값. 파서는 그 일부수용에 '미확인'을 저장한다(parser-vectors).

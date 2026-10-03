@@ -32,10 +32,12 @@ def _query_filters(request: Request) -> dict:
 
 def _map_filters(request: Request) -> dict:
     filters = _query_filters(request)
-    for key in ("targetAgency", "targetPerson"):
+    for key in ("targetAgency", "targetPerson", "targetAgencyKey"):
         value = (request.query_params.get(key) or "").strip()
         if value:
             filters[key] = value
+    if request.query_params.get("completedOnly", "").strip().lower() in {"true", "1", "on"}:
+        filters["completedOnly"] = True
     return filters
 
 @router.get("/stats/content")

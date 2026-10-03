@@ -14,6 +14,7 @@ def main():
     p.add_argument('--count', type=int, required=True)
     p.add_argument('--output', required=True)
     p.add_argument('--baseline', action='store_true')
+    p.add_argument('--baseline-ref', help='비교할 로컬 commit의 통계 구현(현행 API 형태를 지원하는 commit)')
     args = p.parse_args()
     root = prepare_data_dir(args.data_dir, reset=False)
     activate_environment(root)
@@ -22,9 +23,10 @@ def main():
     from core.database.engine import get_engine
     from core.utils import logger
     from services import report_stats_service as stats
-    if args.baseline:
+    if args.baseline or args.baseline_ref:
         import subprocess
-        source = subprocess.check_output(['git', 'show', 'a35b7d2:services/report_stats_service.py'], text=True)
+        ref = args.baseline_ref or 'a35b7d2'
+        source = subprocess.check_output(['git', 'show', f'{ref}:services/report_stats_service.py'], text=True)
         exec(compile(source, '<baseline-report-stats>', 'exec'), stats.__dict__)
     logger.LoggerFactory.create_logger(mode='crawl')
     engine = get_engine()

@@ -171,18 +171,19 @@ table.dataTable td.dataTables_empty {
     left: 0;
 }
 
-/* 좁은 화면에서 검색칸이 카드 밖으로 나가지 않게 */
-@media (max-width: 575px) {
-    .dataTables_wrapper .dataTables_filter label {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        width: 100%;
-    }
-    .dataTables_wrapper .dataTables_filter input {
-        flex: 1 1 auto;
-        min-width: 0;
-        width: auto;
-        margin-left: 0 !important;
-    }
+/* Bootstrap의 두 열 도구 모음에서도 검색칸은 부모 폭 안에서 줄어든다.
+   viewport가 넓어도 사이드바/브라우저 확대 때문에 한 열은 좁을 수 있다. */
+.dataTables_wrapper .dataTables_filter label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    justify-content: flex-end;
+}
+.dataTables_wrapper .dataTables_filter input {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+    max-width: 18rem;
+    margin-left: 0 !important;
 }

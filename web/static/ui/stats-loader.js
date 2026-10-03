@@ -1,18 +1,13 @@
 /* Show the shell immediately; map and complete statistics have independent requests. */
 window.SrStatsLoader = { start: function (data) {
-    var disposed = false, mapDisposed = false, abort = new AbortController(), mapAbort = new AbortController();
+    var disposed = false, mapDisposed = false, abort = new AbortController(), mapAbort = null, mapSeq = 0;
     window.SrStatsLoader.cancelMap = function () {
-        mapDisposed = true; mapAbort.abort(); window.srMapLoading = false;
+        mapDisposed = true; mapSeq++; if (mapAbort) mapAbort.abort(); window.srMapLoading = false;
     };
-    var cat = sessionStorage.getItem('stats_cat') || 'traffic';
+    var cat = 'traffic';
+    try { cat = sessionStorage.getItem('stats_cat') || cat; } catch (e) { /* 저장 불가여도 동작 */ }
     if (!['traffic','parking','other'].includes(cat)) cat = 'traffic';
-    var qs = new URLSearchParams(location.search);
-    qs.set('category', cat);
-    var mapURL = '/stats/map/points?' + qs.toString();
-    window.srMapLoading = true;
-    performance.mark('sr-map-request');
     var mapCard = document.getElementById('statsMapCard');
-    document.getElementById('statsMapOpen').href='/stats/map?' + qs.toString();
     var filters=data.filters || {}, listParams={};
     ['law','reportName','location','reportDateStart','reportDateEnd','occurDateStart','occurDateEnd','occurTimeStart','occurTimeEnd'].forEach(function(k){if(filters[k]) listParams[k]=filters[k];});
     var year=data.year || 'all';
@@ -23,10 +18,26 @@ window.SrStatsLoader = { start: function (data) {
     if(filters.agency) {listParams.agency=filters.agency; if(filters.agencyExact) listParams.agencyExact='true';}
     if(filters.law) listParams.lawExact='true';
     var listReproducible=!filters.excludePolice && !filters.onlyPolice && !/[&,]/.test(filters.agency || '');
+    function loadMap() {
+    if (disposed || mapDisposed) return;
+    var seq = ++mapSeq, requestedCat = cat;
+    if (mapAbort) mapAbort.abort();
+    mapAbort = new AbortController();
+    if (window.srEarlyMap) { window.srEarlyMap.map.remove(); window.srEarlyMap = null; }
+    var qs = new URLSearchParams(location.search);
+    qs.set('category', requestedCat);
+    var mapURL = '/stats/map/points?' + qs.toString();
+    document.getElementById('statsMapOpen').href='/stats/map?' + qs.toString();
+    document.getElementById('statsMiniMap').hidden = true;
+    var state = document.getElementById('statsMapState');
+    state.hidden = false; state.textContent = '지도를 불러오는 중입니다.';
+    document.getElementById('statsMapMeta').textContent = '';
+    window.srMapLoading = true;
+    performance.mark('sr-map-request');
     fetch(mapURL, {headers:{Accept:'application/json'}, signal:mapAbort.signal})
       .then(function(r){if(!r.ok) throw Error('HTTP '+r.status); return r.json();})
       .then(function(payload){
-        if(disposed || mapDisposed) return;
+        if(disposed || mapDisposed || seq !== mapSeq) return;
         performance.mark('sr-map-data');
         var el = document.getElementById('statsMiniMap');
         if (!payload.points.length) {
@@ -34,11 +45,40 @@ window.SrStatsLoader = { start: function (data) {
             return;
         }
         el.hidden=false; document.getElementById('statsMapState').hidden=true;
-        window.srEarlyMap = SrReportMap.create(el,payload.points,{category:cat,dedupeMode:data.dedupeMode,listParams:listParams,listReproducible:listReproducible,scrollWheelZoom:false,viewportURL:mapURL});
+        window.srEarlyMap = SrReportMap.create(el,payload.points,{category:requestedCat,dedupeMode:data.dedupeMode,listParams:listParams,listReproducible:listReproducible,scrollWheelZoom:false,viewportURL:mapURL});
         performance.mark('sr-map-ready');
         document.dispatchEvent(new CustomEvent('sr:earlymap',{detail:window.srEarlyMap}));
         document.getElementById('statsMapMeta').textContent='지도 표시 '+payload.meta.geocoded_reports+'건 / 대상 '+payload.meta.total_reports+'건';
-      }).catch(function(e){if(!disposed && !mapDisposed && e.name!=='AbortError') document.getElementById('statsMapState').textContent='지도 요청 실패: '+e.message;}).finally(function(){if(!mapDisposed) window.srMapLoading=false;});
+      }).catch(function(e){if(!disposed && !mapDisposed && seq === mapSeq && e.name!=='AbortError') {
+          state.textContent='지도 요청 실패: '+e.message;
+          var retry=document.createElement('button'); retry.type='button'; retry.className='btn btn-outline-secondary btn-sm'; retry.textContent='다시 시도';
+          retry.onclick=loadMap; state.appendChild(retry);
+      }}).finally(function(){if(!mapDisposed && seq === mapSeq) window.srMapLoading=false;});
+    }
+    function renderCategory() {
+        document.querySelectorAll('.stats-cat-btn').forEach(function(button) {
+            var active = button.dataset.cat === cat;
+            button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active));
+        });
+    }
+    document.querySelectorAll('.stats-cat-btn').forEach(function(button) {
+        button.addEventListener('click', function() {
+            if (button.dataset.cat === cat) return;
+            cat=button.dataset.cat;
+            try { sessionStorage.setItem('stats_cat',cat); } catch(e) { /* 저장 불가여도 동작 */ }
+            window.srPendingStatsCat = cat;
+            renderCategory(); loadMap();
+        });
+    });
+    window.srPendingStatsCat = cat;
+    document.querySelectorAll('.stats-year-btn').forEach(function(button) {
+        button.addEventListener('click', function() {
+            var params = new URLSearchParams(location.search), year=button.dataset.year;
+            if(year==='all') params.delete('year'); else params.set('year',year);
+            location.href='/stats'+(params.toString()?'?'+params.toString():'');
+        });
+    });
+    renderCategory(); loadMap();
     fetch('/stats/content' + location.search,{headers:{Accept:'text/html','X-Requested-With':'XMLHttpRequest'},signal:abort.signal})
       .then(function(r){if(!r.ok) throw Error('HTTP '+r.status);return r.text();})
       .then(function(html){
