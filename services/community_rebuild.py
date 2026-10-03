@@ -473,6 +473,8 @@ def accept_gaps() -> dict:
     counts = _counts(job["run_id"])
     if not counts["failed_permanent"]:
         return status()
+    if counts['pending'] or counts['failed_retryable'] or not job.get('list_complete'):
+        return status()
     _touch(job["run_id"], gaps_accepted_at=_iso(_now()))
     _commit(job["run_id"], with_gaps=True)
     return status()
@@ -508,11 +510,33 @@ def on_crawl_finished(run_id: str) -> dict:
 def _commit(run_id: str, *, with_gaps: bool) -> None:
     """staging → report_latest upsert 병합 + source_generation 증가 (한 트랜잭션)."""
     store = _store()
-    _set_state(run_id, "committing")
+    try:
+        _commit_transaction(store, run_id, with_gaps=with_gaps)
+    except Exception as exc:
+        _set_state(run_id, 'failed', last_error='commit_failed: ' + type(exc).__name__)
+        raise
+    try:
+        store.release_lease(_LEASE_NAME, run_id)
+    except Exception:
+        pass
+
+
+def _commit_transaction(store, run_id, *, with_gaps):
     with store.transaction() as tx:
+        job = tx.execute('SELECT * FROM rebuild_jobs WHERE run_id=?', (run_id,)).fetchone()
+        if not job or job['state'] in TERMINAL_STATES:
+            return
+        if job['state'] not in ('validating', 'committing') or not job['list_complete']:
+            raise RuntimeError('rebuild_not_validated')
+        remaining = tx.execute("SELECT count(*) FROM rebuild_items WHERE run_id=? AND state IN ('pending','failed_retryable')", (run_id,)).fetchone()[0]
+        permanent = tx.execute("SELECT count(*) FROM rebuild_items WHERE run_id=? AND state='failed_permanent'", (run_id,)).fetchone()[0]
+        if remaining or (permanent and not (with_gaps and job['gaps_accepted_at'])):
+            raise RuntimeError('rebuild_items_incomplete')
         dataset_id = tx.execute(
             "SELECT value FROM meta WHERE key='local_dataset_id'").fetchone()
         local_dataset_id = dataset_id["value"] if dataset_id else ""
+        if local_dataset_id != job['local_dataset_id'] or job['source_account_namespace'] != source_account_namespace():
+            raise RuntimeError('rebuild_scope_changed')
         staging = tx.execute(
             "SELECT source_report_id, event_id, payload_sha256, eligible"
             " FROM report_latest_staging WHERE run_id=?", (run_id,)).fetchall()
@@ -536,10 +560,6 @@ def _commit(run_id: str, *, with_gaps: bool) -> None:
             "UPDATE rebuild_jobs SET state=?, completed_at=?, source_generation=?,"
             " updated_at=? WHERE run_id=?",
             (final, now, new_gen, now, run_id))
-    try:
-        store.release_lease(_LEASE_NAME, run_id)
-    except Exception:
-        pass
 
 
 def mark_login_failed(run_id: str, note: str = "login_failed") -> None:

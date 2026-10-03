@@ -2,6 +2,25 @@
 
 다루는 것: 설정 키, DB 테이블/컬럼, 서비스 반환 키, category 전파, 모바일 API, WebSocket, 완료 마커 파일, 크롬 확장 API.
 
+## 현행 self-host 통신 계약
+
+정본은 [contracts/selfhost-compat](../../contracts/selfhost-compat/README.md)와 테스트 벡터다.
+서버 제품 major ≥3, 클라이언트 protocol=3을 각각 검사한다. 모바일 실제 제품 버전 2.0.0+31도 protocol 3이면 허용한다.
+HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_protocol 쿼리가 필수다.
+유효 API 키라도 protocol 없는 요청은 데이터·다운로드·완료 마커·알림을 받지 못한다(409/4406).
+인증된 `/api/v1/server/version`만 최소 호환성 확인을 허용한다. 관리자 세션은 `/api/v1` 예외가 아니다.
+과거 "구앱 호환" 설명은 응답 필드 보존을 뜻하며 구형 클라이언트 접근 허용을 뜻하지 않는다.
+추가형 페이지 조회·범위별 지도 조회와 통계 추가 필드의 실제 JSON도 위 정본을 따른다.
+
+### 복원 거절 오류
+
+업로드 원본을 읽기 전용으로 검증하고 형식·무결성·스키마·주인을 확인한 후에만 복원을 시작한다.
+`DB_FILE_INVALID`(SQLite 아님), `DB_CORRUPT`, `DB_KIND_UNSUPPORTED`, `DB_LEGACY_UNSUPPORTED`,
+`DB_SCHEMA_UNSUPPORTED`(미래 스키마), `DB_ACCOUNT_MISMATCH`를 구분한다.
+복원 거절은 HTTP 409 `{status:"error",code,detail,message}`이며 detail/message를 화면에 계속 표시한다.
+구형 DB 안내는 "이전 버전 DB는 이 버전에서 복원할 수 없습니다"다. 자동 변환 허용으로 바꾸지 않았다.
+거절 전에 현재 DB 교체·dataset 회전·소유자·초기화 상태 변경은 없다. 임시 업로드만 정리한다.
+
 ## 공식 신고 위치 (현재 dev)
 
 - 안전신문고 상세의 `C_A_W`가 위도, `C_A_E`가 경도다. 완료된 보완의 `SPLMNT_C_A_W/E`가 유효하면 보완 좌표를 쓴다. 보완 주소가 바뀌고 좌표 쌍이 유효하지 않으면 기존 위치를 새 주소에 붙이지 않는다.
@@ -14,7 +33,7 @@
 
 ## 코드 대조 정정 (기준 17df6cb)
 
-현재 dev 기준은 아래 **2026-09-27 이전 버전 DB 처리** 절이다. 이 문서의 2026-09-24 R1 절에 적힌 서버 스키마 2·모바일 스키마 12와 아래 이관 원문의 자동 업그레이드 설명은 당시 기록이며 현재 값이 아니다. 현재 서버 스키마는 `core/database/database.py`의 `SCHEMA_VERSION=4`; 이전 버전 DB는 서버 시작 때 백업 후 초기화한다. 현재 모바일 스키마는 `LocalDbService.dbVersion=15`이다.
+현재 dev 기준은 아래 **2026-09-27 이전 버전 DB 처리** 절이다. 이 문서의 2026-09-24 R1 절과 이관 원문의 자동 업그레이드 설명은 당시 기록이며 현재 값이 아니다. 현재 서버 스키마는 `core/database/database.py`의 `SCHEMA_VERSION=5`; 이전 버전 DB는 서버 시작 때 백업 후 초기화한다. 현재 모바일 스키마는 `contracts/storage-contract.json`의 `schema_version.mobile=16`이다. 제품 VERSION 및 self-host protocol 3과 별개다.
 
 | 원문 절 | 현재 코드 | 조치 |
 |---|---|---|
@@ -23,6 +42,8 @@
 | config.ini 섹션+키 | 과거 `[MAP] kakao_rest_api_key` 는 읽거나 저장하지 않는다. 기존 설정 파일의 값은 기능에 사용하지 않는다. | 공식 좌표로 전환 |
 | get_dashboard_stats() / get_agency_stats() 키 | 현재 코드는 목록 외에 `withdrawGraphCount`, `dedupe_mode`(대시보드), `avg_days`, `total_fine_amount`, `unconfirmed(_pct)`, `avg_rating`, `rating_count`, `by_law`, `available_laws`, `has_empty_law`, `dedupe_mode`(기관 통계)를 반환한다(`services/report_stats_service.py:440-470, 603-705`). | 추가 — 기존 키는 유지 |
 | 모바일 API 표 | `/summary 의 취하 필드 규칙` 목록이 표 중간에 끼어 뒤쪽 행(`/app/config` 이하)이 표로 렌더되지 않는다. 내용은 유효. | 형식만 문제 |
+| 이전 API/WS 키만 전송 | 현재 외부 요청은 키 인증 후 protocol 3 필수 검사; 과거 키도 예외 없음 | selfhost-compat 정본 우선 |
+| 이전 DB 거절 문구/오류 종류 | Legacy/Future/Corrupt/Account 거절 코드를 분리하고 detail/message를 유지 | 현행 복원 거절 절 우선 |
 
 ## 2026-09-24 통계 계약 갱신 (모바일 세션 `feature/stats-overview-api` 병합분)
 

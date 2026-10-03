@@ -155,7 +155,7 @@
                 <h1 class="h2">{{ title }}</h1>
             </div>
             <!-- 커뮤니티 초기화 크롤링 안내(필요·진행 중일 때만). 크롤 시작만 막히고 다른 화면은 그대로 쓴다. -->
-            <div class="alert alert-warning d-flex flex-wrap align-items-center gap-2 small" id="srRebuildBanner" role="status" hidden>
+            <div class="alert alert-warning flex-wrap align-items-center gap-2 small" id="srRebuildBanner" role="status" hidden>
                 <i class="fas fa-rotate"></i><span id="srRebuildText">커뮤니티 공유를 위한 초기화 크롤링이 필요합니다. 끝날 때까지 일반 수집이 잠시 막힙니다.</span>
                 <a class="btn btn-sm btn-outline-dark ms-auto" href="/onboarding/rebuild">초기화 크롤링 화면</a>
             </div>
@@ -248,18 +248,28 @@
     var banner = document.getElementById('srRebuildBanner');
     if (!banner || window.location.pathname.indexOf('/onboarding/') === 0) return;
     var ACTIVE = { preparing_backup: 1, running: 1, validating: 1, committing: 1, paused: 1, awaiting_confirmation: 1 };
+    var timer, disposed = false;
+    function refresh() {
     fetch('/settings/community/rebuild', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (res) {
             var d = res && res.data;
-            if (!d) return;
+            if (!d || disposed) return;
             if (ACTIVE[d.state]) {
-                document.getElementById('srRebuildText').textContent = '초기화 크롤링이 진행 중입니다(' + d.state + '). 끝날 때까지 일반 수집이 잠시 막힙니다.';
+                var labels = {preparing_backup:'백업 중', running:'진행 중', validating:'검증 중', committing:'마무리 중', paused:'일시정지', awaiting_confirmation:'확인 대기'};
+                var c = d.counts || {};
+                document.getElementById('srRebuildText').textContent = '초기화 크롤링 ' + labels[d.state] + ' · 읽음 ' + (c.fetched || 0) + '건 · 남음 ' + ((c.pending || 0) + (c.failed_retryable || 0)) + '건. 일반 수집은 완료 후 가능합니다.';
             } else if (d.required && d.legacy_reset) {
                 document.getElementById('srRebuildText').textContent = '이전 버전 DB 는 이번 업데이트에서 옮기지 않고 백업한 뒤 비웠습니다. 초기화 크롤링으로 신고를 다시 수집해 주세요.';
             }
-            banner.hidden = !(d.required || ACTIVE[d.state]);
-        }).catch(function () {});
+            var done = d.state === 'completed' || d.state === 'completed_with_gaps' || d.state === 'not_required';
+            banner.hidden = done || !(d.required || ACTIVE[d.state]);
+            banner.style.display = banner.hidden ? '' : 'flex';
+            document.dispatchEvent(new CustomEvent('sr:rebuild-state', {detail:d}));
+        }).catch(function () {}).finally(function () { if (!disposed) timer = setTimeout(refresh, 5000); });
+    }
+    refresh();
+    window.addEventListener('pagehide', function () { disposed = true; clearTimeout(timer); });
 })();
 </script>
 <script src="/static/ui/theme.js?v={{ request.state.app_version }}"></script>

@@ -161,9 +161,15 @@ class _Gate:
         return result
 
     # -- 재검증 ------------------------------------------------------------------------------------------
-    def refresh_now(self) -> dict:
+    def refresh_now(self, max_age: float | None = None) -> dict:
         """중앙 status 를 다시 받는다(한 번에 하나). 네트워크 장애면 유효 기간 안의 성공 캐시는 유지한다."""
         with self._refresh_lock:
+            if max_age is not None:
+                with self._lock:
+                    fresh = (not self._invalidated and self._verified_at is not None and
+                             self._clock() - self._verified_at <= max_age)
+                if fresh:
+                    return self.evaluate()
             try:
                 self._refresh_locked()
             except Exception as exc:  # 게이트 갱신 실패가 서버를 멈추지 않게 한다(판정은 fail-closed)
@@ -225,7 +231,7 @@ class _Gate:
         with self._lock:
             age = None if self._verified_at is None else self._clock() - self._verified_at
             stale = self._invalidated or age is None or age > max_age
-        return self.refresh_now() if stale else self.evaluate()
+        return self.refresh_now(max_age=max_age) if stale else self.evaluate()
 
     def _check_owner(self, service) -> str:
         """게이트 통과 뒤: 이 서버 DB 의 주인 카카오 회원번호를 확인(처음이면 적음). 네트워크로 번호를 못 받으면 'unknown'."""
@@ -497,5 +503,4 @@ def block_code(exc: BaseException) -> str | None:
     """crawl_control 이 RuntimeError(code) 로 막은 경우 그 코드."""
     code = str(exc)
     return code if code in BLOCK_MESSAGES else None
-
 

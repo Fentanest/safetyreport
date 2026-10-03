@@ -16,7 +16,7 @@ COPY . .
 RUN chmod +x /app/entrypoint.sh
 
 # 공개 커뮤니티 설정(Supabase URL·publishable key·site URL)을 이미지에 굽는다(PC 실행파일의 번들과 같은 파일·같은 검증).
-# 공개값만: 비밀 키·자리표시자는 거부한다. 정식 이미지(CI)는 COMMUNITY_CONFIG_REQUIRED=1 로 누락 시 빌드를 멈춘다.
+# 공개값만: 비밀 키·자리표시자는 거부한다. 로컬/dev도 저장소 공개 기본값이 없으면 빌드를 멈춘다.
 # 실행 때 환경변수(SAFETYREPORT_COMMUNITY_* / COMMUNITY_*)나 data/config.ini [COMMUNITY] 가 있으면 그 값이 우선한다.
 ARG COMMUNITY_SUPABASE_URL=""
 ARG COMMUNITY_SUPABASE_PUBLISHABLE_KEY=""

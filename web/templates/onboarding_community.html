@@ -24,7 +24,7 @@
     </div>
 
     <div id="gateSummary" class="alert alert-info small" role="status" aria-live="polite">
-        {% if gate.state == 'config_invalid' %}커뮤니티 서버 설정(공개 주소·공개 키)을 확인할 수 없습니다. 아래 고급 설정을 확인하거나 배포 설정을 점검해 주세요.
+        {% if gate.state == 'config_invalid' %}배포 공개 설정이 누락되었거나 설정 재정의 값이 잘못되었습니다. 공식 배포본을 다시 설치하고 환경변수·고급 설정을 확인하세요. Supabase 프로젝트를 직접 만들 필요는 없습니다.
         {% elif gate.state == 'verification_required' %}커뮤니티 서버에서 상태를 확인하지 못했습니다. 네트워크를 확인한 뒤 새로고침해 주세요.
         {% elif gate.state == 'suspended' %}이 카카오 계정의 공유가 중지되어 있습니다. 운영자 안내를 확인해 주세요.
         {% elif gate.state == 'db_owner_mismatch' %}이 서버에 저장된 신고 내역은 다른 카카오 계정의 것입니다. 아래 카드에서 신고 내역을 지우고 시작하거나 로그아웃해 주세요.
@@ -51,7 +51,7 @@
     var cont = document.getElementById('obContinueBtn');
     var MESSAGES = {
         ok: '필수 설정을 마쳤습니다.',
-        config_invalid: '커뮤니티 서버 설정(공개 주소·공개 키)을 확인할 수 없습니다. 아래 고급 설정을 확인하거나 배포 설정을 점검해 주세요.',
+        config_invalid: '배포 공개 설정이 누락되었거나 설정 재정의 값이 잘못되었습니다. 공식 배포본을 다시 설치하고 환경변수·고급 설정을 확인하세요.',
         kakao_required: '1단계: 카카오 계정으로 인증해 주세요.',
         kakao_reauth_required: '카카오 로그인이 만료되었습니다. 다시 인증해 주세요.',
         session_unreadable: '저장된 커뮤니티 로그인 정보를 읽을 수 없습니다. 카드의 초기화를 눌러 다시 연결해 주세요.',

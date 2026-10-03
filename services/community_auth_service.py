@@ -137,6 +137,8 @@ def normalize_supabase_url(value) -> str | None:
     value = (value or "").strip() if isinstance(value, str) else ""
     if not value:
         return None
+    if any(token in value.lower() for token in ('<', 'your_', 'project_ref', 'example')):
+        return None
     try:
         parts = urlsplit(value)
         parts.port  # noqa: B018 - 잘못된 포트면 ValueError
@@ -213,6 +215,8 @@ def build_config(raw: dict, env: dict | None = None, bundled: dict | None = None
                 conflicts.add(key)
             return values[0]
         value = raw.get(key)
+        if isinstance(value, str) and any(token in value.lower() for token in ('<', 'your_', 'project_ref', 'example')) and bundled.get(key):
+            value = None  # Old sample config is not an explicit advanced override.
         if value is not None and str(value).strip() != "":
             return str(value).strip()
         value = bundled.get(key)

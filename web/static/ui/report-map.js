@@ -337,7 +337,9 @@ function create(element, mapPoints, options) {
         link.rel = 'noopener';
         link.appendChild(createTextElement('i', 'fas fa-list-ul', ''));
         link.appendChild(document.createTextNode('리스트 보기'));
-        root.appendChild(link);
+        if (!point.cluster && options.listReproducible !== false) root.appendChild(link);
+        else if (!point.cluster) root.appendChild(createTextElement('div','small','현재 기관 조건은 목록에서 재현할 수 없어 링크를 제공하지 않습니다.'));
+        else root.appendChild(createTextElement('div','small','확대하면 이 영역의 주소별 신고를 볼 수 있습니다.'));
 
         return root;
     }
@@ -664,7 +666,10 @@ function create(element, mapPoints, options) {
     });
 
     var bounds = [];
-    mapPoints.forEach(function (point) {
+    function drawPoints(points) {
+    bounds = [];
+    clusterGroup.clearLayers();
+    points.forEach(function (point) {
         var marker = L.marker([point.lat, point.lng], {
             icon: createPointIcon(point.total, getPointFineRate(point))
         });
@@ -680,11 +685,14 @@ function create(element, mapPoints, options) {
         });
         marker.on('click', function () {
             marker.closeTooltip();
+            if (point.cluster) { map.setView(marker.getLatLng(), Math.min(19,map.getZoom()+2)); return; }
             showPointPopup(marker, popup);
         });
         clusterGroup.addLayer(marker);
         bounds.push([point.lat, point.lng]);
     });
+    }
+    drawPoints(mapPoints);
 
     clusterGroup.on('clustermouseover', function (event) {
         var childPoints = event.layer.getAllChildMarkers().map(function (marker) {
@@ -699,6 +707,23 @@ function create(element, mapPoints, options) {
     map.addLayer(clusterGroup);
     if (bounds.length > 0) {
         map.fitBounds(bounds, { padding: [36, 36], maxZoom: 14 });
+    }
+    if (options.viewportURL) {
+        var sequence=0, controller=null, timer=null, disposed=false;
+        function refresh() {
+            var current=++sequence;
+            if(controller) controller.abort();
+            controller=new AbortController();
+            var url=new URL(options.viewportURL,location.origin), b=map.getBounds();
+            url.searchParams.set('bounds',[Math.max(-90,b.getSouth()),Math.max(-180,b.getWest()),Math.min(90,b.getNorth()),Math.min(180,b.getEast())].join(','));
+            url.searchParams.set('zoom',map.getZoom());
+            fetch(url,{headers:{Accept:'application/json'},signal:controller.signal}).then(function(r){if(!r.ok)throw Error('HTTP '+r.status);return r.json();})
+                .then(function(p){if(!disposed && current===sequence) drawPoints(p.points || []);})
+                .catch(function(e){if(!disposed && current===sequence && e.name!=='AbortError') element.setAttribute('data-map-error',e.message);});
+        }
+        map.on('moveend',function(){clearTimeout(timer);timer=setTimeout(refresh,180);});
+        map.on('unload',function(){disposed=true;clearTimeout(timer);if(controller)controller.abort();if(tooltipMeasureElement)tooltipMeasureElement.remove();});
+        window.addEventListener('pagehide',function(){disposed=true;clearTimeout(timer);if(controller)controller.abort();});
     }
 
     return {

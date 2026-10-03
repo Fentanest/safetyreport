@@ -376,6 +376,7 @@ def _index_statements() -> list[str]:
     ]
     for category in ("traffic", "parking", "other"):
         statements.append(f'CREATE INDEX IF NOT EXISTS ix_merge_{category}_report_number ON mysafetymerge_{category} ("신고번호")')
+        statements.append(f'CREATE INDEX IF NOT EXISTS ix_merge_{category}_answer ON mysafetymerge_{category} ("답변일", synced_at, "신고번호")')
         statements.append(f'CREATE INDEX IF NOT EXISTS ix_detail_{category}_closed ON mysafetydetail_{category} ("종결여부")')
     return statements
 

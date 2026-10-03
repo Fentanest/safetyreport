@@ -72,6 +72,21 @@ docker compose -f tools/docker/compose.devtest.yml -p safetyreport-devtest down 
 - 번들 내부를 데이터 저장소로 쓰지 않는다. Node 는 `tools/web-tests` 개발 도구로만 쓰고 제품 실행에 요구하지 않는다.
 - 자산 처리 빌드 단계를 추가하면 PyInstaller·수동 빌드 워크플로·Docker 에 똑같이 넣고 산출물에서 확인한다.
 - 릴리즈 경로(`build.yml`: main push + VERSION/태그, `build.sh`: 이미지 push)는 승인 없이 실행하지 않는다.
+- source·로컬·공식 dev 빌드는 검증된 `community_public.json`을 공개 기본값으로 사용한다. PyInstaller/Docker 모두
+  build_exe.write_community_public의 공개키 검증을 공유한다. 기본값까지 없는 실제 빌드는 실패한다.
+  빈 config/env와 sample 자리표시자는 번들을 덮지 않으며, 명시적 고급 env 재정의·별칭 충돌 검사는 유지한다.
+- 전용 Docker project만으로 이미지 태그가 분리되지는 않는다. 공용 `safetyreport:devtest` 태그를 덮지 않도록
+  자기 `.agent-runs/<task>/docker-override.yml`에서 app.image를 고유하게 지정하고 compose `-f`로 함께 사용한다.
+
+## 사용자 제보 회귀 fixture
+
+`scripts/dev/user_report_fixture.py --data-dir .agent-runs/<task>/fixture --port <port>`는 기존 합성 24건과
+loopback fake 중앙 인증/동의를 사용한다. 정상 관리자 로그인·실제 게이트를 통과하며 전역 우회는 없다.
+`scripts/dev/user_report_benchmark.py --data-dir .agent-runs/<task>/perf --count <N> --output <json>`는
+0/1/3000/58388/500000건 전량을 생성하고 집계 건수·지도 수 합계를 검증한다. `--baseline`은 기준
+`a35b7d2` 서비스 코드로 같은 fixture/환경에서 비교한다. 서비스 cold/warm 시간·SQL·JSON bytes·프로세스 peak RSS를 기록한다.
+브라우저 회귀는 `cd tools/web-tests && npx playwright test --config=user-reports.config.ts`다.
+일반 중앙 인증/크롤링/별점/업로드·운영data를 사용하지 않는다. 실행 증거는 `.agent-runs/v3-user-reports/`에 둔다.
 
 ## 7. 환경별 최소 smoke
 1. fixture 로 기동, `/health` 200, `/login` 과 세션 인증, AJAX 401.

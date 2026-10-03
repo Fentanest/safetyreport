@@ -10,3 +10,8 @@ macOS arm64,source/frozen,Python / PyInstaller arm64,WebKit; 실제 Safari 별�
 Docker,container (linux/amd64),tools/docker/compose.devtest.yml 로컬 빌드,curl (브라우저 미실행),isolated compose·volume·정적파일·auth,passed (HTTP),G2 project safetyreport-devtest-g2: /health·/login·/static/logo.png·/data/all 200; 이미지 내용 확인; down -v
 Docker,container (linux/arm64),Dockerfile.build / buildx,-,arm64 이미지·번들,not-run,
 All client targets,browser,동일 fixture dataset,Chromium/Firefox/WebKit,light/dark·반응형·aria·표·download,not-run (테마 미구현),
+Linux,source v3 report fixes,Python 3.14 fixture loopback central,Chromium/Firefox Playwright 1.63,light/dark 360/768/1366/1920 및 200%·restore refusal·rebuild·bounded logs,passed,2026-10-03 38 browser cases; docs/reviews/2026-10-03-v3-user-reports-review.md
+Linux,source v3 report fixes,full 0/1/3000/58388/500000 population,Python benchmark,SQL/serialization/time/peakRSS 및 exact population,passed,2026-10-03 .agent-runs/v3-user-reports before/after JSON
+Docker,isolated v3reports project linux/amd64,Dockerfile local build,curl/python,public defaults·health·static MIME·excluded dev paths,passed (HTTP),2026-10-03 safetyreport:v3reports-20261003; production untouched
+Linux,frozen v3 report fixes,PyInstaller ELF,not run,actual bundle/resource HTTP,blocked,2026-10-03 worktree venv lacks PyInstaller; no shared venv altered
+Mobile/extension,actual devices,current client products,Android/Chrome extension,protocol3 interop on physical devices,not-run,2026-10-03 canonical contract and simulated requests tested; consumer repos not modified

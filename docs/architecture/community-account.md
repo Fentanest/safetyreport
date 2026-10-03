@@ -54,10 +54,16 @@
 |---|---|---|---|
 | PyInstaller(Windows·Linux·macOS, `build.yml`·수동 빌드) | 저장소 Variables `COMMUNITY_SUPABASE_URL`·`COMMUNITY_SUPABASE_PUBLISHABLE_KEY`(선택 `COMMUNITY_SITE_URL`) → 빌드 env | `scripts/build/build_exe.py` → `community_public.json`(`--add-data`) | `COMMUNITY_CONFIG_REQUIRED=1` 이라 빌드 실패 |
 | Docker 이미지(`build.yml` build-docker) | 같은 Variables → `build-args` | `Dockerfile` → `scripts/build/write_community_public.py` → `/app/community_public.json` | 같은 검증으로 빌드 실패 |
-| 로컬·개발 빌드 | 없음 | 번들 없음(경고) | 실행 때 env·`config.ini` 로 설정 |
+| source·로컬·공식 dev 빌드 | 검증된 저장소 `community_public.json`(저장소 공개 Variables와 동일) | source 기본값 및 PyInstaller/Docker 공개 번들 | 기본값까지 없거나 관리자 키/자리표시자면 실제 빌드 실패 |
 실행 때 우선순위: 환경변수(정식·별칭) > `config.ini [COMMUNITY]` > 번들 파일. 공개 키 이름은 `COMMUNITY_SUPABASE_PUBLISHABLE_KEY`, 옛 이름
 `COMMUNITY_PUBLISHABLE_KEY` 도 받지만 두 값이 다르면 빌드는 멈추고 실행은 `config_conflict` 로 잠근다.
 설정되지 않았거나 잘못된 값이면 상태가 `unconfigured`, 꺼져 있으면 `disabled` 이고 어떤 네트워크 호출도 하지 않는다.
+현행 필수 게이트는 enabled=false도 비활성화하지 않는다(과거 disabled 설명은 아래 정정 우선).
+빈 환경변수/config 값은 기본값을 덮지 않는다. 이전 sample config의 YOUR_/project_ref 자리표시자도 번들 기본값으로 복구한다.
+명시적인 비어 있지 않은 환경변수는 고급 재정의이며 잘못된 값/별칭 충돌은 자동 무시하지 않고 설정 오류로 안내한다.
+일반 온보딩에서는 Supabase 프로젝트 생성/URL·키 입력을 요구하지 않는다. 배포 기본값이 누락되면 재설치/source 파일 복구를 안내한다.
+확인된 공개 publishable/anon 값만 사용하며 service_role/sb_secret은 번들하지 않는다. 사용자 실제 배포 이미지/실행파일 확인 없이
+"dev이어서 누락"이라고 원인을 확정하지 않는다.
 
 ## 저장·락·백업
 

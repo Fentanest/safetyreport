@@ -48,85 +48,9 @@
     overflow: visible;
 }
 
-.report-map-tooltip.leaflet-tooltip-top::before {
-    content: "";
-    position: absolute;
-    left: 28px;
-    bottom: -16px;
-    width: 2px;
-    height: 16px;
-    background: var(--sr-border);
-}
-
-.report-map-tooltip.leaflet-tooltip-top::after {
-    content: "";
-    position: absolute;
-    left: 12px;
-    bottom: -16px;
-    width: 18px;
-    height: 2px;
-    background: var(--sr-border);
-}
-
-.report-map-tooltip.leaflet-tooltip-bottom::before {
-    content: "";
-    position: absolute;
-    left: 28px;
-    top: -16px;
-    width: 2px;
-    height: 16px;
-    background: var(--sr-border);
-}
-
-.report-map-tooltip.leaflet-tooltip-bottom::after {
-    content: "";
-    position: absolute;
-    left: 12px;
-    top: -16px;
-    width: 18px;
-    height: 2px;
-    background: var(--sr-border);
-}
-
-.report-map-tooltip.leaflet-tooltip-right::before {
-    content: "";
-    position: absolute;
-    left: -16px;
-    top: 22px;
-    width: 16px;
-    height: 2px;
-    background: var(--sr-border);
-}
-
-.report-map-tooltip.leaflet-tooltip-right::after {
-    content: "";
-    position: absolute;
-    left: -16px;
-    top: 22px;
-    width: 2px;
-    height: 16px;
-    background: var(--sr-border);
-}
-
-.report-map-tooltip.leaflet-tooltip-left::before {
-    content: "";
-    position: absolute;
-    right: -16px;
-    top: 22px;
-    width: 16px;
-    height: 2px;
-    background: var(--sr-border);
-}
-
-.report-map-tooltip.leaflet-tooltip-left::after {
-    content: "";
-    position: absolute;
-    right: -16px;
-    top: 22px;
-    width: 2px;
-    height: 16px;
-    background: var(--sr-border);
-}
+/* The former L-shaped connector also inherited Leaflet's triangle borders.
+   Remove only this decorative connector, preserving point icons and popup tips. */
+.report-map-tooltip::before, .report-map-tooltip::after { content: none; }
 
 .report-map-tooltip .leaflet-tooltip-content {
     margin: 0;

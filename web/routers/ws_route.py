@@ -26,11 +26,10 @@ async def ws_events(
 ):
     # API Key 인증
     engine = get_engine()
-    if not api_key or not database.validate_api_key(engine, api_key):
+    if not api_key:
         await websocket.close(code=4001, reason="Unauthorized")
         return
-    if not await ws_auth.gate_ok():  # 서버 커뮤니티 필수 설정 전에는 이벤트를 보내지 않는다(4403)
-        await ws_auth.reject_gate(websocket)
+    if not await ws_auth.authorize(websocket, allow_session=False):
         return
 
     client_id = str(uuid.uuid4())

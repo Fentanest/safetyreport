@@ -1,0 +1,17 @@
+{
+  "protocol_version": 3,
+  "cases": [
+    {"name":"old_server","server":"2.9.0","client":"mobile","version":"2.0.0+31","protocol":"3","code":"SERVER_UPGRADE_REQUIRED"},
+    {"name":"four_components","server":"3.0.0.0","client":"mobile","version":"2.0.0+31","protocol":"3","code":null},
+    {"name":"dev_server","server":"3.0.0.0-dev","client":"mobile","version":"2.0.0","protocol":"3","code":null},
+    {"name":"stable","server":"3.0.0","client":"mobile","version":"2.0.0","protocol":"3","code":null},
+    {"name":"extension_product","server":"3.0.0.0","client":"chromeextension","version":"1.0.0","protocol":"3","code":null},
+    {"name":"missing_protocol","server":"3.0.0.0","client":"mobile","version":"1.5.3","protocol":null,"code":"CLIENT_UPGRADE_REQUIRED"},
+    {"name":"protocol2","server":"3.0.0.0","client":"mobile","version":"2.0.0","protocol":"2","code":"CLIENT_UPGRADE_REQUIRED"},
+    {"name":"protocol4","server":"3.0.0.0","client":"mobile","version":"2.0.0","protocol":"4","code":"CLIENT_PROTOCOL_UNSUPPORTED"},
+    {"name":"malformed","server":"3.0.0.0","client":"mobile","version":"2.0.0","protocol":"3.0","code":"CLIENT_PROTOCOL_UNSUPPORTED"},
+    {"name":"missing_identity","server":"3.0.0.0","client":null,"version":null,"protocol":"3","code":"CLIENT_UPGRADE_REQUIRED"},
+    {"name":"numeric_major10","server":"10.0.0","client":"mobile","version":"2.0.0","protocol":"3","code":null},
+    {"name":"invalid_server","server":"3x","client":"mobile","version":"2.0.0","protocol":"3","code":"SERVER_UPGRADE_REQUIRED"}
+  ]
+}

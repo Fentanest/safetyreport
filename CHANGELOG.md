@@ -8,6 +8,16 @@
 
 ---
 
+## 2026-10-03 (로컬 구현·검수, 배포 없음)
+
+- 외부 self-host protocol3 정본/벡터를 추가했다. 제품 major와 protocol을 분리하고 기존 버전 응답 필드를 보존하며 유효 옛 API 키라도 HTTP409/WS4406으로 조회·다운로드·완료/알림·로그 접근을 차단한다. 관리자 웹의 실제 세션과 인증된 최소 버전 probe는 분리했다.
+- 대시보드 SQL 전량 집계/제한 recent/index, registry 중복 해석 제거, 변경 기반 유한 캐시와 지도 정규화 frame 재사용을 적용했다. 통계 HTML 셸·상세 통계·지도를 독립 로딩하고 지도는 범위/줌에 맞춘 최대1200개 공간 집계로 표시한다. 기존 전체 API는 유지하며 SQL page와 bounded map API를 추가했다.
+- 복원 거절을 구형/미래/손상/잘못된 형식/주인 불일치 코드와 detail/message로 구분하고 명확한 구형 DB 안내를 화면에 남긴다. 읽기 전용 사전 검증과 거절 전후 개인 DB·초기화 상태 불변을 확인했다. 구형 DB 변환을 허용하지 않았다.
+- 초기화 완료 배너의 hidden/d-flex 충돌, crawl ops-section 닫힘 누락을 고쳤다. 초기화 실제 상태·배경 진행 안내·대시보드 이동을 제공하며 commit 때 scope/미처리/누락 승인을 재검증한다. 로그 표시를2000줄/256KiB·배치/follow·초기64KiB tail로 제한하고 원본 파일은 유지한다.
+- 지도 tooltip 가상 요소 충돌만 제거했다. 결과 일부수용과 실제 처분을 별도로 표시하고 제목 유형 대신 저장 법규 조합을 집계한다. 법규 클릭에는 exact/dedupe/동일 조건을 전달하며 재현 불가능한 조건은 링크를 비활성화한다.
+- 확인된 저장소 공개 Variables를 source/dev/PyInstaller/Docker 기본 공개 설정으로 재사용하고 실빌드 누락·secret/자리표시자 검증 및 런타임 복구 안내를 보완했다. 사용자 원본 이미지/EXE를 확인하지 못해 해당 배포물 원인은 확정하지 않았다.
+- 전체 Python563개(5skip), Chromium/Firefox38개+법규/신규 API4개, 0/1/3000/58388/500000 전량 fixture 성능 비교와 전용 Docker HTTP/자산/공개 설정을 검증했다. 독립 검수의 지도 응답 순서·캐시 자정·법규 링크·페이지 snapshot 경쟁을 수정했다. 실제 기기/운영·Windows/macOS/frozen 검사는 미실행/blocked이며 상세 비용·작은자료 cold 퇴행은 [검수 기록](docs/reviews/2026-10-03-v3-user-reports-review.md)에 명시했다.
+
 ## 2026-09-30 (dev 미배포)
 
 ### 공유 기관 resolver 링크 색인 캐시(resolve.ts·resolve.dart)

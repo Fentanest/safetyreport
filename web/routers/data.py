@@ -49,6 +49,7 @@ def view_traffic(
     dedupe: str | None = Query(None),
 ):
     filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
+    if filters and request.query_params.get('lawExact') == 'true': filters['lawExact'] = True
     dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_traffic_records(engine, filters, mode=dedupe_mode)
     title = _filter_title("교통위반 전체 보기", status, fine, agency, person, law, rating, ratingCause)
@@ -73,6 +74,7 @@ def view_parking(
     dedupe: str | None = Query(None),
 ):
     filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
+    if filters and request.query_params.get('lawExact') == 'true': filters['lawExact'] = True
     dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_parking_records(engine, filters, mode=dedupe_mode)
     title = _filter_title("주정차위반 내역", status, fine, agency, person, law, rating, ratingCause)
@@ -97,6 +99,7 @@ def view_other(
     dedupe: str | None = Query(None),
 ):
     filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
+    if filters and request.query_params.get('lawExact') == 'true': filters['lawExact'] = True
     dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_other_records(engine, filters, mode=dedupe_mode)
     title = _filter_title("기타 위반 조회", status, fine, agency, person, law, rating, ratingCause)

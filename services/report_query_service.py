@@ -1,5 +1,5 @@
 import pandas as pd
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, func
 from sqlalchemy.exc import OperationalError
 
 from core.database import database
@@ -98,8 +98,10 @@ def _build_records_query(table_obj, filters=None):
         if law == "__없음__":
             query = query.where(
                 (table_obj.c["위반법규"].is_(None))
-                | (table_obj.c["위반법규"] == "")
+                | (func.trim(table_obj.c["위반법규"]) == "")
             )
+        elif filters.get('lawExact'):
+            query = query.where(func.trim(table_obj.c['위반법규']) == str(law).strip())
         else:
             query = query.where(table_obj.c["위반법규"].contains(law))
 
@@ -108,6 +110,39 @@ def _build_records_query(table_obj, filters=None):
         query = query.where(table_obj.c["별점사유"].contains(rating_cause))
 
     return query
+
+
+def get_report_page(engine, category, *, offset=0, limit=200, mode='canonical'):
+    """Additive SQL pagination. Legacy full-list functions remain unchanged."""
+    from services.report_stats_service import _canonical_query
+    table = {'traffic':database.merge_traffic_table, 'parking':database.merge_parking_table,
+             'other':database.merge_other_table}[category]
+    query = _canonical_query(table, _build_records_query(table), mode)
+    members = {}
+    with engine.connect() as conn:
+        # One read transaction for count and page; no full materialization.
+        conn.exec_driver_sql('BEGIN')
+        total = conn.execute(select(func.count()).select_from(query.order_by(None).subquery())).scalar_one()
+        df = pd.read_sql_query(query.order_by(None).order_by(table.c.ID).offset(offset).limit(limit), conn)
+        watch_ids = _get_watch_ids(conn)
+        if mode == 'canonical' and not df.empty:
+            _, members = duplicate_group_service.build_projection_map(conn)
+            page_ids = set(df['ID'].astype(str))
+            group_ids = {members[rid]['group_id'] for rid in page_ids if rid in members}
+            related = {rid for rid, meta in members.items() if meta['group_id'] in group_ids}
+            watched_groups = set()
+            if related and watch_ids:
+                for related_table in (database.merge_traffic_table,database.merge_parking_table,database.merge_other_table):
+                    rows = conn.execute(select(related_table.c.ID).where(related_table.c.ID.in_(related),related_table.c.신고번호.in_(watch_ids)))
+                    watched_groups.update(members[str(row[0])]['group_id'] for row in rows)
+            for _, row in df.iterrows():
+                meta = members.get(str(row['ID']))
+                if meta and meta['group_id'] in watched_groups: watch_ids.add(row['신고번호'])
+    df = _apply_record_defaults(df, watch_ids=watch_ids, category=category, exact_values=True)
+    records = duplicate_group_service.project_records_with_map(df.to_dict(orient='records'), members, mode=mode) if not df.empty else []
+    return {'category':category,'total':total,'offset':offset,'limit':limit,'count':len(records),
+            'next_offset':offset+len(records) if offset+len(records)<total else None,
+            'dedupe_mode':mode,'data':records}
 
 
 def _get_records_from_table(engine, table_obj, filters=None, category: str = "", mode: str = "raw", exact_values: bool = False):

@@ -526,7 +526,8 @@
         window.SrReportMap.create(mapElement, mapPoints, {
             category: selectedCategory,
             dedupeMode: dedupeMode,
-            listParams: listParams
+            listParams: listParams,
+            viewportURL: '/stats/map/points?' + new URLSearchParams(window.location.search).toString()
         });
     })();
 </script>

@@ -9,6 +9,7 @@
 `source_account_namespace = sha256("safetyreport-dataset|v1|" + 공식 로그인 ID 소문자·trim)`
 (설정 `[LOGIN] username` = `settings.username`, 없으면 `prerequisites_required`).
 완료 판정은 이 키의 `completed`/`completed_with_gaps` 행 유무.
+업로드 재시도/outbox 대기는 로컬 초기화 필요 여부와 별개다.
 
 ## 새 설치·이전 버전 DB (2026-09-27)
 
@@ -55,6 +56,13 @@
 `report_latest(local_dataset_id)` 에 upsert 병합(삭제 없음, 무변경 carry-forward) +
 `source_generation` 증가. 재시작 시 `running` + 만료 lease → 같은 run 재개
 (`resume_on_startup`, T3a 가 `main.py` 에서 부른다).
+
+commit 트랜잭션 안에서 현재 scope·job 상태·list_complete·pending/retryable 0을 다시 확인한다.
+영구 누락은 명시적인 사용자 gaps 승인 시간이 있어야 commit한다. staging·generation·완료 표시가 같은 트랜잭션이며
+검증/commit 예외는 `failed:commit_failed`로 남고 완료로 덮지 않는다. terminal 재commit은 멱등이다.
+웹 배너는 completed/completed_with_gaps/not_required에서 숨긴다(`hidden`과 Bootstrap d-flex 충돌을 피함).
+5초 상태 확인은 작은 실제 초기화 진행 상태와 상세 복귀 링크를 유지하며 페이지 이탈 시 타이머를 정리한다.
+"다른 페이지 둘러보기"는 대시보드 이동일 뿐 pause/cancel하지 않는다. 서버 프로세스를 종료하면 진행도 중단된다.
 
 ## 증분 선정 (`core/database/database.py`)
 

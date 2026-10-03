@@ -5,7 +5,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="row g-3">
+<div class="row g-3" id="crawlLayout">
     <!-- Configuration Card -->
     <div class="col-md-5">
         <div class="ops-card h-100">
@@ -29,8 +29,7 @@
                             <input type="radio" class="sr-seg-radio" name="crawl_mode" id="crawlReset" value="reset">
                             <label class="sr-seg-label-btn flex-grow-1 text-center text-danger" for="crawlReset">DB 초기화</label>
                         </div>
-                        
-
+                    </div>
                     <div class="ops-section">
                         <div class="ops-section-title">큐(Queue) 기능 (선택사항)</div>
                         <div class="ops-hint">신고번호(SPP-...) 또는 ID를 입력하면, 해당 리스트만 순차적으로 강제 크롤링 및 덮어쓰기합니다. 여러 개일 경우 줄바꿈으로 구분하세요.</div>
@@ -72,7 +71,12 @@
                     {% if is_running %}실행 중{% else %}대기 중{% endif %}
                 </span>
             </div>
-            <div id="logConsole" class="ops-console"></div>
+            <div class="p-2 small d-flex flex-wrap gap-2 align-items-center">
+                <span>최근 2,000줄 / 256KiB만 표시합니다.</span>
+                <a href="/file-browser?target=logs">이전·원본 로그 확인</a>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="logFollow" aria-pressed="true">최신 로그 따라가기</button>
+            </div>
+            <div id="logConsole" class="ops-console" tabindex="0" aria-label="크롤링 로그"></div>
         </div>
     </div>
 </div>
@@ -82,22 +86,62 @@
 <script>
     $(document).ready(function () {
         const logConsole = document.getElementById('logConsole');
-        let ws = null;
+        let ws = null, reconnectTimer, flushTimer, disposed = false, follow = true;
+        let chunks = [];
+        let pendingBytes = 0;
+        const encoder = new TextEncoder(), decoder = new TextDecoder();
+        function bounded(text) {
+            const bytes = encoder.encode(text);
+            if (bytes.length <= 256 * 1024) return text;
+            let start = bytes.length - 256 * 1024;
+            while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
+            return decoder.decode(bytes.subarray(start));
+        }
+        function flush() {
+            flushTimer = null;
+            const previousTop = logConsole.scrollTop;
+            const previousHeight = logConsole.scrollHeight;
+            let text = bounded(logConsole.textContent + chunks.join(''));
+            chunks = []; pendingBytes = 0;
+            text = text.split('\n').slice(-2000).join('\n');
+            logConsole.textContent = text;
+            if (follow) logConsole.scrollTop = logConsole.scrollHeight;
+            else logConsole.scrollTop = Math.max(0, previousTop + Math.min(0, logConsole.scrollHeight - previousHeight));
+        }
+        logConsole.addEventListener('scroll', function () {
+            follow = logConsole.scrollHeight - logConsole.clientHeight - logConsole.scrollTop < 24;
+            document.getElementById('logFollow').setAttribute('aria-pressed', String(follow));
+        });
+        document.getElementById('logFollow').addEventListener('click', function () {
+            follow = true; this.setAttribute('aria-pressed','true'); logConsole.scrollTop = logConsole.scrollHeight;
+        });
+        document.addEventListener('sr:rebuild-state', function (event) {
+            const s = event.detail.state;
+            const labels = {running:'초기화 진행 중', paused:'초기화 일시정지', validating:'초기화 검증 중', committing:'초기화 마무리 중', preparing_backup:'초기화 백업 중'};
+            if (labels[s]) $('#statusIndicator').text(labels[s]);
+        });
 
         function connectWs() {
-            if (ws) { ws.close(); }
+            if (disposed) return;
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             ws = new WebSocket(`${protocol}//${window.location.host}/crawl/ws/logs`);
-
+            ws.onopen = function () { chunks = []; pendingBytes = 0; logConsole.textContent = ''; };
             ws.onmessage = function (event) {
-                logConsole.textContent += event.data;
-                logConsole.scrollTop = logConsole.scrollHeight;
+                if (disposed) return;
+                const text = bounded(event.data);
+                chunks.push(text); pendingBytes += encoder.encode(text).length;
+                while (pendingBytes > 256 * 1024 && chunks.length > 1) pendingBytes -= encoder.encode(chunks.shift()).length;
+                if (!flushTimer) flushTimer = setTimeout(flush, 100);
             };
-            ws.onclose = function () {
-                setTimeout(connectWs, 3000); // Reconnect if closed
+            ws.onclose = function (event) {
+                if (!disposed && ![4001,4403,4406].includes(event.code)) reconnectTimer = setTimeout(connectWs, 3000);
             };
         }
         connectWs();
+        window.addEventListener('pagehide', function () {
+            disposed = true; clearTimeout(reconnectTimer); clearTimeout(flushTimer);
+            if (ws) ws.close();
+        });
 
 
         $('#crawlForm').on('submit', function (e) {
@@ -119,6 +163,10 @@
                 } else {
                     $('#btnStart').prop('disabled', false);
                 }
+            }).fail(function (xhr) {
+                const response = xhr.responseJSON || {};
+                alert(response.message || response.detail || '요청 실패');
+                $('#btnStart').prop('disabled', false);
             });
         });
 

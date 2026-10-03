@@ -13,15 +13,16 @@ def write_community_public(env=None, out: str | None = None) -> str | None:
     값은 CI 저장소 Variables 에서 온다. 정본 이름은 Android·지도와 같은 COMMUNITY_SUPABASE_URL·COMMUNITY_SUPABASE_PUBLISHABLE_KEY
     (선택 COMMUNITY_SITE_URL). 옛 이름 COMMUNITY_PUBLISHABLE_KEY 도 별칭으로 받되, 두 이름이 서로 다른 값이면 빌드를 멈춘다.
     공개값만 받는다: 비밀 키(sb_secret_·service_role JWT)나 자리표시자(<...>, YOUR_, example)면 빌드를 멈춘다.
-    값이 없으면 개발 빌드는 번들하지 않고 경고하지만, 정식 배포 빌드(COMMUNITY_CONFIG_REQUIRED=1)는 멈춘다
-    (설정 없는 배포본은 필수 설정 화면에서 '설정 확인 필요'로 잠긴다).
+    실제 빌드는 검증된 저장소 community_public.json을 기본값으로 사용한다(dev 포함).
+    기본값도 없으면 빌드를 멈춘다. env를 명시적으로 주입하는 단위 시험만 빈 개발 구성을 허용한다.
     """
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     if root not in sys.path:  # `python scripts/build/build_exe.py` 로 실행하면 저장소 루트가 경로에 없다
         sys.path.insert(0, root)
     from services.community_auth_service import normalize_site_url, normalize_supabase_url, validate_publishable_key
 
-    env = os.environ if env is None else env
+    runtime_env = env is None
+    env = os.environ if runtime_env else env
     required = (env.get("COMMUNITY_CONFIG_REQUIRED") or "").strip() == "1"
     url = (env.get("COMMUNITY_SUPABASE_URL") or "").strip()
     keys = {name: (env.get(name) or "").strip() for name in ("COMMUNITY_SUPABASE_PUBLISHABLE_KEY", "COMMUNITY_PUBLISHABLE_KEY")}
@@ -29,7 +30,18 @@ def write_community_public(env=None, out: str | None = None) -> str | None:
     if len(given) > 1:
         raise SystemExit("COMMUNITY_SUPABASE_PUBLISHABLE_KEY and legacy COMMUNITY_PUBLISHABLE_KEY differ — set one value")
     key = next(iter(given), "")
-    site = (env.get("COMMUNITY_SITE_URL") or "https://safeauth.worklazy.net/").strip()
+    defaults = {}
+    if runtime_env and not url and not key:
+        default_file = os.path.join(root, 'community_public.json')
+        try:
+            with open(default_file, encoding='utf-8') as fh:
+                defaults = json.load(fh)
+            url = defaults.get('supabase_url', '')
+            key = defaults.get('publishable_key', '')
+        except (OSError, ValueError):
+            pass
+        required = True  # All real distributable builds, including official dev.
+    site = (env.get("COMMUNITY_SITE_URL") or defaults.get('site_url') or "https://safeauth.worklazy.net/").strip()
     if not url or not key:
         if required:
             raise SystemExit("release build requires COMMUNITY_SUPABASE_URL and COMMUNITY_SUPABASE_PUBLISHABLE_KEY")

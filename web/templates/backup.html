@@ -38,7 +38,7 @@
             <i class="fas fa-upload me-1"></i> 복원 시작
           </button>
         </form>
-        <div id="result" class="mt-3"></div>
+        <div id="result" class="mt-3" role="status" aria-live="polite"></div>
       </div>
     </div>
   </div>
@@ -61,23 +61,31 @@ document.getElementById('uploadForm').addEventListener('submit', async function(
   if(!confirm('현재 DB가 덮어써집니다. 진행하시겠습니까? (이전 DB는 자동 백업됩니다.)')){ return; }
 
   const result = document.getElementById('result');
-  result.innerHTML = '<div class="alert alert-secondary">업로드 및 복원 진행 중...</div>';
+  const button = this.querySelector('button[type="submit"]');
+  button.disabled = true;
+  function show(message, kind) {
+    result.replaceChildren();
+    const box = document.createElement('div');
+    box.className = 'alert alert-' + kind;
+    box.textContent = message;
+    result.appendChild(box);
+  }
+  show('업로드 및 복원 진행 중...', 'secondary');
 
   const fd = new FormData();
   fd.append('file', fileInput.files[0]);
   try{
     const res = await fetch('/backup/upload', { method: 'POST', body: fd });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({ detail: '서버 응답을 읽지 못했습니다. HTTP ' + res.status }));
     if(res.ok && data.status === 'ok'){
-      result.innerHTML = '<div class="alert alert-success">'
-        + '<i class="fas fa-check-circle me-1"></i> ' + data.message
-        + (data.backup ? '<br><small class="text-muted">이전 DB 백업: ' + data.backup + '</small>' : '')
-        + '</div>';
+      show(data.message + (data.backup ? ' 이전 DB 백업: ' + data.backup : ''), 'success');
     } else {
-      result.innerHTML = '<div class="alert alert-danger">실패: ' + (data.detail || data.message || res.status) + '</div>';
+      show('실패: ' + (data.detail || data.message || res.status), 'danger');
     }
   } catch(err){
-    result.innerHTML = '<div class="alert alert-danger">네트워크 오류: ' + err + '</div>';
+    show('네트워크 오류: ' + err, 'danger');
+  } finally {
+    button.disabled = false;
   }
 });
 </script>

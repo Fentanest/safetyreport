@@ -4,6 +4,7 @@ from services import community_gate
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import asyncio
+import codecs
 import os
 
 import settings.settings as settings
@@ -123,6 +124,7 @@ async def websocket_logs(websocket: WebSocket):
     await websocket.accept()
     watch = ws_auth.GateWatch()
     log_file = os.path.join(settings.datapath, "logs", "current_crawl.log")
+    decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
 
     try:
         if not os.path.exists(log_file):
@@ -134,12 +136,18 @@ async def websocket_logs(websocket: WebSocket):
                     return
 
         if os.path.exists(log_file):
-            with open(log_file, "r", encoding="utf-8", errors="replace") as file_obj:
-                data = file_obj.read()
+            with open(log_file, "rb") as file_obj:
+                size = os.path.getsize(log_file)
+                file_obj.seek(max(0, size - 64 * 1024))
+                raw = file_obj.read(64 * 1024)
+                if size > 64 * 1024:
+                    while raw and (raw[0] & 0xc0) == 0x80: raw = raw[1:]
+                data = decoder.decode(raw)
                 if data:
                     await websocket.send_text(data)
-
-        last_size = os.path.getsize(log_file) if os.path.exists(log_file) else 0
+                last_size = file_obj.tell()
+        else:
+            last_size = 0
 
         while True:
             await asyncio.sleep(0.5)
@@ -151,14 +159,15 @@ async def websocket_logs(websocket: WebSocket):
 
             current_size = os.path.getsize(log_file)
             if current_size > last_size:
-                with open(log_file, "r", encoding="utf-8", errors="replace") as file_obj:
+                with open(log_file, "rb") as file_obj:
                     file_obj.seek(last_size)
-                    new_data = file_obj.read()
+                    new_data = decoder.decode(file_obj.read(64 * 1024))
                     if new_data:
                         await websocket.send_text(new_data)
-                last_size = current_size
+                    last_size = file_obj.tell()
             elif current_size < last_size:
                 last_size = 0
+                decoder.reset()
     except WebSocketDisconnect:
         pass
     except Exception as exc:

@@ -323,6 +323,7 @@ _GATE_ALLOW = frozenset({
     ("GET", "/settings/community/rebuild"),
     *(("POST", f"/settings/community/rebuild/{a}") for a in ("start", "resume", "pause")),
     ("GET", "/api/v1/app/config"), ("GET", "/api/v1/community-auth/status"),
+    ("GET", "/api/v1/server/version"),
     *(("POST", f"/api/v1/community-auth/{a}") for a in ("start", "confirm", "cancel")),
     ("GET", "/api/v1/community/gate"), ("GET", "/api/v1/community/rebuild"),
     *(("POST", f"/api/v1/community/rebuild/{a}") for a in ("start", "resume")),
@@ -338,8 +339,11 @@ def _gate_exempt(method: str, path: str) -> bool:
 
 
 def _request_api_key_valid(request: Request) -> bool:
+    if hasattr(request.state, 'api_key_valid'):
+        return request.state.api_key_valid
     key = request.headers.get("x-api-key") or request.query_params.get("api_key") or ""
-    return bool(key) and bool(database.validate_api_key(engine, key))
+    request.state.api_key_valid = bool(key) and bool(database.validate_api_key(engine, key))
+    return request.state.api_key_valid
 
 
 def _community_gate_state() -> dict:
@@ -364,6 +368,22 @@ def _gate_blocked_response(request: Request, gate: dict):
 async def community_gate_middleware(request: Request, call_next):
     from starlette.concurrency import run_in_threadpool
     path = request.url.path
+    # Every external API is guarded, including onboarding and query-key downloads.
+    # API paths never inherit an administrator-cookie exception.
+    if request.method != "OPTIONS" and (path.startswith("/api/v1/") or
+            (path.startswith("/media/") and not request.session.get("admin_logged_in"))):
+        valid = await run_in_threadpool(_request_api_key_valid, request)
+        if not valid:
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": "유효하지 않은 API 키입니다."}, status_code=401)
+        if not (request.method in ("GET", "HEAD") and path == "/api/v1/server/version"):
+            from services.selfhost_compat import http_rejection
+            problem = http_rejection(request)
+            if problem:
+                from fastapi.responses import JSONResponse
+                return JSONResponse(problem, status_code=409, headers={"Cache-Control": "no-store"})
+    if request.method == "OPTIONS":
+        return await call_next(request)
     if _gate_exempt(request.method, path):
         return await call_next(request)
     if path.startswith("/api/v1/"):
@@ -375,10 +395,21 @@ async def community_gate_middleware(request: Request, call_next):
         if not (request.session.get("admin_logged_in") or await run_in_threadpool(_request_api_key_valid, request)):
             from fastapi.responses import JSONResponse
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    gate_started = time.perf_counter()
     gate = await run_in_threadpool(_community_gate_state)
+    request.state.gate_ms = (time.perf_counter() - gate_started) * 1000
     if gate.get("can_enter"):
         return await call_next(request)
     return _gate_blocked_response(request, gate)
+
+
+@app.middleware('http')
+async def request_timings(request: Request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    response.headers['Server-Timing'] = 'app;dur=%.2f, gate;dur=%.2f' % (
+        (time.perf_counter() - started) * 1000, getattr(request.state, 'gate_ms', 0.0))
+    return response
 
 
 def _on_community_gate_change(result: dict) -> None:

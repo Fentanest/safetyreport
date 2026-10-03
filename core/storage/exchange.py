@@ -36,6 +36,7 @@ _DETAIL_BY_CATEGORY = {
 
 class RestoreRefused(RuntimeError):
     """지금은 복원할 수 없음(크롤링·지도 변환 중 등). 사용자에게 그대로 보여 줄 문장."""
+    code = "DB_RESTORE_REFUSED"
 
 
 # 모바일 앱 DB 스키마 버전(openDatabase version). contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
@@ -44,6 +45,27 @@ MOBILE_SCHEMA_VERSION = 16
 
 class LegacyDatabaseRefused(RestoreRefused):
     """이번 버전보다 낮은(또는 모르는 새) 스키마의 DB — 2026-09-26 초기화 크롤링 릴리스는 이전 DB 를 가져오지 않는다."""
+    code = "DB_LEGACY_UNSUPPORTED"
+
+
+class FutureDatabaseRefused(LegacyDatabaseRefused):
+    code = "DB_SCHEMA_UNSUPPORTED"
+
+
+class InvalidDatabaseRefused(RestoreRefused):
+    code = "DB_INVALID"
+
+
+class CorruptDatabaseRefused(InvalidDatabaseRefused):
+    code = 'DB_CORRUPT'
+
+
+class WrongDatabaseFileRefused(InvalidDatabaseRefused):
+    code = 'DB_FILE_INVALID'
+
+
+class UnknownDatabaseKindRefused(InvalidDatabaseRefused):
+    code = 'DB_KIND_UNSUPPORTED'
 
 
 def _file_user_version(path: str) -> int:
@@ -64,10 +86,10 @@ def refuse_other_version(path: str, kind: str) -> None:
     version = _file_user_version(path)
     if version < expected:
         raise LegacyDatabaseRefused(
-            f"이전 버전 {label} DB(스키마 {version})는 가져올 수 없습니다(지금 {expected}). "
+            f"이전 버전 DB는 이 버전에서 복원할 수 없습니다. 이전 버전 {label} DB(스키마 {version}), 지원 스키마 {expected}. "
             "이번 업데이트는 이전 DB 를 옮기지 않습니다 — 초기화 크롤링으로 안전신문고에서 다시 수집하세요.")
     if version > expected:
-        raise LegacyDatabaseRefused(
+        raise FutureDatabaseRefused(
             f"더 새 버전 {label} DB(스키마 {version})는 가져올 수 없습니다(지금 {expected}). 프로그램을 먼저 업데이트하세요.")
 
 
@@ -342,11 +364,12 @@ def _copy_sqlite(src: str, dst: str) -> None:
         source.close()
 
 
-def _integrity_check(path: str) -> None:
-    conn = sqlite3.connect(path)
+def _integrity_check(path: str, *, readonly: bool = False) -> None:
+    conn = sqlite3.connect(f'file:{path}?mode=ro', uri=True) if readonly else sqlite3.connect(path)
     try:
         result = conn.execute("PRAGMA integrity_check").fetchone()[0]
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        if not readonly:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     finally:
         conn.close()
     if result != "ok":
@@ -397,6 +420,10 @@ def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
     from services.crawl_manager import crawl_manager
 
     dst = settings.db_path
+    try:
+        _integrity_check(uploaded_path, readonly=True)
+    except Exception as exc:
+        raise CorruptDatabaseRefused("손상된 DB 파일입니다. 정상적인 백업 파일을 선택하세요.") from exc
     ensure_restore_allowed(get_engine())
     if kind in ("server", "mobile"):
         refuse_other_version(uploaded_path, kind)  # 이전(또는 더 새) 버전 DB 는 가져오지 않는다 — 무엇이든 바꾸기 전에

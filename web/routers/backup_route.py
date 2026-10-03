@@ -59,13 +59,13 @@ async def upload_db(file: UploadFile = File(...)):
     try:
         return await run_in_threadpool(_restore_uploaded, tmp_path)
     except RestoreRefused as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        return JSONResponse({"status": "error", "code": exc.code, "detail": str(exc), "message": str(exc)}, status_code=409)
     finally:
         _safe_unlink(tmp_path)
 
 
 def _restore_uploaded(tmp_path: str):
-    kind = db_backup.detect_db_kind(tmp_path)
+    kind = db_backup.inspect_upload(tmp_path)
     if kind == "server":
         backup, count = db_backup.restore_from_server_db(tmp_path)
         return JSONResponse({

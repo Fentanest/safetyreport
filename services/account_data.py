@@ -18,6 +18,7 @@ KAKAO_MEMBER_META_KEY = database.KAKAO_MEMBER_META_KEY
 
 class ForeignDatabaseRefused(RestoreRefused):
     """다른 카카오 계정의 DB(또는 주인을 모르는 DB) — 가져오지 않는다."""
+    code = "DB_ACCOUNT_MISMATCH"
 
 
 def _engine():
