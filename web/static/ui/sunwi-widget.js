@@ -31,6 +31,7 @@ window.SrSunwiWidget = (function () {
         if (!contentEl || !updatedAtEl) {
             return null;
         }
+        var disposed = false, fetchAbort = null;
         var state = {
             data: normalize(opts.initialData),
             categoryIndex: 0,
@@ -198,6 +199,7 @@ window.SrSunwiWidget = (function () {
         }
 
         function update(nextData) {
+            if (disposed) return;
             var normalized = normalize(nextData);
             var previousAvailable = state.data.available;
             var previousSignature = signature(state.data);
@@ -225,17 +227,20 @@ window.SrSunwiWidget = (function () {
         }
 
         function schedulePoll() {
+            if (disposed) return;
             if (state.pollTimerId) window.clearTimeout(state.pollTimerId);
             state.pollTimerId = window.setTimeout(fetchLatest, state.data.available ? 30000 : 3000);
         }
 
         function fetchLatest() {
+            if (disposed) return;
             if (state.isFetching) {
                 schedulePoll();
                 return;
             }
             state.isFetching = true;
-            fetch('/sunwi/payload', { cache: 'no-store' })
+            fetchAbort = new AbortController();
+            fetch('/sunwi/payload', { cache: 'no-store', signal: fetchAbort.signal })
                 .then(function (response) {
                     if (!response.ok) throw new Error('sunwi payload fetch failed');
                     return response.json();
@@ -246,7 +251,13 @@ window.SrSunwiWidget = (function () {
         }
 
         update(opts.initialData);
-        return { update: update };
+        return { update: update, dispose: function () {
+            disposed = true;
+            window.clearInterval(state.carouselTimerId);
+            window.clearTimeout(state.pollTimerId);
+            if (fetchAbort) fetchAbort.abort();
+            contentEl.replaceChildren(); state.dom = null;
+        } };
     }
 
     return { init: init };

@@ -1,5 +1,11 @@
 /* Show the shell immediately; map and complete statistics have independent requests. */
 window.SrStatsLoader = { start: function (data) {
+    if (window.SrStatsLoader.dispose) window.SrStatsLoader.dispose(true);
+    var removers = [];
+    function listen(target, type, callback) {
+        target.addEventListener(type, callback);
+        removers.push(function () { target.removeEventListener(type, callback); });
+    }
     var disposed = false, mapDisposed = false, abort = new AbortController(), mapAbort = null, mapSeq = 0;
     window.SrStatsLoader.cancelMap = function () {
         mapDisposed = true; mapSeq++; if (mapAbort) mapAbort.abort(); window.srMapLoading = false;
@@ -17,7 +23,8 @@ window.SrStatsLoader = { start: function (data) {
     if(ends.length) listParams.responseDateEnd=ends[0];
     if(filters.agency) {listParams.agency=filters.agency; if(filters.agencyExact) listParams.agencyExact='true';}
     if(filters.law) listParams.lawExact='true';
-    var listReproducible=!filters.excludePolice && !filters.onlyPolice && !/[&,]/.test(filters.agency || '');
+    var listReproducible=true;
+    ['excludePolice','onlyPolice'].forEach(function (key) { if (filters[key]) listParams[key]='true'; });
     function loadMap() {
     if (disposed || mapDisposed) return;
     var seq = ++mapSeq, requestedCat = cat;
@@ -62,7 +69,7 @@ window.SrStatsLoader = { start: function (data) {
         });
     }
     document.querySelectorAll('.stats-cat-btn').forEach(function(button) {
-        button.addEventListener('click', function() {
+        listen(button, 'click', function() {
             if (button.dataset.cat === cat) return;
             cat=button.dataset.cat;
             try { sessionStorage.setItem('stats_cat',cat); } catch(e) { /* 저장 불가여도 동작 */ }
@@ -72,7 +79,7 @@ window.SrStatsLoader = { start: function (data) {
     });
     window.srPendingStatsCat = cat;
     document.querySelectorAll('.stats-year-btn').forEach(function(button) {
-        button.addEventListener('click', function() {
+        listen(button, 'click', function() {
             var params = new URLSearchParams(location.search), year=button.dataset.year;
             if(year==='all') params.delete('year'); else params.set('year',year);
             location.href='/stats'+(params.toString()?'?'+params.toString():'');
@@ -85,20 +92,33 @@ window.SrStatsLoader = { start: function (data) {
         if(disposed) return;
         var parsed=new DOMParser().parseFromString(html,'text/html');
         var next=parsed.querySelector('.sr-stats-page');
-        next.querySelector('#statsMapCard').replaceWith(mapCard);
-        document.querySelector('.sr-stats-page').replaceWith(next);
+        if (!next) throw Error('상세 통계 응답 형식 오류');
+        // 안정된 셸·검색 폼·지도는 보존하고 서버가 생성한 표와 연도만 채운다.
+        ['statsTabsContent', 'statsYearGroup'].forEach(function (id) {
+            var source = next.querySelector('#' + id), target = document.getElementById(id);
+            if (!source || !target) throw Error('상세 통계 응답 형식 오류');
+            target.replaceChildren.apply(target, Array.from(source.childNodes));
+        });
+        document.querySelector('.sr-stats-page').setAttribute('aria-busy', 'false');
+        document.getElementById('statsLoading').remove();
+        document.getElementById('statsLawToggle').disabled = false;
+        document.getElementById('statsLawToggle').removeAttribute('title');
         if(window.srEarlyMap) window.srEarlyMap.invalidateSize();
         document.getElementById('statsData').textContent=parsed.getElementById('statsData').textContent;
-        var script=document.createElement('script');
-        script.src=document.querySelector('script[src*="/ui/stats.js"]').src;
-        document.body.appendChild(script);
+        window.SrStats.mount();
       }).catch(function(e){
-        if(e.name!=='AbortError') {
+        if(!disposed && e.name!=='AbortError') {
             var el=document.getElementById('statsLoading');
             el.textContent='상세 통계를 불러오지 못했습니다: '+e.message;
             var retry=document.createElement('button'); retry.className='btn btn-outline-secondary btn-sm'; retry.textContent='다시 시도';
             retry.onclick=function(){location.reload();}; el.appendChild(retry);
         }
       });
-    window.addEventListener('pagehide',function(){disposed=true;abort.abort();window.SrStatsLoader.cancelMap();});
+    window.SrStatsLoader.dispose = function (removeMap) {
+        if (disposed) return;
+        disposed=true; abort.abort(); window.SrStatsLoader.cancelMap();
+        removers.forEach(function (remove) { remove(); });
+        if (removeMap && window.srEarlyMap) { window.srEarlyMap.map.remove(); window.srEarlyMap=null; }
+    };
+    listen(window, 'pagehide', function () { window.SrStatsLoader.dispose(true); });
 } };

@@ -38,6 +38,7 @@ def main():
     service.store.save({'current':record})
     cas._default=service
     settings._instance.update_config('LOGIN','username','fixture-official')
+    settings._instance.save()
     settings._instance.load()
     community_gate.refresh_now()
     CommunityStore.open()

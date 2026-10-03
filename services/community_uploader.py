@@ -50,6 +50,7 @@ _active_run: dict | None = None  # {"run_id","trigger","finished":Event,"result"
 _wake_event = threading.Event()
 _bg_thread: threading.Thread | None = None
 _bg_stop = threading.Event()
+_last_requests = {}
 _last_data_version: int | None = None
 _next_due: datetime | None = None  # 재시도 실행기가 깨어날 시각(가장 이른 next_retry_at·cooldown)
 
@@ -280,6 +281,16 @@ def _sendable_count(conn, ctx: dict) -> int:
         _ctx_args(ctx)).fetchone()[0]
 
 
+def crawl_pending_count(data_dir=None) -> int:
+    """크롤 접수 장벽용 현재 project/connection/grant의 전송 가능 잔량.
+
+    지도 패널의 contributor 전체 pending 계약과 별개다. 이전 scope의 행은 보존한다.
+    """
+    store = _store(data_dir)
+    ctx = store.active_context()
+    return _sendable_count(store.connect(), ctx) if ctx else 0
+
+
 def _event(row: dict, payload_json: str, ctx: dict) -> dict:
     """저장된 불변 필드를 그대로 쓴다(event_id·event_type·revision·writer_epoch·captured_at·payload·sha).
     중앙은 같은 event_id 의 재전송에서 이 값들이 다르면 conflict 로 본다 — 현재 context 의 epoch 로 바꾸지 않는다."""
@@ -307,20 +318,27 @@ def _build_batch(store, rows: list[dict], ctx: dict, trigger: str, max_events: i
     total = base
     reports: set[str] = set()
     conn = store.connect()
+    payloads = {}
+    event_ids = list(dict.fromkeys(row['event_id'] for row in rows))
+    for offset in range(0, len(event_ids), 500):
+        chunk = event_ids[offset:offset + 500]
+        marks = ','.join('?' for _ in chunk)
+        payloads.update((row['event_id'], row['payload_json']) for row in conn.execute(
+            f'SELECT event_id, payload_json FROM source_journal WHERE event_id IN ({marks})', chunk))
     for row in rows:
         if len(batch) >= max_events:
             break
         if row["source_report_id"] in reports:
             continue
-        found = conn.execute("SELECT payload_json FROM source_journal WHERE event_id=?", (row["event_id"],)).fetchone()
-        if found is None:
+        payload = payloads.get(row["event_id"])
+        if payload is None:
             continue
         epoch = row.get("writer_epoch")
         if not isinstance(epoch, int) or isinstance(epoch, bool) or epoch < 1:
             oversize.append(dict(row, _reason="writer_epoch_missing"))  # 지어낸 epoch 로 보내지 않는다
             continue
         try:
-            event = _event(row, found["payload_json"], ctx)
+            event = _event(row, payload, ctx)
         except ValueError:
             oversize.append(dict(row, _reason="payload_unreadable"))
             continue
@@ -616,7 +634,8 @@ def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_
     refreshed = False
     had_problem = False
     budget_hit = False
-    last_request_at: float | None = None
+    request_scope = (store.path, ctx.get('connection_id'))
+    last_request_at = _last_requests.get(request_scope)
     while True:
         if counts["requests"] >= RUN_MAX_REQUESTS or _monotonic() - started >= RUN_MAX_SECONDS:
             budget_hit = True
@@ -648,11 +667,12 @@ def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_
             return finish("busy_other_run")
         response, interp = _send(store, owner, batch, ctx, trigger, counts, request_ids)
         last_request_at = _monotonic()
+        _last_requests[request_scope] = last_request_at
         if interp is not None and interp.error_class == "auth_required" and response.http_status == 401 \
                 and not refreshed and response.token:
             refreshed = True
             token = _force_refresh(response.token)
-            if isinstance(token, str):
+            if isinstance(token, str) and counts['requests'] < RUN_MAX_REQUESTS and _monotonic() - started < RUN_MAX_SECONDS:
                 # 재전송도 새 요청이다: 요청 간격을 지킨 뒤 요청 직전에 소유권 heartbeat
                 _sleep(MIN_REQUEST_INTERVAL - (_monotonic() - last_request_at))
                 if not store.renew_lease("upload", owner, LEASE_SECONDS):
@@ -663,7 +683,8 @@ def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_
                     return finish("busy_other_run")
                 response, interp = _send(store, owner, batch, ctx, trigger, counts, request_ids, token=token)
                 last_request_at = _monotonic()
-            else:
+                _last_requests[request_scope] = last_request_at
+            elif not isinstance(token, str):
                 interp = token  # 갱신 결과(offline 또는 auth_required)
         for row in batch:
             tried.add(row["event_id"])
@@ -1136,13 +1157,19 @@ def refresh_server_completed(data_dir=None, limit: int = 5000) -> bool:
         return False
     try:
         seen: list[str] | None = None
+        deadline = _monotonic() + 180
         for _ in range(3):
             keys: list[str] = []
             token: str | None = None
             total: int | None = None
             after: str | None = None
             consistent = True
+            cursors = set()
+            pages = 0
             while True:
+                pages += 1
+                if pages > 10000 or _monotonic() >= deadline or not store.renew_lease('upload', owner, LEASE_SECONDS):
+                    return False
                 ok, body = client.post_manifest(connection_id=ctx["connection_id"], after=after, limit=limit)
                 if not ok:
                     return False
@@ -1157,6 +1184,9 @@ def refresh_server_completed(data_dir=None, limit: int = 5000) -> bool:
                 after = body.get("next_after")
                 if after is None:
                     break
+                if after in cursors:
+                    return False
+                cursors.add(after)
             if consistent:
                 if len(keys) != total or len(set(keys)) != len(keys):
                     return False
@@ -1166,6 +1196,10 @@ def refresh_server_completed(data_dir=None, limit: int = 5000) -> bool:
             return False
         now = _iso(_now())
         with store.transaction() as tx:
+            lease = tx.execute("SELECT owner, until FROM leases WHERE name='upload'").fetchone()
+            active = store.active_context()
+            if not lease or lease['owner'] != owner or lease['until'] <= now or active != ctx:
+                return False
             tx.execute("DELETE FROM server_completed WHERE dataset_key=?", (dataset_key,))
             for prefix in seen:
                 tx.execute("INSERT INTO server_completed(dataset_key, key_prefix, fetched_at) VALUES (?, ?, ?)",

@@ -113,21 +113,23 @@
                 } else {
                     countEl.innerHTML = '<i class="fas fa-circle text-success me-1"></i>' + clients.length + '개 기기 연결됨';
                     var html = '<div class="table-responsive"><table class="table table-sm table-bordered mb-0"><thead><tr><th>기기</th><th>연결 방식</th><th>IP</th><th>시각</th></tr></thead><tbody>';
-                    clients.forEach(function (c) {
-                        var isWs = c.connection_type === 'WebSocket';
-                        var badge = isWs
-                            ? '<span class="badge bg-success">WebSocket</span>'
-                            : '<span class="badge bg-primary">HTTP API</span>';
-                        var time = c.connected_at || c.last_used || '-';
-                        html += '<tr>';
-                        html += '<td><code class="small">' + (c.device_name || c.client_id || '-') + '</code></td>';
-                        html += '<td>' + badge + '</td>';
-                        html += '<td class="small">' + (c.ip || '-') + '</td>';
-                        html += '<td class="text-muted small">' + time + '</td>';
-                        html += '</tr>';
-                    });
                     html += '</tbody></table></div>';
-                    listEl.innerHTML = html;
+                    listEl.innerHTML = html; // 고정된 표 구조만 HTML로 만든다.
+                    var rows = listEl.querySelector('tbody');
+                    clients.forEach(function (c) {
+                        var tr = document.createElement('tr');
+                        [c.device_name || c.client_id || '-', c.connection_type || '-', c.ip || '-', c.connected_at || c.last_used || '-'].forEach(function(value, index) {
+                            var td = document.createElement('td');
+                            td.className = index === 3 ? 'text-muted small' : 'small';
+                            if (index === 1) {
+                                var badge = document.createElement('span');
+                                badge.className = c.connection_type === 'WebSocket' ? 'badge bg-success' : 'badge bg-primary';
+                                badge.textContent = String(value); td.appendChild(badge);
+                            } else td.textContent = String(value);
+                            tr.appendChild(td);
+                        });
+                        rows.appendChild(tr);
+                    });
                 }
             })
             .catch(function () {
@@ -146,8 +148,9 @@
         var form = new FormData();
         form.append('key_name', name);
         fetch('/devices/api-keys/create', { method: 'POST', body: form })
-            .then(function (r) { return r.json(); })
+            .then(function (r) { if (!r.ok) throw Error('키를 생성하지 못했습니다.'); return r.json(); })
             .then(function (data) {
+                if (!data || typeof data.key !== 'string') throw Error('키 응답을 확인할 수 없습니다.');
                 document.getElementById('newKeyValue').textContent = data.key;
                 document.getElementById('newKeyResult').classList.remove('d-none');
                 document.getElementById('newKeyName').value = '';
@@ -164,7 +167,7 @@
                     tr.appendChild(td);
                 });
                 tbody.insertBefore(tr, tbody.firstChild);
-            });
+            }).catch(function (error) { alert(error.message); });
     });
 
     function copyKey() {

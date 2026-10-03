@@ -289,6 +289,7 @@
         statusEl.classList.remove('d-none');
         fetch('/settings/upload_json', { method: 'POST', body: form, redirect: 'follow' })
             .then(function(r) {
+                if (!r.ok || (r.redirected && new URL(r.url).pathname.startsWith('/login')) || new URL(r.url).searchParams.has('error')) throw Error('upload failed');
                 statusEl.className = 'mt-2 alert alert-success';
                 statusEl.textContent = '인증 파일이 성공적으로 업로드되었습니다.';
                 fileInput.value = '';

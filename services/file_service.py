@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import io
 import os
+import shutil
+import stat
 import tempfile
 import zipfile
 from datetime import datetime
@@ -21,7 +22,123 @@ def get_protected_paths() -> set[str]:
     protected = set(logger.LoggerFactory._active_log_paths)
     protected.add(os.path.abspath(os.path.join(settings.logpath, "current_crawl.log")))
     protected.add(os.path.abspath(os.path.join(settings.logpath, "current_rating.log")))
-    return protected
+    return {os.path.normcase(os.path.realpath(path)) for path in protected}
+
+
+def _under_root(path: str, root: str) -> str:
+    """명시한 루트 안의 경로만 허용한다. 링크/정션을 따라가지 않는다."""
+    target, root = os.path.abspath(path), os.path.abspath(root)
+    try:
+        if os.path.commonpath([os.path.normcase(target), os.path.normcase(root)]) != os.path.normcase(root):
+            raise PermissionError("Access denied")
+        real_target, real_root = os.path.normcase(os.path.realpath(target)), os.path.normcase(os.path.realpath(root))
+        if os.path.commonpath([real_target, real_root]) != real_root:
+            raise PermissionError("Access denied")
+    except ValueError as exc:
+        raise PermissionError("Access denied") from exc
+    current = target
+    while True:
+        if os.path.islink(current) or os.path.isjunction(current):
+            raise PermissionError("Access denied")
+        if os.path.normcase(current) == os.path.normcase(root):
+            break
+        current = os.path.dirname(current)
+    if os.path.isfile(target) and os.stat(target).st_nlink > 1:
+        raise PermissionError("Access denied")
+    return target
+
+
+def _api_path(path: str) -> str:
+    if not isinstance(path, str):
+        raise PermissionError("접근 불가")
+    normalized = path.replace("\\", "/")
+    first = normalized.split("/")[0]
+    if first not in ALLOWED_API_ROOTS:
+        raise PermissionError("접근 불가")
+    base = os.path.abspath(settings.datapath)
+    return _under_root(os.path.join(base, normalized), os.path.join(base, first))
+
+
+def _protected(path: str, protected: set[str]) -> bool:
+    return os.path.normcase(os.path.realpath(path)) in protected
+
+
+def _open_file(path: str, root: str):
+    """POSIX에서는 각 경로 구성요소를 dirfd/O_NOFOLLOW로 연다."""
+    path = _under_root(path, root)
+    if os.open in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW"):
+        parts = os.path.relpath(path, root).split(os.sep)
+        directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for part in parts[:-1]:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                os.close(directory)
+                directory = child
+            fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        finally:
+            os.close(directory)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1:
+                raise PermissionError('Access denied')
+            return os.fdopen(fd, 'rb')
+        except BaseException:
+            os.close(fd)
+            raise
+    # Windows의 reparse/rename 경합은 해당 runner에서 별도로 검증한다.
+    handle = open(path, "rb")
+    try:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1 or _under_root(path, root) != path:
+            raise PermissionError("Access denied")
+    except BaseException:
+        handle.close()
+        raise
+    return handle
+
+
+def open_browser_file(path: str):
+    target = ensure_browser_file(path)
+    for root in ALLOWED_BROWSER_DIRS.values():
+        try:
+            _under_root(target, root)
+        except PermissionError:
+            continue
+        return _open_file(target, root)
+    raise PermissionError("Access denied")
+
+
+def open_api_file(path: str):
+    target = resolve_api_file(path)
+    first = path.replace("\\", "/").split("/")[0]
+    return _open_file(target, os.path.join(settings.datapath, first))
+
+
+def _unlink_file(path):
+    for root in ALLOWED_BROWSER_DIRS.values():
+        try:
+            path = _under_root(path, root)
+        except PermissionError:
+            continue
+        if os.unlink in os.supports_dir_fd and hasattr(os, 'O_NOFOLLOW'):
+            parts = os.path.relpath(path, root).split(os.sep)
+            directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                for part in parts[:-1]:
+                    child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                    os.close(directory)
+                    directory = child
+                info = os.stat(parts[-1], dir_fd=directory, follow_symlinks=False)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink > 1:
+                    raise PermissionError('Access denied')
+                os.unlink(parts[-1], dir_fd=directory)
+            finally:
+                os.close(directory)
+        else:
+            _under_root(path, root)
+            os.remove(path)
+        return
+    raise PermissionError('Access denied')
 
 
 def _format_timestamp(path: str) -> str:
@@ -34,6 +151,10 @@ def list_browser_groups():
         os.makedirs(directory, exist_ok=True)
         for filename in os.listdir(directory):
             path = os.path.join(directory, filename)
+            try:
+                path = _under_root(path, directory)
+            except PermissionError:
+                continue
             if not os.path.isfile(path):
                 continue
             files[label].append({
@@ -48,47 +169,75 @@ def list_browser_groups():
 
 
 def ensure_browser_file(path: str) -> str:
+    if not isinstance(path, str):
+        raise PermissionError("Access denied")
     abs_path = os.path.abspath(path)
-    if not any(abs_path.startswith(os.path.abspath(root)) for root in ALLOWED_BROWSER_DIRS.values()):
+    for root in ALLOWED_BROWSER_DIRS.values():
+        try:
+            abs_path = _under_root(abs_path, root)
+            break
+        except PermissionError:
+            continue
+    else:
         raise PermissionError("Access denied")
     if not os.path.exists(abs_path) or not os.path.isfile(abs_path):
         raise FileNotFoundError("File not found")
     return abs_path
 
 
+def _build_zip(paths, *, api: bool):
+    if not isinstance(paths, list) or not paths or any(not isinstance(p, str) for p in paths):
+        raise ValueError("paths must be a non-empty list of strings")
+    selected = []
+    names = set()
+    for path in paths:
+        target = resolve_api_file(path) if api else ensure_browser_file(path)
+        if api:
+            name = os.path.relpath(target, settings.datapath).replace(os.sep, "/")
+        else:
+            for label, root in ALLOWED_BROWSER_DIRS.items():
+                try:
+                    _under_root(target, root)
+                except PermissionError:
+                    continue
+                name = label + "/" + os.path.relpath(target, root).replace(os.sep, "/")
+                break
+        if name in names:
+            raise ValueError("duplicate archive filename")
+        names.add(name)
+        selected.append((path, name))
+    fd, archive_path = tempfile.mkstemp(prefix="safetyreport_archive_", suffix=".zip")
+    try:
+        with os.fdopen(fd, "w+b") as output, zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+            for path, name in selected:
+                # 경로 검사 뒤 파일이 바뀌어도 ZIP에 링크 대상이 들어가지 않게
+                # 검증한 fd로 읽는다. 실패 항목을 조용히 건너뛰지 않는다.
+                with (open_api_file(path) if api else open_browser_file(path)) as source:
+                    with archive.open(name, "w", force_zip64=True) as member:
+                        shutil.copyfileobj(source, member, length=64 * 1024)
+        filename = f"safetyreport_files_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+        return archive_path, filename
+    except BaseException:
+        try:
+            os.unlink(archive_path)
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def build_download_zip(paths):
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as archive:
-        for path in paths:
-            try:
-                resolved = ensure_browser_file(path)
-            except Exception:
-                continue
-            archive.write(resolved, os.path.basename(resolved))
-    zip_buffer.seek(0)
-    filename = f"safetyreport_files_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-    return zip_buffer, filename
+    return _build_zip(paths, api=False)
 
 
 def build_api_download_zip(paths):
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as archive:
-        for path in paths:
-            try:
-                resolved = resolve_api_file(path)
-            except Exception:
-                continue
-            archive.write(resolved, os.path.basename(resolved))
-    zip_buffer.seek(0)
-    filename = f"safetyreport_files_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
-    return zip_buffer, filename
+    return _build_zip(paths, api=True)
 
 
 def delete_file(path: str):
     abs_path = ensure_browser_file(path)
-    if abs_path in get_protected_paths():
+    if _protected(abs_path, get_protected_paths()):
         raise RuntimeError("현재 사용 중인 로그 파일은 삭제할 수 없습니다.")
-    os.remove(abs_path)
+    _unlink_file(abs_path)
 
 
 def delete_files(paths):
@@ -97,16 +246,17 @@ def delete_files(paths):
     protected = get_protected_paths()
 
     for path in paths:
-        abs_path = os.path.abspath(path)
-        if not any(abs_path.startswith(os.path.abspath(root)) for root in ALLOWED_BROWSER_DIRS.values()):
-            errors.append(f"{os.path.basename(path)}: Access denied")
+        try:
+            abs_path = ensure_browser_file(path)
+        except (PermissionError, FileNotFoundError) as exc:
+            errors.append(f"{os.path.basename(str(path))}: {exc}")
             continue
-        if abs_path in protected:
+        if _protected(abs_path, protected):
             errors.append(f"{os.path.basename(path)}: 현재 사용 중인 로그 파일은 삭제 대상에서 제외되었습니다.")
             continue
         if os.path.exists(abs_path):
             try:
-                os.remove(abs_path)
+                _unlink_file(abs_path)
                 deleted_count += 1
             except Exception as exc:
                 errors.append(f"{os.path.basename(path)}: {exc}")
@@ -133,13 +283,13 @@ def delete_api_files(paths):
             continue
 
         abs_path = os.path.abspath(resolved)
-        if abs_path in protected:
+        if _protected(abs_path, protected):
             errors.append(
                 f"{os.path.basename(path)}: 현재 사용 중인 로그 파일은 삭제 대상에서 제외되었습니다."
             )
             continue
         try:
-            os.remove(abs_path)
+            _unlink_file(abs_path)
             deleted_count += 1
         except Exception as exc:
             errors.append(f"{os.path.basename(path)}: {exc}")
@@ -158,11 +308,14 @@ def delete_all_in_target(target: str):
     protected = get_protected_paths()
     for filename in os.listdir(directory):
         path = os.path.join(directory, filename)
-        abs_path = os.path.abspath(path)
-        if not os.path.isfile(path) or abs_path in protected:
+        try:
+            abs_path = _under_root(path, directory)
+        except PermissionError:
+            continue
+        if not os.path.isfile(path) or _protected(abs_path, protected):
             continue
         try:
-            os.remove(abs_path)
+            _unlink_file(abs_path)
             deleted_count += 1
         except Exception:
             pass
@@ -175,6 +328,10 @@ def list_api_entries(path: str = ""):
         items = []
         for name in sorted(ALLOWED_API_ROOTS):
             full = os.path.join(base, name)
+            try:
+                full = _under_root(full, full)
+            except PermissionError:
+                continue
             if os.path.exists(full):
                 items.append({
                     "name": name,
@@ -185,13 +342,7 @@ def list_api_entries(path: str = ""):
                 })
         return "/", items
 
-    first = path.replace("\\", "/").split("/")[0]
-    if first not in ALLOWED_API_ROOTS:
-        raise PermissionError("접근 불가")
-
-    target = os.path.normpath(os.path.join(base, path))
-    if not target.startswith(base):
-        raise PermissionError("접근 불가")
+    target = _api_path(path)
     if not os.path.exists(target):
         raise FileNotFoundError("경로를 찾을 수 없습니다")
     if not os.path.isdir(target):
@@ -204,6 +355,10 @@ def list_api_entries(path: str = ""):
     items = []
     for name in entries:
         full = os.path.join(target, name)
+        try:
+            full = _api_path(os.path.relpath(full, base))
+        except PermissionError:
+            continue
         rel = os.path.relpath(full, base)
         is_dir = os.path.isdir(full)
         items.append({
@@ -217,14 +372,7 @@ def list_api_entries(path: str = ""):
 
 
 def resolve_api_file(path: str):
-    base = os.path.abspath(settings.datapath)
-    first = path.replace("\\", "/").split("/")[0]
-    if first not in ALLOWED_API_ROOTS:
-        raise PermissionError("접근 불가")
-
-    target = os.path.normpath(os.path.join(base, path))
-    if not target.startswith(base):
-        raise PermissionError("접근 불가")
+    target = _api_path(path)
     if not os.path.exists(target):
         raise FileNotFoundError("파일을 찾을 수 없습니다")
     if os.path.isdir(target):
@@ -233,20 +381,18 @@ def resolve_api_file(path: str):
 
 
 def snapshot_live_log_if_needed(path: str):
-    live_logs = {
-        os.path.abspath(os.path.join(settings.logpath, "current_crawl.log")),
-        os.path.abspath(os.path.join(settings.logpath, "current_rating.log")),
-    }
-    abs_path = os.path.abspath(path)
-    if abs_path not in live_logs:
-        return abs_path, None
-
-    fd, tmp_path = tempfile.mkstemp(
-        prefix="safetyreport_log_snapshot_",
-        suffix=os.path.splitext(abs_path)[1] or ".log",
-    )
-    os.close(fd)
-    from shutil import copy2
-
-    copy2(abs_path, tmp_path)
-    return tmp_path, tmp_path
+    """검증한 fd를 읽어 응답 전용 스냅샷을 만든다(이름은 호출자 호환용)."""
+    abs_path = ensure_browser_file(path)
+    fd, temporary = tempfile.mkstemp(prefix='safetyreport_download_')
+    try:
+        with os.fdopen(fd, 'wb') as output, open_browser_file(abs_path) as source:
+            info = os.fstat(source.fileno())
+            shutil.copyfileobj(source, output, length=64 * 1024)
+        os.utime(temporary, ns=(info.st_atime_ns, info.st_mtime_ns))
+        return temporary, temporary
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise

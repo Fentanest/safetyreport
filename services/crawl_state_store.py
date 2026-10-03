@@ -156,7 +156,7 @@ def peek_crawl_changes():
     return _read_json(_state_file("crawl_changes.json"), [])
 
 
-def save_crawl_done(changed_count: int, *, report_changed_count: int | None = None, duplicate_changed_count: int = 0):
+def save_crawl_done(changed_count: int, *, report_changed_count: int | None = None, duplicate_changed_count: int = 0, outcome="succeeded"):
     _write_json(
         _state_file("crawl_done.json"),
         {
@@ -164,6 +164,8 @@ def save_crawl_done(changed_count: int, *, report_changed_count: int | None = No
             "changed_count": changed_count,
             "report_changed_count": changed_count if report_changed_count is None else report_changed_count,
             "duplicate_changed_count": duplicate_changed_count,
+            "outcome": outcome,
+            "run_id": os.environ.get('SAFETYREPORT_CRAWL_RUN_ID'),
         },
     )
 

@@ -259,9 +259,9 @@ def build_session():
     session = requests.Session()
 
     retry_strategy = Retry(
-        total=8,
-        connect=8,
-        read=8,
+        total=0,
+        connect=0,
+        read=0,
         backoff_factor=1.0,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=["GET"],
@@ -279,7 +279,7 @@ def build_session():
     })
     return session
 
-def fetch_stats(session, sido_code, sigungu_code, target_yyyymm=None, logger_fn=None, max_attempts=6):
+def fetch_stats(session, sido_code, sigungu_code, target_yyyymm=None, logger_fn=None, max_attempts=6, *, timeout=90):
     params = build_common_params(target_yyyymm)
     params["API_CTRD_CODE"] = sido_code
     params["API_SIGNGU_CODE"] = sigungu_code
@@ -287,7 +287,10 @@ def fetch_stats(session, sido_code, sigungu_code, target_yyyymm=None, logger_fn=
     last_error = None
     logger_fn = logger_fn or print
 
+    deadline = time.monotonic() + timeout
     for attempt in range(max_attempts):
+        if time.monotonic() >= deadline:
+            break
         try:
             resp = session.get(BASE_URL, params=params, timeout=(10, 30))
             resp.raise_for_status()
@@ -297,9 +300,10 @@ def fetch_stats(session, sido_code, sigungu_code, target_yyyymm=None, logger_fn=
             last_error = e
             wait_sec = min(2 + attempt, 10)
             logger_fn(f"  [재시도 {attempt + 1}/{max_attempts}] {sido_code}-{sigungu_code} 실패: {e} / {wait_sec}초 대기")
-            time.sleep(wait_sec)
+            if attempt + 1 < max_attempts and time.monotonic() + wait_sec < deadline:
+                time.sleep(wait_sec)
 
-    raise last_error
+    raise last_error or TimeoutError('Sunwi statistics request deadline exceeded')
 
 def normalize_item_name(item):
     for key in ["NM", "NAME", "SUB_NM", "TITLE", "CD_NM"]:

@@ -1,96 +1,103 @@
+import asyncio
+import hashlib
+import json
 import os
 import sys
+import time
+import uuid
 
-# Add project root to sys.path
-root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
-import asyncio
 import telegram
 import settings.settings as settings
+from core.utils.atomic_file import write_bytes
 
-async def send_message(bot, text):
-    """Sends a single message to the predefined chat_id with retry logic."""
+
+def plan_chunks(message, max_len=4096):
+    """전송 전에 모든 조각을 확정한다. Telegram 제한은 UTF-16 code unit 기준이다."""
+    chunks, current, units = [], [], 0
+    for character in message:
+        width = 2 if ord(character) > 0xffff else 1
+        if units + width > max_len:
+            chunks.append(''.join(current))
+            current, units = [], 0
+        current.append(character)
+        units += width
+    if current:
+        chunks.append(''.join(current))
+    return [chunk for chunk in chunks if chunk.strip()]
+
+
+async def send_message(bot, text, *, deadline=None):
     if not text or not text.strip():
         return
-    
-    max_retries = 3
-    for attempt in range(max_retries):
+    deadline = deadline if deadline is not None else time.monotonic() + 60
+    for attempt in range(3):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError('알림 전송 제한 시간 초과')
         try:
-            await bot.send_message(chat_id=settings.chat_id, text=text)
-            return # Success
-        except telegram.error.RetryAfter as e:
-            # Flood control exceeded, wait and retry
-            wait_time = e.retry_after + 1
-            print(f"Flood control exceeded. Waiting for {wait_time} seconds before retry...")
-            await asyncio.sleep(wait_time)
-        except Exception as e:
-            print(f"Error sending message (attempt {attempt + 1}): {e}")
-            if attempt < max_retries - 1:
-                await asyncio.sleep(2)
-            else:
-                raise # Re-raise if final attempt fails
+            return await asyncio.wait_for(bot.send_message(chat_id=settings.chat_id, text=text), remaining)
+        except telegram.error.RetryAfter as exc:
+            # 명시적인 flood 거절만 재시도한다. timeout/connection loss는 적용 여부 미확정이다.
+            delay = exc.retry_after
+            if hasattr(delay, 'total_seconds'):
+                delay = delay.total_seconds()
+            delay = max(0, float(delay)) + 1
+            if attempt == 2 or delay >= deadline - time.monotonic():
+                raise
+            await asyncio.sleep(delay)
+
+
+async def deliver(bot, message, *, timeout=90):
+    chunks = plan_chunks(message)
+    if not chunks:
+        return {'state': 'skipped', 'confirmed': 0}
+    run_id = uuid.uuid4().hex
+    path = os.path.join(settings.datapath, 'notification_runs', run_id + '.json')
+    state = {'run_id': run_id, 'state': 'prepared', 'confirmed': 0, 'total': len(chunks),
+             'sha256': hashlib.sha256(message.encode('utf-8')).hexdigest()}
+
+    def record(value):
+        state['state'] = value
+        write_bytes(path, json.dumps(state).encode('utf-8'))
+
+    record('prepared')
+    deadline = time.monotonic() + timeout
+    for index, chunk in enumerate(chunks):
+        state['sending_index'] = index
+        record('sending')
+        try:
+            await send_message(bot, chunk, deadline=deadline)
+        except Exception:
+            record('unknown')
+            raise
+        state['confirmed'] += 1
+        record('partial' if state['confirmed'] < len(chunks) else 'succeeded')
+        if index + 1 < len(chunks):
+            if deadline - time.monotonic() < 1.5:
+                record('partial')
+                raise TimeoutError('알림 전송 제한 시간 초과')
+            await asyncio.sleep(1.5)
+    return dict(state)
+
 
 async def main():
-    """Main function to parse args and send message(s)."""
     if not settings.telegram_enabled:
-        sys.exit(0)
-
+        return
     if len(sys.argv) < 2:
-        if not sys.stdin.isatty():
-            message = sys.stdin.read()
-        else:
-            print("Usage: python notifier.py <message> or echo <message> | python notifier.py")
-            sys.exit(1)
+        if sys.stdin.isatty():
+            raise SystemExit('Usage: notifier.py <message>')
+        message = sys.stdin.read()
     else:
         message = sys.argv[1]
     from core.utils.runtime_mode import block_if_fixture
-    block_if_fixture("telegram notify")
-    bot = telegram.Bot(token=settings.telegram_token)
+    block_if_fixture('telegram notify')
+    async with telegram.Bot(token=settings.telegram_token) as bot:
+        await deliver(bot, message)
 
-    max_len = 4096
-    if len(message) > max_len:
-        # Try smart chunking first
-        if "--- [" in message:
-            try:
-                header = message.split('\n\n', 1)[0]
-                await send_message(bot, f"{header}\n(내용이 너무 길어 여러 개로 나누어 보냅니다.)")
-                
-                content = message.split('\n\n', 1)[1]
-                chunks = []
-                current_chunk = ""
-                
-                for part in content.split("--- ["):
-                    if not part.strip():
-                        continue
-                    
-                    part_to_add = "--- [" + part
-                    if len(current_chunk) + len(part_to_add) > max_len:
-                        if current_chunk:
-                            chunks.append(current_chunk)
-                        current_chunk = part_to_add
-                    else:
-                        current_chunk += part_to_add
-                
-                if current_chunk:
-                    chunks.append(current_chunk)
 
-                for chunk in chunks:
-                    await send_message(bot, chunk)
-                    await asyncio.sleep(1.5) # Flood 방지 지연
-                return
-            except Exception:
-                # Fallback to simple chunking if smart chunking fails
-                pass
-
-        # Fallback: simple character-based chunking
-        for i in range(0, len(message), max_len):
-            chunk = message[i:i+max_len]
-            await send_message(bot, chunk)
-            await asyncio.sleep(1.5) # Flood 방지 지연
-    else:
-        await send_message(bot, message)
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(main())

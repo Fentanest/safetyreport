@@ -66,12 +66,11 @@ def _can_manage(api_key: str) -> bool:
     return hash_api_key(api_key) in cas.get_service().config().api_key_managers
 
 
-def _check_client_user(request: Request, required: bool = True) -> str | None:
+def _check_client_user(token: str, required: bool = True) -> str | None:
     """폰 사용자 토큰(X-Community-User-Token)을 서버 연결 사용자와 비교. 민감 제어(업로드 실행)는 토큰 필수.
     상태 조회(required=False)는 토큰이 없으면 통과, 있으면 같은 사용자여야 한다."""
     from services import community_gate as _gate
 
-    token = request.headers.get("x-community-user-token")
     if not token:
         return "user_token_required" if required else None
     try:
@@ -153,7 +152,7 @@ def _public_run(raw: dict) -> dict:
 
 @api_router.get("/upload/status")
 async def api_upload_status(request: Request, api_key: str = Depends(_require_api_key)):
-    mismatch = _check_client_user(request, required=False)
+    mismatch = await run_in_threadpool(_check_client_user, request.headers.get("x-community-user-token") or "", False)
     if mismatch:
         return _mismatch(mismatch)
     try:
@@ -168,7 +167,7 @@ async def api_upload_status(request: Request, api_key: str = Depends(_require_ap
 
 @api_router.post("/upload/run")
 async def api_upload_run(request: Request, api_key: str = Depends(_require_api_key)):
-    mismatch = _check_client_user(request)
+    mismatch = await run_in_threadpool(_check_client_user, request.headers.get("x-community-user-token") or "")
     if mismatch:
         return _mismatch(mismatch)
     try:

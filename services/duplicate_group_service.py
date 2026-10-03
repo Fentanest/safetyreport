@@ -190,38 +190,55 @@ def _build_duplicate_change_payload(change_kind: str, group: dict) -> dict:
     }
 
 
-def _safe_read(conn, table_obj) -> pd.DataFrame:
+class DuplicateInventoryError(RuntimeError):
+    """필수 원천을 읽지 못했으므로 중복 자료를 재생성할 수 없다."""
+
+    def __init__(self, source: str):
+        self.source = source
+        super().__init__(f"중복 원천({source})을 읽지 못했습니다. 기존 중복 자료를 유지합니다.")
+
+
+def _safe_read(conn, table_obj, statement=None) -> pd.DataFrame:
     try:
-        return pd.read_sql_query(select(table_obj), conn)
-    except Exception:
-        return pd.DataFrame()
+        return pd.read_sql_query(statement if statement is not None else select(table_obj), conn)
+    except Exception as exc:
+        raise DuplicateInventoryError(table_obj.name) from exc
 
 
-def _load_inventory(conn) -> pd.DataFrame:
+def _load_inventory(conn, report_ids=None) -> pd.DataFrame:
+    def read(table):
+        if report_ids is None:
+            return _safe_read(conn, table)
+        identifiers = list(dict.fromkeys(report_ids))
+        frames = [_safe_read(conn, table, select(table).where(table.c.ID.in_(identifiers[offset:offset + 500])))
+                  for offset in range(0, len(identifiers), 500)]
+        return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=[c.name for c in table.c])
     frames = []
     for table_obj, category in [
         (models.merge_traffic_table, "traffic"),
         (models.merge_parking_table, "parking"),
         (models.merge_other_table, "other"),
     ]:
-        df = _safe_read(conn, table_obj)
+        df = read(table_obj)
         if df.empty:
             continue
         df["category"] = category
         frames.append(df)
 
+    # 빈 신고 목록도 정상적으로 읽은 전체 원천인지 확인한다. 읽기 실패를
+    # 빈 자료로 처리하면 아래 refresh의 DELETE가 기존 그룹을 지워 버린다.
+    df_entry = read(models.entry_value_table)
+    df_raw = read(models.raw_content_table)
     if not frames:
         return pd.DataFrame()
 
     df_all = pd.concat(frames, ignore_index=True).fillna("")
 
-    df_entry = _safe_read(conn, models.entry_value_table)
     if not df_entry.empty:
         df_all = df_all.merge(df_entry[["ID", "entry_value"]], on="ID", how="left")
     else:
         df_all["entry_value"] = ""
 
-    df_raw = _safe_read(conn, models.raw_content_table)
     if not df_raw.empty:
         df_all = df_all.merge(df_raw[["ID", "raw_content", "raw_type", "saved_at"]], on="ID", how="left")
     else:
@@ -412,8 +429,8 @@ def _load_member_rows(conn, group_ids: list[str]):
     return [dict(row._mapping) for row in rows]
 
 
-def _load_inventory_lookup(conn) -> dict[str, dict]:
-    df_all = _load_inventory(conn)
+def _load_inventory_lookup(conn, report_ids=None) -> dict[str, dict]:
+    df_all = _load_inventory(conn, report_ids)
     if df_all.empty:
         return {}
     records = df_all.to_dict(orient="records")
@@ -422,6 +439,7 @@ def _load_inventory_lookup(conn) -> dict[str, dict]:
 
 def get_duplicate_groups(engine, *, status: str | None = None) -> list[dict]:
     with engine.connect() as conn:
+        conn.exec_driver_sql('BEGIN')
         groups = _load_group_rows(conn)
         normalized_status = _normalize_duplicate_status(status)
         if normalized_status:
@@ -431,7 +449,7 @@ def get_duplicate_groups(engine, *, status: str | None = None) -> list[dict]:
 
         group_ids = [group["group_id"] for group in groups]
         members = _load_member_rows(conn, group_ids)
-        inventory = _load_inventory_lookup(conn)
+        inventory = _load_inventory_lookup(conn, [member["report_id"] for member in members])
         decision = models.duplicate_decision_table
         decided = {
             row.group_id: row.updated_at
@@ -483,7 +501,7 @@ def _load_records_for_group(conn, group_id: str) -> list[dict]:
     ).fetchall()
     if not member_rows:
         return []
-    inventory = _load_inventory_lookup(conn)
+    inventory = _load_inventory_lookup(conn, [row.report_id for row in member_rows])
     records = []
     for row in member_rows:
         record = dict(inventory.get(_text(row.report_id), {}))

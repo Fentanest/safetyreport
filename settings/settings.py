@@ -1,11 +1,16 @@
 import datetime
 import os
 import configparser
+import io
+import threading
+import hashlib
 
 class AppSettings:
     def __init__(self):
         import sys
         self.config = configparser.ConfigParser()
+        self._lock = threading.RLock()
+        self._draft = threading.local()
         
         if getattr(sys, 'frozen', False):
             # When frozen, use the executable's directory as the root for persistent data
@@ -36,8 +41,31 @@ class AppSettings:
         
         self.load()
 
+    def _fingerprint(self):
+        try:
+            with open(self.config_path, 'rb') as source:
+                return hashlib.sha256(source.read()).digest()
+        except FileNotFoundError:
+            return None
+
     def load(self):
-        self.config.read(self.config_path)
+        with self._lock:
+            config = configparser.ConfigParser()
+            try:
+                with open(self.config_path, 'rb') as source:
+                    payload = source.read()
+            except FileNotFoundError:
+                payload = None
+            if payload is not None:
+                config.read_string(payload.decode('utf-8'))
+            candidate = object.__new__(AppSettings)
+            candidate.__dict__.update(self.__dict__)
+            candidate.config = config
+            candidate._load_fields()
+            candidate._loaded_fingerprint = hashlib.sha256(payload).digest() if payload is not None else None
+            self.__dict__.update(candidate.__dict__)
+
+    def _load_fields(self):
         
         self.remotepath = self.config.get('SELENIUM', 'remotepath', fallback="http://localhost:4444/wd/hub")
         self.chrome_mode = self.config.get('SELENIUM', 'chrome_mode', fallback='hub')
@@ -105,20 +133,45 @@ class AppSettings:
             self.google_sheet_key = None
 
     def update_config(self, section, key, value):
-        if not self.config.has_section(section):
-            self.config.add_section(section)
-        self.config.set(section, key, str(value))
-        
+        # 연속 update가 다른 요청의 미완성 값과 섞이지 않게 요청 스레드에 둔다.
+        pending = getattr(self._draft, 'pending', None)
+        if pending is None:
+            pending = self._draft.pending = {}
+        pending[(section, key)] = str(value)
+
     def save(self):
-        os.makedirs(os.path.dirname(self.config_path), exist_ok=True)
-        # 비밀번호가 평문이면 저장 전에 암호화
-        raw_pw = self.config.get('LOGIN', 'password', fallback='')
-        if raw_pw and not raw_pw.startswith('enc:'):
-            from core.utils.security import encrypt_config_value
-            self.config.set('LOGIN', 'password', encrypt_config_value(raw_pw, self.datapath))
-        with open(self.config_path, 'w') as configfile:
-            self.config.write(configfile)
-        self.load()
+        from core.utils.atomic_file import write_bytes
+        from core.utils.file_lock import exclusive
+        pending = getattr(self._draft, 'pending', {})
+        self._draft.pending = {}
+        with self._lock, exclusive(self.config_path + '.lock'):
+            if pending:
+                config = configparser.ConfigParser()
+                config.read(self.config_path, encoding='utf-8')
+                for (section, key), value in pending.items():
+                    if not config.has_section(section):
+                        config.add_section(section)
+                    config.set(section, key, value)
+            else:
+                if self._fingerprint() != getattr(self, '_loaded_fingerprint', None):
+                    raise RuntimeError('설정이 다른 작업에서 바뀌었습니다. 다시 불러온 뒤 저장하세요.')
+                config = configparser.ConfigParser()
+                config.read_dict({section: dict(self.config[section]) for section in self.config.sections()})
+            raw_pw = config.get('LOGIN', 'password', fallback='')
+            if raw_pw and not raw_pw.startswith('enc:'):
+                from core.utils.security import encrypt_config_value
+                config.set('LOGIN', 'password', encrypt_config_value(raw_pw, self.datapath))
+            candidate = object.__new__(AppSettings)
+            candidate.__dict__.update(self.__dict__)
+            candidate.config = config
+            candidate._load_fields()  # 불법 int/bool 등은 디스크나 메모리 게시 전에 거절한다.
+            output = io.StringIO()
+            config.write(output)
+            payload = output.getvalue().encode('utf-8')
+            write_bytes(self.config_path, payload)
+            candidate._loaded_fingerprint = hashlib.sha256(payload).digest()
+            self.__dict__.update(candidate.__dict__)
+            self._draft.pending = {}
 
 _instance = AppSettings()
 

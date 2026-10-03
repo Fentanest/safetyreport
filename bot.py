@@ -1,5 +1,6 @@
 import re
-import subprocess
+import asyncio
+from functools import wraps
 import sys
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -23,10 +24,41 @@ warnings.filterwarnings("ignore", message="If 'per_message=False', 'CallbackQuer
 ASK_CAR_NUMBER, ASK_REPORT_NUMBER = range(2)
 
 
+def authorized_update(update):
+    chat, user = update.effective_chat, update.effective_user
+    if chat is None or user is None:
+        return False
+    try:
+        configured_chat = int(settings.chat_id)
+    except (TypeError, ValueError):
+        return False
+    if chat.id != configured_chat:
+        return False
+    configured_users = settings.config.get('TELEGRAM', 'allowed_user_ids', fallback='')
+    allowed_users = {int(value.strip()) for value in configured_users.split(',')
+                     if value.strip().isdigit()}
+    if chat.type == 'private':
+        return user.id in (allowed_users or {configured_chat})
+    return bool(allowed_users) and user.id in allowed_users
+
+
+def authorized(handler):
+    @wraps(handler)
+    async def checked(update, context):
+        if not authorized_update(update):
+            if update.callback_query:
+                await update.callback_query.answer('허용되지 않은 요청입니다.', show_alert=True)
+            return ConversationHandler.END
+        return await handler(update, context)
+    return checked
+
+
+@authorized
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Sends a message when the command /start is issued."""
     await update.message.reply_text("안녕하세요! 안전신문고 크롤러 봇입니다. /ㅇ 를 입력하여 메뉴를 확인하세요.")
 
+@authorized
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Displays the main menu."""
     keyboard = [
@@ -38,48 +70,33 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("원하시는 작업을 선택하세요:", reply_markup=reply_markup)
 
+@authorized
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Parses the CallbackQuery and starts the corresponding action."""
     query = update.callback_query
     await query.answer()
 
-    import asyncio
-    
-    if query.data == "start_crawl":
-        await query.edit_message_text(text="전체 크롤링 프로세스를 시작합니다. 완료되면 알려드리겠습니다...")
-        # Run start.py as a subprocess asynchronously
-        cmd = [sys.executable, "--mode", "crawl"] if is_frozen else [sys.executable, "start.py"]
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        _, _ = await process.communicate()
-        
-        if process.returncode == 0:
-            await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링 및 모든 작업이 완료되었습니다.")
-        else:
-            logger.LoggerFactory.get_logger().error(f"Error running start.py. Exit code: {process.returncode}")
-            await context.bot.send_message(chat_id=query.message.chat_id, text="크롤링 중 오류가 발생했습니다. 자세한 내용은 로그를 확인해주세요.")
-        return ConversationHandler.END
-
-    elif query.data == "save_excel":
-        await query.edit_message_text(text="`scripts/debug/save.py`를 실행하여 엑셀 저장을 시작합니다...")
-        cmd = [sys.executable, "--mode", "save_excel"] if is_frozen else [sys.executable, os.path.join("scripts", "debug", "save.py")]
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode == 0:
-            response = stdout.decode('utf-8')
-            await context.bot.send_message(chat_id=query.message.chat_id, text=f"엑셀 저장 완료.\n\n{response}")
-        else:
-            error_message = stderr.decode('utf-8')
-            logger.LoggerFactory.get_logger().error(f"Error running debug_save.py: {error_message}")
-            await context.bot.send_message(chat_id=query.message.chat_id, text=f"오류가 발생했습니다:\n{error_message}")
+    if query.data in ('start_crawl', 'save_excel'):
+        if not context.application.bot_data.get('managed_coordinator'):
+            await query.edit_message_text('서버에서 관리하는 봇으로 다시 시도하세요.')
+            return ConversationHandler.END
+        try:
+            if query.data == 'start_crawl':
+                from services import crawl_control
+                await asyncio.to_thread(crawl_control.start_crawl, crawl_mode='full',
+                                        header='=== [텔레그램에서 시작된 크롤링] ===',
+                                        broadcast_source='telegram')
+                await query.edit_message_text('크롤링을 시작했습니다. 진행 상태는 서버에서 확인하세요.')
+            else:
+                from services import export_service
+                def save_excel():
+                    return export_service.export_results(get_engine_with_timeout(15),
+                                                         save_excel=True, save_sheet=False)
+                saved = await asyncio.to_thread(save_excel)
+                await query.edit_message_text('엑셀 저장 완료.' if saved else '저장할 신고 내역이 없습니다.')
+        except Exception as exc:
+            logger.LoggerFactory.get_logger().warning('봇 작업 접수 실패: %s', type(exc).__name__)
+            await query.edit_message_text('작업을 시작하지 못했습니다. 서버 상태와 로그를 확인하세요.')
         return ConversationHandler.END
 
     elif query.data == "search_car":
@@ -92,6 +109,7 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
     return ConversationHandler.END
 
+@authorized
 async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives the car number, searches the DB, and returns the results."""
     car_number = re.sub(r'\s+', '', update.message.text)
@@ -99,7 +117,7 @@ async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     try:
         engine = get_engine_with_timeout(15)
-        results = database.search_by_car_number(engine, car_number)
+        results = await asyncio.to_thread(database.search_by_car_number, engine, car_number)
 
         if not results:
             await update.message.reply_text("해당 차량번호에 대한 신고 내역을 찾을 수 없습니다.")
@@ -116,6 +134,7 @@ async def receive_car_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     return ConversationHandler.END
 
+@authorized
 async def receive_report_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Receives the report number, searches the DB, and returns the results."""
     report_number = re.sub(r'\s+', '', update.message.text)
@@ -123,7 +142,7 @@ async def receive_report_number(update: Update, context: ContextTypes.DEFAULT_TY
 
     try:
         engine = get_engine_with_timeout(15)
-        results = database.search_by_report_number(engine, report_number)
+        results = await asyncio.to_thread(database.search_by_report_number, engine, report_number)
 
         if not results:
             await update.message.reply_text("해당 신고번호에 대한 신고 내역을 찾을 수 없습니다.")
@@ -140,6 +159,7 @@ async def receive_report_number(update: Update, context: ContextTypes.DEFAULT_TY
 
     return ConversationHandler.END
 
+@authorized
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the conversation."""
     await update.message.reply_text("작업을 취소했습니다.")
@@ -153,27 +173,10 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     else:
         logger.LoggerFactory.get_logger().error(f"텔레그램 봇 오류: {context.error}", exc_info=context.error)
 
-def main() -> None:
-    """Run the bot."""
-    logger.LoggerFactory.create_logger()
-
-    # Set logging level for httpx to WARNING to suppress verbose INFO logs
-    import logging
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-
-    # Check if Telegram is enabled
-    if not settings.telegram_enabled:
-        logger.LoggerFactory.get_logger().info("Telegram 기능이 비활성화되어 봇을 시작하지 않습니다.")
-        return
-
-    # Get the token from environment variable
-    token = settings.telegram_token
-    if not token: # This check is somewhat redundant now but good for safety
-        logger.LoggerFactory.get_logger().error("TELEGRAM_TOKEN 환경변수가 설정되지 않았습니다.")
-        return
-
+def build_application(*, managed=False):
+    application = Application.builder().token(settings.telegram_token).build()
+    application.bot_data['managed_coordinator'] = managed
     # Create the Application and pass it your bot's token.
-    application = Application.builder().token(token).build()
 
     # Add command handlers
     application.add_handler(CommandHandler("start", start))
@@ -196,8 +199,33 @@ def main() -> None:
     application.add_handler(conv_handler)
     application.add_error_handler(error_handler)
 
-    # Run the bot until the user presses Ctrl-C
-    application.run_polling()
+    return application
+
+
+async def start_managed():
+    application = build_application(managed=True)
+    try:
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling()
+    except BaseException:
+        await stop_managed(application)
+        raise
+    return application
+
+
+async def stop_managed(application):
+    if application.updater and application.updater.running:
+        await application.updater.stop()
+    if application.running:
+        await application.stop()
+    await application.shutdown()
+
+
+def main() -> None:
+    logger.LoggerFactory.create_logger()
+    if settings.telegram_enabled:
+        build_application().run_polling()
 
 if __name__ == "__main__":
     main()

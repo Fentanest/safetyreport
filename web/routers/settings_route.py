@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Request, Form, File, UploadFile
+from fastapi import APIRouter, Request, Form, File, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 import settings.settings as app_settings
 import os
 import re
+import json
 
 from core.utils import csrf
 from core.utils.templating import templates
@@ -134,16 +135,27 @@ def save_settings(
 
 @router.post("/upload_json")
 async def upload_json(file: UploadFile = File(...)):
-    if not file.filename.endswith('.json'):
+    if not (file.filename or '').lower().endswith('.json'):
         return RedirectResponse(url="/settings?error=invalid_file", status_code=303)
 
     # google_api_auth_file이 None일 수 있으므로 datapath 기준으로 직접 경로 계산
     auth_path = os.path.join(app_settings._instance.datapath, 'auth', 'gspread.json')
     os.makedirs(os.path.dirname(auth_path), exist_ok=True)
 
-    contents = await file.read()
-    with open(auth_path, "wb") as f:
-        f.write(contents)
+    contents = await file.read(2 * 1024 * 1024 + 1)
+    if len(contents) > 2 * 1024 * 1024:
+        raise HTTPException(413, 'JSON credential file is too large')
+    try:
+        credential = json.loads(contents)
+        if not isinstance(credential, dict) or credential.get('type') != 'service_account' or any(
+                not isinstance(credential.get(key), str) or not credential[key].strip()
+                for key in ('client_email', 'private_key', 'token_uri')):
+            raise ValueError('invalid service account')
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, 'Invalid service account JSON') from None
+    from core.utils.atomic_file import write_bytes
+    from starlette.concurrency import run_in_threadpool
+    await run_in_threadpool(write_bytes, auth_path, contents)
 
     # 설정 인스턴스 리로드하여 google_sheet_enabled 등 갱신
     app_settings._instance.load()

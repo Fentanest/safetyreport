@@ -61,13 +61,16 @@ def verify_json_post(request: Request) -> str | None:
     content_type = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
     if content_type != "application/json":
         return "content_type"
+    return verify_token(request, request.headers.get(HEADER))
+
+
+def verify_token(request: Request, supplied: str | None) -> str | None:
     if (request.headers.get("sec-fetch-site") or "").lower() == "cross-site":
         return "cross_site"
     origin = request.headers.get("origin")
     if origin is not None and not _origin_allowed(request, origin):
         return "origin"
     expected = request.session.get(SESSION_KEY)
-    supplied = request.headers.get(HEADER)
     if not isinstance(expected, str) or not expected or not supplied:
         return "csrf"
     if not hmac.compare_digest(expected.encode("utf-8"), supplied.encode("utf-8")):

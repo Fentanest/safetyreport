@@ -6,11 +6,18 @@
    DOM 계약: docs/design/pilot-dom-contracts.md, 지표 정의: docs/design/statistics-spec.md §9. */
 (function ($) {
     'use strict';
+    function mount() {
+    if (window.SrStats.dispose) window.SrStats.dispose();
+    var disposed = false, removers = [], resizeObserver = null, scrollFrame = null, sunwiWidget = null;
+    function listen(target, type, callback) {
+        target.addEventListener(type, callback);
+        removers.push(function () { target.removeEventListener(type, callback); });
+    }
 
     var DATA = JSON.parse(document.getElementById('statsData').textContent || '{}');
     if (DATA.pending) { window.SrStatsLoader.start(DATA); return; }
     // Transfer ownership to the category request sequence before controls become active.
-    if (window.SrStatsLoader.cancelMap) window.SrStatsLoader.cancelMap();
+    if (window.SrStatsLoader.dispose) window.SrStatsLoader.dispose(false);
     var overview = DATA.overview || {};
     var FILTERS = DATA.filters || {};
     var YEAR = DATA.year || 'all';
@@ -54,7 +61,7 @@
         var rs = [ys, FILTERS.responseDateStart || ''].sort().pop();
         var ends = [ye, FILTERS.responseDateEnd || ''].filter(Boolean).sort();
         var re = ends.length ? ends[0] : '';
-        [['law', FILTERS.law], ['lawExact', FILTERS.law ? 'true' : ''], ['responseDateStart', rs], ['responseDateEnd', re],
+        [['excludePolice', FILTERS.excludePolice ? 'true' : ''], ['onlyPolice', FILTERS.onlyPolice ? 'true' : ''], ['law', FILTERS.law], ['lawExact', FILTERS.law ? 'true' : ''], ['responseDateStart', rs], ['responseDateEnd', re],
          ['reportName', FILTERS.reportName], ['location', FILTERS.location],
          ['reportDateStart', FILTERS.reportDateStart], ['reportDateEnd', FILTERS.reportDateEnd],
          ['occurDateStart', FILTERS.occurDateStart], ['occurDateEnd', FILTERS.occurDateEnd],
@@ -65,7 +72,7 @@
     }
     // 목록이 같은 조건을 재현할 수 있는가(경찰기관 제외/만, AND·OR 기관 검색은 목록 주소로 못 넘긴다)
     var agencyQuery = String(FILTERS.agency || '');
-    var LIST_REPRODUCIBLE = !FILTERS.excludePolice && !FILTERS.onlyPolice && !/[&,]/.test(agencyQuery);
+    var LIST_REPRODUCIBLE = true;
     function kpiListUrl(cat, extra) {
         var p = listBaseParams();
         if (agencyQuery) {
@@ -400,7 +407,7 @@
             $more.prop('hidden', true);
         }
     }
-    $('#statsTypeMore').on('click', function () {
+    $('#statsTypeMore').on('click.srStats', function () {
         typesExpanded = !typesExpanded;
         renderTypes(currentCat);
     });
@@ -409,7 +416,7 @@
     var mapSeq = 0;
     var mapAbort = null;
     var mapInstance = window.srEarlyMap || null;
-    document.addEventListener('sr:earlymap',function(event){mapInstance=event.detail;});
+    listen(document, 'sr:earlymap', function(event){mapInstance=event.detail;});
     function mapState(html) {
         $('#statsMiniMap').prop('hidden', true);
         $('#statsMapState').prop('hidden', false).html(html);
@@ -430,15 +437,15 @@
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
         }).then(function (payload) {
-            if (seq !== mapSeq) return; // 늦게 온 이전 분류의 응답
+            if (disposed || seq !== mapSeq) return; // 늦게 온 이전 분류의 응답
             renderMap(cat, payload || {});
         }).catch(function (e) {
-            if ((e && e.name === 'AbortError') || seq !== mapSeq) return;
+            if (disposed || (e && e.name === 'AbortError') || seq !== mapSeq) return;
             mapState('<span>지도를 불러오지 못했습니다.</span><button type="button" class="btn btn-sm btn-outline-secondary" id="statsMapRetry">다시 시도</button>');
             $('#statsMapMeta').text('요약·표는 지도와 별개로 정상 집계되었습니다.');
         });
     }
-    $(document).on('click', '#statsMapRetry', function () { loadMap(currentCat); });
+    $(document).on('click.srStats', '#statsMapRetry', function () { loadMap(currentCat); });
 
     function renderMap(cat, payload) {
         var meta = payload.meta || {};
@@ -476,9 +483,10 @@
         }
     }
     if (window.ResizeObserver) {
-        new ResizeObserver(function () {
+        resizeObserver = new ResizeObserver(function () {
             if (mapInstance) mapInstance.invalidateSize();
-        }).observe(document.getElementById('statsMapCard'));
+        });
+        resizeObserver.observe(document.getElementById('statsMapCard'));
     }
 
     // ── 상세 표(DataTables) ──
@@ -539,21 +547,23 @@
     }
 
     // 상세표 이름 검색: 기관명(담당자 보기는 담당자명도)에만 적용. 숫자 열은 검색하지 않는다.
-    $.fn.dataTable.ext.search.push(function (settings, rowData) {
+    function statsSearch(settings, rowData) {
         var pane = settings.nTable.closest && settings.nTable.closest('.stats-pane');
         if (!pane || !searchTerm) return true;
         var term = searchTerm.toLowerCase();
         var person = /person$/.test(pane.getAttribute('data-type') || '');
         var hay = (String(rowData[0] || '') + (person ? ' ' + String(rowData[1] || '') : '')).toLowerCase();
         return hay.indexOf(term) !== -1;
-    });
+    }
+    $.fn.dataTable.ext.search.push(statsSearch);
 
     var savedTables = (savedView && savedView.tables) || {};
-    $('#statsTabsContent .stats-pane table').each(function () {
-        var person = /person$/.test($(this).closest('.stats-pane').attr('data-type'));
+    function ensureTable(element) {
+        if ($.fn.dataTable.isDataTable(element)) return $(element).DataTable();
+        var person = /person$/.test($(element).closest('.stats-pane').attr('data-type'));
         var lead = person ? 2 : 1;
-        var saved = savedTables[this.id] || {};
-        var api = $(this).DataTable({
+        var saved = savedTables[element.id] || {};
+        var api = $(element).DataTable({
             order: Array.isArray(saved.order) && saved.order.length ? saved.order : [[lead, 'desc']],
             pageLength: pageLength,
             language: LANG_KO,
@@ -564,15 +574,16 @@
         if (saved.page) {
             api.page(saved.page).draw(false);
         }
-        api.on('order.dt', function () { if (isActiveTable(api)) updateSortLabel(api); });
-    });
+        api.on('order.dt.srStats', function () { if (isActiveTable(api)) updateSortLabel(api); });
+        return api;
+    }
     $('#statsPageLength').val(String(pageLength));
     $('#statsTableSearch').val(searchTerm);
 
     function activeTableEl() { return $('#' + currentCat + '-' + currentType).find('table').first(); }
     function getActiveTableApi() {
         var $t = activeTableEl();
-        return $t.length ? $t.DataTable() : null;
+        return $t.length ? ensureTable($t[0]) : null;
     }
     function isActiveTable(api) {
         var $t = activeTableEl();
@@ -675,12 +686,12 @@
         api.columns.adjust().draw(false);
         renderColumnControls(meta);
     }
-    $('#statsColumnCheckboxes').on('change', '.stats-column-checkbox', function () {
+    $('#statsColumnCheckboxes').on('change.srStats', '.stats-column-checkbox', function () {
         columnVisibilityState[$(this).attr('data-column-key')] = $(this).is(':checked');
         saveColumnVisibilityState();
         syncActiveTableColumns();
     });
-    $('#statsColumnsSelectAll').on('click', function () {
+    $('#statsColumnsSelectAll').on('click.srStats', function () {
         var api = getActiveTableApi();
         if (!api) return;
         getColumnMeta(api).forEach(function (item) { columnVisibilityState[item.key] = true; });
@@ -693,12 +704,12 @@
         $('#statsColumnBody').prop('hidden', !open);
         storageSet(sessionStorage, columnsOpenKey, open ? '1' : '0');
     }
-    $('#statsColumnsToggle').on('click', function () { setColumnsOpen($(this).attr('aria-expanded') !== 'true'); });
+    $('#statsColumnsToggle').on('click.srStats', function () { setColumnsOpen($(this).attr('aria-expanded') !== 'true'); });
     setColumnsOpen(storageGet(sessionStorage, columnsOpenKey) === '1');
 
     // 검색·행 수: 상세 표에만 적용
     var searchTimer = null;
-    $('#statsTableSearch').on('input search', function () {
+    $('#statsTableSearch').on('input.srStats search.srStats', function () {
         var value = $(this).val();
         window.clearTimeout(searchTimer);
         searchTimer = window.setTimeout(function () {
@@ -707,7 +718,7 @@
             if (api) api.draw();
         }, 150);
     });
-    $('#statsPageLength').on('change', function () {
+    $('#statsPageLength').on('change.srStats', function () {
         pageLength = Number($(this).val()) || 50;
         var api = getActiveTableApi();
         if (api) api.page.len(pageLength).draw();
@@ -805,21 +816,21 @@
         }
     }
 
-    $('#statsTabsContent').on('click', 'tr.sr-drill', function () { selectRow($(this)); });
-    $('#statsTabsContent').on('keydown', 'tr.sr-drill', function (e) {
+    $('#statsTabsContent').on('click.srStats', 'tr.sr-drill', function () { selectRow($(this)); });
+    $('#statsTabsContent').on('keydown.srStats', 'tr.sr-drill', function (e) {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             selectRow($(this));
         }
     });
-    $(document).on('click', '[data-stats-close]', function () {
+    $(document).on('click.srStats', '[data-stats-close]', function () {
         var $row = activeTableEl().find('tr.sr-drill.is-selected').first();
         clearSelection();
         if ($row.length) $row.trigger('focus');
     });
-    $(document).on('click', '[data-stats-nav]', function () { saveView(); });
+    $(document).on('click.srStats', '[data-stats-nav]', function () { saveView(); });
     // 드로어를 닫으면 선택도 푼다(좁은 화면). 넓은 화면으로 바뀌어 옆 패널로 옮긴 경우는 그대로 둔다.
-    document.getElementById('statsDetailDrawer').addEventListener('hidden.bs.offcanvas', function () {
+    listen(document.getElementById('statsDetailDrawer'), 'hidden.bs.offcanvas', function () {
         if (selected && !wideLayout()) {
             var $row = activeTableEl().find('tr.sr-drill.is-selected').first();
             selected = null;
@@ -831,8 +842,9 @@
 
     // ── 보기 상태 저장·복원(목록·지도에서 돌아올 때) ──
     function saveView() {
-        var tables = {};
+        var tables = Object.assign({}, savedTables);
         $('#statsTabsContent .stats-pane table').each(function () {
+            if (!$.fn.dataTable.isDataTable(this)) return;
             var api = $(this).DataTable();
             tables[this.id] = { order: api.order(), page: api.page() };
         });
@@ -841,7 +853,7 @@
             selected: selected, scrollY: window.scrollY
         }));
     }
-    window.addEventListener('pagehide', saveView);
+    listen(window, 'pagehide', function () { window.SrStats.dispose(); });
 
     // ── 분류·보기 전환 ──
     function setPressed($btns, isOn) {
@@ -869,7 +881,7 @@
         renderDisposition(currentCat);
         renderTypes(currentCat);
     }
-    $('.stats-cat-btn').on('click', function () {
+    $('.stats-cat-btn').on('click.srStats', function () {
         var next = $(this).data('cat');
         if (next === currentCat) return;
         currentCat = next;
@@ -879,7 +891,7 @@
         showPane();
         loadMap(currentCat);
     });
-    $('.stats-type-btn').on('click', function () {
+    $('.stats-type-btn').on('click.srStats', function () {
         var next = $(this).data('type');
         if (next === currentType) return;
         currentType = next;
@@ -917,7 +929,7 @@
                 .addClass(extraClass || '').toggleClass('active', !!isActive)
                 .attr('aria-pressed', isActive ? 'true' : 'false').attr('data-law-label', label.toLowerCase())
                 .text(label)
-                .on('click', function () { window.location.href = lawUrl(law); });
+                .on('click.srStats', function () { window.location.href = lawUrl(law); });
         }
         $sb.append(mkBtn('전체', !activeLaw, '', null));
         if ((DATA.hasEmptyLaw && DATA.hasEmptyLaw[cat]) || activeLaw === '__없음__') {
@@ -940,14 +952,14 @@
         });
         $('#statsLawSidebar [data-law-nomatch]').prop('hidden', any);
     }
-    $('#statsLawSearch').on('input search', filterLaws);
-    document.getElementById('statsLawToggle').addEventListener('shown.bs.dropdown', function () {
+    $('#statsLawSearch').on('input.srStats search.srStats', filterLaws);
+    listen(document.getElementById('statsLawToggle'), 'shown.bs.dropdown', function () {
         var input = document.getElementById('statsLawSearch');
         if (input) input.focus();
     });
 
     // 연도: 현재 주소 조건을 유지한 채 year 만 바꾼다
-    $('.stats-year-btn').on('click', function () {
+    $('.stats-year-btn').on('click.srStats', function () {
         var year = String($(this).data('year'));
         var params = new URLSearchParams(window.location.search);
         if (year === 'all') params.delete('year'); else params.set('year', year);
@@ -964,7 +976,7 @@
         return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
     }
     function pctValue(n, d) { return d > 0 ? Number((Number(n || 0) / d * 100).toFixed(1)) : null; }
-    $('#statsExportCsv').on('click', function () {
+    $('#statsExportCsv').on('click.srStats', function () {
         var api = getActiveTableApi();
         if (!api) return;
         var person = isPersonType(currentType);
@@ -1018,17 +1030,38 @@
             }
         }
     }
-    $('input[name="occurTimeStart"], input[name="occurTimeEnd"]').on('change', function () { validateTimeFormat(this); });
-    $('.filter-police').on('change', function () {
+    $('input[name="occurTimeStart"], input[name="occurTimeEnd"]').on('change.srStats', function () { validateTimeFormat(this); });
+    $('.filter-police').on('change.srStats', function () {
         if ($(this).is(':checked')) $('.filter-police').not(this).prop('checked', false);
     });
     // 상세 조건 폼 제출 시 빈 값 제외(hidden year 제외). 다른 form(테마 전환 등)에는 걸지 않는다.
-    $('#offcanvasSearch form').on('submit', function () {
+    $('#offcanvasSearch form').on('submit.srStats', function () {
         $(this).find('input').not('[name="year"]').each(function () {
             if (!$(this).val()) $(this).attr('disabled', 'disabled');
         });
         return true;
     });
+
+    window.SrStats.dispose = function () {
+        if (disposed) return;
+        saveView(); disposed = true; mapSeq++;
+        if (mapAbort) mapAbort.abort();
+        if (resizeObserver) resizeObserver.disconnect();
+        if (sunwiWidget) sunwiWidget.dispose();
+        window.clearTimeout(searchTimer);
+        if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame);
+        removers.forEach(function (remove) { remove(); });
+        $(document).off('.srStats');
+        $('.sr-stats-page').find('*').addBack().off('.srStats');
+        var index = $.fn.dataTable.ext.search.indexOf(statsSearch);
+        if (index !== -1) $.fn.dataTable.ext.search.splice(index, 1);
+        $('#statsTabsContent table').each(function () {
+            if ($.fn.dataTable.isDataTable(this)) $(this).DataTable().off('.srStats').destroy();
+        });
+        if (mapInstance && mapInstance.map) mapInstance.map.remove();
+        if (window.srEarlyMap === mapInstance) window.srEarlyMap = null;
+        mapInstance = null;
+    };
 
     // ── 시작 ──
     updateCategory();
@@ -1039,7 +1072,7 @@
         if ($row.length) selectRow($row, false);
     }
     if (savedView && typeof savedView.scrollY === 'number') {
-        window.requestAnimationFrame(function () { window.scrollTo(0, savedView.scrollY); });
+        scrollFrame = window.requestAnimationFrame(function () { if (!disposed) window.scrollTo(0, savedView.scrollY); });
     }
     // 다음 방문 기준을 새로 잡는다(조건이 다르면 위에서 이미 버렸다)
     storageSet(sessionStorage, VIEW_KEY, 'null');
@@ -1047,10 +1080,13 @@
     // 전국 안전신고 현황
     var sunwiEl = document.getElementById('sunwiData');
     if (window.SrSunwiWidget && sunwiEl) {
-        window.SrSunwiWidget.init({
+        sunwiWidget = window.SrSunwiWidget.init({
             contentEl: document.getElementById('sunwiContent'),
             updatedAtEl: document.getElementById('sunwiUpdatedAtLabel'),
             initialData: JSON.parse(sunwiEl.textContent || '{}')
         });
     }
+    }
+    window.SrStats = { mount: mount, dispose: null };
+    mount();
 })(window.jQuery);

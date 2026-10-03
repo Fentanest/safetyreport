@@ -14,6 +14,8 @@ from services import crawl_control, crawl_state_store, data_service, db_editor_s
 from services.crawl_manager import crawl_manager
 from services.ws_manager import ws_manager
 from services import selfhost_compat
+from core.utils.request_body import json_object, string_list
+from core.utils.temporary_response import TemporaryFileResponse
 from web.routers.filters import default_dedupe_mode, normalize_dedupe_mode
 
 router = APIRouter(prefix="/api/v1")
@@ -238,9 +240,11 @@ def get_watchlist(_: str = Depends(_require_api_key)):
 
 @router.post("/watchlist")
 async def update_watchlist(request: Request, _: str = Depends(_require_api_key)):
-    body = await request.json()
-    report_numbers = body.get("report_numbers", [])
-    action = body.get("action", "remove")
+    body = await json_object(request)
+    report_numbers = string_list(body, "report_numbers")
+    action = body.get('action', 'remove')
+    if action not in ('add', 'remove'):
+        raise HTTPException(status_code=400, detail='action must be add or remove')
     if not report_numbers:
         raise HTTPException(status_code=400, detail="report_numbers is required")
     try:
@@ -259,9 +263,30 @@ def get_duplicate_groups(status: str | None = None, _: str = Depends(_require_ap
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.post("/duplicates/groups/bulk-status")
+async def bulk_update_duplicate_group_status_api(request: Request, _: str = Depends(_require_api_key)):
+    body = await json_object(request)
+    group_ids = string_list(body, "group_ids")
+    duplicate_status = body.get("duplicate_status", "")
+    representative_mode = body.get("representative_mode", "")
+    if not isinstance(group_ids, list) or not group_ids:
+        raise HTTPException(status_code=400, detail="group_ids is required")
+    try:
+        updated = await run_in_threadpool(
+            duplicate_group_service.bulk_update_duplicate_status,
+            engine,
+            group_ids,
+            duplicate_status,
+            representative_mode=representative_mode,
+        )
+        return {"status": "success", "updated": updated}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.post("/duplicates/groups/{group_id}")
 async def update_duplicate_group_api(group_id: str, request: Request, _: str = Depends(_require_api_key)):
-    body = await request.json()
+    body = await json_object(request)
     try:
         updated = await run_in_threadpool(
             duplicate_group_service.update_duplicate_group,
@@ -277,27 +302,6 @@ async def update_duplicate_group_api(group_id: str, request: Request, _: str = D
         return {"status": "success"}
     except HTTPException:
         raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
-
-
-@router.post("/duplicates/groups/bulk-status")
-async def bulk_update_duplicate_group_status_api(request: Request, _: str = Depends(_require_api_key)):
-    body = await request.json()
-    group_ids = body.get("group_ids", [])
-    duplicate_status = body.get("duplicate_status", "")
-    representative_mode = body.get("representative_mode", "")
-    if not isinstance(group_ids, list) or not group_ids:
-        raise HTTPException(status_code=400, detail="group_ids is required")
-    try:
-        updated = await run_in_threadpool(
-            duplicate_group_service.bulk_update_duplicate_status,
-            engine,
-            group_ids,
-            duplicate_status,
-            representative_mode=representative_mode,
-        )
-        return {"status": "success", "updated": updated}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -327,7 +331,7 @@ def get_editor_record(category: str, record_id: str, _: str = Depends(_require_a
 
 @router.post("/editor/{category}/{record_id}")
 async def save_editor_record(category: str, record_id: str, request: Request, _: str = Depends(_require_api_key)):
-    body = await request.json()
+    body = await json_object(request)
     values = body.get("values") if isinstance(body.get("values"), dict) else body
     updated = await run_in_threadpool(db_editor_service.update_record, engine, category, record_id, values or {})
     if not updated:
@@ -337,9 +341,15 @@ async def save_editor_record(category: str, record_id: str, request: Request, _:
 
 @router.post("/rating/start")
 async def api_start_batch_rating(request: Request, _: str = Depends(_require_api_key)):
-    body = await request.json()
-    report_numbers = body.get("report_numbers", [])
-    score = int(body.get("score", 5))
+    body = await json_object(request)
+    report_numbers = string_list(body, "report_numbers")
+    raw_score = body.get("score", 5)
+    try:
+        score = int(raw_score)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise HTTPException(status_code=400, detail="score must be between 1 and 5") from exc
+    if isinstance(raw_score, bool) or (isinstance(raw_score, float) and raw_score != score):
+        raise HTTPException(status_code=400, detail="score must be an integer")
     cause = body.get("cause") or ""  # 공통 사유(선택, 2026-09-25). 구앱은 보내지 않는다 → 빈 값
     if not isinstance(cause, str):
         raise HTTPException(status_code=400, detail="cause must be a string")
@@ -391,7 +401,7 @@ def _community_runtime_error(exc: RuntimeError) -> HTTPException | None:
 
 @router.post("/crawl/enqueue")
 async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
-    body = await request.json()
+    body = await json_object(request)
     report_number = body.get("report_number")
     if not report_number:
         raise HTTPException(status_code=400, detail="report_number is required")
@@ -433,10 +443,11 @@ def get_crawl_results(device_id: str | None = None, _: str = Depends(_require_ap
 
 @router.get("/crawl/status")
 def get_crawl_status(_: str = Depends(_require_api_key)):
-    from services import crawl_queue_report
+    from services import crawl_queue_report, crawl_run_state
     # unresolved(추가 필드, 하위호환): 대기 큐에서 처리하지 못하고 뺀 번호 — 목록 전체에 없음(not_found)·여러 신고에 걸림(ambiguous)
     return {"status": "success", "running": crawl_manager.is_crawling(),
-            "pending": crawl_manager.pending_count(), "unresolved": crawl_queue_report.unresolved()}
+            "pending": crawl_manager.pending_count(), "unresolved": crawl_queue_report.unresolved(),
+            "last_attempt": crawl_run_state.latest()}
 
 
 @router.get("/server/version")
@@ -505,11 +516,13 @@ def get_crawl_config(_: str = Depends(_require_api_key)):
 
 @router.post("/crawl/start")
 async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key)):
-    body = await request.json()
+    body = await json_object(request)
     # login_mode(비회원)는 2026-09-25 제거 — 구앱이 보내도 무시하고 회원 로그인으로 진행
     # crawl_type(레거시)·max_empty_pages(최소 크롤링)는 2026-09-25 제거 — 구앱이 보내도 무시
     crawl_mode = body.get("crawl_mode", "full")
-    queue_list = body.get("queue_list", "").strip()
+    if not isinstance(body.get('queue_list', ''), str) or not isinstance(crawl_mode, str):
+        raise HTTPException(status_code=400, detail='crawl_mode and queue_list must be strings')
+    queue_list = body.get('queue_list', '').strip()
 
     await run_in_threadpool(_raise_if_community_blocked)
     if queue_list:
@@ -520,10 +533,7 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
     if crawl_manager.is_crawling():
         if queue_list:
             try:
-                for report_number in queue_list.splitlines():
-                    report_number = report_number.strip()
-                    if report_number:
-                        crawl_manager.append_to_pending(report_number)
+                crawl_manager.append_many_to_pending([number.strip() for number in queue_list.splitlines() if number.strip()])
             except RuntimeError as exc:  # 대기 큐 저장 실패(R3-03)
                 raise HTTPException(status_code=500, detail=str(exc))
             crawl_manager.request_pending_launch()  # 실행 중이던 크롤의 완료 훅이 이미 지나갔을 수 있다(R5-02)
@@ -594,38 +604,29 @@ def download_file(path: str = "", _: str = Depends(_require_api_key_flex)):
     except IsADirectoryError:
         raise HTTPException(status_code=400, detail="디렉토리는 다운로드할 수 없습니다")
 
-    def _cleanup(snapshot_path: str):
-        try:
-            os.remove(snapshot_path)
-        except Exception:
-            pass
-
-    return FileResponse(
-        download_path,
-        filename=os.path.basename(target),
-        media_type="application/octet-stream",
-        background=BackgroundTask(_cleanup, cleanup_path) if cleanup_path else None,
-    )
+    return TemporaryFileResponse(download_path, filename=os.path.basename(target),
+                                 media_type="application/octet-stream")
 
 
 @router.post("/files/download-multi")
 async def download_files_archive(request: Request, _: str = Depends(_require_api_key)):
-    body = await request.json()
-    paths = body.get("paths", [])
+    body = await json_object(request)
+    paths = string_list(body, "paths")
     if not isinstance(paths, list) or not paths:
         raise HTTPException(status_code=400, detail="paths is required")
-    zip_buffer, filename = await run_in_threadpool(file_service.build_api_download_zip, paths)
-    return StreamingResponse(
-        zip_buffer,
-        media_type="application/x-zip-compressed",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
-    )
+    try:
+        archive_path, filename = await run_in_threadpool(file_service.build_api_download_zip, paths)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="접근 불가") from exc
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return TemporaryFileResponse(archive_path, filename=filename, media_type="application/x-zip-compressed")
 
 
 @router.post("/files/delete-multi")
 async def delete_files_archive(request: Request, _: str = Depends(_require_api_key)):
-    body = await request.json()
-    paths = body.get("paths", [])
+    body = await json_object(request)
+    paths = string_list(body, "paths")
     if not isinstance(paths, list) or not paths:
         raise HTTPException(status_code=400, detail="paths is required")
     deleted_count, errors = await run_in_threadpool(file_service.delete_api_files, paths)
@@ -731,7 +732,10 @@ async def upload_database(file: UploadFile = File(...), _: str = Depends(_requir
 
 @router.post("/settings")
 async def update_settings(request: Request, _: str = Depends(_require_api_key)):
-    body = await request.json()
+    body = await json_object(request)
+    for key in ('exclude_withdraw', 'use_representative_records', 'auto_export_excel', 'auto_export_sheet'):
+        if key in body and not isinstance(body[key], bool):
+            raise HTTPException(status_code=400, detail=f'{key} must be a boolean')
     if "exclude_withdraw" in body:
         settings._instance.update_config("SETTINGS", "exclude_withdraw", body["exclude_withdraw"])
     if "use_representative_records" in body:

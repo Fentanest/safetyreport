@@ -124,51 +124,5 @@ async def websocket_logs(websocket: WebSocket):
     await websocket.accept()
     watch = ws_auth.GateWatch()
     log_file = os.path.join(settings.datapath, "logs", "current_crawl.log")
-    decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
-
-    try:
-        if not os.path.exists(log_file):
-            await websocket.send_text("로그 파일을 대기 중입니다...\n")
-            while not os.path.exists(log_file):
-                await asyncio.sleep(1)
-                if await watch.lost():
-                    await websocket.close(code=ws_auth.CLOSE_GATE)
-                    return
-
-        if os.path.exists(log_file):
-            with open(log_file, "rb") as file_obj:
-                size = os.path.getsize(log_file)
-                file_obj.seek(max(0, size - 64 * 1024))
-                raw = file_obj.read(64 * 1024)
-                if size > 64 * 1024:
-                    while raw and (raw[0] & 0xc0) == 0x80: raw = raw[1:]
-                data = decoder.decode(raw)
-                if data:
-                    await websocket.send_text(data)
-                last_size = file_obj.tell()
-        else:
-            last_size = 0
-
-        while True:
-            await asyncio.sleep(0.5)
-            if await watch.lost():
-                await websocket.close(code=ws_auth.CLOSE_GATE)
-                return
-            if not os.path.exists(log_file):
-                continue
-
-            current_size = os.path.getsize(log_file)
-            if current_size > last_size:
-                with open(log_file, "rb") as file_obj:
-                    file_obj.seek(last_size)
-                    new_data = decoder.decode(file_obj.read(64 * 1024))
-                    if new_data:
-                        await websocket.send_text(new_data)
-                    last_size = file_obj.tell()
-            elif current_size < last_size:
-                last_size = 0
-                decoder.reset()
-    except WebSocketDisconnect:
-        pass
-    except Exception as exc:
-        print(f"WS error: {exc}")
+    from web.log_stream import stream_log
+    await stream_log(websocket, log_file, watch, "로그 파일을 대기 중입니다...\n")

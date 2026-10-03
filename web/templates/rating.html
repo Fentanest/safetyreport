@@ -134,6 +134,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="/static/ui/bounded-log.js"></script>
 <style>
     #ratingTable td {
         white-space: nowrap;
@@ -218,6 +219,7 @@
         });
 
         const logConsole = document.getElementById('ratingLogConsole');
+        const boundedLog = SrBoundedLog(logConsole);
         let ws = null;
 
         function connectRatingWs() {
@@ -226,8 +228,7 @@
             ws = new WebSocket(`${protocol}//${window.location.host}/rating/ws/rating_logs`);
 
             ws.onmessage = function (event) {
-                logConsole.textContent += event.data;
-                logConsole.scrollTop = logConsole.scrollHeight;
+                boundedLog.append(event.data);
 
                 if (event.data.includes("처리가 종료되었습니다")) {
                     $('#ratingStatus').removeClass('active').addClass('inactive').text('대기 중/종료됨');
@@ -239,6 +240,7 @@
 
         // Initial connection
         connectRatingWs();
+        window.addEventListener('pagehide', function () { boundedLog.dispose(); if (ws) ws.close(); });
 
         $('#btnRatingSearch').on('click', function () {
             table.column(2).search($('#sTitle').val());  // 신고명

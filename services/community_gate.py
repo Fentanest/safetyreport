@@ -231,7 +231,14 @@ class _Gate:
         with self._lock:
             age = None if self._verified_at is None else self._clock() - self._verified_at
             stale = self._invalidated or age is None or age > max_age
-        return self.refresh_now(max_age=max_age) if stale else self.evaluate()
+        result = self.refresh_now(max_age=max_age) if stale else self.evaluate()
+        # 탐색 TTL 안의 캐시는 refresh 실패 뒤에도 화면 이동에 사용할 수
+        # 있지만, 새 작업을 접수할 때는 max_age를 다시 확인해야 한다.
+        age = result.get("verified_age")
+        if result["can_enter"] and (age is None or age > max_age):
+            return {**result, "state": "verification_required", "can_enter": False,
+                    "reasons": ["status_stale"] + ([self._last_error] if self._last_error else [])}
+        return result
 
     def _check_owner(self, service) -> str:
         """게이트 통과 뒤: 이 서버 DB 의 주인 카카오 회원번호를 확인(처음이면 적음). 네트워크로 번호를 못 받으면 'unknown'."""
@@ -503,4 +510,3 @@ def block_code(exc: BaseException) -> str | None:
     """crawl_control 이 RuntimeError(code) 로 막은 경우 그 코드."""
     code = str(exc)
     return code if code in BLOCK_MESSAGES else None
-

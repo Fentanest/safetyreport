@@ -2,6 +2,24 @@
 
 다루는 것: 설정 키, DB 테이블/컬럼, 서비스 반환 키, category 전파, 모바일 API, WebSocket, 완료 마커 파일, 크롬 확장 API.
 
+## 리팩터링의 입력·읽기·작업 기록 경계
+
+- 필수 merge/entry/raw 읽기 오류는 정상 빈 자료와 다르다. 중복 재생성은 오류를 전파하고 기존 그룹·멤버·사용자 판단을 보존한다. 목록·통계 원천 오류도 빈 성공 응답으로 바꾸지 않는다.
+- 목록의 여러 카테고리, 통계·지도 원천과 중복 projection은 같은 연결의 명시 read transaction에서 읽는다. 외부 WAL commit 뒤에도 해당 응답은 하나의 snapshot을 유지한다.
+- 취하 제외 조건은 NULL 처리상태를 포함한다. 날짜 종료값은 그 날짜 전체, 분 단위 시각 종료값은 해당 분 전체를 포함한다. 저장한 원문 날짜/NULL/빈 문자열을 변환하지 않는다.
+- JSON 객체 mutation은 최대 1MiB를 읽고 malformed/non-object/잘못된 필드 타입은 400, 초과 크기는 413이다. API 키·protocol·게이트 확인이 앞선다. session 관리자 mutation에는 CSRF 토큰 및 Origin/Fetch-Site 검증을 적용한다. URL-encoded token fallback은 최대 64KiB이며 읽은 body를 후속 form parser에 재생한다.
+- 파일 API는 logs/results의 명시 root만 허용한다. ZIP은 완성한 임시 파일로 제공하며 entry 이름은 `logs/상대경로`, `results/상대경로`다. 선택 파일을 읽지 못하면 일부 파일만 들어간 성공 ZIP을 만들지 않는다. POSIX에서는 검증한 fd와 O_NOFOLLOW/dirfd로 경로 교체를 방어한다. Windows의 동등한 핸들 보호는 별도 환경 검증이 필요하다.
+- `crawl_runs/*.json`(실행·return code), `rating_operations/*.json`(제출/확인 결과), `export_runs/*.json`, `notification_runs/*.json`은 서버 로컬 작업 기록이다. 교환 DB의 테이블·컬럼·schema version에 추가하지 않는다. 별점 unknown/submitting 기록은 다음 실행에서 조회로 확인하며 자동 재POST하지 않는다.
+- `/api/v1/crawl/status`의 `last_attempt`와 `crawl_finished.data`의 `outcome`/`run_id`는 추가형 정보다. 기존 필드·완료 마커 소비 경로는 유지한다. 기존 모바일이 새 outcome을 해석하지 않는 경우까지 서버 수정만으로 해결됐다고 하지 않는다.
+
+### 코드 대조 정정
+
+| 설명 | 현행 코드 근거 | 적용 경계 |
+|---|---|---|
+| 원천 읽기 실패를 빈 목록으로 간주해도 됨 | duplicate/query/stats 필수 read에서 오류를 전파 | 정상 empty와 자료 손실을 유발하는 read failure를 분리 |
+| inode signature/probe 교체만으로 pool도 새 DB를 읽음 | `report_cache.cached`가 engine별 inode를 관찰하고 idle pool dispose 후 계산 | checked-out read는 자신의 기존 snapshot을 완료; cache generation 재검증 별도 |
+| 별점 timeout은 다음 실행에서 재제출 가능 | `rating_operation_state`와 `star_rating_service`의 조회 확인 경계 | 실제 원격 결과가 미확정이면 자동 재제출하지 않음 |
+
 ## 현행 self-host 통신 계약
 
 정본은 [contracts/selfhost-compat](../../contracts/selfhost-compat/README.md)와 테스트 벡터다.

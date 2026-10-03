@@ -46,14 +46,16 @@ def get_editor_schema() -> dict:
     }
 
 
-def list_records(engine, category: str) -> list[dict]:
+def list_records(engine, category: str, *, summary: bool = False) -> list[dict]:
     tables = get_category_tables(category)
     if not tables:
         return []
     merge_tbl, _ = tables
+    fields = [merge_tbl.c[name] for name in ('ID', '신고번호', '신고일', '신고명', '차량번호',
+              '처리기관', '담당자', '처리상태', '범칙금_과태료', '답변일')] if summary else [merge_tbl]
     with engine.connect() as conn:
         rows = conn.execute(
-            select(merge_tbl).order_by(desc(merge_tbl.c["신고번호"]))
+            select(*fields).order_by(desc(merge_tbl.c["신고번호"]))
         ).fetchall()
     return [dict(row._mapping) for row in rows]
 

@@ -30,6 +30,7 @@ class CrawlManager:
                 cls._instance._active_process = None
                 cls._instance._post_upload_active = False
                 cls._instance._preparing = False
+                cls._instance._rating_token = None
                 cls._instance._state_lock = threading.Lock()
                 cls._instance._pending_queue: List[str] = []
                 cls._instance._restore_hold = False
@@ -47,12 +48,22 @@ class CrawlManager:
         with self._state_lock:
             return self._restore_generation
 
+    def _process_busy_locked(self):
+        process = self._active_process
+        if process is None:
+            return False
+        if process.poll() is None:
+            return True
+        # 감시를 소유한 실행은 종료 adapter가 끝날 때까지 예약을 유지한다.
+        return isinstance(getattr(process, '_safetyreport_run_id', None), str) and not (
+            getattr(process, '_safetyreport_completion_claimed', False) is True)
+
     @contextmanager
     def hold_for_restore(self):
         """복원 동안 크롤러 시작을 막는다. 크롤링 중이거나 다른 복원 중이면 RestoreBlocked.
         검사와 표시를 start_crawl 과 같은 잠금 안에서 하므로, 검사 직후 크롤러가 끼어들 수 없다(SOL-04)."""
         with self._state_lock:
-            if self._preparing or self._post_upload_active or (self._active_process is not None and self._active_process.poll() is None):
+            if self._rating_token is not None or self._preparing or self._post_upload_active or self._process_busy_locked():
                 raise RestoreBlocked("크롤링이 진행 중입니다. 끝난 뒤 다시 복원하세요.")
             if self._restore_hold:
                 raise RestoreBlocked("다른 복원이 진행 중입니다.")
@@ -70,10 +81,25 @@ class CrawlManager:
         with self._state_lock:
             return self._restore_hold
 
+    def reserve_rating(self, generation):
+        with self._state_lock:
+            if self._restore_hold or generation != self._restore_generation:
+                raise CrawlBlockedByRestore("DB 복원 후 다시 시도하세요.")
+            if self._rating_token is not None or self._preparing or self._post_upload_active or (
+                    self._process_busy_locked()):
+                raise RuntimeError("크롤링 또는 별점 작업이 진행 중입니다. 종료 후 다시 시도하세요.")
+            self._rating_token = object()
+            return self._rating_token
+
+    def release_rating(self, token):
+        with self._state_lock:
+            if self._rating_token is token:
+                self._rating_token = None
+
     def is_crawling(self) -> bool:
         """크롤링이 현재 실행 중인지 반환"""
         with self._state_lock:
-            return self._preparing or self._post_upload_active or (self._active_process is not None and self._active_process.poll() is None)
+            return self._preparing or self._post_upload_active or self._process_busy_locked()
 
     def start_crawl(self, cmd: list, cwd: str, log_file: str, *, prepare=None,
                     restore_generation: Optional[int] = None) -> bool:
@@ -82,7 +108,7 @@ class CrawlManager:
         prepare: 시작을 예약한 뒤 Popen 전에 실행. 예약 표시가 다른 시작·복원을 막고,
         긴 업로드 동안에는 상태 잠금을 풀어 조회 요청이 계속 응답하게 한다(R4-02)."""
         with self._state_lock:
-            if self._preparing or self._post_upload_active or (self._active_process is not None and self._active_process.poll() is None):
+            if self._rating_token is not None or self._preparing or self._post_upload_active or self._process_busy_locked():
                 return False
             if self._restore_hold:
                 raise CrawlBlockedByRestore("DB 복원이 진행 중입니다. 끝난 뒤 다시 시작하세요.")
@@ -92,6 +118,9 @@ class CrawlManager:
             self._preparing = True
         try:
             block_if_fixture("crawl subprocess")
+            from services import crawl_run_state
+            run_id = crawl_run_state.create()
+            crawl_run_state.write(run_id, 'starting')
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
             if prepare is not None:
                 prepare()
@@ -99,18 +128,33 @@ class CrawlManager:
             # Force UTF-8 for subprocesses on Windows to avoid encoding issues in log streaming
             env = os.environ.copy()
             env["PYTHONUTF8"] = "1"
-            with self._state_lock:
+            env[crawl_run_state.ENV_KEY] = run_id
+            rebuild_id = str(cmd[cmd.index('--rebuild') + 1]) if '--rebuild' in cmd else None
+            if rebuild_id:
+                from services import community_rebuild
+                community_rebuild.bind_attempt(rebuild_id, run_id)
+            with open(log_file, 'a', encoding='utf-8', errors='replace') as log_output, self._state_lock:
+                if rebuild_id:
+                    with community_rebuild._store().transaction() as tx:
+                        community_rebuild.assert_current_attempt(tx, rebuild_id, run_id)
                 self._active_process = subprocess.Popen(
                     cmd,
                     cwd=cwd,
-                    stdout=open(log_file, 'a', encoding='utf-8', errors='replace'),
+                    stdout=log_output,
                     stderr=subprocess.STDOUT,
                     env=env,
                     encoding='utf-8',
                     errors='replace'
                 )
+                self._active_process._safetyreport_run_id = run_id
+                self._active_process._rebuild_run_id = rebuild_id
             return True
         except Exception:
+            if 'run_id' in locals():
+                try:
+                    crawl_run_state.write(run_id, 'failed', stage='spawn')
+                except OSError:
+                    pass
             if self.pending_count():
                 self._schedule_retry()
             raise
@@ -137,6 +181,9 @@ class CrawlManager:
                 proc.wait(timeout=self.KILL_WAIT_SECONDS)
             except subprocess.TimeoutExpired:
                 return True
+        if isinstance(getattr(proc, '_safetyreport_run_id', None), str):
+            with self._state_lock:
+                self._post_upload_active = True
         self.clear_process(proc)
         return True
 
@@ -191,14 +238,23 @@ class CrawlManager:
     def append_to_pending(self, report_number: str) -> int:
         """크롤링 중 들어온 신고번호를 대기 큐에 추가 (중복 제외). 현재 큐 크기 반환.
         파일에 남기지 못하면 메모리에도 넣지 않고 RuntimeError — 호출자가 '대기열에 넣음' 으로 답하지 않게 한다(R3-03)."""
+        return self.append_many_to_pending([report_number])
+
+    def append_many_to_pending(self, report_numbers) -> int:
+        """한 접수의 번호를 한 번 저장하며, 실패하면 접수 전 메모리 큐로 되돌린다."""
         with self._state_lock:
             self._load_pending_locked()
-            if report_number not in self._pending_queue:
-                self._pending_queue.append(report_number)
+            original = list(self._pending_queue)
+            seen = set(original)
+            for report_number in report_numbers:
+                if report_number not in seen:
+                    self._pending_queue.append(report_number)
+                    seen.add(report_number)
+            if self._pending_queue != original:
                 try:
                     self._save_pending_locked()
                 except OSError as exc:
-                    self._pending_queue.remove(report_number)
+                    self._pending_queue[:] = original
                     raise RuntimeError(f"대기 큐를 저장하지 못했습니다({type(exc).__name__}). 잠시 뒤 다시 요청하세요.") from None
             return len(self._pending_queue)
 
@@ -370,61 +426,79 @@ class CrawlManager:
         import time
         from services.ws_manager import ws_manager
 
-        if proc:
-            proc.wait()
+        return_code = proc.wait() if proc else None
+        from services import crawl_run_state
+        outcome = crawl_run_state.completion(getattr(proc, '_safetyreport_run_id', None), return_code)
         with self._state_lock:
+            if getattr(proc, '_safetyreport_completion_claimed', False) is True:
+                return
+            if proc is not None:
+                proc._safetyreport_completion_claimed = True
             self._post_upload_active = True
-        self.clear_process(proc)
-        # 초기화 크롤 후처리 훅(T3b): --rebuild <run_id> 로 시작한 크롤이면 같은 run 으로 종결 판정.
         try:
-            from services import community_rebuild as _rebuild
-
-            cmd_args = list(getattr(proc, "args", None) or [])
-            if "--rebuild" in cmd_args:
-                _run_id = str(cmd_args[cmd_args.index("--rebuild") + 1])
-                _rebuild.on_crawl_finished(_run_id)
-        except Exception:
-            pass
-        time.sleep(1)
-
-        try:
-            if os.path.exists(log_file):
+            if isinstance(outcome.get('run_id'), str):
                 try:
-                    from services.community_crawl_upload import flush
-                    flush(log_file, before_crawl=False)
-                except Exception:
+                    from services import crawl_run_state
+                    crawl_run_state.write(outcome['run_id'], outcome['state'], return_code=return_code,
+                                          **{key: value for key, value in outcome.items() if key not in ('run_id', 'attempt', 'state', 'updated_at', 'return_code')})
+                except (OSError, ValueError):
                     pass
-                try:
-                    with open(log_file, 'a', encoding='utf-8') as f:
-                        f.write("\n[시스템] 크롤링 작업이 완료되었습니다.\n")
-                    rotate_crawl_log(log_file)
-                except Exception:
-                    pass
+            self.clear_process(proc)
+            # 초기화 크롤 후처리 훅(T3b): --rebuild <run_id> 로 시작한 크롤이면 같은 run 으로 종결 판정.
+            try:
+                from services import community_rebuild as _rebuild
+
+                cmd_args = list(getattr(proc, "args", None) or [])
+                if "--rebuild" in cmd_args:
+                    _run_id = str(cmd_args[cmd_args.index("--rebuild") + 1])
+                    _rebuild.on_crawl_finished(_run_id, attempt=getattr(proc, '_safetyreport_run_id', None))
+            except Exception:
+                pass
+            time.sleep(1)
+
+            try:
+                if os.path.exists(log_file):
+                    try:
+                        from services.community_crawl_upload import flush
+                        flush(log_file, before_crawl=False)
+                    except Exception:
+                        pass
+                    try:
+                        with open(log_file, 'a', encoding='utf-8') as f:
+                            label = '완료되었습니다' if outcome['state'] == 'succeeded' else f"종료되었습니다 ({outcome['state']})"
+                            f.write(f"\n[시스템] 크롤링 작업이 {label}.\n")
+                        rotate_crawl_log(log_file)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            try:
+                done = crawl_state_store.get_and_clear_crawl_done()
+                changed_count = done["changed_count"] if done else 0
+                ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count,
+                    "outcome": outcome['state'], "run_id": outcome.get('run_id')})
+            except Exception:
+                changed_count = 0
+            try:
+                changes = crawl_state_store.peek_crawl_changes()
+                if changes:
+                    ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
+                crawl_state_store.save_crawl_done_ext(changed_count, changes or [])
+            except Exception:
+                pass
+
+            # 모든 크롤링 진입점(수동·API·대기 큐)이 이 훅을 지난다. 자식 프로세스의
+            # wake 이벤트는 부모 업로더에 닿지 않으므로 종료 뒤 한 번 더 깨운다.
+            try:
+                from services import community_uploader
+                community_uploader.wake()
+            except Exception:
+                pass
+
         finally:
             with self._state_lock:
                 self._post_upload_active = False
-
-        try:
-            done = crawl_state_store.get_and_clear_crawl_done()
-            changed_count = done["changed_count"] if done else 0
-            ws_manager.broadcast_from_thread("crawl_finished", {"changed_count": changed_count})
-        except Exception:
-            changed_count = 0
-        try:
-            changes = crawl_state_store.peek_crawl_changes()
-            if changes:
-                ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
-            crawl_state_store.save_crawl_done_ext(changed_count, changes or [])
-        except Exception:
-            pass
-
-        # 모든 크롤링 진입점(수동·API·대기 큐)이 이 훅을 지난다. 자식 프로세스의
-        # wake 이벤트는 부모 업로더에 닿지 않으므로 종료 뒤 한 번 더 깨운다.
-        try:
-            from services import community_uploader
-            community_uploader.wake()
-        except Exception:
-            pass
 
         if self.pending_count():
             self.launch_pending_crawl()

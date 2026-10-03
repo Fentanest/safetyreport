@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ request.session.get('csrf_token', '') }}">
+    <script src="/static/ui/session-requests.js"></script>
     <title>{% block title %}나만의 안전신문고{% endblock %}</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ request.state.app_version }}-icon2">
     
@@ -417,7 +419,11 @@ document.addEventListener('click', function(e) {
     function splitUrls(raw) {
         var text = normalizeDisplayValue(raw);
         if (!text || text === '6개월 초과') return [];
-        return text.split(/\n|%0A|%0a/).map(function(s){return s.trim();}).filter(Boolean);
+        return text.split(/\n|%0A|%0a/).map(function(s){return s.trim();}).filter(function(value) {
+            if (!value) return false;
+            try { return ['http:', 'https:'].includes(new URL(value, location.href).protocol); }
+            catch (_) { return false; }
+        });
     }
 
     function isVideo(url) {
@@ -783,49 +789,65 @@ document.addEventListener('click', function(e) {
                 else otherFiles.push(u);
             });
 
-            // 이미지 섹션
+            function box(className) {
+                var el = document.createElement('div');
+                el.className = className || 'mb-3 border rounded p-2 bg-light';
+                return el;
+            }
+            function downloadLink(url, label, className) {
+                var link = document.createElement('a');
+                link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+                link.className = className; link.textContent = label;
+                return link;
+            }
             var mediaDiv = document.getElementById('rdMedia');
-            if (imageUrls.length > 0) {
-                document.getElementById('rdMediaList').innerHTML = imageUrls.map(function(url) {
-                    return '<div class="mb-3 border rounded p-2 bg-light">' +
-                        '<img src="' + url + '" class="img-fluid rounded mb-2" style="max-height:340px;width:100%;object-fit:contain;background:#000" ' +
-                        'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'\'">' +
-                        '<div class="text-muted small" style="display:none">이미지를 불러올 수 없습니다.</div>' +
-                        '<a href="' + url + '" target="_blank" class="btn btn-sm btn-outline-secondary mt-1"><i class="fas fa-download me-1"></i>다운로드</a>' +
-                        '</div>';
-                }).join('');
-                mediaDiv.style.display = '';
-            } else { mediaDiv.style.display = 'none'; }
+            var mediaList = document.getElementById('rdMediaList');
+            mediaList.replaceChildren();
+            imageUrls.forEach(function(url) {
+                var item = box(), image = document.createElement('img'), error = document.createElement('div');
+                image.className = 'img-fluid rounded mb-2';
+                image.style.cssText = 'max-height:340px;width:100%;object-fit:contain;background:#000';
+                image.src = url;
+                error.className = 'text-muted small'; error.hidden = true;
+                error.textContent = '이미지를 불러올 수 없습니다.';
+                image.onerror = function() { image.hidden = true; error.hidden = false; };
+                item.append(image, error, downloadLink(url, '다운로드', 'btn btn-sm btn-outline-secondary mt-1'));
+                mediaList.appendChild(item);
+            });
+            mediaDiv.style.display = imageUrls.length ? '' : 'none';
 
-            // 동영상 섹션
             var videoDiv = document.getElementById('rdVideos');
-            if (videoUrls.length > 0) {
-                document.getElementById('rdVideoList').innerHTML = videoUrls.map(function(url) {
-                    var mediaUrl = proxyMediaUrl(url);
-                    return '<div class="mb-3 border rounded p-2 bg-light">' +
-                        '<video controls preload="metadata" class="w-100 rounded mb-1" style="max-height:340px;background:#000" data-source-url="' + esc(url) + '" data-proxy-src="' + esc(mediaUrl) + '">' +
-                        '브라우저가 동영상 재생을 지원하지 않습니다.</video>' +
-                        '<div class="text-muted small mb-2" data-proxy-video-status>동영상 준비 중...</div>' +
-                        '<a href="' + url + '" target="_blank" class="btn btn-sm btn-outline-secondary"><i class="fas fa-download me-1"></i>다운로드</a>' +
-                        '</div>';
-                }).join('');
-                videoDiv.style.display = '';
+            var videoList = document.getElementById('rdVideoList');
+            videoList.replaceChildren();
+            videoUrls.forEach(function(url) {
+                var item = box(), video = document.createElement('video'), state = document.createElement('div');
+                video.controls = true; video.preload = 'metadata';
+                video.className = 'w-100 rounded mb-1'; video.style.cssText = 'max-height:340px;background:#000';
+                video.dataset.sourceUrl = url; video.dataset.proxySrc = proxyMediaUrl(url);
+                video.textContent = '브라우저가 동영상 재생을 지원하지 않습니다.';
+                state.className = 'text-muted small mb-2'; state.setAttribute('data-proxy-video-status', '');
+                state.textContent = '동영상 준비 중...';
+                item.append(video, state, downloadLink(url, '다운로드', 'btn btn-sm btn-outline-secondary'));
+                videoList.appendChild(item);
+            });
+            videoDiv.style.display = videoUrls.length ? '' : 'none';
+            if (videoUrls.length) {
                 videoDiv.setAttribute('data-proxy-video-scope', 'detail');
                 prepareProxyVideos(videoDiv);
-            } else { videoDiv.style.display = 'none'; }
+            }
 
-            // 기타 파일 섹션
             var filesDiv = document.getElementById('rdFiles');
-            if (otherFiles.length > 0) {
-                document.getElementById('rdFileList').innerHTML = otherFiles.map(function(url, i) {
-                    return '<div class="mb-2 border rounded p-2 bg-light d-flex align-items-center gap-2">' +
-                        '<i class="fas fa-file text-muted"></i>' +
-                        '<span class="text-truncate flex-grow-1 small">' + esc(fileLabel(url, i + 1)) + '</span>' +
-                        '<a href="' + url + '" target="_blank" class="btn btn-sm btn-outline-primary flex-shrink-0">열기</a>' +
-                        '</div>';
-                }).join('');
-                filesDiv.style.display = '';
-            } else { filesDiv.style.display = 'none'; }
+            var fileList = document.getElementById('rdFileList');
+            fileList.replaceChildren();
+            otherFiles.forEach(function(url, i) {
+                var item = box('mb-2 border rounded p-2 bg-light d-flex align-items-center gap-2');
+                var icon = document.createElement('i'), label = document.createElement('span');
+                icon.className = 'fas fa-file text-muted'; label.className = 'text-truncate flex-grow-1 small';
+                label.textContent = fileLabel(url, i + 1);
+                item.append(icon, label, downloadLink(url, '열기', 'btn btn-sm btn-outline-primary flex-shrink-0'));
+                fileList.appendChild(item);
+            });
+            filesDiv.style.display = otherFiles.length ? '' : 'none';
 
             // 안전신문고 버튼
             document.getElementById('rdViewBtn').onclick = function() {

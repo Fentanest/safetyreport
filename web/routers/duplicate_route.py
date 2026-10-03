@@ -21,7 +21,8 @@ def view_duplicate_groups(
     message: str | None = None,
 ):
     all_groups = duplicate_group_service.get_duplicate_groups(engine)
-    groups = duplicate_group_service.get_duplicate_groups(engine, status=duplicate_status)
+    normalized = duplicate_group_service._normalize_duplicate_status(duplicate_status)
+    groups = [group for group in all_groups if not normalized or group.get('status') == normalized]
 
     counts = {
         "total": len(all_groups),

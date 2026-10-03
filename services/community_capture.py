@@ -371,6 +371,9 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
     now = _now_iso()
 
     with store.transaction() as tx:
+        if run_id and os.environ.get('SAFETYREPORT_CRAWL_RUN_ID'):
+            from services.community_rebuild import assert_current_attempt
+            assert_current_attempt(tx, run_id)
         if progress_label:
             tx.execute(
                 "INSERT INTO detail_status(local_dataset_id, source_report_id, c_now_label, observed_at)"

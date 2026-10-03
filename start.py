@@ -304,14 +304,8 @@ def _run_rebuild_process(driver, engine, args, api_browser_fallback=False):
         logger.LoggerFactory.logbot.error(f"[rebuild] 목록 수집 예외: {exc}")
         rebuild.mark_list_failed(run_id, f"list_error: {exc}")
         return []
-    list_ok = progress.get("list_ok")
-    if list_ok is None:
-        # progress 를 모르는 가짜 크롤러 대비: 비어 있으면 실패, 있으면 성공으로 본다.
-        list_ok = bool(titlelist)
-        note = progress.get("first_error") or "list_incomplete"
-    else:
-        note = progress.get("first_error") or "list_incomplete"
-    list_ok = bool(list_ok)
+    list_ok = progress.get('list_ok') is True
+    note = progress.get('first_error') or 'list_incomplete'
     if not _rebuild_register_list(engine, run_id, titlelist, list_ok=list_ok, note=str(note)):
         return []
 
@@ -334,11 +328,20 @@ def _run_rebuild_process(driver, engine, args, api_browser_fallback=False):
 
 def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
     """API 방식 크롤링(레거시 Selenium HTML 크롤링은 2026-09-25 제거). driver 는 브라우저 비상 경로에서만 있다."""
+    evidence = args.setdefault('_outcome', {})
     if args.get("rebuild"):
-        return _run_rebuild_process(driver, engine, args, api_browser_fallback)
+        changed = _run_rebuild_process(driver, engine, args, api_browser_fallback)
+        from services import community_rebuild as rebuild
+        job = rebuild._get_job(args['rebuild']) or {}
+        counts = rebuild._counts(args['rebuild'])
+        evidence.update(list_complete=bool(job.get('list_complete')),
+                        detail_complete=not any(counts.get(key, 0) for key in
+                            ('pending', 'failed_retryable', 'failed_permanent')) and job.get('state') == 'running')
+        return changed
 
     last_page = 0
     titlelist = []
+    evidence['list_complete'] = bool(args.get('queue_file'))
     
     if args.get("queue_file"):
         logger.LoggerFactory.logbot.info("큐 지정 크롤링 모드입니다. 전체 목록 갱신을 건너뜁니다.")
@@ -347,17 +350,21 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
             logger.LoggerFactory.logbot.info("[API 방식 - Selenium fallback]으로 신고 목록 크롤링 시작.")
         else:
             logger.LoggerFactory.logbot.info("[API 방식]으로 신고 목록 크롤링 시작.")
+        progress = {}
         if args["page_range"]:
             titlelist, last_page = crawltitle_api.crawl_titles(
                 driver=driver,
                 page_range=args["page_range"],
                 browser_fallback=api_browser_fallback,
+                progress=progress,
             )
         else:
             titlelist, last_page = crawltitle_api.crawl_titles(
                 driver=driver,
                 browser_fallback=api_browser_fallback,
+                progress=progress,
             )
+        evidence['list_complete'] = bool(progress.get('list_ok'))
 
         new_report_numbers = database.title_to_sql(dataframes=titlelist, engine=engine)
         if settings.telegram_enabled:
@@ -368,10 +375,10 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
                     msg += f"\n... 외 {len(new_report_numbers)-30}건"
             
             if is_frozen:
-                subprocess.run([sys.executable, "--mode", "notify"], input=msg, text=True)
+                subprocess.run([sys.executable, "--mode", "notify"], input=msg, text=True, timeout=120, check=True)
             else:
                 notifier_path = resource_path("core/utils/notifier.py")
-                subprocess.run([sys.executable, notifier_path], input=msg, text=True)
+                subprocess.run([sys.executable, notifier_path], input=msg, text=True, timeout=120, check=True)
 
     # Prepare detail list
     id_to_items = {}  # 큐 모드: ID → 큐 번호(번호별 결과 보고, R5-01)
@@ -400,6 +407,7 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
                 logger.LoggerFactory.logbot.warning(f"목록 탐색 실패: {e}")
                 page_dfs, progress = [], {"list_ok": False, "first_error": str(e)}
             search_complete = bool(progress.get("list_ok"))
+            evidence['list_complete'] = search_complete
             if not search_complete:
                 logger.LoggerFactory.logbot.warning(f"목록 탐색을 끝내지 못했습니다: {progress.get('first_error')}")
             if page_dfs:
@@ -446,6 +454,7 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
         logger.LoggerFactory.logbot.info("크롤링할 상세 내역 없음.")
         if args.get("queue_file"):
             _write_queue_report(args["queue_file"], [], queue_not_found, queue_ambiguous)
+        evidence['detail_complete'] = not missing_rnums or bool(queue_not_found or queue_ambiguous)
         return []
 
     logger.LoggerFactory.logbot.info(f"상세 크롤링 대상 ID: {len(detaillist)} 건 (순차 처리)")
@@ -461,7 +470,9 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
     )
 
     saved_ids = set()
-    changed_item_ids = _save_details_as_they_arrive(engine, detail_stream, saved_ids)
+    changed_item_ids = _save_details_as_they_arrive(engine, detail_stream, saved_ids, evidence=evidence)
+    evidence['detail_complete'] = (set(map(str, detaillist)) <= saved_ids and
+        not evidence.get('save_errors') and not evidence.get('stream_error'))
     if args.get("queue_file"):
         processed = [item for rid in saved_ids for item in id_to_items.get(str(rid), [])]
         _write_queue_report(args["queue_file"], processed, queue_not_found, queue_ambiguous)
@@ -469,14 +480,14 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False):
         msg = f"2/5. 상세 정보(Detail) 크롤링 {len(detaillist)}건 및 DB 저장을 완료했습니다. (내용 변경/신규 처리: {len(changed_item_ids)}건)"
         # changed_item_ids는 [{"id": ..., "change_type": "신규"/"변경"}] 형식
         if is_frozen:
-            subprocess.run([sys.executable, "--mode", "notify", msg])
+            subprocess.run([sys.executable, "--mode", "notify", msg], timeout=120, check=True)
         else:
             notifier_path = resource_path("core/utils/notifier.py")
-            subprocess.run([sys.executable, notifier_path, msg])
+            subprocess.run([sys.executable, notifier_path, msg], timeout=120, check=True)
     
     return changed_item_ids
 
-def _save_details_as_they_arrive(engine, detail_stream, saved_ids=None):
+def _save_details_as_they_arrive(engine, detail_stream, saved_ids=None, *, evidence=None):
     """상세를 받는 즉시 1건씩 저장한다(저장 계층 재설계 R2, S-9). 크롤러가 중간에 멈춰도 받은 만큼은 남는다.
     중복군 재계산은 뒤의 merge_final 에서 한 번만 한다."""
     from core.storage import reports_repo
@@ -487,6 +498,8 @@ def _save_details_as_they_arrive(engine, detail_stream, saved_ids=None):
             try:
                 record = reports_repo.CrawledDetail.from_legacy_tuple(item)
             except ValueError:
+                if evidence is not None:
+                    evidence['save_errors'] = evidence.get('save_errors', 0) + 1
                 continue
             result = reports_repo.save_crawled(engine, [record], refresh_duplicates=False)
             if result.saved and saved_ids is not None:
@@ -495,16 +508,20 @@ def _save_details_as_they_arrive(engine, detail_stream, saved_ids=None):
             failed.extend(result.failed)
             saved += result.saved
     except Exception as exc:
+        if evidence is not None:
+            evidence['stream_error'] = type(exc).__name__
         logger.LoggerFactory.logbot.error(f"상세 크롤링이 중간에 멈췄습니다({saved}건까지 저장됨): {exc}")
     logger.LoggerFactory.logbot.info(
         f"상세 저장 {saved}건 (변경/신규 {len(changed)}건, 실패 {len(failed)}건)"
     )
     if failed:
+        if evidence is not None:
+            evidence['save_errors'] = evidence.get('save_errors', 0) + len(failed)
         logger.LoggerFactory.logbot.error("저장 실패 ID: " + ", ".join(rid for rid, _ in failed[:50]))
     return changed
 
 
-def _process_and_save_results(engine, changed_item_ids):
+def _process_and_save_results(engine, changed_item_ids, *, successful=True):
     try:  # 종결돼 다시 안 받는 주정차 신고의 사진 촬영 시각 재시도(S-8). 실패해도 크롤링 결과 저장은 계속.
         from services import photo_capture_time
 
@@ -518,6 +535,20 @@ def _process_and_save_results(engine, changed_item_ids):
     duplicate_changes = list(duplicate_refresh.get("changes") or [])
     total_changed_count = len(changed_item_ids) + len(duplicate_changes)
 
+    # 마지막 크롤링 시각을 mysafety_sync_meta.last_sync 에 ISO8601 로 영속 저장.
+    # 모바일 sync_engine.dart 가 같은 키/형식으로 자기 sync_meta 에 기록하므로
+    # 서버 ↔ 모바일 DB import 시 round-trip 으로 보존된다.
+    now_iso = datetime.now().isoformat(timespec="seconds")
+    if successful:
+        with engine.begin() as conn:
+            stmt = sqlite_insert(database.sync_meta_table).values(
+                key="last_sync", value=now_iso
+            )
+            conn.execute(stmt.on_conflict_do_update(
+                index_elements=[database.sync_meta_table.c.key],
+                set_={"value": now_iso},
+            ))
+
     # 모바일 개별 알림용 변경 목록 파일 저장 + 완료 마커
     if changed_item_ids or duplicate_changes:
         crawl_state_store.save_crawl_changes(engine, changed_item_ids, duplicate_changes=duplicate_changes)
@@ -527,20 +558,8 @@ def _process_and_save_results(engine, changed_item_ids):
         total_changed_count,
         report_changed_count=len(changed_item_ids),
         duplicate_changed_count=len(duplicate_changes),
+        outcome='succeeded' if successful else 'partial',
     )
-
-    # 마지막 크롤링 시각을 mysafety_sync_meta.last_sync 에 ISO8601 로 영속 저장.
-    # 모바일 sync_engine.dart 가 같은 키/형식으로 자기 sync_meta 에 기록하므로
-    # 서버 ↔ 모바일 DB import 시 round-trip 으로 보존된다.
-    now_iso = datetime.now().isoformat(timespec="seconds")
-    with engine.begin() as conn:
-        stmt = sqlite_insert(database.sync_meta_table).values(
-            key="last_sync", value=now_iso
-        )
-        conn.execute(stmt.on_conflict_do_update(
-            index_elements=[database.sync_meta_table.c.key],
-            set_={"value": now_iso},
-        ))
 
     # get_merged_records_by_ids에 전달할 순수 ID 목록
     all_ids = [item["id"] for item in changed_item_ids]
@@ -555,7 +574,7 @@ def _process_and_save_results(engine, changed_item_ids):
 
     # 2. 텔레그램 최종 요약 알림 - 대량의 경우 지연이 발생할 수 있으므로 마지막에 처리
     if settings.telegram_enabled:
-        msg = "5/5. 최종 데이터 분석 및 요약을 완료했습니다."
+        msg = "5/5. 최종 데이터 분석 및 요약을 완료했습니다." if successful else "수집 중 일부 오류가 발생했습니다. 저장한 자료와 로그를 확인하세요."
         if all_ids:
             changed_records = database.get_merged_records_by_ids(engine, all_ids)
             detail_msg = message_formatter.format_report_list(changed_records, "[내용 변경/신규 처리된 신고 목록]")
@@ -563,12 +582,12 @@ def _process_and_save_results(engine, changed_item_ids):
                 msg += "\n\n" + detail_msg
         
         if is_frozen:
-            subprocess.run([sys.executable, "--mode", "notify"], input=msg, text=True)
+            subprocess.run([sys.executable, "--mode", "notify"], input=msg, text=True, timeout=120, check=True)
         else:
             notifier_path = resource_path("core/utils/notifier.py")
-            subprocess.run([sys.executable, notifier_path], input=msg, text=True)
+            subprocess.run([sys.executable, notifier_path], input=msg, text=True, timeout=120, check=True)
 
-def main():
+def _execute(run_id):
     args = _parse_args()
     _validate_settings()
     engine = get_engine()
@@ -622,15 +641,43 @@ def main():
             except Exception:
                 pass
         changed_item_ids = []
+        return 1
     finally:
         if driver:
             driver.quit()
 
     try:
-        _process_and_save_results(engine, changed_item_ids)
-        logger.LoggerFactory.logbot.info("====== 크롤링 작업 완료 ======")
+        from services import crawl_run_state
+        evidence = args.get('_outcome', {})
+        successful = bool(evidence.get('list_complete') and evidence.get('detail_complete'))
+        crawl_run_state.write(run_id, 'postprocessing', **evidence)
+        _process_and_save_results(engine, changed_item_ids, successful=successful)
+        crawl_run_state.write(run_id, 'succeeded' if successful else 'partial', **evidence)
+        logger.LoggerFactory.logbot.info("====== 크롤링 작업 완료 ======" if successful else "====== 크롤링 부분 완료 ======")
+        return 0 if successful else 1
     except Exception as e:
         logger.LoggerFactory.logbot.error(f"저장 중 오류 발생: {e}")
+        return 1
+    return 0
+
+
+def main():
+    from services import crawl_run_state
+    run_id = os.environ.get(crawl_run_state.ENV_KEY) or crawl_run_state.create()
+    try:
+        crawl_run_state.write(run_id, 'running')
+        code = _execute(run_id)
+        outcome = crawl_run_state.read(run_id)
+        if not outcome or outcome['state'] not in crawl_run_state.TERMINAL:
+            crawl_run_state.write(run_id, 'failed', stage='execution')
+        return code
+    except Exception as exc:
+        logger.LoggerFactory.logbot.error(f"크롤 실행 실패: {type(exc).__name__}")
+        try:
+            crawl_run_state.write(run_id, 'failed', error=type(exc).__name__)
+        except (OSError, ValueError):
+            pass
+        return 1
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

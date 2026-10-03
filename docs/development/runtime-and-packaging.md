@@ -3,6 +3,15 @@
 작성 2026-09-24. 여기 적힌 명령은 이 날 Linux(Ubuntu, Python 3.14.6, Node 22.17.1, Docker 29.8.1)에서 실제로 실행해 확인한 것이다.
 
 ## 1. 두 축
+
+리팩터링 검증용 추가 런타임 모듈/JS도 기존 source·Docker COPY·PyInstaller add-data 구조를 쓴다. 환경 결과는 [environment-matrix.csv](../testing/environment-matrix.csv)와 [검수 범위](../reviews/2026-10-04-dev-refactoring-implementation.md)에 분리한다. Chromium/Firefox 통과는 Windows/macOS/ARM 번들 통과를 뜻하지 않는다.
+
+설정 저장은 스레드별 draft→파일 advisory lock→최신 디스크 설정과 변경 키 병합→후보 타입 검증→같은 디렉터리 atomic replace→메모리 snapshot 게시 순서다. 실패한 draft는 다음 요청에 남기지 않는다. source/frozen의 기존 데이터 루트 선택은 유지한다.
+
+Excel은 같은 results 디렉터리의 임시 xlsx를 완성·fsync한 뒤 replace한다. Sheets client는 import 때 인증하지 않고 실제 작업 때 초기화한다. Sheets는 임시 worksheet에 올린 뒤 기존 worksheet ID를 유지하는 한 batch로 게시한다. [Sheets batchUpdate 정본](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate)의 atomic 적용을 이용하되, 게시 응답 유실은 unknown으로 기록하고 자동 재게시하지 않는다. 실패 때 남은 staging worksheet/로컬 작업 기록은 확인 전 자동 삭제하지 않는다. 알림은 UTF-16 제한에 맞춘 chunk를 먼저 확정하고 timeout/ambiguous send를 재전송하지 않는다.
+
+lifespan 종료 정리는 yield의 finally에서 실행한다. bot 종료 오류가 rating/media 정리를 막지 않으며, 취소 가능한 관리 작업자 join 제한 뒤 아직 살아 있는 작업자를 종료 성공으로 기록하지 않는다. 실제 운영 프로세스 kill/재기동과 외부 제출은 fixture 검증 명령에 포함하지 않는다.
+
 - 서버 호스트: Python source / PyInstaller 번들(Windows·Linux·macOS x64·arm64) / Docker 컨테이너.
 - 브라우저 클라이언트: Chromium·Firefox·WebKit 엔진, 실제 Edge/Safari.
 Linux Chromium 통과가 Windows 실행파일·macOS 번들 검증을 뜻하지 않는다. 결과는 [../testing/environment-matrix.csv](../testing/environment-matrix.csv).

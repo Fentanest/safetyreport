@@ -2,6 +2,14 @@
 
 다루는 것: 대시보드 카드 URL, 사이드바/세션/프록시, 통계 탭·상세검색·agencyExact, 첨부 인라인 미디어.
 
+## 목록·통계 화면의 초기화와 정리
+
+- 목록 상세 입력은 draft이며 검색 적용 때 텍스트 AND/OR, 날짜·시각, 상태/별점/경찰 조건 snapshot을 만든다. 행 predicate는 input DOM과 query parser를 반복 호출하지 않는다. 전체 JSON 모집단과 페이지 밖 행의 CSV 내보내기를 유지한다.
+- 통계는 처음 보이는 표만 DataTables로 초기화하고 다른 pane은 첫 방문 때 만든다. group 평균·반올림·분모, 확정/추정 금액의 별도 열은 유지한다.
+- `SrStats.mount/dispose`는 DataTable·named ext.search filter·namespace event·observer·timer·map/Sunwi 수명을 관리한다. hydration은 표/연도 내용만 바꾸고 검색 shell·draft·focus를 보존한다. script를 다시 append하지 않는다.
+- 첨부 링크와 기기 metadata는 DOM property/textContent로 만든다. 성공 알림은 HTTP 상태를 확인한 뒤 표시한다. 일반 관리자 mutation의 공통 CSRF 전달은 `session-requests.js`가 수행한다.
+- rating 로그는 2,000줄/256KiB 한도와 갱신 debounce를 사용한다. 서버 로그 stream은 읽기를 64KiB로 나누고 inode 교체/축소를 검사하며 gate 만료 때 닫는다. 미디어 stream reader/download 경로 pin은 cache cleanup과 같은 잠금에서 등록·해제하며 서로 다른 download generation을 섞지 않는다.
+
 2026-09-24 에 기존 루트 `CLAUDE.md`(725줄)에서 옮겼다. 아래 '이관 원문' 은 문구를 바꾸지 않고 옮긴 것이며, 원본 전체는 [legacy-claude-reference.md](legacy-claude-reference.md)에 있다.
 
 ## 코드 대조 정정 (기준 17df6cb)

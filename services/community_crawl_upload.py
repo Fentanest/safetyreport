@@ -36,8 +36,7 @@ def flush(log_file: str, *, before_crawl: bool) -> None:
     try:
         while True:
             result = community_uploader.request_upload("recovery", progress=log)
-            status = community_uploader.upload_status()
-            remaining = status["pending"] + status["auth_required"]
+            remaining = community_uploader.crawl_pending_count()
             if remaining == 0:
                 log("대기 중인 공유 자료가 없습니다.")
                 return

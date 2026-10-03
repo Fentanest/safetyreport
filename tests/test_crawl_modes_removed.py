@@ -40,6 +40,10 @@ class NonMemberRemovedTests(unittest.TestCase):
             return {"login_mode": "nonmember", "crawl_mode": "full", "queue_list": ""}
 
         request.json = body
+        async def stream_body():
+            import json
+            yield json.dumps(await request.json()).encode("utf-8")
+        request.stream = stream_body
         # 커뮤니티 게이트·초기화 확인은 이 테스트의 관심사가 아니다(tests/test_community_gate.py 가 검증).
         with mock.patch.object(api_route.crawl_manager, "is_crawling", return_value=False), \
              mock.patch.object(api_route, "_raise_if_community_blocked"), \
@@ -105,6 +109,10 @@ class LegacyCrawlRemovedTests(unittest.TestCase):
             return {"crawl_type": "legacy", "crawl_mode": "min", "max_empty_pages": 9, "queue_list": ""}
 
         request.json = body
+        async def stream_body():
+            import json
+            yield json.dumps(await request.json()).encode("utf-8")
+        request.stream = stream_body
         # 커뮤니티 게이트·초기화 확인은 이 테스트의 관심사가 아니다(tests/test_community_gate.py 가 검증).
         with mock.patch.object(api_route.crawl_manager, "is_crawling", return_value=False), \
              mock.patch.object(api_route, "_raise_if_community_blocked"), \

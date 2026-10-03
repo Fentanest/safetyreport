@@ -87,13 +87,20 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, p
         _note(total=None, pages_expected=[], pages_ok=[], pages_failed=[1],
               first_error=f"network: {exc}", list_ok=False)
         return [], 0
-    if "error" in first_payload or "result" not in first_payload:
+    if not isinstance(first_payload, dict):
+        first_payload = {"error": "invalid payload"}
+    if "error" in first_payload or not isinstance(first_payload.get("result"), list):
         logger.LoggerFactory.logbot.error(f"API 목록 호출 실패: {first_payload.get('error', 'No result')}")
         _note(total=None, pages_expected=[], pages_ok=[], pages_failed=[1],
               first_error=str(first_payload.get("error", "No result")), list_ok=False)
         return [], 0
 
-    tot_cnt = first_payload.get("totalCnt", 0)
+    tot_cnt = first_payload.get("totalCnt")
+    if isinstance(tot_cnt, bool) or not isinstance(tot_cnt, int) or tot_cnt < 0 or (
+            tot_cnt == 0 and first_payload['result']):
+        _note(total=None, pages_expected=[], pages_ok=[], pages_failed=[1],
+              first_error="invalid totalCnt", list_ok=False)
+        return [], 0
     if tot_cnt == 0:
         logger.LoggerFactory.logbot.warning("조회된 신고 내역이 없습니다.")
         _note(total=0, pages_expected=[], pages_ok=[], pages_failed=[],
@@ -105,9 +112,14 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, p
 
     last_crawled_page = 0
     pages_to_crawl = list(page_range) if page_range else list(range(1, last_page_num + 1))
+    if len(set(pages_to_crawl)) != len(pages_to_crawl) or any(
+            isinstance(page, bool) or not isinstance(page, int) or not 1 <= page <= last_page_num
+            for page in pages_to_crawl):
+        raise ValueError("invalid page range")
     pages_ok: list[int] = []
     pages_failed: list[int] = []
     first_error: str | None = None
+    seen_ids = set()
 
     for page_num in pages_to_crawl:
         last_crawled_page = page_num
@@ -117,32 +129,37 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, p
         logger.LoggerFactory.logbot.info(f"API 목록 로드 중: {page_num} 페이지 ({start_row}~{end_row}건)")
 
         try:
-            payload = fetch_page(start_row, end_row)
+            payload = first_payload if page_num == 1 else fetch_page(start_row, end_row)
         except Exception as exc:
             logger.LoggerFactory.logbot.warning(f"페이지 {page_num} 호출 실패: {exc}")
             pages_failed.append(page_num)
             if first_error is None:
                 first_error = f"network: {exc}"
             continue
-        results = payload.get("result", [])
-
-        if not results:
-            if page_num != pages_to_crawl[-1]:
-                # 끝이 아닌데 비었으면 잘린 것이다(실패로 친다).
-                pages_failed.append(page_num)
-                if first_error is None:
-                    first_error = payload.get("error") or "empty page"
-            break
+        if not isinstance(payload, dict) or 'error' in payload or not isinstance(payload.get('result'), list):
+            pages_failed.append(page_num)
+            first_error = first_error or 'invalid page payload'
+            continue
+        results = payload['result']
+        page_valid = payload.get('totalCnt') == tot_cnt and len(results) == end_row - start_row + 1
 
         page_dfs = []
         for item in results:
+            if not isinstance(item, dict) or item.get('C_NO') in (None, '') or str(item['C_NO']) in seen_ids:
+                page_valid = False
+                continue
             c_no = str(item.get("C_NO", ""))
+            seen_ids.add(c_no)
             spp_no = item.get("STTEMNT_NO", "")
-            title_full = item.get("C_A_TITLE", "")
+            title_full = str(item.get("C_A_TITLE") or "")
             title = title_full.split(")", 1)[-1].strip() if ")" in title_full else title_full.strip()
             date = item.get("C_DATE", "")
             c_now = item.get("C_NOW", 0)
-            score = int(item.get("STSFDG_SCORE", 0))
+            try:
+                score = int(item.get("STSFDG_SCORE") or 0)
+            except (TypeError, ValueError, OverflowError):
+                page_valid = False
+                continue
             try:
                 c_now = int(float(c_now))
             except Exception:
@@ -172,7 +189,11 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, p
             )
 
         all_title_dfs.extend(page_dfs)
-        pages_ok.append(page_num)
+        if page_valid:
+            pages_ok.append(page_num)
+        else:
+            pages_failed.append(page_num)
+            first_error = first_error or 'short, repeated, malformed or changed-total page'
         sleep(0.5)
 
     if page_range:

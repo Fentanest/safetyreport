@@ -8,10 +8,7 @@ from services import duplicate_group_service, rating_eligibility
 
 
 def _safe_read(conn, table):
-    try:
-        return pd.read_sql_query(select(table), conn)
-    except OperationalError:
-        return pd.DataFrame()
+    return pd.read_sql_query(select(table), conn)
 
 
 def _get_watch_ids(conn):
@@ -40,7 +37,7 @@ def _apply_record_defaults(df, *, watch_ids: set, category: str = "", exact_valu
 
 def _filter_withdraw(df):
     if app_settings.exclude_withdraw and not df.empty and "처리상태" in df.columns:
-        return df[df["처리상태"] != "취하"]
+        return df[df["처리상태"].fillna("").astype(str) != "취하"]
     return df
 
 
@@ -59,7 +56,7 @@ def _project_records(engine, records, *, mode="raw"):
 def _build_records_query(table_obj, filters=None):
     query = select(table_obj).order_by(desc(table_obj.c["신고번호"]))
     if app_settings.exclude_withdraw and "처리상태" in table_obj.c:
-        query = query.where(table_obj.c["처리상태"] != "취하")
+        query = query.where((table_obj.c["처리상태"] != "취하") | table_obj.c["처리상태"].is_(None))
 
     if not filters:
         return query
@@ -145,13 +142,18 @@ def get_report_page(engine, category, *, offset=0, limit=200, mode='canonical'):
             'dedupe_mode':mode,'data':records}
 
 
-def _get_records_from_table(engine, table_obj, filters=None, category: str = "", mode: str = "raw", exact_values: bool = False):
-    try:
-        with engine.connect() as conn:
-            df = pd.read_sql_query(_build_records_query(table_obj, filters), conn)
-            watch_ids = _get_watch_ids(conn)
-    except Exception:
-        return []
+def _get_records_from_table(engine, table_obj, filters=None, category: str = '', mode: str = 'raw', exact_values: bool = False):
+    with engine.connect() as conn:
+        conn.exec_driver_sql('BEGIN')
+        records = _get_records_from_connection(conn, table_obj, filters, category=category,
+                                               mode=mode, exact_values=exact_values)
+    return records
+
+
+def _get_records_from_connection(conn, table_obj, filters=None, *, category='', mode='raw', exact_values=False):
+    df = pd.read_sql_query(_build_records_query(table_obj, filters), conn)
+    watch_ids = _get_watch_ids(conn)
+    _, member_map = duplicate_group_service.build_projection_map(conn) if _normalize_mode(mode) == 'canonical' else ({}, {})
 
     agency_key = (filters or {}).get("agencyKey")
     if agency_key and not df.empty and "처리기관" in df.columns:
@@ -174,12 +176,17 @@ def _get_records_from_table(engine, table_obj, filters=None, category: str = "",
     if filters and not df.empty:
         agency = filters.get("agency")
         if agency and not agency_key and "처리기관" in df.columns:
-            if filters.get("agencyExact"):
-                df = df[df["처리기관"] == agency]
-            else:
-                df = df[df["처리기관"].str.contains(agency, na=False, regex=False)]
+            from services.report_stats_service import _apply_text_query
+            exact = filters.get('agencyExact') and '&' not in agency and ',' not in agency
+            df = _apply_text_query(df, '처리기관', agency, exact=exact)
 
-        rating = filters.get("rating")
+        if '처리기관' in df:
+            police = df['처리기관'].fillna('').astype(str).str.contains('경찰', regex=False)
+            if filters.get('excludePolice'):
+                df = df[~police]
+            elif filters.get('onlyPolice'):
+                df = df[police]
+        rating = filters.get('rating')
         if rating and "별점" in df.columns:
             if rating == "__none__":
                 rating_series = pd.to_numeric(df["별점"], errors="coerce")
@@ -194,7 +201,7 @@ def _get_records_from_table(engine, table_obj, filters=None, category: str = "",
 
     df = _apply_record_defaults(df, watch_ids=watch_ids, category=category, exact_values=exact_values)
     records = df.to_dict(orient="records") if not df.empty else []
-    return _project_records(engine, records, mode=mode)
+    return duplicate_group_service.project_records_with_map(records, member_map, mode=mode)
 
 
 def get_traffic_records(engine, filters=None, mode: str = "raw", exact_values: bool = False):
@@ -209,13 +216,15 @@ def get_other_records(engine, filters=None, mode: str = "raw", exact_values: boo
     return _get_records_from_table(engine, database.merge_other_table, filters, category="other", mode=mode, exact_values=exact_values)
 
 
-def get_all_records(engine, filters=None, mode: str = "raw"):
-    combined = (
-        get_traffic_records(engine, filters, mode=mode)
-        + get_parking_records(engine, filters, mode=mode)
-        + get_other_records(engine, filters, mode=mode)
-    )
-    combined.sort(key=lambda item: item.get("신고번호", "") or "", reverse=True)
+def get_all_records(engine, filters=None, mode: str = 'raw'):
+    with engine.connect() as conn:
+        conn.exec_driver_sql('BEGIN')
+        combined = []
+        for table, category in [(database.merge_traffic_table, 'traffic'),
+                                (database.merge_parking_table, 'parking'),
+                                (database.merge_other_table, 'other')]:
+            combined.extend(_get_records_from_connection(conn, table, filters, category=category, mode=mode))
+    combined.sort(key=lambda item: item.get('신고번호', '') or '', reverse=True)
     return combined
 
 
@@ -226,6 +235,8 @@ def search_by_vehicle(engine, vehicle_number: str, mode: str = "raw"):
 
     results = []
     with engine.connect() as conn:
+        conn.exec_driver_sql('BEGIN')
+        _, member_map = duplicate_group_service.build_projection_map(conn) if _normalize_mode(mode) == 'canonical' else ({}, {})
         watch_ids = _get_watch_ids(conn)
         for table_obj, category in [
             (database.merge_traffic_table, "traffic"),
@@ -235,10 +246,7 @@ def search_by_vehicle(engine, vehicle_number: str, mode: str = "raw"):
             if "차량번호" not in table_obj.c:
                 continue
             query = select(table_obj).where(table_obj.c.차량번호.contains(vehicle_number)).order_by(desc(table_obj.c.신고번호))
-            try:
-                df = pd.read_sql_query(query, conn)
-            except OperationalError:
-                continue
+            df = pd.read_sql_query(query, conn)
             df = _filter_withdraw(df)
             if df.empty:
                 continue
@@ -246,7 +254,7 @@ def search_by_vehicle(engine, vehicle_number: str, mode: str = "raw"):
             results.extend(df.to_dict(orient="records"))
 
     results.sort(key=lambda item: item.get("신고번호", "") or "", reverse=True)
-    return _project_records(engine, results, mode=mode)
+    return duplicate_group_service.project_records_with_map(results, member_map, mode=mode)
 
 
 def search_by_address(engine, address: str, mode: str = "raw"):
@@ -256,6 +264,8 @@ def search_by_address(engine, address: str, mode: str = "raw"):
 
     results = []
     with engine.connect() as conn:
+        conn.exec_driver_sql('BEGIN')
+        _, member_map = duplicate_group_service.build_projection_map(conn) if _normalize_mode(mode) == 'canonical' else ({}, {})
         watch_ids = _get_watch_ids(conn)
         for table_obj, category in [
             (database.merge_traffic_table, "traffic"),
@@ -265,10 +275,7 @@ def search_by_address(engine, address: str, mode: str = "raw"):
             if "위반장소" not in table_obj.c:
                 continue
             query = select(table_obj).where(table_obj.c.위반장소.contains(address)).order_by(desc(table_obj.c.신고번호))
-            try:
-                df = pd.read_sql_query(query, conn)
-            except OperationalError:
-                continue
+            df = pd.read_sql_query(query, conn)
             df = _filter_withdraw(df)
             if df.empty:
                 continue
@@ -276,11 +283,13 @@ def search_by_address(engine, address: str, mode: str = "raw"):
             results.extend(df.to_dict(orient="records"))
 
     results.sort(key=lambda item: item.get("신고번호", "") or "", reverse=True)
-    return _project_records(engine, results, mode=mode)
+    return duplicate_group_service.project_records_with_map(results, member_map, mode=mode)
 
 
 def get_duplicate_records(engine, mode: str = "raw"):
     with engine.connect() as conn:
+        conn.exec_driver_sql('BEGIN')
+        _, member_map = duplicate_group_service.build_projection_map(conn) if _normalize_mode(mode) == 'canonical' else ({}, {})
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
         df_p = _safe_read(conn, database.merge_parking_table)
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
@@ -322,27 +331,31 @@ def get_duplicate_records(engine, mode: str = "raw"):
                     df_dups = df_dups[~df_dups["차량번호"].isin(single_after_filter)]
 
         records = df_dups.fillna("").to_dict("records")
-        return _project_records(engine, records, mode=mode)
+        return duplicate_group_service.project_records_with_map(records, member_map, mode=mode)
 
 
 def resolve_to_report_numbers(engine, mixed_list):
+    values = list(dict.fromkeys(mixed_list))
+    if not values:
+        return []
     final_report_numbers = set()
     with engine.connect() as conn:
-        df_t = pd.read_sql_query(select(database.merge_traffic_table.c.ID, database.merge_traffic_table.c.신고번호), conn)
-        df_p_source = _safe_read(conn, database.merge_parking_table)
-        df_p = df_p_source[["ID", "신고번호"]] if not df_p_source.empty else pd.DataFrame(columns=["ID", "신고번호"])
-        df_o = pd.read_sql_query(select(database.merge_other_table.c.ID, database.merge_other_table.c.신고번호), conn)
-        df = pd.concat([df_t, df_p, df_o])
-        if df.empty:
-            return []
-
-        for value in mixed_list:
-            if value in df["신고번호"].values:
+        rows = []
+        # 400 * 2 predicates stays below the legacy SQLite 999-variable limit.
+        for table in (database.merge_traffic_table, database.merge_parking_table, database.merge_other_table):
+            for offset in range(0, len(values), 400):
+                chunk = values[offset:offset + 400]
+                rows.extend(conn.execute(select(table.c.ID, table.c.신고번호).where(
+                    table.c.ID.in_(chunk) | table.c.신고번호.in_(chunk))).all())
+        numbers = {row[1] for row in rows}
+        by_id = {}
+        for identifier, number in rows:
+            by_id.setdefault(identifier, set()).add(number)
+        for value in values:
+            if value in numbers:
                 final_report_numbers.add(value)
-            elif value in df["ID"].values:
-                matching = df[df["ID"] == value]["신고번호"].tolist()
-                for report_number in matching:
-                    final_report_numbers.add(report_number)
+            else:
+                final_report_numbers.update(by_id.get(value, ()))
 
     return list(final_report_numbers)
 
@@ -355,10 +368,11 @@ def get_unrated_records(engine):
             (database.merge_parking_table, "parking"),
             (database.merge_other_table, "other"),
         ]:
-            try:
-                df = pd.read_sql_query(select(table_obj), conn)
-            except OperationalError:
-                continue
+            # 보수적인 SQL prefilter 뒤 동일한 순수 판정으로 공백/NULL까지 확인한다.
+            query = select(table_obj).where(
+                func.coalesce(table_obj.c['만족도조사여부'], '').not_in(['참여 완료', '참여 불가']),
+                func.coalesce(table_obj.c['처리상태'], '').not_in(['취하', '답변 대기', '처리중', '진행', '진행중', '검토중']))
+            df = pd.read_sql_query(query, conn)
             if df.empty:
                 continue
             # 별점 대상 규칙은 제출 단계와 같은 함수(모바일 RatingService.ineligibleReason 과 같은 규칙)
@@ -387,18 +401,17 @@ def get_all_watchlist(engine):
         if df_watch.empty:
             return []
 
-        watch_ids = set(df_watch["신고번호"].tolist())
-        df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
-        df_p = _safe_read(conn, database.merge_parking_table)
-        df_o = pd.read_sql_query(select(database.merge_other_table), conn)
-        if not df_t.empty:
-            df_t["category"] = "traffic"
-        if not df_p.empty:
-            df_p["category"] = "parking"
-        if not df_o.empty:
-            df_o["category"] = "other"
-
-        df = pd.concat([df_t, df_p, df_o], ignore_index=True)
+        watch_ids = list(dict.fromkeys(df_watch['신고번호'].tolist()))
+        frames = []
+        for table, category in [(database.merge_traffic_table, 'traffic'),
+                                (database.merge_parking_table, 'parking'),
+                                (database.merge_other_table, 'other')]:
+            for offset in range(0, len(watch_ids), 500):
+                frame = pd.read_sql_query(select(table).where(table.c['신고번호'].in_(watch_ids[offset:offset + 500])), conn)
+                if not frame.empty:
+                    frame['category'] = category
+                    frames.append(frame)
+        df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
         if df.empty:
             return []
 

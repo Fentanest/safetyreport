@@ -105,6 +105,8 @@ class RebuildEnv:
             self._patches.append(p)
 
     def uninstall(self):
+        for worker in list(rebuild._workers.values()):
+            worker.join(5)
         for p in reversed(self._patches):
             p.stop()
         # db_path 를 바꿔 둔 동안 처음 만들어진 전역 엔진(lru_cache)이 이 개인 DB 를 가리키면 비운다(다음 테스트로 새지 않게).
@@ -133,7 +135,8 @@ class RebuildEnv:
                                  "first_error": None if list_ok else (note or "page 1 failed"),
                                  "list_ok": list_ok})
             return dfs, 1
-        return mock.patch("core.crawler.crawltitle_api.crawl_titles", _crawl)
+        import start
+        return mock.patch.object(start.crawltitle_api, "crawl_titles", _crawl)
 
     def fake_details(self, outcomes):
         """outcomes: {report_id: (outcome, note)}. ok 는 yield 도 한다."""
@@ -163,13 +166,15 @@ class RebuildEnv:
                 result.changed.append({"id": rec.id, "change_type": "신규"})
             return result
 
-        return (mock.patch("core.crawler.crawldetail_api.crawl_details", _crawl),
+        import start
+        return (mock.patch.object(start.crawldetail_api, "crawl_details", _crawl),
                 mock.patch.object(reports_repo.CrawledDetail, "from_legacy_tuple",
                                   staticmethod(_from_tuple)),
                 mock.patch.object(reports_repo, "save_crawled", _save))
 
 
 def _setUp_env(t, **kwargs):
+    rebuild._worker_stop.clear()
     env = RebuildEnv(t, **kwargs).install()
     return env
 
@@ -641,8 +646,17 @@ class RouterTest(unittest.TestCase):
         paused = self.client.post("/settings/community/rebuild/pause", json={"reason": "t"})
         self.assertEqual(paused.json()["data"]["state"], "paused")
 
-        resumed = self.client.post("/settings/community/rebuild/resume", json={})
-        self.assertEqual(resumed.json()["data"]["state"], "running")
+        worker = rebuild._workers.get(run_id)
+        if worker is not None:
+            worker.join(5)
+            self.assertFalse(worker.is_alive())
+        resumed = self.client.post('/settings/community/rebuild/resume', json={})
+        self.assertEqual(resumed.status_code, 200)
+        worker = rebuild._workers.get(run_id)
+        if worker is not None:
+            worker.join(5)
+            self.assertFalse(worker.is_alive())
+        self.assertEqual(self.client.get('/settings/community/rebuild').json()['data']['state'], 'running')
 
         bad = self.client.post("/settings/community/rebuild/start", json={"unknown": 1})
         self.assertEqual(bad.status_code, 400)

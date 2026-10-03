@@ -90,12 +90,12 @@ async def _web_action(request: Request, allowed: set[str], action):
 @router.post("/start")
 async def web_start(request: Request):
     return await _web_action(request, {"confirmed_by"},
-                             lambda body: rebuild.start(str(body.get("confirmed_by") or "web")))
+                             lambda body: rebuild.start(str(body.get("confirmed_by") or "web"), background=True))
 
 
 @router.post("/resume")
 async def web_resume(request: Request):
-    return await _web_action(request, set(), lambda _body: rebuild.resume())
+    return await _web_action(request, set(), lambda _body: rebuild.resume(background=True))
 
 
 @router.post("/pause")
@@ -119,10 +119,9 @@ def _can_manage(api_key: str) -> bool:
         return False
 
 
-def _verify_client_user_token(request: Request) -> bool:
+def _verify_client_user_token(token: str) -> bool:
     """폰 사용자 access token 이 서버 연결 사용자와 같을 때만 True. 토큰이 없거나 확인 실패면 False."""
     from services import community_gate as gate
-    token = request.headers.get(_USER_TOKEN_HEADER) or ""
     if not token:
         return False
     try:
@@ -135,7 +134,7 @@ async def _api_action(request: Request, api_key: str, allowed: set[str], action)
     if not _can_manage(api_key):
         return _ok({"detail": "커뮤니티 관리 권한이 없는 키입니다.",
                      "code": "permission_required"}, 403)
-    if not _verify_client_user_token(request):
+    if not await run_in_threadpool(_verify_client_user_token, (request.headers.get(_USER_TOKEN_HEADER) or "").strip()):
         return _ok({"detail": "사용자 확인이 필요합니다.", "code": "user_token_required"}, 403)
     body = await _json_body(request)
     rejected = _only(body, allowed)
@@ -157,9 +156,9 @@ async def api_status(api_key: str = Depends(_require_api_key)):
 @api_router.post("/start")
 async def api_start(request: Request, api_key: str = Depends(_require_api_key)):
     return await _api_action(request, api_key, {"confirmed_by"},
-                             lambda body: rebuild.start(str(body.get("confirmed_by") or "api")))
+                             lambda body: rebuild.start(str(body.get("confirmed_by") or "api"), background=True))
 
 
 @api_router.post("/resume")
 async def api_resume(request: Request, api_key: str = Depends(_require_api_key)):
-    return await _api_action(request, api_key, set(), lambda _body: rebuild.resume())
+    return await _api_action(request, api_key, set(), lambda _body: rebuild.resume(background=True))

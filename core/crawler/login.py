@@ -4,7 +4,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import datetime
 import settings.settings as settings
-from time import sleep
+from time import sleep, monotonic
 from core.utils import logger
 
 _LOGIN_USERNAME_LOCATOR = (By.NAME, 'username')
@@ -74,7 +74,7 @@ def _set_input_value(driver, element, value: str) -> None:
     )
 
 
-def login_mysafety(driver):
+def login_mysafety(driver, *, timeout=180, cancel=None):
     settings._instance.load()
     if not settings.username or not settings.password:
         logger.LoggerFactory.logbot.error(
@@ -86,17 +86,21 @@ def login_mysafety(driver):
         f"설정 기반 Selenium 로그인 시도: config_path={settings.config_path}, username_set={bool(settings.username)}"
     )
 
-    attemps = 0
-    while attemps <= int(settings.max_retry_attemps):
+    deadline = monotonic() + timeout
+    driver.set_page_load_timeout(min(30, timeout))
+    driver.set_script_timeout(min(30, timeout))
+    for attempt in range(max(0, int(settings.max_retry_attemps)) + 1):
+        if monotonic() >= deadline or (cancel is not None and cancel.is_set()):
+            break
         try:
             driver.get(settings.loginurl)
             ## 로그인
-            id_input = WebDriverWait(driver, 10).until(
+            id_input = WebDriverWait(driver, max(0.1, min(10, deadline - monotonic()))).until(
                 EC.presence_of_element_located(_LOGIN_USERNAME_LOCATOR)
                 )
             _set_input_value(driver, id_input, settings.username)
 
-            pw_input = WebDriverWait(driver, 10).until(
+            pw_input = WebDriverWait(driver, max(0.1, min(10, deadline - monotonic()))).until(
                 EC.presence_of_element_located(_LOGIN_PASSWORD_LOCATOR)
                 )
             _set_input_value(driver, pw_input, settings.password)
@@ -106,7 +110,7 @@ def login_mysafety(driver):
             sleep(3)
             driver.get(settings.myreporturl)
 
-            if wait_for_logged_in(driver, timeout=15):
+            if wait_for_logged_in(driver, timeout=max(0.1, min(15, deadline - monotonic()))):
                 logger.LoggerFactory.logbot.info("Selenium UI 로그인 성공")
                 return True
 
@@ -115,8 +119,13 @@ def login_mysafety(driver):
             )
         except Exception as e:
             logger.LoggerFactory.logbot.warning(f"로그인 창 접속 또는 로그인 처리 실패: {e}")
-            sleep(int(settings.retry_interval))
-            attemps += 1
+        if attempt < max(0, int(settings.max_retry_attemps)):
+            delay = min(max(0, int(settings.retry_interval)), max(0, deadline - monotonic()))
+            if cancel is not None:
+                if cancel.wait(delay):
+                    break
+            else:
+                sleep(delay)
 
     logger.LoggerFactory.logbot.error("Selenium UI 로그인 최종 실패")
     return False

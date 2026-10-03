@@ -4,9 +4,9 @@ from .path_utils import resource_path
 
 template_path = resource_path("web/templates")
 
-# Python 3.14 + 최신 Jinja2 조합에서 캐시 키로 (name, globals_dict) 튜플을 사용할 때
-# globals_dict가 unhashable해서 TypeError가 발생하는 버그가 있음.
-# cache_size=0 으로 캐시를 비활성화해 우회한다.
+# 기존 호환성 우회를 유지한다. Python 3.14/Jinja에서 dict globals가 캐시 키에
+# 들어간다는 원인 설명은 격리 실험에서 재현되지 않았다. 제품 전체 렌더와
+# frozen 환경 검증을 마치기 전에는 이 리팩터링에서 캐시를 활성화하지 않는다.
 _env = jinja2.Environment(
     loader=jinja2.FileSystemLoader(template_path),
     autoescape=True,

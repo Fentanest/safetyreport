@@ -89,9 +89,52 @@ def _is_fine_amount_unknown(text) -> bool:
 
 
 def _count_fine_amount_unknown(group_df: pd.DataFrame) -> int:
+    if '_metric_unknown_fine' in group_df:
+        return int(group_df['_metric_unknown_fine'].sum())
     if "범칙금_과태료" not in group_df.columns:
         return 0
     return int(group_df["범칙금_과태료"].apply(_is_fine_amount_unknown).sum())
+
+
+def _fine_amounts(frame):
+    if '_metric_fine_amount' in frame:
+        return frame['_metric_fine_amount']
+    return frame['범칙금_과태료'].apply(_extract_fine_amount)
+
+
+def _prepare_metrics(frame):
+    """요청 소유 프레임에서 원문·통계 의미를 바꾸지 않고 파생값을 한 번 계산한다."""
+    if frame.empty:
+        return frame
+    frame = frame.copy()
+    text = frame.get('범칙금_과태료', pd.Series('', index=frame.index)).fillna('')
+    frame['_metric_fine_amount'] = text.apply(_extract_fine_amount)
+    frame['_metric_unknown_fine'] = text.astype(str).str.contains('과태료', regex=False) & (frame['_metric_fine_amount'] == 0)
+    frame['_metric_rating'] = pd.to_numeric(frame.get('별점', pd.Series(None, index=frame.index)), errors='coerce')
+    frame['_metric_status'] = _stats_status_series(frame)
+    try:
+        end = pd.to_datetime(frame['답변일'].astype(str).str.slice(0, 10), errors='coerce', format='%Y-%m-%d')
+        start = pd.to_datetime(frame['신고일'].astype(str).str.slice(0, 10), errors='coerce', format='%Y-%m-%d')
+        days = (end - start).dt.days
+        frame['_metric_days'] = days.where((days >= 0) & frame['_metric_status'].isin(_OVERVIEW_COMPLETED_STATUSES))
+    except (KeyError, TypeError, ValueError):
+        frame['_metric_days'] = float('nan')
+    for name, mask in _stats_row_disposition_masks(frame).items():
+        frame['_metric_disposition_' + name] = mask
+    frame['_metric_estimated_amount'] = 0
+    frame['_metric_estimated_count'] = 0
+    columns = [c for c in ('category','entry_value','신고명','위반법규','차량번호','사진_첫촬영','사진_끝촬영','발생시각') if c in frame]
+    eligible = frame.loc[frame['_metric_unknown_fine'], columns].fillna('')
+    if columns and not eligible.empty:
+        combinations = eligible.drop_duplicates()
+        estimates = {}
+        for values in combinations.itertuples(index=False, name=None):
+            result = fine_estimate.estimate(dict(zip(columns, values)))
+            estimates[values] = result['amount'] if result is not None else None
+        amounts = [estimates[values] for values in eligible.itertuples(index=False, name=None)]
+        frame.loc[eligible.index, '_metric_estimated_amount'] = [amount or 0 for amount in amounts]
+        frame.loc[eligible.index, '_metric_estimated_count'] = [int(amount is not None) for amount in amounts]
+    return frame
 
 _REPORT_FIELDS = [
     "ID",
@@ -244,25 +287,15 @@ def _build_stats_query(table_obj, filters=None, column_names=None):
     if filters.get("year") and filters["year"] not in ("all", "", None) and "답변일" in table_obj.c:
         query = query.where(table_obj.c["답변일"].startswith(filters["year"]))
 
-    if filters.get("reportDateStart") and "신고일" in table_obj.c:
-        query = query.where(table_obj.c["신고일"] >= filters["reportDateStart"])
-    if filters.get("reportDateEnd") and "신고일" in table_obj.c:
-        query = query.where(table_obj.c["신고일"] <= filters["reportDateEnd"] + " 23:59:59")
-
-    if filters.get("occurDateStart") and "발생일자" in table_obj.c:
-        query = query.where(table_obj.c["발생일자"] >= filters["occurDateStart"])
-    if filters.get("occurDateEnd") and "발생일자" in table_obj.c:
-        query = query.where(table_obj.c["발생일자"] <= filters["occurDateEnd"])
-
-    if filters.get("responseDateStart") and "답변일" in table_obj.c:
-        query = query.where(table_obj.c["답변일"] >= filters["responseDateStart"])
-    if filters.get("responseDateEnd") and "답변일" in table_obj.c:
-        query = query.where(table_obj.c["답변일"] <= filters["responseDateEnd"])
-
-    if filters.get("occurTimeStart") and "발생시각" in table_obj.c:
-        query = query.where(table_obj.c["발생시각"] >= filters["occurTimeStart"])
-    if filters.get("occurTimeEnd") and "발생시각" in table_obj.c:
-        query = query.where(table_obj.c["발생시각"] <= filters["occurTimeEnd"])
+    for prefix, column, width in [('reportDate', '신고일', 10), ('occurDate', '발생일자', 10),
+                                  ('responseDate', '답변일', 10), ('occurTime', '발생시각', 5)]:
+        if column not in table_obj.c:
+            continue
+        value = func.substr(table_obj.c[column], 1, width)
+        if filters.get(prefix + 'Start'):
+            query = query.where(value >= filters[prefix + 'Start'])
+        if filters.get(prefix + 'End'):
+            query = query.where(value <= filters[prefix + 'End'], func.length(value) == width)
 
     if filters.get("excludePolice") and "처리기관" in table_obj.c:
         query = query.where(~table_obj.c["처리기관"].contains("경찰"))
@@ -281,10 +314,7 @@ def _build_stats_query(table_obj, filters=None, column_names=None):
 
 
 def _read_stats_frame(conn, table_obj, filters=None, column_names=None):
-    try:
-        return pd.read_sql_query(_build_stats_query(table_obj, filters, column_names=column_names), conn)
-    except OperationalError:
-        return pd.DataFrame()
+    return pd.read_sql_query(_build_stats_query(table_obj, filters, column_names=column_names), conn)
 
 
 def _normalize_mode(mode: str | None) -> str:
@@ -292,12 +322,13 @@ def _normalize_mode(mode: str | None) -> str:
     return normalized if normalized in {"raw", "canonical"} else "raw"
 
 
-def _project_stats_frame(engine, df: pd.DataFrame, *, mode: str = "raw") -> pd.DataFrame:
+def _project_stats_frame(engine, df: pd.DataFrame, *, mode: str = "raw", members=None) -> pd.DataFrame:
     normalized_mode = _normalize_mode(mode)
     if normalized_mode == "raw" or df.empty or "ID" not in df.columns:
         return df
-    with engine.connect() as conn:
-        _, members = duplicate_group_service.build_projection_map(conn)
+    if members is None:
+        with engine.connect() as conn:
+            _, members = duplicate_group_service.build_projection_map(conn)
     excluded = {rid for rid, meta in members.items() if not meta['is_representative']}
     projected = df[~df['ID'].astype(str).isin(excluded)].copy()
     if '감시목록' in df and members:
@@ -340,10 +371,7 @@ def _load_available_years(conn):
             .where(table_obj.c["답변일"].is_not(None))
             .distinct()
         )
-        try:
-            df_years = pd.read_sql_query(query, conn)
-        except OperationalError:
-            continue
+        df_years = pd.read_sql_query(query, conn)
         if df_years.empty or "year" not in df_years.columns:
             continue
         years = df_years["year"].dropna().astype(str)
@@ -527,22 +555,25 @@ def _apply_stats_row_filters(df: pd.DataFrame, filters=None) -> pd.DataFrame:
             df = _apply_text_query(df, "신고명", filters["reportName"])
         if filters.get("location") and "위반장소" in df.columns:
             df = _apply_text_query(df, "위반장소", filters["location"])
-        if filters.get("reportDateStart") and "신고일" in df.columns:
-            df = df[df["신고일"] >= filters["reportDateStart"]]
-        if filters.get("reportDateEnd") and "신고일" in df.columns:
-            df = df[df["신고일"] <= filters["reportDateEnd"] + " 23:59:59"]
-        if filters.get("occurDateStart") and "발생일자" in df.columns:
-            df = df[df["발생일자"] >= filters["occurDateStart"]]
-        if filters.get("occurDateEnd") and "발생일자" in df.columns:
-            df = df[df["발생일자"] <= filters["occurDateEnd"]]
-        if filters.get("responseDateStart") and "답변일" in df.columns:
-            df = df[df["답변일"] >= filters["responseDateStart"]]
-        if filters.get("responseDateEnd") and "답변일" in df.columns:
-            df = df[df["답변일"] <= filters["responseDateEnd"]]
-        if filters.get("occurTimeStart") and "발생시각" in df.columns:
-            df = df[df["발생시각"] >= filters["occurTimeStart"]]
-        if filters.get("occurTimeEnd") and "발생시각" in df.columns:
-            df = df[df["발생시각"] <= filters["occurTimeEnd"]]
+        for prefix, column, width in [('reportDate', '신고일', 10), ('occurDate', '발생일자', 10),
+                                      ('responseDate', '답변일', 10), ('occurTime', '발생시각', 5)]:
+            if column not in df:
+                continue
+            minimum, maximum = filters.get(prefix + 'Start'), filters.get(prefix + 'End')
+            if not minimum and not maximum:
+                continue
+            value = df[column].fillna('').astype(str).str[:width]
+            valid = value.str.len() == width
+            if width == 10:
+                parsed = pd.to_datetime(value, format='%Y-%m-%d', errors='coerce')
+                valid &= parsed.notna()
+            else:
+                valid &= value.str.match(r'^([01][0-9]|2[0-3]):[0-5][0-9]$')
+            if minimum:
+                valid &= value >= minimum
+            if maximum:
+                valid &= value <= maximum
+            df = df[valid]
         if filters.get("agency") and "처리기관" in df.columns:
             agency_query = filters["agency"]
             use_exact_agency = filters.get("agencyExact") and "&" not in agency_query and "," not in agency_query
@@ -567,14 +598,13 @@ def _apply_stats_law_filter(df: pd.DataFrame, filters=None) -> pd.DataFrame:
 def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
     """DB 에서 3개 카테고리 프레임을 읽고 대표건 projection 까지 적용한다. (available_years, df_t, df_p, df_o)"""
     with engine.connect() as conn:
+        conn.exec_driver_sql('BEGIN')
         available_years = _load_available_years(conn)
         df_t = _read_stats_frame(conn, database.merge_traffic_table, filters)
         df_p = _read_stats_frame(conn, database.merge_parking_table, filters)
         df_o = _read_stats_frame(conn, database.merge_other_table, filters)
-        try:
-            df_entry = pd.read_sql_query(select(database.entry_value_table.c.ID, database.entry_value_table.c.entry_value), conn)
-        except OperationalError:
-            df_entry = pd.DataFrame(columns=["ID", "entry_value"])
+        df_entry = pd.read_sql_query(select(database.entry_value_table.c.ID, database.entry_value_table.c.entry_value), conn)
+        _, members = duplicate_group_service.build_projection_map(conn) if mode == 'canonical' else ({}, {})
 
     df_t = _ensure_id_column(df_t)
     df_p = _ensure_id_column(df_p)
@@ -588,7 +618,7 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
         df_o["category"] = "other"
 
     combined_df = pd.concat([df_t, df_p, df_o], ignore_index=True) if not (df_t.empty and df_p.empty and df_o.empty) else pd.DataFrame()
-    combined_df = _project_stats_frame(engine, combined_df, mode=mode)
+    combined_df = _project_stats_frame(engine, combined_df, mode=mode, members=members)
     if not combined_df.empty and "처리기관" in combined_df.columns:
         combined_df = _apply_registry_agency_display(combined_df)
     if not combined_df.empty and "ID" in combined_df.columns:
@@ -605,6 +635,9 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
 def _calc_avg_days_with_count(group_df):
     """(평균 처리일, 유효 표본 수). 표본 = 완료 신고 중 두 날짜가 모두 유효하고 차이 ≥ 0 인 행."""
     # S-10: 처리기간은 처리가 끝난 신고만. 이송 답변일이 붙은 처리중 신고·취하는 넣지 않는다.
+    if '_metric_days' in group_df:
+        days = group_df['_metric_days'].dropna()
+        return (_round_half_up(float(days.mean()), 1) if len(days) > 0 else None), int(len(days))
     group_df = group_df[_stats_status_series(group_df).isin(_OVERVIEW_COMPLETED_STATUSES)]
     try:
         # 2026-09-24 사용자 결정: 처리일 = 답변일(날짜) − 신고일(날짜). 신고 시각은 버린다(12/30 23:40 → 1/2 = 3일).
@@ -647,7 +680,7 @@ def _apply_registry_agency_display(df: pd.DataFrame) -> pd.DataFrame:
 def _calc_avg_rating(group_df):
     if "별점" not in group_df.columns:
         return None, 0
-    ratings = pd.to_numeric(group_df["별점"], errors="coerce").dropna()
+    ratings = (group_df['_metric_rating'] if '_metric_rating' in group_df else pd.to_numeric(group_df["별점"], errors="coerce")).dropna()
     ratings = ratings[(ratings >= 1) & (ratings <= 5)]
     if len(ratings) == 0:
         return None, 0
@@ -687,7 +720,7 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
             "avg_days": avg_days,
             # 2026-09-28 추가: 평균 처리기간 표본 수. 표 합계 행이 행 평균을 이 수로 가중해 전체 평균을 낸다(행 수·총 건수 가중 아님).
             "avg_days_count": avg_days_count,
-            "total_fine_amount": int(group["범칙금_과태료"].apply(_extract_fine_amount).sum()),
+            "total_fine_amount": int(_fine_amounts(group).sum()),
             "fine_amount_unknown": _count_fine_amount_unknown(group),
             **_estimated_fine_totals(group),
             **{key: counts[key] for key in counts},
@@ -736,6 +769,7 @@ def get_stats_page(engine, filters=None, mode: str = "canonical"):
     두 결과는 각 공개 함수와 같다(테스트 `test_stats_page_matches_separate_calls`). 표 계산이 프레임 열을 고치므로 복사본을 넘긴다.
     """
     available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
+    df_t, df_p, df_o = map(_prepare_metrics, (df_t, df_p, df_o))
     overview = _compute_stats_overview(available_years, df_t, df_p, df_o, filters, mode)
     records = _compute_agency_stats(available_years, df_t.copy(), df_p.copy(), df_o.copy(), filters, mode)
     return records, overview
@@ -783,7 +817,7 @@ def _compute_agency_stats(available_years, df_t, df_p, df_o, filters=None, mode:
 
         stats_agency, stats_person, stats_law = _build_stats_tables(df, category)
 
-        category_total_fine = int(df["범칙금_과태료"].apply(_extract_fine_amount).sum())
+        category_total_fine = int(_fine_amounts(df).sum())
         category_estimates = _estimated_fine_totals(df)
 
         def _sort(items, key="total"):
@@ -821,7 +855,7 @@ def _compute_agency_stats(available_years, df_t, df_p, df_o, filters=None, mode:
         "parking": res_p,
         "other": res_o,
         "available_years": available_years,
-        "traffic_total_fine": int(df_t["범칙금_과태료"].apply(_extract_fine_amount).sum()) if not df_t.empty else 0,
+        "traffic_total_fine": int(_fine_amounts(df_t).sum()) if not df_t.empty else 0,
         "dedupe_mode": _normalize_mode(mode),
     })
 
@@ -943,7 +977,7 @@ def _overview_fine_amount(df: pd.DataFrame) -> dict[str, int]:
     if df.empty or "범칙금_과태료" not in df.columns:
         return {"confirmed_amount": 0, "confirmed_count": 0, "unknown_count": 0, "estimated_amount": 0, "estimated_count": 0}
     fine_series = df["범칙금_과태료"].fillna("")
-    amounts = fine_series.apply(_extract_fine_amount)
+    amounts = _fine_amounts(df)
     has_fine = fine_series.astype(str).str.contains("과태료", na=False)
     estimates = _estimated_fine_totals(df)
     return {
@@ -1043,6 +1077,8 @@ _UNASSIGNED_PERSON_VALUES = {"", "미지정"}
 
 
 def _stats_status_series(group_df: pd.DataFrame) -> pd.Series:
+    if '_metric_status' in group_df:
+        return group_df['_metric_status']
     return group_df.get("처리상태", pd.Series(dtype="object", index=group_df.index)).fillna("").astype(str).str.strip()
 
 
@@ -1052,8 +1088,16 @@ def _stats_row_disposition_counts(group_df: pd.DataFrame) -> dict[str, int]:
     처리중 = 완료(수용·일부수용·불수용·기타·답변완료)도 취하도 아닌 상태(처리중·진행·검토중·보완요청·이송·빈 값 등).
     모바일 Standalone `_AgencyAgg` 와 같은 정의. 대시보드용 `_disposition_counts` 는 바꾸지 않는다.
     """
-    counts = _disposition_counts(group_df)
+    if '_metric_disposition_fines' in group_df:
+        return {name: int(group_df['_metric_disposition_' + name].sum()) for name in (
+            'fines', 'warnings', 'rejects', 'unconfirmed', 'in_progress',
+            'disposition_unknown', 'no_penalty', 'unclassified')}
+    return {name: int(mask.sum()) for name, mask in _stats_row_disposition_masks(group_df).items()}
+
+
+def _stats_row_disposition_masks(group_df):
     fine_series = group_df.get("범칙금_과태료", pd.Series(dtype="object", index=group_df.index)).fillna("").astype(str)
+    raw_status = group_df.get('처리상태', pd.Series(dtype='object', index=group_df.index)).fillna('').astype(str)
     status_series = _stats_status_series(group_df)
     decided = (
         fine_series.str.contains("과태료", na=False)
@@ -1062,8 +1106,6 @@ def _stats_row_disposition_counts(group_df: pd.DataFrame) -> dict[str, int]:
     )
     in_progress = ~decided & ~status_series.isin(_OVERVIEW_COMPLETED_STATUSES) & (status_series != "취하")
     unconfirmed = ~decided & ~in_progress
-    counts["in_progress"] = int(in_progress.sum())
-    counts["unconfirmed"] = int(unconfirmed.sum())
     # 2026-09-24 (b) 열 분리 — `unconfirmed` 는 그대로 두고(모바일 API 호환) 하위 분류를 추가한다.
     #   disposition_unknown: 과태료 대상 신고인데 파서가 처분을 못 읽은 건(`범칙금_과태료` == '미확인')
     #   no_penalty: 과태료 대상이 아닌 유형(시설물 등)의 완료 신고
@@ -1076,10 +1118,12 @@ def _stats_row_disposition_counts(group_df: pd.DataFrame) -> dict[str, int]:
         | ((status_series == "일부수용") & (fine_series.str.strip() == "") & _partial_unknown_menu_mask(group_df))
     )
     no_penalty = unconfirmed & ~disposition_unknown & ~eligible & status_series.isin(_OVERVIEW_COMPLETED_STATUSES)
-    counts["disposition_unknown"] = int(disposition_unknown.sum())
-    counts["no_penalty"] = int(no_penalty.sum())
-    counts["unclassified"] = int((unconfirmed & ~disposition_unknown & ~no_penalty).sum())
-    return counts
+    return {'fines': fine_series.str.contains('과태료', na=False),
+            'warnings': fine_series.str.contains('경고|범칙금', na=False),
+            'rejects': raw_status.isin(['불수용', '기타']),
+            'in_progress': in_progress, 'unconfirmed': unconfirmed,
+            'disposition_unknown': disposition_unknown, 'no_penalty': no_penalty,
+            'unclassified': unconfirmed & ~disposition_unknown & ~no_penalty}
 
 
 def _partial_unknown_menu_mask(group_df: pd.DataFrame) -> pd.Series:
@@ -1110,6 +1154,9 @@ def _penalty_eligible_mask(group_df: pd.DataFrame) -> pd.Series:
 
 def _estimated_fine_totals(group_df: pd.DataFrame) -> dict[str, int]:
     """금액 없는 과태료 행의 법정 최저 기준 추정 합계. 확정 금액(`total_fine_amount`)과 섞지 않는다."""
+    if '_metric_estimated_amount' in group_df:
+        return {'estimated_fine_amount': int(group_df['_metric_estimated_amount'].sum()),
+                'estimated_fine_count': int(group_df['_metric_estimated_count'].sum())}
     if group_df.empty or "범칙금_과태료" not in group_df.columns:
         return {"estimated_fine_amount": 0, "estimated_fine_count": 0}
     amount = 0
@@ -1238,6 +1285,7 @@ def _load_map_records_frame(
     selected_columns = list(column_names or _MAP_COLUMNS)
 
     with engine.connect() as conn:
+        conn.exec_driver_sql('BEGIN')
         available_years = _load_available_years(conn)
         frames = []
         for table_obj, table_category in [
@@ -1251,6 +1299,7 @@ def _load_map_records_frame(
             if not df.empty:
                 df["category"] = table_category
                 frames.append(df)
+        _, members = duplicate_group_service.build_projection_map(conn) if mode == 'canonical' else ({}, {})
 
     combined_df = (
         pd.concat(frames, ignore_index=True)
@@ -1264,7 +1313,7 @@ def _load_map_records_frame(
         combined_df["category"] = normalized_category if normalized_category != "all" else "other"
 
     combined_df = _ensure_id_column(combined_df)
-    combined_df = _project_stats_frame(engine, combined_df, mode=mode)
+    combined_df = _project_stats_frame(engine, combined_df, mode=mode, members=members)
     if not combined_df.empty and "처리기관" in combined_df.columns:
         combined_df = _apply_registry_agency_display(combined_df)
     if stats_filters and not combined_df.empty:

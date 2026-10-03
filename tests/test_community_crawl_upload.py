@@ -24,16 +24,16 @@ class CrawlUploadBoundaryTests(unittest.TestCase):
             {"result": "more_pending", "counts": {"sent": 25}, "error_code": None},
             {"result": "sent", "counts": {"sent": 2}, "error_code": None},
         ]
-        statuses = [{"pending": 2, "auth_required": 0}, {"pending": 0, "auth_required": 0}]
+        statuses = [2, 0]
         with mock.patch("services.community_uploader.request_upload", side_effect=outcomes) as upload, \
-             mock.patch("services.community_uploader.upload_status", side_effect=statuses):
+             mock.patch("services.community_uploader.crawl_pending_count", side_effect=statuses):
             flush(self.log, before_crawl=True)
         self.assertEqual(upload.call_count, 2)
         self.assertIn("대기 중인 공유 자료가 없습니다", self.log_text())
 
     def test_offline_keeps_crawl_stopped_and_logs_reason(self):
         with mock.patch("services.community_uploader.request_upload", return_value={"result": "cooldown", "error_code": "offline"}), \
-             mock.patch("services.community_uploader.upload_status", return_value={"pending": 3, "auth_required": 0}):
+             mock.patch("services.community_uploader.crawl_pending_count", return_value=3):
             with self.assertRaisesRegex(PendingUploadError, "3건"):
                 flush(self.log, before_crawl=True)
         self.assertIn("offline", self.log_text())
@@ -41,9 +41,9 @@ class CrawlUploadBoundaryTests(unittest.TestCase):
     def test_waits_for_orphan_upload_lease_then_retries(self):
         outcomes = [{"result": "busy_other_run", "error_code": None},
                     {"result": "sent", "error_code": None}]
-        statuses = [{"pending": 1, "auth_required": 0}, {"pending": 0, "auth_required": 0}]
+        statuses = [1, 0]
         with mock.patch("services.community_uploader.request_upload", side_effect=outcomes) as upload, \
-             mock.patch("services.community_uploader.upload_status", side_effect=statuses), \
+             mock.patch("services.community_uploader.crawl_pending_count", side_effect=statuses), \
              mock.patch("time.sleep"):
             flush(self.log, before_crawl=True)
         self.assertEqual(upload.call_count, 2)
@@ -51,7 +51,7 @@ class CrawlUploadBoundaryTests(unittest.TestCase):
 
     def test_after_crawl_logs_failed_upload_without_changing_crawl_result(self):
         with mock.patch("services.community_uploader.request_upload", return_value={"result": "cooldown", "error_code": "offline"}), \
-             mock.patch("services.community_uploader.upload_status", return_value={"pending": 3, "auth_required": 0}):
+             mock.patch("services.community_uploader.crawl_pending_count", return_value=3):
             flush(self.log, before_crawl=False)
         self.assertIn("3건 업로드 대기 중", self.log_text())
 

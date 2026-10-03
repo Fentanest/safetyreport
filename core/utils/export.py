@@ -7,25 +7,29 @@ from core.utils import logger
 import sys
 import subprocess
 import time
+import tempfile
 from core.utils.path_utils import resource_path, is_frozen
 
-if settings.google_sheet_enabled:
-    try:
-        gc = gspread.service_account(settings.google_api_auth_file)
-        spreadsheet = gc.open_by_key(settings.google_sheet_key)
-    except SpreadsheetNotFound:
-        logger.LoggerFactory.logbot.warning("Google Sheet를 찾을 수 없어 비활성화합니다. 시트 키를 확인하세요.")
-        settings.google_sheet_enabled = False
-        gc = None
-        spreadsheet = None
-    except Exception as e:
-        logger.LoggerFactory.logbot.error(f"Google Sheet 인증 중 알 수 없는 오류가 발생했습니다: {e}")
-        settings.google_sheet_enabled = False
-        gc = None
-        spreadsheet = None
-else:
-    gc = None
-    spreadsheet = None
+import threading
+from core.utils.runtime_mode import block_if_fixture
+
+gc = spreadsheet = None
+_google_identity = None
+_google_lock = threading.RLock()
+
+
+def _get_google_spreadsheet():
+    global gc, spreadsheet, _google_identity
+    block_if_fixture('google sheet export')
+    info = os.stat(settings.google_api_auth_file)
+    identity = (settings.google_api_auth_file, settings.google_sheet_key,
+                info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns)
+    if spreadsheet is None or _google_identity != identity:
+        client = gspread.service_account(settings.google_api_auth_file)
+        client.set_timeout(20)
+        opened = client.open_by_key(settings.google_sheet_key)
+        gc, spreadsheet, _google_identity = client, opened, identity
+    return spreadsheet
 
 def _process_dataframe(df):
     """Handles the common logic of splitting and reordering columns."""
@@ -81,27 +85,36 @@ def save_to_excel(data):
     data: pd.DataFrame (legacy) → 'data' 시트 단일 저장
           dict[str, pd.DataFrame] → 카테고리별 시트로 저장 ('교통위반' 등)"""
     out_path = os.path.join(settings.resultpath, settings.resultfile)
-    if isinstance(data, dict):
-        with pd.ExcelWriter(out_path, engine='openpyxl') as writer:
-            wrote_any = False
-            for sheet_name, df in data.items():
-                if df is None or df.empty:
-                    continue
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-                wrote_any = True
-            if not wrote_any:
-                # 빈 데이터라도 파일은 만들어 두어야 함
-                pd.DataFrame().to_excel(writer, sheet_name='교통위반', index=False)
-    else:
-        # 레거시: 단일 DataFrame
-        data.to_excel(out_path, index=False)
+    fd, temporary = tempfile.mkstemp(prefix='.excel-', suffix='.xlsx', dir=settings.resultpath)
+    os.close(fd)
+    try:
+        if isinstance(data, dict):
+            with pd.ExcelWriter(temporary, engine='openpyxl') as writer:
+                wrote_any = False
+                for sheet_name, df in data.items():
+                    if df is None or df.empty:
+                        continue
+                    df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    wrote_any = True
+                if not wrote_any:
+                    pd.DataFrame().to_excel(writer, sheet_name='교통위반', index=False)
+        else:
+            data.to_excel(temporary, index=False)
+        with open(temporary, 'r+b') as output:
+            os.fsync(output.fileno())
+        os.replace(temporary, out_path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
     logger.LoggerFactory.logbot.info(f"데이터 엑셀 저장 성공, 저장경로 : {out_path}")
     if settings.telegram_enabled:
         if is_frozen:
-            subprocess.run([sys.executable, "--mode", "notify", "3/5. 엑셀 파일 생성을 완료했습니다."])
+            subprocess.run([sys.executable, "--mode", "notify", "3/5. 엑셀 파일 생성을 완료했습니다."], timeout=120, check=True)
         else:
             notifier_path = resource_path("core/utils/notifier.py")
-            subprocess.run([sys.executable, notifier_path, "3/5. 엑셀 파일 생성을 완료했습니다."])
+            subprocess.run([sys.executable, notifier_path, "3/5. 엑셀 파일 생성을 완료했습니다."], timeout=120, check=True)
 
 _LEGACY_SHEET_NAME = "data"  # 기존 통합 시트(있으면 삭제)
 _CATEGORY_SHEETS = ["교통위반", "주정차위반", "기타위반"]
@@ -131,19 +144,23 @@ def _drop_legacy_data_sheet():
         logger.LoggerFactory.logbot.warning(f"레거시 'data' 시트 삭제 실패: {e}")
 
 
-def _upload_to_worksheet(worksheet, data_to_upload):
+def _upload_to_worksheet(worksheet, data_to_upload, *, deadline=None):
     """리트라이/청크 업로드 + 시트 크기 정렬 + 행 픽셀 조정."""
     max_retries = 4
     retry_delay = 8
     chunk_size = 200
 
     for attempt in range(max_retries):
+        if deadline is not None and time.monotonic() >= deadline:
+            return False
         try:
             logger.LoggerFactory.logbot.info(
                 f"'{worksheet.title}' 시트 업로드 시작 (시도 {attempt + 1}/{max_retries}, {len(data_to_upload)}행)"
             )
             worksheet.clear()
             for i in range(0, len(data_to_upload), chunk_size):
+                if deadline is not None and time.monotonic() >= deadline:
+                    return False
                 chunk = data_to_upload[i:i + chunk_size]
                 start_range = f'A{i + 1}'
                 worksheet.update(chunk, range_name=start_range, value_input_option='USER_ENTERED')
@@ -175,6 +192,8 @@ def _upload_to_worksheet(worksheet, data_to_upload):
         except APIError as e:
             logger.LoggerFactory.logbot.error(f"'{worksheet.title}' 업로드 중 API 오류 (시도 {attempt + 1}): {e}")
             if attempt < max_retries - 1:
+                if deadline is not None and time.monotonic() + retry_delay >= deadline:
+                    return False
                 time.sleep(retry_delay)
             else:
                 logger.LoggerFactory.logbot.error(f"'{worksheet.title}' 최대 재시도 초과. 업로드 실패.")
@@ -204,52 +223,24 @@ def save_to_google_sheet(data, photo_cols):
         logger.LoggerFactory.logbot.info("Google Sheet 기능이 비활성화되어 구글 시트 저장을 건너뜁니다.")
         return
 
-    if isinstance(data, dict):
-        # 카테고리별 모드
-        _drop_legacy_data_sheet()
-
-        success_any = False
-        for sheet_name in _CATEGORY_SHEETS:
-            entry = data.get(sheet_name)
-            if entry is None:
-                continue
-            df, p_cols = entry if isinstance(entry, tuple) else (entry, [])
-            if df is None or df.empty:
-                # 빈 카테고리도 시트는 만들어 두되 헤더만 유지
-                continue
-            data_to_upload = _df_to_sheet_data(df, p_cols)
-            ws = _ensure_worksheet(sheet_name,
-                                   rows=len(data_to_upload) + 100,
-                                   cols=len(data_to_upload[0]) + 5)
-            if _upload_to_worksheet(ws, data_to_upload):
-                success_any = True
-
-        if success_any and settings.telegram_enabled:
-            if is_frozen:
-                subprocess.run([sys.executable, "--mode", "notify", "4/5. 구글 시트 업로드를 완료했습니다."])
-            else:
-                notifier_path = resource_path("core/utils/notifier.py")
-                subprocess.run([sys.executable, notifier_path, "4/5. 구글 시트 업로드를 완료했습니다."])
-        elif not success_any and settings.telegram_enabled:
-            if is_frozen:
-                subprocess.run([sys.executable, "--mode", "notify", "오류: 구글 시트 업로드에 실패했습니다."])
-            else:
-                notifier_path = resource_path("core/utils/notifier.py")
-                subprocess.run([sys.executable, notifier_path, "오류: 구글 시트 업로드에 실패했습니다."])
-        return
-
-    # 레거시 단일 DataFrame 모드
-    df = data
-    data_to_upload = _df_to_sheet_data(df, photo_cols)
-    worksheet = _ensure_worksheet("data",
-                                  rows=len(data_to_upload),
-                                  cols=len(data_to_upload[0]))
-    if _upload_to_worksheet(worksheet, data_to_upload) and settings.telegram_enabled:
-        if is_frozen:
-            subprocess.run([sys.executable, "--mode", "notify", "4/5. 구글 시트 업로드를 완료했습니다."])
+    with _google_lock:
+        target = _get_google_spreadsheet()
+        if isinstance(data, dict):
+            payloads = {}
+            for name in _CATEGORY_SHEETS:
+                entry = data.get(name)
+                if entry is None:
+                    continue
+                frame, photos = entry if isinstance(entry, tuple) else (entry, [])
+                if frame is not None and not frame.empty:
+                    payloads[name] = _df_to_sheet_data(frame, photos)
         else:
-            notifier_path = resource_path("core/utils/notifier.py")
-            subprocess.run([sys.executable, notifier_path, "4/5. 구글 시트 업로드를 완료했습니다."])
+            payloads = {'data': _df_to_sheet_data(data, photo_cols)}
+        from core.utils.sheet_export import publish
+        deadline = time.monotonic() + 600
+        return publish(target, payloads,
+                       lambda sheet, values: _upload_to_worksheet(sheet, values, deadline=deadline),
+                       drop_legacy=isinstance(data, dict))
 
 def save_results(df):
     """Legacy: 단일 DataFrame을 받아 'data' 시트에 저장."""

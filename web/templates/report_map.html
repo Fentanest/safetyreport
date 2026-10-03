@@ -494,6 +494,8 @@
         var respEnds = [mapYear !== 'all' ? mapYear + '-12-31' : '', mapFilters.responseDateEnd || ''].filter(Boolean).sort();
         if (respStart) { listParams.responseDateStart = respStart; }
         if (respEnds.length) { listParams.responseDateEnd = respEnds[0]; }
+        if (mapFilters.agency) { listParams.agency = mapFilters.agency; if (mapFilters.agencyExact) listParams.agencyExact = 'true'; }
+        ['excludePolice','onlyPolice'].forEach(function (key) { if (mapFilters[key]) listParams[key]='true'; });
         if (mapFilters.targetAgency) { listParams.agency = mapFilters.targetAgency; listParams.agencyExact = 'true'; }
         if (mapFilters.targetAgencyKey) { listParams.agencyKey = mapFilters.targetAgencyKey; }
         if (mapFilters.targetPerson) { listParams.person = mapFilters.targetPerson; }

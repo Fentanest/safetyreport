@@ -90,7 +90,16 @@ class _Resp:
 class SubmitFlowTests(unittest.TestCase):
     """제출 흐름(가짜 사이트): 사유 전송, 제출 뒤 재확인, 재확인 실패 시 재시도, 끝까지 확인 못 하면 실패."""
 
-    def run_batch(self, gets, *, cause="감사합니다", score=4, retries=1):
+    def setUp(self):
+        import tempfile
+        from services import star_rating_service
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        patch = mock.patch.object(star_rating_service.settings, 'datapath', self.temp.name)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def run_batch(self, gets, *, cause="감사합니다", score=4, retries=1, post_error=None):
         from services import star_rating_service
 
         logged = []
@@ -102,6 +111,8 @@ class SubmitFlowTests(unittest.TestCase):
         # 첫 get 은 워밍업(사이트 첫 화면), 그다음부터 점수 조회
         session.get.side_effect = [_Resp()] + list(gets)
         session.post.return_value = _Resp(200)
+        if post_error:
+            session.post.side_effect = post_error
         synced = []
         with mock.patch.object(star_rating_service, "get_engine"), \
              mock.patch.object(star_rating_service.database, "get_merged_records_by_report_numbers", return_value=[]), \
@@ -114,6 +125,19 @@ class SubmitFlowTests(unittest.TestCase):
              mock.patch.object(star_rating_service.time, "sleep"):
             star_rating_service.run_batch_rating(["SPP-9"], score=score, cause=cause)
         return logged, session, synced
+
+    def test_lost_submit_response_cannot_repeat_post_in_this_or_next_batch(self):
+        import requests
+        logged, session, synced = self.run_batch([
+            _Resp(result={"STSFDG_SCORE": 0}), _Resp(result={"STSFDG_SCORE": 0})],
+            post_error=requests.exceptions.Timeout('fixture response lost'))
+        self.assertEqual(session.post.call_count, 1)
+        self.assertEqual(synced, [])
+        self.assertFalse(any('별점 부여 성공' in value for value in logged))
+        logged, session, synced = self.run_batch([
+            _Resp(result={"STSFDG_SCORE": 0}), _Resp(result={"STSFDG_SCORE": 0})])
+        session.post.assert_not_called()
+        self.assertEqual(synced, [])
 
     def test_cause_is_sent_and_success_needs_site_confirmation(self):
         logged, session, synced = self.run_batch([
@@ -225,7 +249,10 @@ class ApiContractTests(unittest.TestCase):
         async def json_body():
             return {"normalize_police": True}
 
-        request.json = json_body
+        async def stream_body():
+            import json
+            yield json.dumps(await json_body()).encode('utf-8')
+        request.stream = stream_body
         with mock.patch.object(api_route.settings._instance, "update_config") as update, \
              mock.patch.object(api_route.settings._instance, "save") as save:
             self.assertEqual(asyncio.run(api_route.update_settings(request, _="key")), {"status": "success"})
@@ -242,7 +269,10 @@ class ApiContractTests(unittest.TestCase):
         async def json_body():
             return body
 
-        request.json = json_body
+        async def stream_body():
+            import json
+            yield json.dumps(await json_body()).encode('utf-8')
+        request.stream = stream_body
         with mock.patch.object(api_route.rating_service, "start_batch_rating", return_value=["SPP-1"]) as start:
             result = asyncio.run(api_route.api_start_batch_rating(request, _="key"))
         return result, start

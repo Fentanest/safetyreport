@@ -8,6 +8,19 @@
 
 ---
 
+## 2026-10-04 (dev 리팩터링 순차 구현, 배포 없음)
+
+- P02a: 중복 재생성의 필수 원천 읽기 실패를 정상 빈 목록과 분리했다. 세 merge 표·entry_value·raw_content 중 하나라도 읽지 못하면 기존 그룹/멤버와 사용자 판단을 유지한다. 정상적으로 읽은 빈 원천은 기존처럼 파생 그룹을 비운다.
+- 이번 실행 기준선: 임시 데이터 루트·fixture 모드에서 Python 테스트 573개 중 568 passed, 기존 5 skipped(152.455초). P02a 신규 회귀 5개는 수정 전 자료 삭제/오류 미전달을 확인했고 수정 후 통과했다. 상세 로그는 `.agent-runs/refactoring-implementation/`에 보관한다.
+- 사용자 후속 승인 “전체 계획을 검증하며 순차 진행”에 따라 경로/fd·ZIP 수명, 봇 권한·managed lifespan, DOM/CSRF·설정 원자 저장, bounded JSON·bulk route·NULL/기간/드릴다운 필터, 크롤 watcher/terminal 기록, 별점 예약/unknown 조회 확인, 초기화 worker/pause/attempt fencing과 fresh scope를 구현했다.
+- 로그인·목록·manifest의 유한 retry/완전성, media callback/ready/generation/reader pin, 대상 SELECT·queue batch·upload payload batch, 통계 date/mask/금액 재사용, snapshot/singleflight/byte budget·DB 교체 pool 갱신, async 외부 helper threadpool, 목록 draft/applied snapshot, 통계 첫 방문 초기화·mount/dispose·stable hydration, bounded 로그/WS metadata 정리를 반영했다.
+- Excel은 완성한 임시 xlsx로 교체하고 Sheets는 lazy client·staging 후 atomic batch 게시, 응답 유실은 unknown·자동 재게시 금지로 바꿨다. 알림 chunk/deadline/작업 기록을 추가했다. 실제 외부 서비스는 fake transport로만 검증했다.
+- 최신 격리 Python: 649개 중 644 passed/기존 5 skipped(158.726초). Chromium·Firefox 112개 범위를 확인했다(전체 실행 110 passed, 검색 패널 절차 수정 후 CSV 2개 passed). 실제 SQLAlchemy pool의 inode 교체 회귀를 수정 전 실패/후 통과로 확인했다. 전용 Docker linux/amd64 빌드·health/login/static MIME와 이미지 제외 경로를 확인했다.
+- fixture의 update_config→reload 호출자도 draft를 먼저 save하도록 정정하고 관련 browser 14개를 재확인했다. 실제 PC light/dark·390px 통계/목록 캡처 4개를 확인했으며, pixel baseline 전체 비교 통과로 확대하지 않았다.
+- 실제 성능: 64MiB ZIP peak RSS 87,140→22,020KiB(각 1회·member SHA 일치). 기존 HEAD 대비 통계 pure aggregate CPU median 24행 63.0%/2,400행 53.0% 감소(10 paired runs·전체 JSON 일치). 목록 10k행 Node VM predicate CPU도 감소했으나 실제 browser draw/페이지 p95/RSS 결과로 확대하지 않았다.
+- 실제 Gemini 독립 검수와 수정 범위별 재검수를 별도 worktree에서 실행했다. [구현 검수·단계별 열린 게이트](docs/reviews/2026-10-04-dev-refactoring-implementation.md)에 증거와 E01~E35 재판정을 남겼다. Jinja 원인 미재현으로 cache0 유지, WS critical event queue/drop은 모바일 replay/re조회 계약 확인 전 보류했다. 모든 기능표·모바일 all-column 왕복·Windows/macOS/frozen/ARM과 전체 화면 성능 게이트가 완료됐다고 기록하지 않았다.
+- 기존 사용자 VERSION·미추적 테스트/문서·기관 registry ZIP, 원래 HEAD의 이력을 보존했다. 전달 계획 ZIP과 압축 해제 폴더는 계획 제출 때 삭제했다. 운영 data/계정·실제 크롤/별점/외부 전송·push/릴리즈는 실행하지 않았다.
+
 ## 2026-10-03 (dev 리팩터링 계획 작성, 제품 코드 변경 없음)
 
 - 지정 계획 프롬프트의 구현 전 계획 범위에 따라 [상세 실행 계획](docs/plans/dev-refactoring-plan-2026-10-03.md)을 작성했다. 현재 HEAD `2eb833d`에서 발견 경로를 다시 읽고 35개 항목의 증거·수정 설계·회귀·단계별 완료 게이트와 롤백을 정리했다.

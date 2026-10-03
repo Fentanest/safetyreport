@@ -28,6 +28,101 @@ _BLOCKING_STATES = ("awaiting_confirmation", "preparing_backup", "running",
 _LEASE_NAME = "rebuild"
 _MAX_ATTEMPTS = 5
 _control_lock = threading.RLock()
+_workers = {}
+_worker_stop = threading.Event()
+_supervisor = None
+
+
+def _worker_stopping():
+    return _worker_stop.is_set() and threading.current_thread().name.startswith('community-rebuild-')
+
+
+def _schedule(job, *, resume_crawl=False):
+    run_id = job['run_id']
+    current = _workers.get(run_id)
+    if current is not None and current.is_alive():
+        return
+    def work():
+        try:
+            if _worker_stop.is_set():
+                return
+            if resume_crawl:
+                _launch_or_fail(run_id)
+            else:
+                _continue_pipeline(_get_job(run_id))
+        except Exception as exc:
+            current_job = _get_job(run_id)
+            if current_job and current_job['state'] not in TERMINAL_STATES + ('paused',):
+                _set_state(run_id, 'failed', last_error='worker_failed: ' + type(exc).__name__)
+        finally:
+            latest = _get_job(run_id)
+            if latest and latest['state'] == 'paused':
+                _store().release_lease(_LEASE_NAME, run_id)
+            _store().close()
+    worker = threading.Thread(target=work, daemon=True, name='community-rebuild-' + run_id[:8])
+    _workers[run_id] = worker
+    worker.start()
+
+
+def start_background():
+    global _supervisor
+    from core.utils.runtime_mode import skip_in_fixture
+    if skip_in_fixture('rebuild background supervisor'):
+        return
+    if _supervisor is not None and _supervisor.is_alive():
+        return
+    _worker_stop.clear()
+    def supervise():
+        try:
+            while not _worker_stop.wait(30):
+                job = _active_job()
+                if job and job['state'] in ('running', 'awaiting_confirmation', 'preparing_backup'):
+                    from services.crawl_manager import crawl_manager
+                    process = crawl_manager.get_process()
+                    worker = _workers.get(job['run_id'])
+                    if (worker is not None and worker.is_alive()) or (process is not None and getattr(process, '_rebuild_run_id', None) == job['run_id'] and process.poll() is None):
+                        _store().renew_lease(_LEASE_NAME, job['run_id'], 120)
+                    else:
+                        resume_on_startup(background=True)
+        finally:
+            _store().close()
+    _supervisor = threading.Thread(target=supervise, daemon=True, name='community-rebuild-supervisor')
+    _supervisor.start()
+
+
+def stop_background(timeout=5):
+    _worker_stop.set()
+    import time
+    deadline = time.monotonic() + timeout
+    threads = list(_workers.values()) + ([_supervisor] if _supervisor is not None else [])
+    for worker in threads:
+        worker.join(max(0, deadline - time.monotonic()))
+    return not any(worker.is_alive() for worker in threads)
+
+
+def assert_current_attempt(tx, run_id, attempt=None):
+    from services.crawl_run_state import ENV_KEY
+    attempt = attempt or os.environ.get(ENV_KEY)
+    job = tx.execute('SELECT * FROM rebuild_jobs WHERE run_id=?', (run_id,)).fetchone()
+    if not job or job['state'] != 'running':
+        raise RuntimeError('rebuild_inactive')
+    if attempt:
+        stored = tx.execute("SELECT value FROM meta WHERE key=?", ('rebuild_attempt:' + run_id,)).fetchone()
+        if not stored or stored['value'] != attempt:
+            raise RuntimeError('rebuild_attempt_superseded')
+    dataset = tx.execute("SELECT value FROM meta WHERE key='local_dataset_id'").fetchone()
+    if not dataset or dataset['value'] != job['local_dataset_id'] or job['source_account_namespace'] != source_account_namespace():
+        raise RuntimeError('rebuild_scope_changed')
+
+
+def bind_attempt(run_id, attempt):
+    store = _store()
+    with store.transaction() as tx:
+        job = tx.execute("SELECT state FROM rebuild_jobs WHERE run_id=?", (run_id,)).fetchone()
+        if not job or job['state'] != 'running':
+            raise RuntimeError('rebuild_inactive')
+        store.set_meta('rebuild_attempt:' + run_id, attempt, tx)
+
 
 
 def _serialized_control(fn):
@@ -361,7 +456,7 @@ def _backup_personal_db(run_id: str) -> tuple[str | None, str]:
 
 
 @_serialized_control
-def start(confirmed_by: str) -> dict:
+def start(confirmed_by: str, *, background=False) -> dict:
     """사용자 확인 뒤 파이프라인 진입. 이미 활성 run 이 있으면 그 run 을 반환한다."""
     gate = _gate_fresh()
     if not gate.get("can_enter"):
@@ -378,7 +473,7 @@ def start(confirmed_by: str) -> dict:
     if job is not None and job.get("state") in TERMINAL_STATES:
         job = None
     if job is not None:
-        _continue_pipeline(job)
+        _schedule(job) if background else _continue_pipeline(job)
         return status()
 
     done = _latest_job()
@@ -402,10 +497,10 @@ def start(confirmed_by: str) -> dict:
         if existing is not None:
             return status()
         raise
-    store.acquire_lease(_LEASE_NAME, run_id, 3600)
+    store.acquire_lease(_LEASE_NAME, run_id, 120)
     job = _get_job(run_id)
     assert job is not None
-    _continue_pipeline(job)
+    _schedule(job) if background else _continue_pipeline(job)
     return status()
 
 
@@ -429,15 +524,21 @@ def _continue_pipeline(job: dict) -> None:
             try:
                 backup_ref, backup_check = _backup_personal_db(run_id)
             except Exception as exc:
-                _touch(run_id, state="failed", last_error=f"backup_failed: {exc}")
+                if (_get_job(run_id) or {}).get('state') == 'preparing_backup':
+                    _touch(run_id, state='failed', last_error='backup_failed: ' + type(exc).__name__)
+                return
+            if _worker_stopping() or (_get_job(run_id) or {}).get('state') != 'preparing_backup':
                 return
             _touch(run_id, backup_ref=backup_ref, backup_check=backup_check)
         if not _refresh_manifest():
-            _set_state(run_id, "prerequisites_required",
-                       last_error="manifest_unavailable")
+            if (_get_job(run_id) or {}).get('state') == 'preparing_backup':
+                _set_state(run_id, 'prerequisites_required', last_error='manifest_unavailable')
             return
-        now = _iso(_now())
-        _touch(run_id, state="running", started_at=now)
+        with _control_lock:
+            if _worker_stopping() or (_get_job(run_id) or {}).get('state') not in ('preparing_backup', 'prerequisites_required'):
+                return
+            now = _iso(_now())
+            _touch(run_id, state='running', started_at=now)
         _launch_or_fail(run_id)
         return
 
@@ -446,7 +547,10 @@ def _launch_or_fail(run_id: str) -> bool:
     """실행하지 못한 run은 실패로 남겨 재개할 수 있게 한다(완료로 간주하지 않음)."""
     store = _store()
     try:
-        if not store.acquire_lease(_LEASE_NAME, run_id, 3600):
+        if not _gate_fresh().get('can_enter'):
+            _set_state(run_id, 'prerequisites_required', last_error='gate')
+            return False
+        if not store.acquire_lease(_LEASE_NAME, run_id, 120):
             raise RuntimeError("rebuild_lease_busy")
         _launch_crawl(run_id)
         return True
@@ -460,18 +564,28 @@ def _launch_or_fail(run_id: str) -> bool:
         return False
 
 
+@_serialized_control
 def pause(reason: str) -> dict:
     job = _active_job()
-    if job is None:
+    if job is None or job['state'] not in ('awaiting_confirmation', 'preparing_backup', 'running', 'validating', 'prerequisites_required'):
         return status()
-    if job.get("state") not in ("running", "validating"):
-        return status()
-    _set_state(job["run_id"], "paused", last_error=str(reason or "user_paused")[:200])
+    # 먼저 이후 checkpoint/종결 처리를 fence하고, 실제 child 종료를 확인한다.
+    _set_state(job['run_id'], 'paused', last_error=str(reason or 'user_paused')[:200])
+    from services.crawl_manager import crawl_manager
+    process = crawl_manager.get_process()
+    if process is not None and getattr(process, '_rebuild_run_id', None) == job['run_id'] and process.poll() is None:
+        crawl_manager.stop_crawl()
+        if process.poll() is None:
+            _set_state(job['run_id'], job['state'], last_error='pause_stop_pending')
+            return status()
+    worker = _workers.get(job['run_id'])
+    if worker is None or not worker.is_alive():
+        _store().release_lease(_LEASE_NAME, job['run_id'])
     return status()
 
 
 @_serialized_control
-def resume() -> dict:
+def resume(*, background=False) -> dict:
     """paused/failed → 같은 run 으로 다시 크롤."""
     gate = _gate_fresh()
     if not gate.get("can_enter"):
@@ -481,11 +595,19 @@ def resume() -> dict:
         return status()
     if job.get("state") not in ("paused", "failed"):
         return status()
-    _set_state(job["run_id"], "running", clear_error=True)
-    _launch_or_fail(job["run_id"])
+    worker = _workers.get(job['run_id'])
+    if worker is not None and worker.is_alive():
+        return status()
+    if background and not job.get('list_complete'):
+        _set_state(job['run_id'], 'preparing_backup', clear_error=True)
+        _schedule(_get_job(job['run_id']))
+    else:
+        _set_state(job['run_id'], 'running', clear_error=True)
+        _schedule(_get_job(job['run_id']), resume_crawl=True) if background else _launch_or_fail(job['run_id'])
     return status()
 
 
+@_serialized_control
 def accept_gaps() -> dict:
     """영구 누락을 사용자가 수락 → committing → completed_with_gaps."""
     job = _active_job()
@@ -503,7 +625,8 @@ def accept_gaps() -> dict:
     return status()
 
 
-def on_crawl_finished(run_id: str) -> dict:
+@_serialized_control
+def on_crawl_finished(run_id: str, *, attempt=None) -> dict:
     """크롤 종료 훅(crawl_manager.run_after_crawl): validating → committing → 종결."""
     job = _get_job(run_id)
     if job is None:
@@ -513,8 +636,14 @@ def on_crawl_finished(run_id: str) -> dict:
         return status()
     if state != "running":
         return status()
+    if attempt:
+        with _store().transaction() as tx:
+            try:
+                assert_current_attempt(tx, run_id, attempt)
+            except RuntimeError:
+                return status()
     counts = _counts(run_id)
-    remaining = counts["pending"] + counts["failed_retryable"]
+    remaining = counts['pending'] + counts["failed_retryable"]
     if not job.get("list_complete"):
         _set_state(run_id, "failed", last_error="list_incomplete")
         return status()
@@ -536,7 +665,8 @@ def _commit(run_id: str, *, with_gaps: bool) -> None:
     try:
         _commit_transaction(store, run_id, with_gaps=with_gaps)
     except Exception as exc:
-        _set_state(run_id, 'failed', last_error='commit_failed: ' + type(exc).__name__)
+        if (_get_job(run_id) or {}).get('state') in ('validating', 'committing'):
+            _set_state(run_id, 'failed', last_error='commit_failed: ' + type(exc).__name__)
         raise
     try:
         store.release_lease(_LEASE_NAME, run_id)
@@ -587,12 +717,19 @@ def _commit_transaction(store, run_id, *, with_gaps):
 
 def mark_login_failed(run_id: str, note: str = "login_failed") -> None:
     """start.py 로그인 실패 경로: job failed (0건 성공 금지)."""
-    job = _get_job(run_id)
-    if job is None:
-        return
-    if job.get("state") in TERMINAL_STATES:
-        return
-    _set_state(run_id, "failed", last_error=str(note)[:300])
+    _mark_child_state(run_id, 'failed', str(note)[:300])
+
+
+def _mark_child_state(run_id, state, note):
+    # 검사와 상태 변경을 같은 쓰기 transaction에 둬 pause/새 시도의 상태를
+    # 이전 자식의 늦은 오류가 덮어쓰지 않도록 한다.
+    with _store().transaction() as tx:
+        job = tx.execute('SELECT state FROM rebuild_jobs WHERE run_id=?', (run_id,)).fetchone()
+        if not job or job['state'] != 'running':
+            return
+        assert_current_attempt(tx, run_id)
+        tx.execute('UPDATE rebuild_jobs SET state=?, last_error=?, updated_at=? WHERE run_id=?',
+                   (state, note, _iso(_now()), run_id))
 
 
 def mark_list_failed(run_id: str, note: str = "list_incomplete") -> None:
@@ -601,27 +738,18 @@ def mark_list_failed(run_id: str, note: str = "list_incomplete") -> None:
 
 
 def mark_paused_auth(run_id: str) -> None:
-    job = _get_job(run_id)
-    if job is None:
-        return
-    if job.get("state") in TERMINAL_STATES + ("paused",):
-        return
-    _set_state(run_id, "paused", last_error="auth")
+    _mark_child_state(run_id, 'paused', 'auth')
 
 
 def mark_store_unavailable(run_id: str) -> None:
-    job = _get_job(run_id)
-    if job is None:
-        return
-    if job.get("state") in TERMINAL_STATES:
-        return
-    _set_state(run_id, "failed", last_error="community_store_unavailable")
+    _mark_child_state(run_id, 'failed', 'community_store_unavailable')
 
 
 def register_list(run_id: str, report_ids: list[str]) -> None:
     """목록 전 페이지 성공 때만: ID 전부 pending 등록 + list_complete=1."""
     store = _store()
     with store.transaction() as tx:
+        assert_current_attempt(tx, run_id)
         for report_id in dict.fromkeys(str(rid) for rid in report_ids):
             tx.execute(
                 "INSERT OR IGNORE INTO rebuild_items(run_id, source_report_id, state)"
@@ -650,6 +778,7 @@ def record_item(run_id: str, report_id: str, outcome: str, *,
     """
     store = _store()
     with store.transaction() as tx:
+        assert_current_attempt(tx, run_id)
         row = tx.execute(
             "SELECT attempts FROM rebuild_items WHERE run_id=? AND source_report_id=?",
             (run_id, report_id)).fetchone()
@@ -706,11 +835,11 @@ def note_counts(run_id: str, **values) -> None:
 
 
 @_serialized_control
-def resume_on_startup() -> dict:
+def resume_on_startup(*, background=False) -> dict:
     """재시작 시: running + lease 만료 → 같은 run 재개."""
     store = _store()
     rows = store.connect().execute(
-        "SELECT run_id FROM rebuild_jobs WHERE state='running'").fetchall()
+        "SELECT run_id FROM rebuild_jobs WHERE state IN ('running','preparing_backup','awaiting_confirmation')").fetchall()
     for row in rows:
         run_id = row["run_id"]
         lease = store.connect().execute(
@@ -718,7 +847,14 @@ def resume_on_startup() -> dict:
         now = _iso(_now())
         if lease is not None and lease["owner"] == run_id and lease["until"] > now:
             continue  # 다른 살아 있는 워커가 잡고 있음
-        if not _launch_or_fail(run_id):
+        job = _get_job(run_id)
+        if job is None or (job['required_version'], job['local_dataset_id'], job['source_account_namespace']) != _scope():
             continue
-        return {"resumed": run_id}
+        if background:
+            _schedule(job, resume_crawl=(job['state'] == 'running'))
+        elif job['state'] != 'running':
+            _continue_pipeline(job)
+        elif not _launch_or_fail(run_id):
+            continue
+        return {'resumed': run_id}
     return {"resumed": None}

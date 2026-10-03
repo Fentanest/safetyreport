@@ -10,6 +10,8 @@ import functools
 import json
 import os
 import threading
+import sys
+import weakref
 from collections import OrderedDict
 from pathlib import Path
 
@@ -17,10 +19,21 @@ _lock = threading.RLock()
 _entries = OrderedDict()
 _probes = {}
 _limit = 8
+_byte_limit = 64 * 1024 * 1024
+_sizes = {}
+_flights = {}
+_generation = 0
+_probe_identities = {}
+_engine_identities = weakref.WeakKeyDictionary()
+_missing_identity = object()
 
 
 def clear():
+    global _generation
     with _lock:
+        _generation += 1
+        _sizes.clear()
+        _probe_identities.clear()
         _entries.clear()
         for probe in _probes.values():
             probe.close()
@@ -30,39 +43,104 @@ def clear():
 atexit.register(clear)
 
 
+def _signature(path):
+    try:
+        value = os.stat(path)
+        return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns
+    except OSError:
+        return None
+
+
+def _weight(value, seen=None):
+    seen = set() if seen is None else seen
+    if id(value) in seen:
+        return 0
+    seen.add(id(value))
+    size = sys.getsizeof(value)
+    if isinstance(value, dict):
+        return size + sum(_weight(k, seen) + _weight(v, seen) for k, v in value.items())
+    if isinstance(value, (list, tuple, set)):
+        return size + sum(_weight(v, seen) for v in value)
+    if hasattr(value, 'memory_usage'):
+        usage = value.memory_usage(deep=True)
+        return size + int(usage.sum() if hasattr(usage, 'sum') else usage)
+    return size
+
+
+def _key(fn, path, args, kwargs):
+    import settings.settings as settings
+    from services.agency_registry import REGISTRY_ROOT
+    import sqlite3
+    identity = _signature(path)
+    if path in _probes and _probe_identities[path] != (identity[:2] if identity else None):
+        _probes.pop(path).close()
+        _probe_identities.pop(path)
+    if path not in _probes:
+        if len(_probes) >= _limit:
+            previous = next(iter(_probes))
+            _probes.pop(previous).close()
+            _probe_identities.pop(previous, None)
+        _probes[path] = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro',
+                                      uri=True, check_same_thread=False)
+        _probe_identities[path] = identity[:2] if identity else None
+    version = _probes[path].execute('PRAGMA data_version').fetchone()[0]
+    community = str(Path(path).parent / 'community.db')
+    return (fn.__module__, fn.__qualname__, path, identity, _signature(path + '-wal'), version,
+            _signature(community), _signature(community + '-wal'), datetime.date.today().isoformat(),
+            _signature(REGISTRY_ROOT / 'manifest.json'), bool(settings.exclude_withdraw),
+            bool(settings.use_representative_records),
+            json.dumps([args, kwargs], sort_keys=True, ensure_ascii=False), _generation)
+
+
 def cached(fn):
     @functools.wraps(fn)
     def run(engine, *args, **kwargs):
         path = engine.url.database
         if not path or path == ':memory:':
             return fn(engine, *args, **kwargs)
-        import settings.settings as settings
-        from services.agency_registry import REGISTRY_ROOT
-        def signature(p):
+        path = os.path.realpath(path)
+        while True:
+            with _lock:
+                identity = _signature(path)
+                file_identity = identity[:2] if identity else None
+                if _engine_identities.get(engine, _missing_identity) != file_identity:
+                    # probe 갱신만으로는 pool 안의 이전 inode 연결을 교체할 수 없다.
+                    # 처음 관찰하거나 파일이 교체되면 idle 연결을 닫는다. 이미 진행
+                    # 중인 read transaction은 자신의 일관된 옛 snapshot을 마칠 수 있다.
+                    engine.dispose()
+                    _engine_identities[engine] = file_identity
+                key = _key(fn, path, args, kwargs)
+                if key in _entries:
+                    _entries.move_to_end(key)
+                    cached_value = _entries[key]
+                    owner = False
+                    flight = None
+                else:
+                    cached_value = None
+                    flight = _flights.get(key)
+                    owner = flight is None
+                    if owner:
+                        flight = _flights[key] = threading.Event()
+            if flight is None:
+                return copy.deepcopy(cached_value)
+            if not owner:
+                flight.wait()
+                continue
             try:
-                s = os.stat(p)
-                return s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns
-            except OSError:
-                return None
-        with _lock:
-            # A dedicated observer keeps SQLite's connection-local data_version meaningful.
-            if path not in _probes:
-                import sqlite3
-                if len(_probes) >= _limit:
-                    _probes.pop(next(iter(_probes))).close()
-                _probes[path] = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True, check_same_thread=False)
-            version = _probes[path].execute('PRAGMA data_version').fetchone()[0]
-            key = (fn.__name__, os.path.realpath(path), signature(path), signature(path + '-wal'), version,
-                   signature(Path(path).parent / 'community.db'), signature(str(Path(path).parent / 'community.db') + '-wal'),
-                   datetime.date.today().isoformat(), signature(REGISTRY_ROOT / 'manifest.json'), bool(settings.exclude_withdraw),
-                   bool(settings.use_representative_records), json.dumps([args, kwargs], sort_keys=True, ensure_ascii=False))
-            if key in _entries:
-                _entries.move_to_end(key)
-                return copy.deepcopy(_entries[key])
-        result = fn(engine, *args, **kwargs)
-        with _lock:
-            _entries[key] = copy.deepcopy(result)
-            while len(_entries) > _limit:
-                _entries.popitem(last=False)
-        return result
+                result = fn(engine, *args, **kwargs)
+                owned = copy.deepcopy(result)
+                weight = _weight(owned)
+                with _lock:
+                    # clear/restore/external writes during computation cannot publish an old result.
+                    if _key(fn, path, args, kwargs) == key and weight <= _byte_limit:
+                        _entries[key] = owned
+                        _sizes[key] = weight
+                        while len(_entries) > _limit or sum(_sizes.values()) > _byte_limit:
+                            previous, _ = _entries.popitem(last=False)
+                            _sizes.pop(previous, None)
+                return result
+            finally:
+                with _lock:
+                    _flights.pop(key, None)
+                    flight.set()
     return run

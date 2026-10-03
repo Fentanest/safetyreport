@@ -7,6 +7,8 @@ FastAPI 서버 내에서 연결된 모든 모바일 클라이언트에게
 import asyncio
 import json
 import logging
+import threading
+import time
 from datetime import datetime
 from typing import Dict
 from fastapi import WebSocket
@@ -23,6 +25,8 @@ class WsManager:
             cls._instance._connections: Dict[str, WebSocket] = {}
             cls._instance._connection_meta: Dict[str, dict] = {}
             cls._instance._api_clients: Dict[str, dict] = {}   # HTTP API 최근 사용 추적
+            cls._instance._metadata_lock = threading.RLock()
+            cls._instance._api_seen = {}
             cls._instance._main_loop: asyncio.AbstractEventLoop | None = None
         return cls._instance
 
@@ -33,7 +37,8 @@ class WsManager:
     async def connect(self, client_id: str, ws: WebSocket, api_key: str = "", ip: str = "", device_name: str = ""):
         await ws.accept()
         self._connections[client_id] = ws
-        self._connection_meta[client_id] = {
+        with self._metadata_lock:
+            self._connection_meta[client_id] = {
             "device_name": device_name or "알 수 없는 기기",
             "api_key": api_key,
             "connected_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -43,7 +48,8 @@ class WsManager:
 
     def disconnect(self, client_id: str):
         self._connections.pop(client_id, None)
-        self._connection_meta.pop(client_id, None)
+        with self._metadata_lock:
+            self._connection_meta.pop(client_id, None)
         logger.info(f"[WS] 클라이언트 종료: {client_id} (남은 {len(self._connections)}개)")
 
     async def broadcast(self, event_type: str, data: dict | None = None):
@@ -82,16 +88,17 @@ class WsManager:
     def broadcast_from_thread(self, event_type: str, data: dict | None = None):
         """백그라운드 스레드에서 안전하게 브로드캐스트합니다 (fire-and-forget)."""
         if self._main_loop and self._main_loop.is_running():
-            asyncio.run_coroutine_threadsafe(
-                self.broadcast(event_type, data),
-                self._main_loop,
-            )
+            future = asyncio.run_coroutine_threadsafe(self.broadcast(event_type, data), self._main_loop)
+            future.add_done_callback(self._observe_delivery)
         else:
             logger.debug(f"[WS] 메인 루프 없음, 브로드캐스트 스킵: {event_type}")
 
     def track_api_request(self, api_key: str, device_name: str, ip: str = ""):
         """HTTP API 요청 시 최근 사용 기록 (in-memory)"""
-        self._api_clients[api_key] = {
+        with self._metadata_lock:
+            self._prune_api_clients()
+            self._api_seen[api_key] = time.monotonic()
+            self._api_clients[api_key] = {
             "device_name": device_name or "알 수 없는 기기",
             "api_key": api_key,
             "last_used": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -99,12 +106,32 @@ class WsManager:
             "connection_type": "HTTP API",
         }
 
+    def _prune_api_clients(self):
+        cutoff = time.monotonic() - 86400
+        for key, seen in list(self._api_seen.items()):
+            if seen < cutoff:
+                self._api_seen.pop(key, None)
+                self._api_clients.pop(key, None)
+        while len(self._api_clients) >= 1024:
+            key = min(self._api_seen, key=self._api_seen.get)
+            self._api_seen.pop(key, None)
+            self._api_clients.pop(key, None)
+
+    @staticmethod
+    def _observe_delivery(future):
+        try:
+            future.result()
+        except Exception as exc:
+            logger.warning('[WS] 백그라운드 전송 실패: %s', type(exc).__name__)
+
     def get_connected_clients(self) -> list:
-        ws_clients = [
-            {"client_id": meta.get("device_name", cid[:8] + "..."), "connection_type": "WebSocket", **meta}
-            for cid, meta in self._connection_meta.items()
-        ]
-        api_clients = list(self._api_clients.values())
+        with self._metadata_lock:
+            self._prune_api_clients()
+            ws_clients = [
+                {'client_id': meta.get('device_name', cid[:8] + '...'), 'connection_type': 'WebSocket', **meta}
+                for cid, meta in self._connection_meta.items()
+            ]
+            api_clients = [dict(value) for value in self._api_clients.values()]
         return ws_clients + api_clients
 
     def connected_count(self) -> int:
@@ -121,7 +148,8 @@ class WsManager:
 
     def close_all_from_thread(self, code: int, reason: str = "") -> None:
         if self._main_loop and self._main_loop.is_running():
-            asyncio.run_coroutine_threadsafe(self.close_all(code, reason), self._main_loop)
+            future = asyncio.run_coroutine_threadsafe(self.close_all(code, reason), self._main_loop)
+            future.add_done_callback(self._observe_delivery)
 
 
 ws_manager = WsManager()

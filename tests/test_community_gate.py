@@ -766,7 +766,7 @@ class GateAppTests(GateTestBase):
         self.assertEqual(r.status_code, 200, r.text)
 
     def test_new_work_requires_fresh_gate_and_rebuild(self):
-        self.login()
+        token = self.login()
         self.open_gate()
         rebuild = types.ModuleType("services.community_rebuild")
         rebuild.required = lambda: True
@@ -775,18 +775,18 @@ class GateAppTests(GateTestBase):
         with p_mod, p_attr, mock.patch("services.crawl_control.start_crawl") as start:
             n = self.account.count("status")
             self.clock.now += 61
-            r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, follow_redirects=False)
+            r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, headers={"X-CSRF-Token": token}, follow_redirects=False)
             self.assertEqual((r.status_code, r.json()["code"]), (409, "COMMUNITY_REBUILD_REQUIRED"))
             self.assertEqual(self.account.count("status"), n + 1, "크롤 시작 전 60초 이내 재검증")
             r = self.client.post("/api/v1/crawl/enqueue", headers={"X-API-Key": self.key}, json={"report_number": "1"})
             self.assertEqual((r.status_code, r.json()["detail"]), (409, "COMMUNITY_REBUILD_REQUIRED"))
             rebuild.required = lambda: False
-            r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, follow_redirects=False)
+            r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, headers={"X-CSRF-Token": token}, follow_redirects=False)
             self.assertEqual(r.status_code, 200, r.text)
             self.assertEqual(start.call_count, 1)
             self.account.consents[USER_A["id"]]["state"] = "revoked"
             self.clock.now += 61
-            r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, follow_redirects=False)
+            r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, headers={"X-CSRF-Token": token}, follow_redirects=False)
             self.assertEqual(r.status_code, 403, "철회 뒤 60초 안에 새 작업이 막힌다")
             self.assertEqual(start.call_count, 1)
 

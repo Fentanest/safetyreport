@@ -165,6 +165,27 @@ def _prepare_after_crawl_hook(log_file: str, queue_file: str | None = None):
     return bind
 
 
+def _launch_watched(command, log_file, prepare, queue_file=None, **kwargs):
+    """감시 등록 실패는 spawn 전에, 알림 실패는 spawn 후 수명과 독립적으로 처리한다."""
+    bind = _prepare_after_crawl_hook(log_file, queue_file)
+    process = None
+    try:
+        started = crawl_manager.start_crawl(
+            command, cwd=get_work_dir(), log_file=log_file, prepare=prepare, **kwargs)
+        if started:
+            process = crawl_manager.get_process()
+        return started
+    finally:
+        bind(process)
+
+
+def _notify_started(payload):
+    try:
+        ws_manager.broadcast_from_thread("crawl_started", payload)
+    except Exception as exc:
+        logger.LoggerFactory.logbot.warning(f"크롤 시작 알림 실패: {type(exc).__name__}")
+
+
 @_serialized
 def start_rebuild(run_id: str):
     """초기화 크롤 시작. 기존 락·로그·after hook 을 재사용한다."""
@@ -227,8 +248,8 @@ def start_crawl(
     )
     log_file, prepare = _log_header(header)
     try:
-        started = crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
-                                            restore_generation=generation)
+        started = _launch_watched(command, log_file, prepare, queue_file,
+                                  restore_generation=generation)
     except BaseException:
         _discard_queue_file(queue_file)
         raise
@@ -236,15 +257,13 @@ def start_crawl(
         _discard_queue_file(queue_file)  # 시작하지 못한 실행의 고유 큐 파일은 남기지 않는다(R10-03)
         raise RuntimeError("크롤링 프로세스를 시작하지 못했습니다.")
 
-    ws_manager.broadcast_from_thread(
-        "crawl_started",
+    _notify_started(
         {
             "source": broadcast_source,
             "crawl_mode": crawl_mode,
             "crawl_type": "api",  # 구앱 호환(이벤트 필드 유지)
         },
     )
-    _start_after_crawl_hook(log_file, queue_file)
     return log_file
 
 
@@ -268,8 +287,8 @@ def enqueue_report(report_number: str):
     log_file, prepare = _log_header(f"=== [모바일에서 시작된 크롤링] - 신고번호: {normalized} ===")
     command = _build_command(queue_file=queue_file)
     try:
-        started = crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
-                                            restore_generation=generation)
+        started = _launch_watched(command, log_file, prepare, queue_file,
+                                  restore_generation=generation)
     except BaseException:
         _discard_queue_file(queue_file)
         raise
@@ -281,8 +300,7 @@ def enqueue_report(report_number: str):
         crawl_manager.request_pending_launch()
         return {"status": "queued", "queue_size": queue_size}
 
-    ws_manager.broadcast_from_thread(
-        "crawl_started",
+    _notify_started(
         {
             "source": "mobile_enqueue",
             "report_number": normalized,
@@ -290,7 +308,6 @@ def enqueue_report(report_number: str):
             "crawl_type": settings.crawl_type,
         },
     )
-    _start_after_crawl_hook(log_file, queue_file)
     return {"status": "success", "queue_size": 1}
 
 
@@ -313,9 +330,7 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
     _check_crawl_allowed()
 
     def _queue_all():
-        queue_size = 0
-        for report_number in normalized:
-            queue_size = crawl_manager.append_to_pending(report_number)
+        queue_size = crawl_manager.append_many_to_pending(normalized)
         return {
             "status": "queued",
             "requested_count": len(normalized),
@@ -334,8 +349,8 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
     )
     command = _build_command(queue_file=queue_file)
     try:
-        started = crawl_manager.start_crawl(command, cwd=get_work_dir(), log_file=log_file, prepare=prepare,
-                                            restore_generation=generation)
+        started = _launch_watched(command, log_file, prepare, queue_file,
+                                  restore_generation=generation)
     except BaseException:
         _discard_queue_file(queue_file)
         raise
@@ -345,8 +360,7 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
         crawl_manager.request_pending_launch()
         return result
 
-    ws_manager.broadcast_from_thread(
-        "crawl_started",
+    _notify_started(
         {
             "source": source,
             "count": len(normalized),
@@ -354,7 +368,6 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
             "crawl_type": settings.crawl_type,
         },
     )
-    _start_after_crawl_hook(log_file, queue_file)
     return {
         "status": "success",
         "requested_count": len(normalized),

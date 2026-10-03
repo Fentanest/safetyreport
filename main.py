@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from starlette.concurrency import run_in_threadpool
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -38,8 +39,7 @@ if __name__ == "__main__":
             sys.exit(0)
         elif mode == "crawl":
             import start
-            start.main()
-            sys.exit(0)
+            sys.exit(start.main())
         elif mode == "notify":
             import core.utils.notifier as notifier
             import asyncio
@@ -50,7 +50,7 @@ if __name__ == "__main__":
             save_script.main() # I should wrap save.py main logic in main()
             sys.exit(0)
 
-bot_process = None
+bot_application = None
 
 from core.utils.templating import templates, template_path
 
@@ -82,7 +82,7 @@ def _checkpoint_wal():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global bot_process
+    global bot_application
     # ── startup ──────────────────────────────────────────────────────────────
     # uvicorn 접근 로그에 타임스탬프 추가 (log_config 적용 여부와 무관하게 보장)
     try:
@@ -145,6 +145,7 @@ async def lifespan(app: FastAPI):
 
     try:
         from services import media_proxy_service
+        media_proxy_service.start()
         removed = media_proxy_service.cleanup_cache()
         if removed:
             logger.LoggerFactory.logbot.info(f"media cache cleanup: {removed} stale file(s) removed")
@@ -160,50 +161,68 @@ async def lifespan(app: FastAPI):
 
     if settings.telegram_enabled:
         try:
-            logger.LoggerFactory.logbot.info("텔레그램 봇 프로세스를 시작합니다.")
-            if is_frozen:
-                bot_process = subprocess.Popen([sys.executable, "--mode", "bot"])
-            else:
-                bot_process = subprocess.Popen([sys.executable, "bot.py"])
-        except Exception as e:
-            logger.LoggerFactory.logbot.error(f"봇 프로세스 시작 실패: {e}")
+            import bot
+            bot_application = await bot.start_managed()
+        except Exception as exc:
+            logger.LoggerFactory.logbot.error(f"봇 시작 실패: {type(exc).__name__}")
 
-    yield
-
-    # ── shutdown ─────────────────────────────────────────────────────────────
     try:
-        from services import community_uploader
-        community_uploader.stop_background()
-    except Exception:
-        pass
-    try:
-        from services import community_auth_service
-        community_auth_service.shutdown()
-    except Exception:
-        pass
-    try:
-        from core.crawler import direct_login
-        direct_login.stop_keepalive()
-    except Exception:
-        pass
-    try:
-        sunwi_service.stop_background_refresh()
-    except Exception as e:
-        logger.LoggerFactory.logbot.error(f"sunwi background refresh 종료 중 오류: {e}")
-    if bot_process:
-        logger.LoggerFactory.logbot.info("텔레그램 봇 프로세스를 종료합니다.")
-        bot_process.terminate()
+        yield
+    finally:
+        # ── shutdown ─────────────────────────────────────────────────────────────
         try:
-            bot_process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            bot_process.kill()
-    try:
-        if scheduler.scheduler.running:
-            logger.LoggerFactory.logbot.info("스케줄러를 종료합니다.")
-            scheduler.scheduler.shutdown(wait=False)
-    except Exception as e:
-        logger.LoggerFactory.logbot.error(f"스케줄러 종료 중 오류: {e}")
-    _checkpoint_wal()
+            from services import community_rebuild
+            stopped = await run_in_threadpool(community_rebuild.stop_background)
+            if not stopped:
+                logger.LoggerFactory.logbot.warning('[rebuild] 종료 제한 시간 후 작업자가 아직 실행 중입니다.')
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f'[rebuild] 종료 실패: {type(exc).__name__}')
+        try:
+            from services import community_uploader
+            community_uploader.stop_background()
+        except Exception:
+            pass
+        try:
+            from services import community_auth_service
+            community_auth_service.shutdown()
+        except Exception:
+            pass
+        try:
+            from core.crawler import direct_login
+            direct_login.stop_keepalive()
+        except Exception:
+            pass
+        try:
+            sunwi_service.stop_background_refresh()
+        except Exception as e:
+            logger.LoggerFactory.logbot.error(f"sunwi background refresh 종료 중 오류: {e}")
+        if bot_application:
+            try:
+                import bot
+                await bot.stop_managed(bot_application)
+            except Exception as exc:
+                logger.LoggerFactory.logbot.warning(f'[bot] 종료 실패: {type(exc).__name__}')
+            finally:
+                bot_application = None
+        try:
+            if scheduler.scheduler.running:
+                logger.LoggerFactory.logbot.info("스케줄러를 종료합니다.")
+                scheduler.scheduler.shutdown(wait=False)
+        except Exception as e:
+            logger.LoggerFactory.logbot.error(f"스케줄러 종료 중 오류: {e}")
+        try:
+            from services import rating_service
+            if not await run_in_threadpool(rating_service.stop):
+                logger.LoggerFactory.logbot.warning('[rating] 종료 제한 시간 후 작업자가 아직 실행 중입니다.')
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f'[rating] 종료 실패: {type(exc).__name__}')
+        try:
+            from services import media_proxy_service
+            if not await run_in_threadpool(media_proxy_service.stop):
+                logger.LoggerFactory.logbot.warning('[media] 종료 제한 시간 후 다운로드 작업자가 아직 실행 중입니다.')
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f'[media] 종료 실패: {type(exc).__name__}')
+        _checkpoint_wal()
 
 app = FastAPI(title="나만의 안전신문고", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=static_path), name="static")
@@ -267,7 +286,8 @@ async def version_latest():
     from fastapi.responses import JSONResponse
     from core.utils.updater import get_latest_version_cached, _version_gt
     try:
-        latest = get_latest_version_cached()
+        from starlette.concurrency import run_in_threadpool
+        latest = await run_in_threadpool(get_latest_version_cached)
         if latest is None:
             return JSONResponse({"status": "unknown"})
         if _version_gt(latest, APP_VERSION):
@@ -284,7 +304,28 @@ async def health_check():
 
 @app.middleware("http")
 async def inject_version_middleware(request: Request, call_next):
+    from fastapi.responses import JSONResponse
     request.state.app_version = APP_VERSION
+    if not request.url.path.startswith(('/api/v1/', '/static/')) and request.url.path != '/health':
+        from core.utils import csrf
+        csrf.get_or_create_token(request)
+    if request.session.get('admin_logged_in') and not request.url.path.startswith('/api/v1/') and request.url.path not in _PUBLIC_PATHS:
+        if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+            from core.utils import csrf
+            supplied = request.headers.get(csrf.HEADER)
+            if not supplied and request.headers.get('content-type', '').split(';')[0] == 'application/x-www-form-urlencoded':
+                from urllib.parse import parse_qs
+                raw = bytearray()
+                async for chunk in request.stream():
+                    if len(raw) + len(chunk) > 64 * 1024:
+                        return JSONResponse({'detail': 'Form body is too large'}, status_code=413)
+                    raw.extend(chunk)
+                request._body = bytes(raw)
+                supplied = parse_qs(raw.decode('utf-8', errors='replace')).get('_csrf_token', [None])[0]
+            reason = csrf.verify_token(request, supplied)
+            if reason:
+                from fastapi.responses import JSONResponse
+                return JSONResponse({'detail': 'csrf_failed', 'reason': reason}, status_code=403)
     response = await call_next(request)
     return response
 
@@ -433,14 +474,15 @@ def _start_community_services() -> None:
         return
     import importlib
 
-    def _call(module: str, attr: str, *args):
-        getattr(importlib.import_module(f"services.{module}"), attr)(*args)
+    def _call(module: str, attr: str, *args, **kwargs):
+        getattr(importlib.import_module(f"services.{module}"), attr)(*args, **kwargs)
 
     steps = [("uploader", lambda: _call("community_uploader", "start_background"))]
     if scheduler.scheduler.running:
         steps.append(("jobs", lambda: _call("community_schedule", "register_community_jobs", scheduler.scheduler)))
         steps.append(("midnight catch-up", lambda: _call("community_schedule", "catch_up_on_start")))
-    steps.append(("rebuild resume", lambda: _call("community_rebuild", "resume_on_startup")))
+    steps.append(("rebuild supervisor", lambda: _call("community_rebuild", "start_background")))
+    steps.append(("rebuild resume", lambda: _call("community_rebuild", "resume_on_startup", background=True)))
     for name, fn in steps:
         try:
             fn()

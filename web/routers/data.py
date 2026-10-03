@@ -39,6 +39,9 @@ def _identity_filters(request: Request, filters: dict | None) -> dict | None:
     key = request.query_params.get("agencyKey")
     if key:
         filters = dict(filters or {}, agencyKey=key)
+    for key in ('excludePolice', 'onlyPolice'):
+        if request.query_params.get(key) == 'true':
+            filters = dict(filters or {}, **{key: True})
     if filters and request.query_params.get("lawExact") == "true":
         filters["lawExact"] = True
     return filters
@@ -126,15 +129,17 @@ def view_all(
     fine: Optional[str] = Query(None),
     agency: Optional[str] = Query(None),
     person: Optional[str] = Query(None),
+    agencyExact: bool = Query(False),
+    law: Optional[str] = Query(None),
     rating: Optional[str] = Query(None),
     ratingCause: Optional[str] = Query(None),
     dedupe: str | None = Query(None),
 ):
-    filters = _build_filters(status, fine, agency, person, False, None, rating, ratingCause)
+    filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
     filters = _identity_filters(request, filters)
     dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_all_records(engine, filters, mode=dedupe_mode)
-    title = _filter_title("전체 신고 조회", status, fine, agency, person, None, rating, ratingCause)
+    title = _filter_title("전체 신고 조회", status, fine, agency, person, law, rating, ratingCause)
     return templates.TemplateResponse(request, "data_table.html", {
         "title": title,
         "records": records, "table_id": "allTable",

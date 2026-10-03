@@ -8,6 +8,9 @@ import time
 import settings.settings as settings
 
 from core.utils import logger
+_worker = None
+_cancel = threading.Event()
+
 from services import data_service
 from services.crawl_manager import crawl_manager
 from core.utils.runtime_mode import block_if_fixture
@@ -36,12 +39,16 @@ def resolve_rating_targets(engine, raw_values):
 def _run_rating_worker(report_numbers: list[str], score: int, cause: str = ""):
     from services import star_rating_service
 
-    star_rating_service.run_batch_rating(report_numbers, score=score, cause=cause)
+    star_rating_service.run_batch_rating(report_numbers, score=score, cause=cause, cancel=_cancel)
 
 
 def start_batch_rating(engine, report_numbers, score: int, cause: str = ""):
+    global _worker
     from services import rating_eligibility
 
+    if isinstance(score, bool) or not isinstance(score, int) or not 1 <= score <= 5:
+        raise ValueError("별점은 1~5 정수여야 합니다.")
+    generation = crawl_manager.restore_generation()
     cause_problem = rating_eligibility.cause_error(cause)
     if cause_problem:
         raise ValueError(cause_problem)
@@ -60,10 +67,30 @@ def start_batch_rating(engine, report_numbers, score: int, cause: str = ""):
         raise RuntimeError(community_gate.BLOCK_MESSAGES[community_gate.ONBOARDING_REQUIRED])
 
     block_if_fixture("star rating batch")
-    prepare_current_rating_log()
-    threading.Thread(
-        target=_run_rating_worker,
-        args=(final_report_numbers, score, cause),
-        daemon=True,
-    ).start()
+    token = crawl_manager.reserve_rating(generation)
+
+    def run():
+        try:
+            _run_rating_worker(final_report_numbers, score, cause)
+        finally:
+            crawl_manager.release_rating(token)
+            crawl_manager.request_pending_launch()
+
+    try:
+        prepare_current_rating_log()
+        _cancel.clear()
+        _worker = threading.Thread(target=run, daemon=True, name="rating-worker")
+        _worker.start()
+    except BaseException:
+        crawl_manager.release_rating(token)
+        raise
     return final_report_numbers
+
+
+def stop(timeout=5):
+    _cancel.set()
+    worker = _worker
+    if worker is None:
+        return True
+    worker.join(timeout)
+    return not worker.is_alive()

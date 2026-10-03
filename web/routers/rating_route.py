@@ -45,44 +45,5 @@ async def websocket_rating_logs(websocket: WebSocket):
     watch = ws_auth.GateWatch()
     log_file = os.path.join(app_settings.datapath, 'logs', 'current_rating.log')
     
-    try:
-        if not os.path.exists(log_file):
-            await websocket.send_text("별점 로그 파일을 대기 중입니다...\n")
-            while not os.path.exists(log_file):
-                await asyncio.sleep(1)
-                if await watch.lost():
-                    await websocket.close(code=ws_auth.CLOSE_GATE)
-                    return
-                
-        # Initial read
-        if os.path.exists(log_file):
-            with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
-                data = f.read()
-                if data:
-                    await websocket.send_text(data)
-            
-        last_size = os.path.getsize(log_file) if os.path.exists(log_file) else 0
-        
-        while True:
-            await asyncio.sleep(0.5)
-            if await watch.lost():
-                await websocket.close(code=ws_auth.CLOSE_GATE)
-                return
-            if not os.path.exists(log_file):
-                continue
-                
-            current_size = os.path.getsize(log_file)
-            if current_size > last_size:
-                with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
-                    f.seek(last_size)
-                    new_data = f.read()
-                    if new_data:
-                        await websocket.send_text(new_data)
-                last_size = current_size
-            elif current_size < last_size:
-                last_size = 0
-                
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        print(f"Rating WS error: {e}")
+    from web.log_stream import stream_log
+    await stream_log(websocket, log_file, watch, "별점 로그 파일을 대기 중입니다...\n")

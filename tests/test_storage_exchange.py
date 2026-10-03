@@ -838,7 +838,7 @@ class ExchangeRestoreTests(unittest.TestCase):
             [num1, num2, "SPP-0000-NOPE"], listing=listing, details={id1})
         self.assertEqual(done, {num1, "SPP-0000-NOPE"})
         self.assertEqual((not_found, ambiguous), (["SPP-0000-NOPE"], []))
-        self.assertEqual(listing.calls, 2, "첫 페이지(총 건수) 1회 + 1쪽 1회")
+        self.assertEqual(listing.calls, 1, "첫 페이지를 총 건수와 데이터에 재사용")
         for n in (num1, num2, "SPP-0000-NOPE"):
             crawl_manager.append_to_pending(n)
         left = crawl_manager._settle_pending([num1, num2, "SPP-0000-NOPE"], crawl_manager._read_queue_report(queue_file))
@@ -871,7 +871,7 @@ class ExchangeRestoreTests(unittest.TestCase):
             _, (done, not_found, ambiguous) = self._queue_run([new_num, "SPP-0000-NOPE"], listing=listing, details={new_id})
             self.assertEqual(done, {new_num, "SPP-0000-NOPE"}, pages)
             self.assertEqual((not_found, ambiguous), (["SPP-0000-NOPE"], []), pages)
-            self.assertEqual(listing.calls, pages + 1, "첫 페이지 1회 + 각 페이지 1회")
+            self.assertEqual(listing.calls, pages, "각 페이지 1회, 첫 페이지 재사용")
 
     def test_a_failed_or_incomplete_list_search_never_marks_a_number_missing(self):
         """감사 R6-01: 첫 페이지 예외·오류 응답·중간 페이지 실패는 '없음'으로 확정하지 않는다. 빈 정상 목록은 확정한다."""
@@ -894,8 +894,8 @@ class ExchangeRestoreTests(unittest.TestCase):
         saved = []
         real_save = start._save_details_as_they_arrive
 
-        def spy(engine, stream, saved_ids=None):
-            result = real_save(engine, stream, saved_ids)
+        def spy(engine, stream, saved_ids=None, **kwargs):
+            result = real_save(engine, stream, saved_ids, **kwargs)
             saved.extend(saved_ids or [])
             return result
 
@@ -921,8 +921,8 @@ class ExchangeRestoreTests(unittest.TestCase):
         saved = []
         real_save = start._save_details_as_they_arrive
 
-        def spy(engine, stream, saved_ids=None):
-            result = real_save(engine, stream, saved_ids)
+        def spy(engine, stream, saved_ids=None, **kwargs):
+            result = real_save(engine, stream, saved_ids, **kwargs)
             saved.extend(saved_ids or [])
             return result
 
@@ -958,6 +958,9 @@ class ExchangeRestoreTests(unittest.TestCase):
 
             async def json(self):
                 return self.body
+            async def stream(self):
+                import json
+                yield json.dumps(self.body).encode('utf-8')
 
         with mock.patch.object(api_route, "_raise_if_community_blocked"):
             for running in (False, True):

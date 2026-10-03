@@ -2,6 +2,17 @@
 
 다루는 것: start.py 파이프라인, 파서 규칙, 카테고리 분류, 첨부 URL, 별점 API, 감시목록, 디버그 extractor.
 
+## 실행 접수·실패·초기화 작업의 수명
+
+- 일반/선택/초기화 크롤은 완료 watcher를 먼저 준비하고 프로세스를 인계한다. 실행 실패도 watcher에 None을 전달해 대기를 풀며, 알림 실패가 이미 실행한 프로세스를 실패 접수로 바꾸지 않는다. 로그용 Popen 부모 fd는 닫는다.
+- 프로세스 종료부터 완료 마커·로그 회전·커뮤니티 후처리까지 예약을 유지한다. 관리 실행은 부모가 return code와 자식의 실행 기록으로 succeeded/failed/cancelled/unknown을 기록하며 완료 처리는 한 번만 인계한다. 목록/상세의 수집 실패를 정상 동기화 성공으로 저장하지 않는다.
+- 봇의 개인 자료 명령은 설정 chat와 허용 사용자 검사를 거친다. 그룹은 `TELEGRAM.allowed_user_ids`에 명시한 사용자만 허용한다. 서버 lifespan의 managed bot만 공통 coordinator로 크롤 쓰기 작업을 접수한다.
+- 별점은 크롤/복원과 같은 coordinator 예약을 사용한다. 요청을 보내기 전에 submitting을 영속 기록하고, 응답 유실·불명확한 오류는 unknown으로 두어 다음 실행에서 GET 확인만 한다. 작업자 stop은 레코드 사이/재시도 대기에서 협력 취소하며 진행 중 네트워크 요청이 즉시 취소됐다고 하지 않는다.
+- 초기화 HTTP start/resume는 영속 job 생성 후 관리 작업자에게 백업/manifest/실행을 맡긴다. supervisor는 자기 작업자/자식의 lease를 갱신하고 만료된 job을 다시 점검한다. 목록 등록·항목 저장·완료/오류 콜백은 dataset/account/run attempt와 running 상태를 확인한다. 시도 ID는 서버 로컬 community meta이며 교환 DB schema 변경이 아니다.
+- pause는 먼저 상태를 fenced하고 자기 child를 정지시킨다. child가 계속 살아 있으면 running/pause_stop_pending을 반환한다. 진행 중 읽기 전용 백업은 checkpoint에서 멈추므로 paused 응답이 백업 스레드의 즉시 종료를 뜻하지 않는다. 소유 lease는 작업자 정리 뒤 해제한다.
+- 새 작업의 게이트는 refresh 이후 최근 중앙 검증을 요구한다. 탐색 화면의 기존 캐시 허용과 구분한다. preflush는 업로더와 같은 project/contributor/connection/grant/control scope의 sendable count를 쓴다.
+- 로그인은 false/exception 모두 유한 횟수·총 deadline 안에 재시도한다. 목록은 첫 페이지를 재사용하고 전체 수·페이지별 수·ID 유일성을 검사하며 total=0인 정상 빈 결과를 허용한다. manifest는 cursor 순환·페이지 수·deadline·lease/account scope를 확인한 뒤 snapshot을 교체한다.
+
 2026-09-24 에 기존 루트 `CLAUDE.md`(725줄)에서 옮겼다. 아래 '이관 원문' 은 문구를 바꾸지 않고 옮긴 것이며, 원본 전체는 [legacy-claude-reference.md](legacy-claude-reference.md)에 있다.
 
 ## 코드 대조 정정 (기준 17df6cb)
@@ -9,6 +20,7 @@
 | 원문 절 | 현재 코드 | 조치 |
 |---|---|---|
 | 전체 | 이번 이관에서는 크롤러 경로를 실행하지 않았다(실계정·외부 요청 금지). 코드 대조는 문서 절과 심볼 존재 수준만 확인했다. | 미검증 표시 |
+| 중복 원천 읽기 실패 | `duplicate_group_service`는 세 merge 표·entry_value·raw_content의 필수 조회 실패를 `DuplicateInventoryError`로 전달한다. 신고가 0건이어도 모든 원천의 조회 성공을 확인한 후에만 그룹/멤버를 재작성한다. 실패 시 transaction rollback으로 기존 판단·수동 대표·생성 시각을 보존한다. | 정상 빈 원천과 읽기 오류를 구분; 판단 표는 정상 재생성에서도 유지 |
 | 위반법규 파싱 (2026-09-27) | `services/parser.py`는 최신 처리내용에서 `도로교통법 제N조`와 `「자동차관리법」제29조`처럼 꺾쇠 안에 법 이름이 있는 조문을 읽는다. 법 이름·조·항 사이 공백을 허용하고 저장값은 공백을 정리한다. 모바일 `standalone_parser.dart`와 합성 입력 계약을 공유한다. | `contracts/parser-vectors.json` |
 | 커뮤니티 자동 업로드 (2026-09-27) | 상세 1건의 개인 DB 저장 완료 뒤 `community_uploader.wake()`를 호출한다. 모든 크롤링의 부모 프로세스 완료 훅(`CrawlManager.run_after_crawl`)에서도 깨워 자식 프로세스에서 만들어진 대기 전송을 처리한다. | `services/community_capture.py`, `services/crawl_manager.py` |
 

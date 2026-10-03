@@ -13,7 +13,7 @@ engine = get_engine()
 def db_editor_list(request: Request, category: str = "traffic"):
     if not db_editor_service.get_category_tables(category):
         category = "traffic"
-    records = db_editor_service.list_records(engine, category)
+    records = db_editor_service.list_records(engine, category, summary=True)
     return templates.TemplateResponse(request, "db_editor.html", {
         "title": "데이터 수정",
         "records": records,

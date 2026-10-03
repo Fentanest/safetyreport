@@ -6,6 +6,7 @@ import mimetypes
 import os
 import threading
 import time
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -53,6 +54,9 @@ _prime_executor = ThreadPoolExecutor(max_workers=_PRIME_WORKERS, thread_name_pre
 _prime_futures: dict[str, Future[Path]] = {}
 _prime_errors: dict[str, str] = {}
 _prime_guard = threading.Lock()
+_active_paths = {}
+_active_guard = threading.RLock()
+_stop = threading.Event()
 
 
 def _validate_remote_url(url: str) -> str:
@@ -96,7 +100,7 @@ def _tmp_path(path: Path) -> Path:
 
 def _progress_reset(url: str) -> None:
     with _progress_state_guard:
-        _progress[url] = {"total": None, "downloaded": 0, "done": False, "error": None}
+        _progress[url] = {"total": None, "downloaded": 0, "ready": False, "done": False, "error": None, "generation": uuid.uuid4().hex}
 
 
 def _progress_set(url: str, **values) -> None:
@@ -120,6 +124,25 @@ def guess_media_type(url: str) -> str:
 
 
 def ensure_cached(url: str) -> Path:
+    normalized = _validate_remote_url(url)
+    path = _cache_path(normalized)
+    tracked = (path, _tmp_path(path))
+    with _active_guard:
+        for item in tracked:
+            _active_paths[item] = _active_paths.get(item, 0) + 1
+    try:
+        return _ensure_cached(normalized)
+    finally:
+        with _active_guard:
+            for item in tracked:
+                count = _active_paths[item] - 1
+                if count:
+                    _active_paths[item] = count
+                else:
+                    _active_paths.pop(item, None)
+
+
+def _ensure_cached(url: str) -> Path:
     """Download `url` fully into local cache (idempotent). Returns cache file path.
 
     다운로드 중에도 `_progress` 로 총 크기/누적 바이트를 공개하므로,
@@ -139,12 +162,13 @@ def ensure_cached(url: str) -> Path:
         tmp = _tmp_path(path)
         _progress_reset(normalized)
         written = 0
+        deadline = time.monotonic() + 300
         try:
             with _session.get(
                 normalized,
                 headers={"User-Agent": _USER_AGENT},
                 stream=True,
-                timeout=(10, 600),
+                timeout=(10, 30),
                 allow_redirects=True,
             ) as response:
                 if response.status_code >= 400:
@@ -153,19 +177,27 @@ def ensure_cached(url: str) -> Path:
                 # 그때는 total 을 공개하지 않아 리더가 완료까지 기다리도록 둔다.
                 encoding = (response.headers.get("Content-Encoding") or "").strip().lower()
                 declared = response.headers.get("Content-Length")
+                declared_total = None
                 if declared and encoding in ("", "identity"):
                     try:
-                        _progress_set(normalized, total=int(declared))
+                        declared_total = int(declared)
+                        if declared_total < 0:
+                            declared_total = None
                     except ValueError:
                         pass
                 with open(tmp, "wb") as out:
+                    _progress_set(normalized, total=declared_total, ready=True)
                     for chunk in response.iter_content(chunk_size=_CHUNK_SIZE):
+                        if _stop.is_set() or time.monotonic() >= deadline:
+                            raise TimeoutError('media download cancelled or expired')
                         if chunk:
                             out.write(chunk)
                             # flush 이후에만 카운터를 올린다. 리더는 이 카운터까지만 읽는다.
                             out.flush()
                             written += len(chunk)
                             _progress_set(normalized, downloaded=written)
+                if declared_total is not None and written != declared_total:
+                    raise RuntimeError("media length does not match Content-Length")
             os.replace(tmp, path)
             _progress_set(normalized, total=written, downloaded=written, done=True)
         except Exception as exc:
@@ -201,9 +233,11 @@ def _available_bytes(url: str, source: dict) -> int:
         if _is_cached_file(path):
             return path.stat().st_size
         return 0
-    if info.get("error"):
-        raise RuntimeError(info["error"])
-    return int(info.get("downloaded") or 0)
+    if info.get('error'):
+        raise RuntimeError(info['error'])
+    if source.get('generation') and source['generation'] != info.get('generation'):
+        raise RuntimeError('media download generation changed')
+    return int(info.get('downloaded') or 0)
 
 
 def open_stream(url: str) -> dict:
@@ -241,13 +275,14 @@ def open_stream(url: str) -> dict:
         if info.get("error"):
             raise RuntimeError(info["error"])
         total = info.get("total")
-        if total:
+        if total and info.get("ready"):
             return {
                 "url": normalized,
                 "path": path,
                 "tmp": _tmp_path(path),
                 "total": int(total),
                 "complete": False,
+                "generation": info.get('generation'),
             }
         if time.monotonic() >= deadline:
             break
@@ -271,7 +306,11 @@ def iter_stream(source: dict, start: int, end: int):
     if remaining <= 0:
         return
 
-    handle = _open_cache_reader(url, source["path"], source["tmp"])
+    tracked = (source['path'], source['tmp'])
+    with _active_guard:
+        handle = _open_cache_reader(url, source['path'], source['tmp'])
+        for item in tracked:
+            _active_paths[item] = _active_paths.get(item, 0) + 1
     position = start
     stall_deadline = time.monotonic() + _STALL_TIMEOUT_SECONDS
     last_available = -1
@@ -286,7 +325,7 @@ def iter_stream(source: dict, start: int, end: int):
             if position >= available:
                 info = _progress_get(url) or {}
                 if source["complete"] or info.get("done"):
-                    break  # 더 받을 게 없다
+                    raise RuntimeError('media stream ended before requested length')
                 if time.monotonic() >= stall_deadline:
                     raise RuntimeError("media stream stalled")
                 time.sleep(_FOLLOW_POLL_SECONDS)
@@ -304,6 +343,13 @@ def iter_stream(source: dict, start: int, end: int):
             yield chunk
     finally:
         handle.close()
+        with _active_guard:
+            for item in tracked:
+                count = _active_paths[item] - 1
+                if count:
+                    _active_paths[item] = count
+                else:
+                    _active_paths.pop(item, None)
 
 
 def _finish_prime(url: str, future: Future[Path]) -> None:
@@ -316,8 +362,9 @@ def _finish_prime(url: str, future: Future[Path]) -> None:
             error = str(exc)
 
     with _prime_guard:
-        if _prime_futures.get(url) is future:
-            _prime_futures.pop(url, None)
+        if _prime_futures.get(url) is not future:
+            return
+        _prime_futures.pop(url, None)
         if error:
             _prime_errors[url] = error
         else:
@@ -353,12 +400,15 @@ def get_cache_status(url: str) -> dict[str, object]:
 
 def prime_cache(url: str) -> dict[str, object]:
     normalized = _validate_remote_url(url)
+    if _stop.is_set():
+        raise RuntimeError('media service is stopping')
     status = get_cache_status(normalized)
     if status["ready"]:
         return status
     if status["status"] == "pending":
         return status
 
+    created = False
     with _prime_guard:
         future = _prime_futures.get(normalized)
         if future is None or future.done():
@@ -368,7 +418,12 @@ def prime_cache(url: str) -> dict[str, object]:
             _progress_reset(normalized)
             future = _prime_executor.submit(ensure_cached, normalized)
             _prime_futures[normalized] = future
-            future.add_done_callback(lambda done, key=normalized: _finish_prime(key, done))
+            created = True
+
+    # Future가 이미 완료됐으면 등록 즉시 이 스레드에서 콜백을 실행한다.
+    # _finish_prime은 같은 guard를 잡으므로 guard 밖에서 등록해야 한다.
+    if created:
+        future.add_done_callback(lambda done, key=normalized: _finish_prime(key, done))
 
     return {"status": "pending", "ready": False}
 
@@ -383,9 +438,10 @@ def cleanup_cache(max_age_seconds: int = _CACHE_MAX_AGE_SECONDS) -> int:
         return 0
     for entry in entries:
         try:
-            if entry.is_file() and entry.stat().st_mtime < cutoff:
-                entry.unlink()
-                removed += 1
+            with _active_guard:
+                if entry not in _active_paths and entry.is_file() and entry.stat().st_mtime < cutoff:
+                    entry.unlink()
+                    removed += 1
         except Exception:
             pass
 
@@ -400,3 +456,20 @@ def cleanup_cache(max_age_seconds: int = _CACHE_MAX_AGE_SECONDS) -> int:
             _progress.pop(key, None)
 
     return removed
+
+
+def start():
+    with _prime_guard:
+        if not any(not future.done() for future in _prime_futures.values()):
+            _stop.clear()
+
+
+def stop(timeout=5):
+    from concurrent.futures import wait
+    _stop.set()
+    with _prime_guard:
+        futures = list(_prime_futures.values())
+    for future in futures:
+        future.cancel()
+    _, alive = wait(futures, timeout=timeout)
+    return not alive
