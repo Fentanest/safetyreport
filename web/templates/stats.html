@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "stats_fragment.html" if fragment else "base.html" %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -29,7 +29,8 @@
 } %}
 {% set query_items = request.query_params.multi_items() %}
 
-<div class="sr-stats-page">
+<div class="sr-stats-page" aria-busy="{{ 'true' if pending else 'false' }}">
+{% if pending %}<p id="statsLoading" role="status">지도와 상세 통계를 각각 불러오고 있습니다.</p>{% endif %}
 <div class="sr-stats" id="statsRoot">
 
     <!-- 갱신 정보와 설정에서 정한 집계 기준(여기서 따로 바꾸지 않는다) -->
@@ -63,7 +64,7 @@
             </div>
             <div class="sr-cond-group dropdown sr-law-picker">
                 <span class="sr-seg-label" id="statsLawLabel"><i class="fas fa-gavel me-1"></i>위반법규</span>
-                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" id="statsLawToggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-labelledby="statsLawLabel statsLawToggle">
+                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" id="statsLawToggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" aria-labelledby="statsLawLabel statsLawToggle" {% if pending %}disabled title="상세 통계가 준비되면 법규를 선택할 수 있습니다"{% endif %}>
                     <span class="sr-law-current" id="statsLawCurrent">{{ '없음' if f.law == '__없음__' else (f.law or '전체') }}</span>
                 </button>
                 <div class="dropdown-menu sr-law-menu" aria-labelledby="statsLawToggle">
@@ -159,10 +160,13 @@
 
         <article class="sr-card sr-viz-card" id="statsDispositionCard" aria-labelledby="statsDispositionTitle">
             <div class="sr-card-head">
-                <h3 class="sr-card-title" id="statsDispositionTitle">처분 분포</h3>
+                <h3 class="sr-card-title" id="statsDispositionTitle">처리결과 · 처분 분포</h3>
                 <span class="sr-card-sub" id="statsDispositionBase"></span>
             </div>
             <div class="sr-viz-body">
+                <h4 class="h6">처리결과</h4>
+                <ul class="list-unstyled small d-flex flex-wrap gap-3" id="statsResultList"></ul>
+                <h4 class="h6">처분</h4>
                 <ul class="sr-hbars" id="statsDispositionList"></ul>
             </div>
             <div class="sr-viz-foot" id="statsDispositionNote"></div>
@@ -170,14 +174,14 @@
 
         <article class="sr-card sr-viz-card" id="statsTypeCard" aria-labelledby="statsTypeTitle">
             <div class="sr-card-head">
-                <h3 class="sr-card-title" id="statsTypeTitle">위반 유형별 현황</h3>
+                <h3 class="sr-card-title" id="statsTypeTitle">위반법규별 현황</h3>
                 <span class="sr-card-sub" id="statsTypeBase"></span>
             </div>
             <div class="sr-viz-body">
                 <div id="statsTypeScroll"><ul class="sr-hbars" id="statsTypeList"></ul></div>
             </div>
             <button type="button" class="btn btn-link sr-type-more" id="statsTypeMore" aria-expanded="false" aria-controls="statsTypeList" hidden></button>
-            <div class="sr-viz-foot">신고명 기준 · 비율은 현재 분류 전체 건수 대비</div>
+            <div class="sr-viz-foot">저장된 법규 조합 기준(복수 법규도 신고당 1건) · 비율은 현재 분류 전체 건수 대비 · 법규를 누르면 같은 조건의 목록을 엽니다.</div>
         </article>
     </div>
     </div>
@@ -256,7 +260,8 @@
             {% set resp_start = [yr_start, f.responseDateStart or ''] | max %}
             {% set resp_end_candidates = [yr_end, f.responseDateEnd or ''] | reject('equalto', '') | list %}
             {% set resp_end = (resp_end_candidates | min) if resp_end_candidates else '' %}
-            {% set drill_base = {} %}
+            {% set drill_base = {'dedupe': dedupe_mode, 'status': '완료'} %}
+            {% if f.law %}{% set _ = drill_base.update({'lawExact': 'true'}) %}{% endif %}
             {% for key, value in [('law', f.law), ('responseDateStart', resp_start), ('responseDateEnd', resp_end),
                                   ('reportName', f.reportName), ('location', f.location),
                                   ('reportDateStart', f.reportDateStart), ('reportDateEnd', f.reportDateEnd),
@@ -266,9 +271,10 @@
             {% endfor %}
             {% macro agency_rows(records, base_url) %}
                 {% for r in records %}
-                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'agencyExact': 'true'}) %}
-                <tr class="sr-drill" tabindex="0" data-key="{{ r.agency }}" data-href="{{ base_url }}?{{ q | urlencode }}">
-                    <td class="sr-name" title="{{ r.agency }}">{{ r.agency }}</td>
+                {% set key = r.agency_key or ('src:-:' ~ r.agency) %}
+                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'agencyExact': 'true', 'agencyKey': key}) %}
+                <tr class="sr-drill" tabindex="0" data-key="{{ [key] | tojson | forceescape }}" data-href="{{ base_url }}?{{ q | urlencode }}">
+                    <td class="sr-name" title="{{ r.agency }} · 기관 집계 키: {{ key }}">{{ r.agency }}</td>
                     <td data-order="{{ r.total }}" class="sr-n"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" data-count="{{ r.avg_days_count or 0 }}" class="sr-n">{{ avg_display(r.avg_days) }}</td>
                     {{ metric_cells(r) }}
@@ -277,9 +283,10 @@
             {% endmacro %}
             {% macro person_rows(records, base_url) %}
                 {% for r in records %}
-                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'person': r.person, 'agencyExact': 'true'}) %}
-                <tr class="sr-drill" tabindex="0" data-key="{{ r.agency }}&#9;{{ r.person }}" data-href="{{ base_url }}?{{ q | urlencode }}">
-                    <td class="sr-name" title="{{ r.agency }}">{{ r.agency }}</td>
+                {% set key = r.agency_key or ('src:-:' ~ r.agency) %}
+                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'person': r.person, 'agencyExact': 'true', 'agencyKey': key}) %}
+                <tr class="sr-drill" tabindex="0" data-key="{{ [key, r.person] | tojson | forceescape }}" data-href="{{ base_url }}?{{ q | urlencode }}">
+                    <td class="sr-name" title="{{ r.agency }} · 기관 집계 키: {{ key }}">{{ r.agency }}</td>
                     <td class="sr-person" title="{{ r.person }}">{{ r.person }}</td>
                     <td data-order="{{ r.total }}" class="sr-n"><b>{{ r.total }}</b>건</td>
                     <td data-order="{{ r.avg_days if r.avg_days is not none else -1 }}" data-count="{{ r.avg_days_count or 0 }}" class="sr-n">{{ avg_display(r.avg_days) }}</td>
@@ -437,6 +444,7 @@
 {#- 화면 스크립트가 쓰는 서버 집계 결과(같은 요청 안의 값). -#}
 <script type="application/json" id="statsData">{{ {
     'overview': overview,
+    'pending': pending,
     'rows': table_rows,
     'laws': {'traffic': traffic_available_laws, 'parking': parking_available_laws, 'other': other_available_laws},
     'hasEmptyLaw': {'traffic': traffic_has_empty_law, 'parking': parking_has_empty_law, 'other': other_has_empty_law},
@@ -454,5 +462,6 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="/static/ui/report-map.js?v={{ request.state.app_version }}"></script>
 <script src="/static/ui/sunwi-widget.js?v={{ request.state.app_version }}"></script>
+<script src="/static/ui/stats-loader.js?v={{ request.state.app_version }}"></script>
 <script src="/static/ui/stats.js?v={{ request.state.app_version }}"></script>
 {% endblock %}

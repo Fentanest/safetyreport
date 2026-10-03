@@ -74,7 +74,9 @@ test('summary cards match the mobile overview API for each category', async ({ p
   const path = await import('path');
   const { fixtureDataDir } = await import('../playwright.config');
   const key = fs.readFileSync(path.join(fixtureDataDir, 'fixture-api-key.txt'), 'utf-8').trim();
-  const api = (await (await request.get('/api/v1/stats/overview', { headers: { 'X-API-Key': key } })).json()).data;
+  const response = await request.get('/api/v1/stats/overview', { headers: { 'X-API-Key': key, 'X-SafetyReport-Client': 'mobile', 'X-SafetyReport-Version': '2.0.0+31', 'X-SafetyReport-Protocol': '3' } });
+  expect(response.status()).toBe(200);
+  const api = (await response.json()).data;
 
   await login(page);
   await page.goto('/stats');

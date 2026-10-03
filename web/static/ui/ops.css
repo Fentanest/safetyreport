@@ -111,6 +111,9 @@
     border: none;
     border-top: 1px solid var(--sr-border);
 }
+#crawlLayout > [class*="col-"] { min-width: 0; }
+#crawlLayout .ops-console-wrapper { min-height: 0; }
+#crawlLayout .ops-console { height: clamp(260px, 55vh, 620px); max-height: 620px; min-height: 0; flex: none; overflow-wrap: anywhere; }
 /* 로그 콘솔: 두 테마 모두 토큰 색(배경 surface-2, 글자 text) — 대비는 본문과 같다 */
 .ops-console {
     background-color: var(--sr-surface-2);

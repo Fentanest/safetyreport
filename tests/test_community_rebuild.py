@@ -466,6 +466,57 @@ class CrashResumeTest(unittest.TestCase):
         with store.transaction() as tx:
             tx.execute("UPDATE leases SET until='2000-01-01T00:00:00.000Z' WHERE name='rebuild'")
 
+    def _assert_launch_failed(self, run_id):
+        job = rebuild._get_job(run_id)
+        self.assertEqual(job['state'], 'failed')
+        self.assertIn('crawl_launch_failed:', job['last_error'])
+        lease = CommunityStore.open().connect().execute(
+            "SELECT 1 FROM leases WHERE name='rebuild' AND owner=?", (run_id,)).fetchone()
+        self.assertIsNone(lease)
+        self.assertTrue(rebuild.required())
+
+    def test_launch_failure_can_resume_same_job_without_waiting_for_lease(self):
+        with mock.patch.object(rebuild, '_launch_crawl', side_effect=OSError('fixture launch failure')):
+            failed = rebuild.start('tester')
+        self._assert_launch_failed(failed['run_id'])
+        out = rebuild.resume()
+        self.assertEqual((out['run_id'],out['state']), (failed['run_id'],'running'))
+        self.assertEqual(self.env.launches, [failed['run_id']])
+
+    def test_resume_and_startup_launch_failures_release_only_owned_lease(self):
+        run_id = rebuild.start('tester')['run_id']
+        rebuild.pause('fixture')
+        with mock.patch.object(rebuild, '_launch_crawl', side_effect=OSError('fixture failure')):
+            rebuild.resume()
+            self._assert_launch_failed(run_id)
+            rebuild._set_state(run_id, 'running')  # expired/missing lease after a crash
+            result = rebuild.resume_on_startup()
+            self.assertIsNone(result['resumed'])
+            self._assert_launch_failed(run_id)
+        self.assertEqual(rebuild.resume()['state'], 'running')
+        self.assertEqual(self.env.launches,[run_id,run_id])
+
+    def test_concurrent_start_and_resume_launch_once(self):
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: rebuild.start('tester'), range(2)))
+        run_id = results[0]['run_id']
+        self.assertEqual(results[1]['run_id'], run_id)
+        self.assertEqual(self.env.launches,[run_id])
+        rebuild.pause('fixture')
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: rebuild.resume(), range(2)))
+        self.assertEqual([r['state'] for r in results],['running','running'])
+        self.assertEqual(self.env.launches,[run_id,run_id])
+
+    def test_failed_job_still_requires_fresh_gate_before_resume(self):
+        with mock.patch.object(rebuild, '_launch_crawl', side_effect=OSError('fixture failure')):
+            run_id = rebuild.start('tester')['run_id']
+        self.env.gate_state['can_enter'] = False
+        self.assertEqual(rebuild.resume()['reason'],'gate')
+        self._assert_launch_failed(run_id)
+        self.assertEqual(self.env.launches, [])
+
     def test_g11_running_with_expired_lease_resumes_same_run(self):
         payload = rebuild.start("tester")
         run_id = payload["run_id"]

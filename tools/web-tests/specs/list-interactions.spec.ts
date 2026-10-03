@@ -15,6 +15,7 @@ test.describe('List Interactions and Modals', () => {
     await login(page);
     await page.goto('/data/all');
     await page.waitForSelector('table.dataTable tbody tr');
+    await expect(page.locator('#allTable')).toHaveAttribute('aria-busy','false');
   });
 
   test('advanced search AND/OR filters correctly', async ({ page }) => {
@@ -66,11 +67,12 @@ test.describe('List Interactions and Modals', () => {
     }).click();
     await expect(dropdown.locator('.multi-select-toggle')).toBeFocused();
 
-    const redrawn = page.evaluate(() => new Promise<void>((resolve) => {
-      (window as any).$('table.dataTable').one('draw.dt', () => resolve());
-    }));
+    await page.evaluate(() => {
+      (window as any).__srSearchRedrawn = false;
+      (window as any).$('table.dataTable').one('draw.dt', () => { (window as any).__srSearchRedrawn = true; });
+    });
     await page.keyboard.press('Enter');
-    await redrawn;
+    await expect.poll(() => page.evaluate(() => (window as any).__srSearchRedrawn)).toBe(true);
     const statuses = await page.evaluate(() => {
       const table = (window as any).$('table.dataTable').DataTable();
       return table.rows({ search: 'applied' }).data().toArray()

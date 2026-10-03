@@ -11,7 +11,9 @@ from __future__ import annotations
 import hashlib
 import os
 import sqlite3
+import threading
 import uuid
+from functools import wraps
 from datetime import datetime, timezone
 
 REQUIRED_VERSION = "source-rebuild-2026-09-26.1"
@@ -25,6 +27,15 @@ _BLOCKING_STATES = ("awaiting_confirmation", "preparing_backup", "running",
 
 _LEASE_NAME = "rebuild"
 _MAX_ATTEMPTS = 5
+_control_lock = threading.RLock()
+
+
+def _serialized_control(fn):
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        with _control_lock:
+            return fn(*args, **kwargs)
+    return wrapped
 
 
 def _now() -> datetime:
@@ -349,6 +360,7 @@ def _backup_personal_db(run_id: str) -> tuple[str | None, str]:
     return target, "ok"
 
 
+@_serialized_control
 def start(confirmed_by: str) -> dict:
     """사용자 확인 뒤 파이프라인 진입. 이미 활성 run 이 있으면 그 run 을 반환한다."""
     gate = _gate_fresh()
@@ -426,12 +438,26 @@ def _continue_pipeline(job: dict) -> None:
             return
         now = _iso(_now())
         _touch(run_id, state="running", started_at=now)
-        _store().acquire_lease(_LEASE_NAME, run_id, 3600)
-        try:
-            _launch_crawl(run_id)
-        except Exception as exc:
-            _touch(run_id, last_error=f"crawl_launch_failed: {exc}")
+        _launch_or_fail(run_id)
         return
+
+
+def _launch_or_fail(run_id: str) -> bool:
+    """실행하지 못한 run은 실패로 남겨 재개할 수 있게 한다(완료로 간주하지 않음)."""
+    store = _store()
+    try:
+        if not store.acquire_lease(_LEASE_NAME, run_id, 3600):
+            raise RuntimeError("rebuild_lease_busy")
+        _launch_crawl(run_id)
+        return True
+    except Exception as exc:
+        with store.transaction() as tx:
+            # 일시정지·완료 등 이미 진행된 상태를 실패로 덮지 않는다.
+            tx.execute("UPDATE rebuild_jobs SET state='failed', last_error=?, updated_at=?"
+                       " WHERE run_id=? AND state='running'",
+                       (f"crawl_launch_failed: {exc}", _iso(_now()), run_id))
+            tx.execute("DELETE FROM leases WHERE name=? AND owner=?", (_LEASE_NAME, run_id))
+        return False
 
 
 def pause(reason: str) -> dict:
@@ -444,6 +470,7 @@ def pause(reason: str) -> dict:
     return status()
 
 
+@_serialized_control
 def resume() -> dict:
     """paused/failed → 같은 run 으로 다시 크롤."""
     gate = _gate_fresh()
@@ -455,11 +482,7 @@ def resume() -> dict:
     if job.get("state") not in ("paused", "failed"):
         return status()
     _set_state(job["run_id"], "running", clear_error=True)
-    _store().acquire_lease(_LEASE_NAME, job["run_id"], 3600)
-    try:
-        _launch_crawl(job["run_id"])
-    except Exception as exc:
-        _touch(job["run_id"], last_error=f"crawl_launch_failed: {exc}")
+    _launch_or_fail(job["run_id"])
     return status()
 
 
@@ -472,6 +495,8 @@ def accept_gaps() -> dict:
         return status()
     counts = _counts(job["run_id"])
     if not counts["failed_permanent"]:
+        return status()
+    if counts['pending'] or counts['failed_retryable'] or not job.get('list_complete'):
         return status()
     _touch(job["run_id"], gaps_accepted_at=_iso(_now()))
     _commit(job["run_id"], with_gaps=True)
@@ -508,11 +533,33 @@ def on_crawl_finished(run_id: str) -> dict:
 def _commit(run_id: str, *, with_gaps: bool) -> None:
     """staging → report_latest upsert 병합 + source_generation 증가 (한 트랜잭션)."""
     store = _store()
-    _set_state(run_id, "committing")
+    try:
+        _commit_transaction(store, run_id, with_gaps=with_gaps)
+    except Exception as exc:
+        _set_state(run_id, 'failed', last_error='commit_failed: ' + type(exc).__name__)
+        raise
+    try:
+        store.release_lease(_LEASE_NAME, run_id)
+    except Exception:
+        pass
+
+
+def _commit_transaction(store, run_id, *, with_gaps):
     with store.transaction() as tx:
+        job = tx.execute('SELECT * FROM rebuild_jobs WHERE run_id=?', (run_id,)).fetchone()
+        if not job or job['state'] in TERMINAL_STATES:
+            return
+        if job['state'] not in ('validating', 'committing') or not job['list_complete']:
+            raise RuntimeError('rebuild_not_validated')
+        remaining = tx.execute("SELECT count(*) FROM rebuild_items WHERE run_id=? AND state IN ('pending','failed_retryable')", (run_id,)).fetchone()[0]
+        permanent = tx.execute("SELECT count(*) FROM rebuild_items WHERE run_id=? AND state='failed_permanent'", (run_id,)).fetchone()[0]
+        if remaining or (permanent and not (with_gaps and job['gaps_accepted_at'])):
+            raise RuntimeError('rebuild_items_incomplete')
         dataset_id = tx.execute(
             "SELECT value FROM meta WHERE key='local_dataset_id'").fetchone()
         local_dataset_id = dataset_id["value"] if dataset_id else ""
+        if local_dataset_id != job['local_dataset_id'] or job['source_account_namespace'] != source_account_namespace():
+            raise RuntimeError('rebuild_scope_changed')
         staging = tx.execute(
             "SELECT source_report_id, event_id, payload_sha256, eligible"
             " FROM report_latest_staging WHERE run_id=?", (run_id,)).fetchall()
@@ -536,10 +583,6 @@ def _commit(run_id: str, *, with_gaps: bool) -> None:
             "UPDATE rebuild_jobs SET state=?, completed_at=?, source_generation=?,"
             " updated_at=? WHERE run_id=?",
             (final, now, new_gen, now, run_id))
-    try:
-        store.release_lease(_LEASE_NAME, run_id)
-    except Exception:
-        pass
 
 
 def mark_login_failed(run_id: str, note: str = "login_failed") -> None:
@@ -662,6 +705,7 @@ def note_counts(run_id: str, **values) -> None:
                    (_json.dumps(counts, ensure_ascii=False), _iso(_now()), run_id))
 
 
+@_serialized_control
 def resume_on_startup() -> dict:
     """재시작 시: running + lease 만료 → 같은 run 재개."""
     store = _store()
@@ -674,11 +718,7 @@ def resume_on_startup() -> dict:
         now = _iso(_now())
         if lease is not None and lease["owner"] == run_id and lease["until"] > now:
             continue  # 다른 살아 있는 워커가 잡고 있음
-        store.acquire_lease(_LEASE_NAME, run_id, 3600)
-        try:
-            _launch_crawl(run_id)
-        except Exception as exc:
-            _touch(run_id, last_error=f"crawl_launch_failed: {exc}")
+        if not _launch_or_fail(run_id):
             continue
         return {"resumed": run_id}
     return {"resumed": None}

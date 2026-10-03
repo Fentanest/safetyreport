@@ -8,6 +8,40 @@
 
 ---
 
+## 2026-10-03 (최근 한 달 코드 검토 후 수정, 로컬·배포 없음)
+
+기준: `dev a35b7d2`, 수정 전 작업 HEAD `f4a945e`. 사용자 미커밋 `VERSION` 및 기존 미추적 파일은 보존·커밋 제외.
+계약 대조/통계 의미/실제 브라우저 검수 스킬에 따라 기존 응답·DOM 선택자를 유지하고 동일명 기관·완료 모집단 회귀를 추가했다.
+
+| 확인한 원인 | 수정 파일·동작 | 검증 |
+|---|---|---|
+| HTTP `Upgrade: websocket`를 관리자 세션 예외로 취급(기존 결함) | `main.py`: 헤더 예외 제거. 실제 WS의 기존 인증·protocol 검사는 그대로 | 유효 protocol 헤더만 있는 무세션 조회/백업/설정 차단, 실제 HTTP fixture·TestClient PASS |
+| registry가 다른 코드에 같은 표시명을 주는데 화면은 이름으로 행을 색인 | `agency_registry.py`, `report_stats_service.py`, `stats.html/stats.js`: agency_key·JSON 복합 키로 선택/패널/CSV 분리. CSV 끝에 기관 집계 키 추가 | 동일명 다른 코드·같은 담당자의 1/0 과태료·4만원/0원·1일/3일을 각각 보존. Python raw/canonical·브라우저 기관/담당자 PASS |
+| 상세 표는 완료만, 링크 목록·지도는 모든 상태/동일명 기관 합침 | `report_query_service.py`, `web/routers/data.py`, `web/routers/stats.py`, `report_map.html`: 추가형 agencyKey/status=완료 및 targetAgencyKey/completedOnly 필터 | 표 3건=목록 3건=상세 지도 3건. 기존 전체 지도 5건 유지. 법규 exact/dedupe 조건도 보존 PASS |
+| 초기화 런처 실패를 running에 기록해 lease와 재개 상태가 남음 | `community_rebuild.py`: 실패 상태/소유 lease 정리를 한 트랜잭션으로 처리, start/resume/startup 제어 직렬화 | start/resume/startup 실패·즉시 같은 job 재개·동시 요청 단일 실행·fresh 게이트 유지 PASS |
+| 독립 검수 추가 발견: 실행 성공 후 알림 예외도 실행 실패로 처리 | `crawl_control.py`: 완료 감시 스레드를 먼저 준비하고 process 인계, launch 실패 시 대기 종료. 알림 예외는 이미 실행된 job/lease를 실패 처리하지 않음 | 외부 프로세스 없는 lifecycle 주입 3개 PASS, 독립 재검수 PASS |
+| 목록의 100/200/500ms 초기화 타이머가 느린 언어 파일과 경쟁(기존 결함) | `data_table.html`: initComplete 뒤 검색/폭/자동 상세 처리. 준비 전 동작은 보류/비활성·aria-busy 표시 | 한국어 파일 650ms 지연에서도 자동 상세 1건·JS 오류 0 PASS |
+| 통계 셸 버튼이 상세 집계 완료 전 연결되지 않음 | `stats-loader.js`, `stats.js/stats.html`: 초기 분류/연도 즉시 연결, 최신 분류 인계·지도 취소/순번 검사, 법규 준비 상태 표시 | 상세 응답 보류 중 분류 연속 전환·지도 재생성·연도 조건 해제 및 기존 조건 보존 PASS |
+| total−표 합계를 기관 누락으로 표시하여 미완료 신고도 누락으로 오인 | `stats.js`: total−completed는 별도 제외 안내, completed−전체 표 합계만 기관/담당자 누락 | 미완료 2건을 기관 누락으로 표시하지 않음 PASS |
+| 768px Bootstrap 두 열 검색칸의 input294px가 부모267px를 넘침 | `list.css`: 검색칸 flex/min-width:0을 viewport에 관계없이 적용. 표 내부 스크롤은 유지 | light/dark 360/768/1366/1920 및 CSS 렌더 확대 200% PASS, 독립 768px scrollWidth768 확인 |
+
+- 문서 동기화: `data-contracts`, `web-ui`, `community-rebuild`, `statistics-spec`, `pilot-dom-contracts`, 기능표 ST-07/ST-14/MP-04. 라우트 method/path와 기존 DOM id 제거 없음. 외부 API/DB 스키마/제품 VERSION 변경 없음.
+- **passed**: Python 전체 573개 중 568 passed/기존 5 skipped(211.189초). 독립 핵심 50개 PASS. Chromium/Firefox 사용자 제보 회귀 42/42, 새 회귀 28개는 26개 전체 실행+연도 2개 수정 후 재실행 PASS. 기존 확장 138개는 최초 136 passed/2 failed → 해당 조건 4개(양 엔진) 재검수 PASS. 고유 브라우저 조건 총 208개에서 최종 미해결 실패 없음.
+- **failed→수정/재검수**: 새 테스트의 비율 포함 텍스트 기대값/검색 debounce/드로어 닫기 누락/셸에 없는 연도 선택자를 고쳤다. 기존 Enter 테스트는 draw listener 등록을 먼저 확인하도록 고쳤으며 draw·결과 assertions를 유지했다. Firefox 외부 Pretendard subset82 다운로드 실패는 재검수 통과했지만 CDN 변동 가능성은 남는다(오류 무시/skip 없음).
+- **성능 전량 확인**: 0/1/3000/58388/500000 자료를 각각 수정 전 `f4a945e` 통계 구현과 비교했다. 전량 합계·지도 점 합계·최대1200점 assertions 통과. SQL 횟수·JSON 전송량은 모든 크기에서 동일. cold 통계 초(before→after): 0건 .0184→.0183, 1건 .6462→.6909, 3000건 1.8884→1.7989, 58388건 13.1739→14.1510, 500000건 101.9894→77.7134. 50만 건 SQL 통계7/지도6(동일), 통계120117B/전체 지도1725284B/bounded50798B(동일), 최대RSS 약1.08GiB(유사). 공유 머신의 병행 검수 중 단회 측정이므로 속도 개선을 확정하지 않는다. 큰 자료의 첫 상세 집계 CPU·메모리 비용은 잔여 제약이다.
+- **not-run**: 실기기/운영, 원본 사용자 이미지·EXE, PyInstaller·Windows/macOS·Docker 재패키징, 브라우저 메뉴의 실제 native zoom. 200%는 실제 브라우저 안 CSS 렌더 확대이며 native zoom과 구분한다. push/배포/릴리즈/태그 없음.
+- 실행 로그·JSON·캡처/trace: `.agent-runs/month-fixes-20261003/`, 사용자 제보 재검수 `.agent-runs/v3-user-reports/browser-results/month-fixes/`, 독립 검수 `.agent-runs/month-independent-review/`(모두 추적 제외). 자체 fixture 서버/브라우저는 종료했다.
+
+## 2026-10-03 (로컬 구현·검수, 배포 없음)
+
+- 외부 self-host protocol3 정본/벡터를 추가했다. 제품 major와 protocol을 분리하고 기존 버전 응답 필드를 보존하며 유효 옛 API 키라도 HTTP409/WS4406으로 조회·다운로드·완료/알림·로그 접근을 차단한다. 관리자 웹의 실제 세션과 인증된 최소 버전 probe는 분리했다.
+- 대시보드 SQL 전량 집계/제한 recent/index, registry 중복 해석 제거, 변경 기반 유한 캐시와 지도 정규화 frame 재사용을 적용했다. 통계 HTML 셸·상세 통계·지도를 독립 로딩하고 지도는 범위/줌에 맞춘 최대1200개 공간 집계로 표시한다. 기존 전체 API는 유지하며 SQL page와 bounded map API를 추가했다.
+- 복원 거절을 구형/미래/손상/잘못된 형식/주인 불일치 코드와 detail/message로 구분하고 명확한 구형 DB 안내를 화면에 남긴다. 읽기 전용 사전 검증과 거절 전후 개인 DB·초기화 상태 불변을 확인했다. 구형 DB 변환을 허용하지 않았다.
+- 초기화 완료 배너의 hidden/d-flex 충돌, crawl ops-section 닫힘 누락을 고쳤다. 초기화 실제 상태·배경 진행 안내·대시보드 이동을 제공하며 commit 때 scope/미처리/누락 승인을 재검증한다. 로그 표시를2000줄/256KiB·배치/follow·초기64KiB tail로 제한하고 원본 파일은 유지한다.
+- 지도 tooltip 가상 요소 충돌만 제거했다. 결과 일부수용과 실제 처분을 별도로 표시하고 제목 유형 대신 저장 법규 조합을 집계한다. 법규 클릭에는 exact/dedupe/동일 조건을 전달하며 재현 불가능한 조건은 링크를 비활성화한다.
+- 확인된 저장소 공개 Variables를 source/dev/PyInstaller/Docker 기본 공개 설정으로 재사용하고 실빌드 누락·secret/자리표시자 검증 및 런타임 복구 안내를 보완했다. 사용자 원본 이미지/EXE를 확인하지 못해 해당 배포물 원인은 확정하지 않았다.
+- 전체 Python563개(5skip), Chromium/Firefox38개+법규/신규 API4개, 0/1/3000/58388/500000 전량 fixture 성능 비교와 전용 Docker HTTP/자산/공개 설정을 검증했다. 독립 검수의 지도 응답 순서·캐시 자정·법규 링크·페이지 snapshot 경쟁을 수정했다. 실제 기기/운영·Windows/macOS/frozen 검사는 미실행/blocked이며 상세 비용·작은자료 cold 퇴행은 [검수 기록](docs/reviews/2026-10-03-v3-user-reports-review.md)에 명시했다.
+
 ## 2026-09-30 (dev 미배포)
 
 ### 공유 기관 resolver 링크 색인 캐시(resolve.ts·resolve.dart)

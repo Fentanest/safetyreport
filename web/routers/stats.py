@@ -32,12 +32,15 @@ def _query_filters(request: Request) -> dict:
 
 def _map_filters(request: Request) -> dict:
     filters = _query_filters(request)
-    for key in ("targetAgency", "targetPerson"):
+    for key in ("targetAgency", "targetPerson", "targetAgencyKey"):
         value = (request.query_params.get(key) or "").strip()
         if value:
             filters[key] = value
+    if request.query_params.get("completedOnly", "").strip().lower() in {"true", "1", "on"}:
+        filters["completedOnly"] = True
     return filters
 
+@router.get("/stats/content")
 @router.get("/stats")
 def view_stats(
     request: Request,
@@ -79,7 +82,15 @@ def view_stats(
     }
     dedupe_mode = normalize_dedupe_mode(dedupe)
     # 표·요약 카드·차트는 한 번 읽은 같은 행에서 만든다(모바일 통계 요약과 같은 함수·조건) — statistics-spec §5, §9
-    records, overview = data_service.get_stats_page(engine, filters, mode=dedupe_mode)
+    fragment = request.url.path == "/stats/content"
+    if fragment:
+        records, overview = data_service.get_stats_page(engine, filters, mode=dedupe_mode)
+    else:
+        import pandas as pd
+        from services import report_stats_service as service
+        empty = pd.DataFrame()
+        records = service._compute_agency_stats([], empty.copy(), empty.copy(), empty.copy(), filters, dedupe_mode)
+        overview = service._compute_stats_overview([], empty, empty, empty, filters, dedupe_mode)
     # 선택 항목 상세 패널·CSV 내보내기용 행 자료. 경찰/비경찰 표는 기관별·담당자별의 부분집합이라 두 목록만 내린다.
     table_rows = {
         cat: {"agency": records[cat]["by_agency"], "person": records[cat]["by_person"]}
@@ -101,6 +112,8 @@ def view_stats(
 
     return templates.TemplateResponse(request, "stats.html", {
         "title": "통계",
+        "fragment": fragment,
+        "pending": not fragment,
         "last_crawl_time": last_crawl_time,
         "dedupe_mode": records.get("dedupe_mode", dedupe_mode),
         "exclude_withdraw": bool(app_settings.exclude_withdraw),
@@ -160,12 +173,14 @@ def view_report_map(
     # 통계 화면에서 넘어온 조건(법규·상세 검색·상세 패널 대상). 없으면 예전과 같은 전체 지도.
     map_filters = _map_filters(request)
 
-    map_payload = data_service.get_report_map_stats(
+    from services.report_stats_service import get_report_map_stats
+    map_payload = get_report_map_stats(
         engine,
         year=year,
         category=selected_category,
         mode=dedupe_mode,
         filters=map_filters or None,
+        max_points=1200,
     )
     missing_payload = data_service.get_report_map_missing_groups(
         engine,
@@ -201,12 +216,25 @@ def get_report_map_points(
     dedupe: str | None = None,
 ):
     """통계 화면의 작은 신고 지도용 JSON. 통계와 같은 조건을 받아 `/stats/map` 과 같은 함수로 집계한다."""
-    return data_service.get_report_map_stats(
+    from services.report_stats_service import get_report_map_stats
+    from fastapi import HTTPException
+    raw_bounds = request.query_params.get('bounds')
+    try:
+        import math
+        bounds = tuple(float(v) for v in raw_bounds.split(',')) if raw_bounds else None
+        if bounds and (len(bounds) != 4 or not all(math.isfinite(v) for v in bounds) or
+                       not (-90 <= bounds[0] <= bounds[2] <= 90 and -180 <= bounds[1] <= bounds[3] <= 180)):
+            raise ValueError()
+        zoom = max(0, min(19, int(request.query_params.get('zoom', '7'))))
+    except ValueError:
+        raise HTTPException(400, '잘못된 지도 범위입니다.')
+    return get_report_map_stats(
         engine,
         year=year,
         category=normalize_map_category(category),
         mode=normalize_dedupe_mode(dedupe),
         filters=_map_filters(request) or None,
+        max_points=1200, bounds=bounds, zoom=zoom,
     )
 
 

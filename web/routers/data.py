@@ -35,6 +35,15 @@ def _filter_title(base, status=None, fine=None, agency=None, person=None, law=No
     return ' / '.join(parts)
 
 
+def _identity_filters(request: Request, filters: dict | None) -> dict | None:
+    key = request.query_params.get("agencyKey")
+    if key:
+        filters = dict(filters or {}, agencyKey=key)
+    if filters and request.query_params.get("lawExact") == "true":
+        filters["lawExact"] = True
+    return filters
+
+
 @router.get("/traffic")
 def view_traffic(
     request: Request,
@@ -49,6 +58,7 @@ def view_traffic(
     dedupe: str | None = Query(None),
 ):
     filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
+    filters = _identity_filters(request, filters)
     dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_traffic_records(engine, filters, mode=dedupe_mode)
     title = _filter_title("교통위반 전체 보기", status, fine, agency, person, law, rating, ratingCause)
@@ -73,6 +83,7 @@ def view_parking(
     dedupe: str | None = Query(None),
 ):
     filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
+    filters = _identity_filters(request, filters)
     dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_parking_records(engine, filters, mode=dedupe_mode)
     title = _filter_title("주정차위반 내역", status, fine, agency, person, law, rating, ratingCause)
@@ -97,6 +108,7 @@ def view_other(
     dedupe: str | None = Query(None),
 ):
     filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
+    filters = _identity_filters(request, filters)
     dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_other_records(engine, filters, mode=dedupe_mode)
     title = _filter_title("기타 위반 조회", status, fine, agency, person, law, rating, ratingCause)
@@ -119,6 +131,7 @@ def view_all(
     dedupe: str | None = Query(None),
 ):
     filters = _build_filters(status, fine, agency, person, False, None, rating, ratingCause)
+    filters = _identity_filters(request, filters)
     dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_all_records(engine, filters, mode=dedupe_mode)
     title = _filter_title("전체 신고 조회", status, fine, agency, person, None, rating, ratingCause)

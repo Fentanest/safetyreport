@@ -13,6 +13,10 @@
 | 웹 통계 탭 구조 | 위반법규는 탭이 아니라 오른쪽 사이드바 버튼(`#statsLawSidebar`, `?law=`)이다. 라우터가 `records_*_law` 를 넘기지만 템플릿은 렌더하지 않는다. 차트 라이브러리는 없다(표만 있음). | 정정 |
 | 웹 통계 탭 구조 (2026-09-28) | 통계 화면 개편: 법규는 검색 가능한 선택창, 행 클릭은 선택 항목 상세(목록 이동은 상세의 버튼), 요약 카드 6개·지도·차트 추가, 전국 안전신고 현황(Sunwi)은 대시보드에서 통계 하단으로. 사이드바 이름 '통계'. 상세는 [statistics-spec §9](../design/statistics-spec.md) | 정정 |
 | 공통 | DataTables 한국어 파일을 `//cdn.datatables.net/...` 로 불러 http 접속(로컬/LAN)에서는 301→CORS 로 실패하고 영문 UI 가 나온다(2026-09-24 fixture 실측). | 기존 결함 기록 |
+| 목록 초기화 | 현행 언어 URL은 HTTPS. 최초 검색/자동 상세/폭 조정은 `initComplete`를 기다리고 모든 이벤트 등록 뒤 수행한다. CDN 실패는 라이브러리 기본 언어로 동작한다. | 정정 |
+| 목록 검색칸 반응형 | DataTables의 Bootstrap 두 열 도구 모음에서도 검색 input은 부모 폭 안에서 축소한다. viewport 폭만으로 판단하지 않으며 표 자체의 내부 가로 스크롤은 유지한다. | 정정 |
+| HTTP 관리자 인증 | 임의 `Upgrade: websocket` 헤더는 세션 예외가 아니다. 실제 WebSocket ASGI scope는 HTTP middleware 밖에서 기존 WS 인증·protocol 검사로 처리한다. | 정정 |
+| 통계 초기 셸·상세 이동 | 초기 버튼은 loader가 즉시 연결한다. 서버 `agency_key`로 행을 선택하고 완료 모집단을 목록/상세 지도에 전달한다. [통계 명세](../design/statistics-spec.md#9-6-코드-대조-정정) 참조. | 정정 |
 
 ## 이관 원문
 
@@ -63,6 +67,21 @@
 
 <!-- legacy CLAUDE.md 638-664 -->
 ### 웹 통계 탭 구조 (stats.html)
+현재 `/stats`는 먼저 조건/조작 셸을 보내고 `/stats/content`와 `/stats/map/points`를 독립 로딩한다.
+지도는 최대1200점, 화면 bounds/zoom으로 갱신하며 순번/abort로 과거 응답을 버린다. 원문 좌표·전체 모집단은 그대로다.
+처리결과(일부수용 포함)와 처분은 별도 축, 제목 대신 저장 법규 조합을 집계한다(statistics-spec 현행 정정).
+
+### 크롤링 로그 레이아웃
+`crawlLayout`의 옵션/로그는 md부터 두 열, 좁으면 세로다. 범위 ops-section/form 경계를 정확히 닫고
+로그에 260–620px 제한/내부 스크롤·긴 줄 줄바꿈을 둔다. 표시만 2000줄/256KiB로 제한·배치 갱신하며 원본 로그 파일은 유지한다.
+WS 최초 이력은 마지막64KiB만 보내고 재연결 시 UI를 교체한다. 사용자가 과거 로그를 보면 자동 추적하지 않으며
+"최신 로그 따라가기"와 파일 브라우저의 이전 로그 확인 경로가 있다. 페이지 이탈은 WS/재연결/flush 타이머를 정리한다.
+
+### 지도 말풍선 장식
+`report-map-tooltip`의 사용자 정의 connector 가상 요소가 Leaflet 기본 삼각형 border와 겹친다.
+이 tooltip의 ::before/::after만 제거한다. 정상 div marker/cluster/선택/popup-tip/제공자 저작권은 유지한다.
+
+### 웹 통계 탭 구조 (이관 설명)
 2행 버튼 UI. 1행: 교통위반 / 주정차위반 / 기타위반. 2행: 기관별 / 담당자별 / 경찰 기관 / 경찰 담당자 / 비경찰 기관 / 비경찰 담당자.
 Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 상태 sessionStorage에 저장.
 `get_agency_stats()` 반환값: `{"traffic": {...}, "parking": {...}, "other": {...}}`.

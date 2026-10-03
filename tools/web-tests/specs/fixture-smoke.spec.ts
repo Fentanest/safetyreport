@@ -54,7 +54,10 @@ test('fixture mode blocks crawl start instead of spawning crawler', async ({ pag
 test('mobile API contract: /api/v1/summary requires key and keeps fields', async ({ request }) => {
   const key = fs.readFileSync(path.join(fixtureDataDir, 'fixture-api-key.txt'), 'utf-8').trim();
   expect((await request.get('/api/v1/summary')).status()).toBe(401);
-  const res = await request.get('/api/v1/summary', { headers: { 'X-API-Key': key } });
+  const old = await request.get('/api/v1/summary', { headers: { 'X-API-Key': key } });
+  expect(old.status()).toBe(409);
+  expect((await old.json()).code).toBe('CLIENT_UPGRADE_REQUIRED');
+  const res = await request.get('/api/v1/summary', { headers: { 'X-API-Key': key, 'X-SafetyReport-Client': 'mobile', 'X-SafetyReport-Version': '2.0.0+31', 'X-SafetyReport-Protocol': '3' } });
   expect(res.ok()).toBeTruthy();
   const json = await res.json();
   for (const field of ['last_crawl_time', 'total', 'acceptCount', 'partialCount', 'rejectCount', 'processingCount',

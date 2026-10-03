@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 SESSION_COOKIE = "safetyreport_session"
 CLOSE_UNAUTHORIZED = 4001
 CLOSE_GATE = 4403
+CLOSE_COMPATIBILITY = 4406
 _session_secret: str | None = None
 
 
@@ -81,6 +82,13 @@ async def authorize(websocket: WebSocket, *, allow_session: bool = True, allow_a
     if not ok:
         await websocket.close(code=CLOSE_UNAUTHORIZED, reason="Unauthorized")
         return False
+    if not (allow_session and session_data(websocket).get("admin_logged_in")):
+        from services.selfhost_compat import ws_rejection
+        problem = ws_rejection(websocket)
+        if problem:
+            await websocket.accept()
+            await websocket.close(code=CLOSE_COMPATIBILITY, reason=problem["code"])
+            return False
     if not await gate_ok():
         await reject_gate(websocket)
         return False

@@ -12,6 +12,7 @@ import settings.settings as app_settings
 from services import duplicate_group_service
 from services.report_query_service import _safe_read
 from services import fine_estimate
+from services.report_cache import cached
 
 
 _STATS_COLUMNS = [
@@ -295,14 +296,24 @@ def _project_stats_frame(engine, df: pd.DataFrame, *, mode: str = "raw") -> pd.D
     normalized_mode = _normalize_mode(mode)
     if normalized_mode == "raw" or df.empty or "ID" not in df.columns:
         return df
-    records = duplicate_group_service.project_records(engine, df.to_dict(orient="records"), mode=normalized_mode)
-    if not records:
-        return pd.DataFrame(columns=df.columns)
-    projected = pd.DataFrame(records)
-    for column in df.columns:
-        if column not in projected.columns:
-            projected[column] = ""
-    return projected[df.columns]
+    with engine.connect() as conn:
+        _, members = duplicate_group_service.build_projection_map(conn)
+    excluded = {rid for rid, meta in members.items() if not meta['is_representative']}
+    projected = df[~df['ID'].astype(str).isin(excluded)].copy()
+    if '감시목록' in df and members:
+        watched = {members[rid]['group_id'] for rid in df.loc[df['감시목록'] == 'Y', 'ID'].astype(str) if rid in members}
+        representatives = {rid for rid, meta in members.items() if meta['group_id'] in watched}
+        projected.loc[projected['ID'].astype(str).isin(representatives), '감시목록'] = 'Y'
+    return projected
+
+
+def _canonical_query(table, query, mode):
+    if _normalize_mode(mode) != 'canonical':
+        return query
+    member, group = database.duplicate_member_table, database.duplicate_group_table
+    excluded = select(member.c.report_id).join(group, member.c.group_id == group.c.group_id).where(
+        member.c.report_id == table.c.ID, member.c.is_representative != 1, group.c.status == 'confirmed_duplicate').exists()
+    return query.where(~excluded)
 
 
 def _ensure_id_column(df: pd.DataFrame) -> pd.DataFrame:
@@ -357,6 +368,7 @@ def get_last_sync_label(engine) -> str:
     return "기록 없음"
 
 
+@cached
 def get_dashboard_stats(engine, mode: str = "canonical"):
     total = 0
     accept_count = 0
@@ -400,12 +412,25 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
     combined_frames = []
     with engine.connect() as conn:
         for table_obj in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
-            df = _safe_read(conn, table_obj)
+            # Full-population SQL aggregation; no report bodies in the count path.
+            query = select(table_obj.c['처리상태'], table_obj.c['범칙금_과태료'], func.count().label('_weight')).group_by(
+                table_obj.c['처리상태'], table_obj.c['범칙금_과태료'])
+            df = pd.read_sql_query(_canonical_query(table_obj, query, mode), conn)
             if df.empty:
                 continue
             category = table_category_map.get(table_obj, "")
             df["category"] = category
             combined_frames.append(df)
+            recent_query = select(table_obj).where(table_obj.c['답변일'] >= str(three_days_ago),
+                table_obj.c['답변일'] < str(today + timedelta(days=1)))
+            if app_settings.exclude_withdraw:
+                recent_query = recent_query.where(table_obj.c['처리상태'] != '취하')
+            recent_query = _canonical_query(table_obj, recent_query, mode).order_by(
+                table_obj.c.synced_at.desc(), table_obj.c['답변일'].desc(), table_obj.c['신고번호'].desc()).limit(200)
+            for row in conn.execute(recent_query):
+                item = _row_to_dict(row._mapping)
+                item['category'] = category
+                recent_answers.append(item)
 
         try:
             watch_df = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
@@ -427,38 +452,28 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
                     watchlist_items.append(item)
 
     combined_df = pd.concat(combined_frames, ignore_index=True) if combined_frames else pd.DataFrame()
-    combined_df = _project_stats_frame(engine, combined_df, mode=mode)
 
     if not combined_df.empty:
         status_series = _status_series(combined_df)
-        total += len(combined_df)
-        accept_count += int((status_series == "수용").sum())
-        reject_count += int(status_series.isin(["불수용", "기타"]).sum())
-        partial_count += int((status_series == "일부수용").sum())
-        processing_count += int(status_series.isin(["처리중", "진행", "진행중", "검토중"]).sum())
-        supplement_count += int((status_series == "보완요청").sum())
-        completed_count += int(status_series.isin(["수용", "불수용", "일부수용", "기타", "답변완료"]).sum())
-        withdraw_count += int((status_series == "취하").sum())
+        weights = combined_df['_weight']
+        total += int(weights.sum())
+        accept_count += int(weights[status_series == "수용"].sum())
+        reject_count += int(weights[status_series.isin(["불수용", "기타"])].sum())
+        partial_count += int(weights[status_series == "일부수용"].sum())
+        processing_count += int(weights[status_series.isin(["처리중", "진행", "진행중", "검토중"])].sum())
+        supplement_count += int(weights[status_series == "보완요청"].sum())
+        completed_count += int(weights[status_series.isin(["수용", "불수용", "일부수용", "기타", "답변완료"])].sum())
+        withdraw_count += int(weights[status_series == "취하"].sum())
 
         traffic_df = combined_df[combined_df["category"].fillna("").astype(str) == "traffic"] if "category" in combined_df.columns else pd.DataFrame()
         if not traffic_df.empty:
             fine_series = _text_series(traffic_df, "범칙금_과태료")
             traffic_status = _status_series(traffic_df)
-            t_fine_count += int(fine_series.str.contains("과태료", na=False).sum())
-            t_penalty_count += int(fine_series.str.contains("경고|범칙금", na=False).sum())
-            t_reject_count += int(traffic_status.isin(["불수용", "기타"]).sum())
-            t_unconfirmed_count += int(((fine_series == "미확인") & (~traffic_status.isin(["불수용", "기타"]))).sum())
-
-        response_dates = _response_dates(combined_df)
-        recent_mask = response_dates.notna() & (response_dates >= three_days_ago) & (response_dates <= today)
-        recent_df = combined_df[recent_mask]
-        if app_settings.exclude_withdraw:
-            recent_df = recent_df[_status_series(recent_df) != "취하"]
-
-        for _, row in recent_df.iterrows():
-            item = _row_to_dict(row)
-            item["category"] = _text_or_empty(row.get("category"))
-            recent_answers.append(item)
+            tw = traffic_df['_weight']
+            t_fine_count += int(tw[fine_series.str.contains("과태료", na=False)].sum())
+            t_penalty_count += int(tw[fine_series.str.contains("경고|범칙금", na=False)].sum())
+            t_reject_count += int(tw[traffic_status.isin(["불수용", "기타"])].sum())
+            t_unconfirmed_count += int(tw[(fine_series == "미확인") & (~traffic_status.isin(["불수용", "기타"]))].sum())
 
     recent_answers.sort(
         key=_recent_answer_sort_key,
@@ -617,31 +632,15 @@ def _apply_registry_agency_display(df: pd.DataFrame) -> pd.DataFrame:
     if "처리기관" not in df.columns:
         return df
     from services import agency_registry
-    from resolve import resolve_current_agency
-
-    snap = agency_registry.snapshot()
     has_code = "처리기관코드" in df.columns
 
-    def keyed(row):
-        name = row["처리기관"]
-        code = row["처리기관코드"] if has_code else None
-        if code is None or (isinstance(code, float) and code != code):
-            code_text = None
-        else:
-            code_text = str(code).strip() or None
-        resolution = resolve_current_agency(code_text, name, snap)
-        status = resolution.get("resolution_status")
-        if status in ("resolved", "resolved_as_of_date"):
-            current = resolution.get("current_agency_name")
-            if current:
-                return pd.Series([current, resolution["agency_stat_key"]])
-        if status == "historical":
-            return pd.Series([resolution.get("current_agency_name") or "",
-                              resolution["agency_stat_key"]])
-        raw = name.strip() if isinstance(name, str) else ""
-        return pd.Series([raw, f"src:{code_text or '-'}:{raw}"])
-
-    df[["처리기관", "_agency_key"]] = df.apply(keyed, axis=1)
+    # Resolve each distinct code/name pair once, then map vectorially.
+    names = df["처리기관"].fillna("").astype(str)
+    codes = df["처리기관코드"].fillna("").astype(str) if has_code else pd.Series("", index=df.index)
+    pairs = list(zip(names, codes))
+    resolved = {pair: agency_registry.resolve_stats_agency(pair[1], pair[0]) for pair in set(pairs)}
+    df["처리기관"] = [resolved[pair][0] for pair in pairs]
+    df["_agency_key"] = [resolved[pair][1] for pair in pairs]
     return df
 
 
@@ -730,6 +729,7 @@ def get_agency_stats(engine, filters=None, mode: str = "canonical"):
     return _compute_agency_stats(available_years, df_t, df_p, df_o, filters, mode)
 
 
+@cached
 def get_stats_page(engine, filters=None, mode: str = "canonical"):
     """웹 통계 화면: 표(`get_agency_stats`)와 요약·차트(`get_stats_overview`)를 한 번 읽은 같은 프레임으로 만든다.
 
@@ -906,6 +906,13 @@ def _summarize_overview_frame(df: pd.DataFrame) -> dict:
         "disposition": _overview_disposition(df),
         "fine_amount": _overview_fine_amount(df),
         "report_types": _overview_report_types(df),
+        "violation_laws": _overview_violation_laws(df),
+        "result_distribution": {
+            "accept": _count(lambda s: s == "수용"),
+            "partial": _count(lambda s: s == "일부수용"),
+            "reject": _count(lambda s: s in {"불수용", "기타"}),
+            "unknown": _count(lambda s: s == "답변완료"),
+        },
     }
 
 
@@ -958,6 +965,19 @@ def _overview_report_types(df: pd.DataFrame) -> list[dict]:
     for name in names:
         counts[name] = counts.get(name, 0) + 1
     return [{"name": name, "count": count} for name, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))]
+
+
+def _overview_violation_laws(df: pd.DataFrame) -> list[dict]:
+    """One report per exact stored normalized law string (including multi-law strings).
+
+    This preserves the existing exact law filter and list drilldown population.
+    Missing law is its own bucket; report titles never supply law information.
+    """
+    if df.empty:
+        return []
+    laws = df.get("위반법규", pd.Series("", index=df.index)).fillna("").astype(str).str.strip()
+    return [{"name": name, "filter": name or "__없음__", "count": int(count)}
+            for name, count in sorted(laws.value_counts().items(), key=lambda item: (-item[1], item[0]))]
 
 
 def get_stats_overview(engine, filters=None, mode: str = "canonical"):
@@ -1094,14 +1114,18 @@ def _estimated_fine_totals(group_df: pd.DataFrame) -> dict[str, int]:
         return {"estimated_fine_amount": 0, "estimated_fine_count": 0}
     amount = 0
     count = 0
-    for record in group_df.to_dict(orient="records"):
-        if not _is_fine_amount_unknown(record.get("범칙금_과태료")):
-            continue
+    unknown = group_df['범칙금_과태료'].apply(_is_fine_amount_unknown)
+    columns = [c for c in ('category','entry_value','신고명','위반법규','차량번호','사진_첫촬영','사진_끝촬영','발생시각') if c in group_df]
+    if not unknown.any() or not columns:
+        return {"estimated_fine_amount": 0, "estimated_fine_count": 0}
+    eligible = group_df.loc[unknown, columns].fillna('')
+    combinations = eligible.groupby(columns, dropna=False, sort=False).size().reset_index(name='_weight')
+    for record in combinations.to_dict(orient="records"):
         result = fine_estimate.estimate(record)
         if result is None:
             continue
-        amount += result["amount"]
-        count += 1
+        amount += result["amount"] * record['_weight']
+        count += record['_weight']
     return {"estimated_fine_amount": int(amount), "estimated_fine_count": int(count)}
 
 
@@ -1183,9 +1207,10 @@ def _is_finite_number(value) -> bool:
         return False
 
 
-_MAP_TARGET_KEYS = ("targetAgency", "targetPerson")
+_MAP_TARGET_KEYS = ("targetAgency", "targetPerson", "targetAgencyKey", "completedOnly")
 
 
+@cached
 def _load_map_records_frame(
     engine,
     *,
@@ -1202,7 +1227,9 @@ def _load_map_records_frame(
     """
     stats_filters = {key: value for key, value in (filters or {}).items() if key not in _MAP_TARGET_KEYS and value not in (None, "", False)}
     target_agency = _text_or_empty((filters or {}).get("targetAgency"))
+    target_agency_key = _text_or_empty((filters or {}).get("targetAgencyKey"))
     target_person = _text_or_empty((filters or {}).get("targetPerson"))
+    completed_only = (filters or {}).get("completedOnly") is True
     filters = dict(stats_filters)
     if year and year not in ("all", "", None):
         filters["year"] = str(year)
@@ -1252,7 +1279,11 @@ def _load_map_records_frame(
     if "category" not in combined_df.columns:
         combined_df["category"] = normalized_category if normalized_category != "all" else "other"
 
-    if target_agency and "처리기관" in combined_df.columns:
+    if completed_only:
+        combined_df = combined_df[_stats_status_series(combined_df).isin(_OVERVIEW_COMPLETED_STATUSES)].copy()
+    if target_agency_key:
+        combined_df = combined_df[combined_df["_agency_key"] == target_agency_key].copy()
+    elif target_agency and "처리기관" in combined_df.columns:
         combined_df = combined_df[combined_df["처리기관"].fillna("").astype(str).str.strip() == target_agency].copy()
     if target_person and "담당자" in combined_df.columns:
         combined_df = combined_df[combined_df["담당자"].fillna("").astype(str).str.strip() == target_person].copy()
@@ -1268,7 +1299,8 @@ def _load_map_records_frame(
     return normalized_category, available_years, combined_df
 
 
-def get_report_map_stats(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None):
+@cached
+def get_report_map_stats(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None, max_points: int | None = None, bounds: tuple | None = None, zoom: int = 7):
     category, available_years, combined_df = _load_map_records_frame(
         engine,
         year=year,
@@ -1291,6 +1323,10 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
                 "missing_reports": 0,
                 "address_groups": 0,
                 "agency_count": 0,
+                "viewport_reports": 0,
+                "rendered_points": 0,
+                "point_budget": max_points,
+                "clustered": False,
             },
         })
 
@@ -1300,31 +1336,11 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
         & ~combined_df["유효좌표"]
     ].copy()
 
-    points = []
-    if not geocoded_df.empty:
-        for (_, _, _), group in geocoded_df.groupby(["위도", "경도", "주소키"], dropna=False):
-            lat = float(group["위도"].iloc[0])
-            lng = float(group["경도"].iloc[0])
-            total = int(len(group))
-            region_name = _first_nonempty_value(group, "행정구역") or _first_nonempty_value(group, "위반장소")
-            address_name = _first_nonempty_value(group, "위반장소") or _first_nonempty_value(group, "주소정규화")
-
-            category_counts = group["category"].fillna("").astype(str).value_counts().to_dict()
-            points.append({
-                "lat": lat,
-                "lng": lng,
-                "address": address_name,
-                "region": region_name,
-                "total": total,
-                "status_breakdown": _build_status_breakdown(group),
-                "disposition_breakdown": _build_disposition_breakdown(group),
-                "agency_breakdown": _build_agency_breakdown(group),
-                "category_breakdown": [
-                    _ratio_item("교통위반", int(category_counts.get("traffic", 0)), total),
-                    _ratio_item("주정차위반", int(category_counts.get("parking", 0)), total),
-                    _ratio_item("기타위반", int(category_counts.get("other", 0)), total),
-                ],
-            })
+    visible = geocoded_df
+    if bounds is not None:
+        south, west, north, east = bounds
+        visible = visible[visible['위도'].between(south, north) & visible['경도'].between(west, east)].copy()
+    points = _aggregate_map_points(visible, max_points=max_points, zoom=zoom)
 
     points.sort(key=lambda item: item["total"], reverse=True)
     if "_agency_key" in combined_df.columns:
@@ -1342,10 +1358,81 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
             "total_reports": int(len(combined_df)),
             "geocoded_reports": int(len(geocoded_df)),
             "missing_reports": int(len(missing_df)),
-            "address_groups": int(len(points)),
+            "address_groups": int(len(geocoded_df[['위도','경도','주소키']].drop_duplicates())),
             "agency_count": agency_count,
+            "viewport_reports": int(len(visible)),
+            "rendered_points": len(points),
+            "point_budget": max_points,
+            "clustered": any(p.get("cluster") for p in points),
         },
     })
+
+
+def _aggregate_map_points(frame, *, max_points=None, zoom=7):
+    if frame.empty:
+        return []
+    frame = frame.copy()
+    group_cols = ["위도", "경도", "주소키"]
+    clustered = False
+    if max_points and len(frame[group_cols].drop_duplicates()) > max_points:
+        # Zoom-sensitive spatial cells. Every report contributes to its cell;
+        # centroids are display coordinates, never written to stored raw coordinates.
+        step = 360 / (2 ** (max(0, min(19, zoom)) + 3))
+        while True:
+            frame['_lat_cell'] = (frame['위도'] / step).astype('int64')
+            frame['_lng_cell'] = (frame['경도'] / step).astype('int64')
+            group_cols = ['_lat_cell', '_lng_cell']
+            if len(frame[group_cols].drop_duplicates()) <= max_points:
+                break
+            step *= 2
+        clustered = True
+    frame['_group'] = frame.groupby(group_cols, dropna=False, sort=False).ngroup()
+    grouped = frame.groupby('_group', sort=False)
+    coordinate_agg = 'mean' if clustered else 'first'
+    base = grouped.agg(lat=('위도',coordinate_agg), lng=('경도',coordinate_agg), total=('ID','size'),
+                       address=('위반장소','first'), region=('행정구역','first'))
+    statuses = frame['처리상태'].fillna('').astype(str)
+    fine = frame['범칙금_과태료'].fillna('').astype(str)
+    fine_mask = fine.str.contains('과태료', regex=False)
+    warning = fine.str.contains('경고|범칙금')
+    reject = statuses.isin(['불수용','기타'])
+    frame['_fine'] = fine_mask.astype(int)
+    frame['_warning'] = warning.astype(int)
+    frame['_reject'] = reject.astype(int)
+    frame['_unknown'] = (~(fine_mask | warning | reject)).astype(int)
+    dispositions = grouped[['_fine','_warning','_reject','_unknown']].sum()
+    status_counts = frame.groupby(['_group','처리상태'], dropna=False).size()
+    category_counts = frame.groupby(['_group','category']).size()
+    agency_counts = frame.groupby(['_group','_agency_key','처리기관'], dropna=False).size() if '_agency_key' in frame else None
+    status_by = {}
+    for (gid, status), count in status_counts.items():
+        label = '처리중' if pd.isna(status) or status in ('','진행','진행중','검토중') else str(status)
+        bucket = status_by.setdefault(gid, {})
+        bucket[label] = bucket.get(label, 0) + int(count)
+    categories_by = {}
+    for (gid, cat), count in category_counts.items(): categories_by.setdefault(gid, {})[cat] = int(count)
+    agencies_by = {}
+    if agency_counts is not None:
+        for (gid, key, name), count in agency_counts.items():
+            if name: agencies_by.setdefault(gid, []).append({'name':str(name),'agency_key':str(key),'count':int(count)})
+    points = []
+    for gid, row in base.iterrows():
+        total = int(row.total)
+        agency = sorted(agencies_by.get(gid, []), key=lambda a: (-a['count'],a['name'],a['agency_key']))
+        for a in agency: a['pct'] = round(a['count'] / sum(i['count'] for i in agency) * 100, 1)
+        point = dict(lat=float(row.lat), lng=float(row.lng), total=total,
+                     address='이 영역의 신고' if clustered else str(row.address),
+                     region='영역 집계' if clustered else str(row.region or row.address),
+                     status_breakdown=[_ratio_item(k,v,total) for k,v in status_by.get(gid,{}).items()],
+                     disposition_breakdown=[_ratio_item(label,int(dispositions.loc[gid,key]),total) for key,label in
+                         [('_fine','과태료'),('_warning','경고/범칙금'),('_reject','불수용/기타'),('_unknown','미확인')]
+                         if dispositions.loc[gid,key] > 0],
+                     agency_breakdown=agency,
+                     category_breakdown=[_ratio_item(label,categories_by.get(gid,{}).get(key,0),total) for key,label in
+                         [('traffic','교통위반'),('parking','주정차위반'),('other','기타위반')]])
+        if clustered: point['cluster'] = True
+        points.append(point)
+    return points
 
 
 def get_report_map_missing_groups(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None):

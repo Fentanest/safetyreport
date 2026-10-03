@@ -44,3 +44,19 @@ def resolve_display_agency(code, name, answered_at=None) -> tuple[str | None, st
 
     resolution = _resolve_current(code, name, snapshot())
     return display_agency(name, resolution), str(resolution.get("resolution_status"))
+
+
+def resolve_stats_agency(code, name) -> tuple[str, str]:
+    """통계·목록·지도에 동일한 (표시명, 집계 키)를 제공한다. 원문은 변경하지 않는다."""
+    from resolve import resolve_current_agency
+
+    code_text = _text(code)
+    raw = _text(name) or ""
+    resolution = resolve_current_agency(code_text, raw, snapshot())
+    status = resolution.get("resolution_status")
+    current = resolution.get("current_agency_name")
+    if status in ("resolved", "resolved_as_of_date") and current:
+        return current, resolution["agency_stat_key"]
+    if status == "historical":
+        return current or "", resolution["agency_stat_key"]
+    return raw, f"src:{code_text or '-'}:{raw}"

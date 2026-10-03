@@ -227,6 +227,8 @@
     }
    ],
    "expected_overview": {
+        "result_distribution": {"accept":4,"partial":1,"reject":2,"unknown":1},
+        "violation_laws": [{"name":"","filter":"__없음__","count":13}],
     "total": 13,
     "completed": 8,
     "accept": 4,
@@ -492,6 +494,8 @@
     }
    ],
    "expected_overview": {
+        "result_distribution": {"accept":4,"partial":1,"reject":0,"unknown":0},
+        "violation_laws": [{"name":"","filter":"__없음__","count":5}],
     "total": 5,
     "completed": 5,
     "accept": 4,
@@ -709,6 +713,8 @@
     }
    ],
    "expected_overview": {
+        "result_distribution": {"accept":0,"partial":4,"reject":0,"unknown":0},
+        "violation_laws": [{"name":"","filter":"__없음__","count":5}],
     "total": 5,
     "completed": 4,
     "accept": 0,
@@ -838,6 +844,8 @@
    "name": "empty",
    "rows": [],
    "expected_overview": {
+        "result_distribution": {"accept":0,"partial":0,"reject":0,"unknown":0},
+        "violation_laws": [],
     "total": 0,
     "completed": 0,
     "accept": 0,

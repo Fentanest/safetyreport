@@ -92,6 +92,22 @@ def detect_db_kind(db_path: str) -> DbKind:
         return "unknown"
 
 
+def inspect_upload(db_path: str) -> DbKind:
+    from core.storage.exchange import (_integrity_check, CorruptDatabaseRefused,
+                                       WrongDatabaseFileRefused, UnknownDatabaseKindRefused)
+    with open(db_path, 'rb') as fh:
+        if fh.read(16) != b'SQLite format 3\x00':
+            raise WrongDatabaseFileRefused('SQLite DB 파일이 아닙니다. 정상적인 .db 백업 파일을 선택하세요.')
+    try:
+        _integrity_check(db_path, readonly=True)
+    except Exception as exc:
+        raise CorruptDatabaseRefused('손상된 DB 파일입니다. 정상적인 백업 파일을 선택하세요.') from exc
+    kind = detect_db_kind(db_path)
+    if kind == 'unknown':
+        raise UnknownDatabaseKindRefused('지원하지 않는 DB 종류입니다. 서버 또는 모바일 백업을 선택하세요.')
+    return kind
+
+
 def restore_from_server_db(uploaded_path: str) -> Tuple[str, int]:
     """서버 형식 DB 파일로 교체. 임시 사본에서 업그레이드·무결성 검사 후 원자적으로 바꾼다(core/storage/exchange.py)."""
     from core.storage import exchange

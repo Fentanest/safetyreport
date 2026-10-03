@@ -694,6 +694,13 @@ def project_records(engine, records: list[dict], *, mode: str = "raw") -> list[d
     with engine.connect() as conn:
         _, member_map = build_projection_map(conn)
 
+    return project_records_with_map(records, member_map, mode=normalized_mode)
+
+
+def project_records_with_map(records: list[dict], member_map: dict, *, mode: str = 'raw') -> list[dict]:
+    """Project using a caller's read snapshot (SQL-paged records must not re-read)."""
+    normalized_mode = _text(mode).lower() or 'raw'
+
     if not member_map:
         return records
 

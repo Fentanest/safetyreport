@@ -542,6 +542,7 @@ class GateAppTests(GateTestBase):
     def setUp(self):
         super().setUp()
         self.client = self.TestClient(self.main.app, base_url="http://testserver")
+        self.client.headers.update({'X-SafetyReport-Client':'mobile','X-SafetyReport-Version':'2.0.0+31','X-SafetyReport-Protocol':'3'})
         self.addCleanup(self.client.close)
 
     def login(self):
@@ -645,11 +646,11 @@ class GateAppTests(GateTestBase):
                 ws.receive_text()
         self.assertEqual(ctx.exception.code, 4001)
         with self.assertRaises(WebSocketDisconnect) as ctx:
-            with self.client.websocket_connect(f"/ws/events?api_key={self.key}") as ws:
+            with self.client.websocket_connect(f"/ws/events?api_key={self.key}&client_type=mobile&client_version=2.0.0&client_protocol=3") as ws:
                 ws.receive_json()
         self.assertEqual(ctx.exception.code, 4403)
         with self.assertRaises(WebSocketDisconnect) as ctx:
-            with self.client.websocket_connect(f"/rating/ws/rating_logs?api_key={self.key}") as ws:
+            with self.client.websocket_connect(f"/rating/ws/rating_logs?api_key={self.key}&client_type=mobile&client_version=2.0.0&client_protocol=3") as ws:
                 ws.receive_text()
         self.assertEqual(ctx.exception.code, 4403)
         self.login()

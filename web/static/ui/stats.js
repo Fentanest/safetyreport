@@ -8,6 +8,9 @@
     'use strict';
 
     var DATA = JSON.parse(document.getElementById('statsData').textContent || '{}');
+    if (DATA.pending) { window.SrStatsLoader.start(DATA); return; }
+    // Transfer ownership to the category request sequence before controls become active.
+    if (window.SrStatsLoader.cancelMap) window.SrStatsLoader.cancelMap();
     var overview = DATA.overview || {};
     var FILTERS = DATA.filters || {};
     var YEAR = DATA.year || 'all';
@@ -45,12 +48,13 @@
     // 목록(/data)으로 넘길 공통 조건. 연도 → 답변일 범위(목록에 연도 필터가 없음). 서버 템플릿 drill_base 와 같은 규칙.
     function listBaseParams() {
         var p = new URLSearchParams();
+        p.set('dedupe', DATA.dedupeMode || 'canonical');
         var ys = YEAR !== 'all' ? YEAR + '-01-01' : '';
         var ye = YEAR !== 'all' ? YEAR + '-12-31' : '';
         var rs = [ys, FILTERS.responseDateStart || ''].sort().pop();
         var ends = [ye, FILTERS.responseDateEnd || ''].filter(Boolean).sort();
         var re = ends.length ? ends[0] : '';
-        [['law', FILTERS.law], ['responseDateStart', rs], ['responseDateEnd', re],
+        [['law', FILTERS.law], ['lawExact', FILTERS.law ? 'true' : ''], ['responseDateStart', rs], ['responseDateEnd', re],
          ['reportName', FILTERS.reportName], ['location', FILTERS.location],
          ['reportDateStart', FILTERS.reportDateStart], ['reportDateEnd', FILTERS.reportDateEnd],
          ['occurDateStart', FILTERS.occurDateStart], ['occurDateEnd', FILTERS.occurDateEnd],
@@ -85,12 +89,15 @@
         var urlDedupe = new URLSearchParams(window.location.search).get('dedupe');
         if (urlDedupe) p.set('dedupe', urlDedupe); // 통계가 고른 대표건 모드를 지도도 따른다
         if (target && target.agency) p.set('targetAgency', target.agency);
+        if (target && target.agencyKey) p.set('targetAgencyKey', target.agencyKey);
         if (target && target.person) p.set('targetPerson', target.person);
+        if (target) p.set('completedOnly', 'true'); // 상세 표의 모집단. 요약 지도는 전체 그대로.
         return p;
     }
 
     // ── 상태 ──
-    var currentCat = storageGet(sessionStorage, 'stats_cat') || 'traffic';
+    var currentCat = window.srPendingStatsCat || storageGet(sessionStorage, 'stats_cat') || 'traffic';
+    delete window.srPendingStatsCat;
     var currentType = storageGet(sessionStorage, 'stats_type') || 'agency';
     if (!CAT_LABELS[currentCat]) currentCat = 'traffic';
     if (!TYPE_LABELS[currentType]) currentType = 'agency';
@@ -112,10 +119,18 @@
     // 행 자료(상세 패널·CSV): 분류별 기관/담당자 목록을 키로 찾는다
     var rowIndex = {};
     ['traffic', 'parking', 'other'].forEach(function (cat) {
-        rowIndex[cat] = { agency: {}, person: {} };
+        rowIndex[cat] = { agency: Object.create(null), person: Object.create(null) };
         var rows = (DATA.rows && DATA.rows[cat]) || { agency: [], person: [] };
-        (rows.agency || []).forEach(function (r) { rowIndex[cat].agency[r.agency] = r; });
-        (rows.person || []).forEach(function (r) { rowIndex[cat].person[r.agency + '\t' + r.person] = r; });
+        (rows.agency || []).forEach(function (r) { rowIndex[cat].agency[rowKey(r, false)] = r; });
+        (rows.person || []).forEach(function (r) { rowIndex[cat].person[rowKey(r, true)] = r; });
+    });
+    function rowKey(row, person) {
+        var key = row.agency_key || 'src:-:' + row.agency;
+        // Jinja tojson의 공백·비ASCII escape와 무관하게 같은 키로 정규화한다.
+        return JSON.stringify(person ? [key, row.person] : [key]);
+    }
+    $('#statsTabsContent tr.sr-drill').each(function () {
+        $(this).attr('data-key', JSON.stringify(JSON.parse($(this).attr('data-key'))));
     });
     function isPersonType(type) { return /person$/.test(type); }
     function rowFor(cat, type, key) {
@@ -333,6 +348,10 @@
                 '<span class="sr-hbar-value">' + num(n) + '건<small>' + pct(n, total) + '</small></span></li>';
         }).join('');
         $list.html(html);
+        var results = s.result_distribution || {};
+        $('#statsResultList').html([['accept','수용'],['partial','일부수용'],['reject','불수용·기타'],['unknown','결과 미상']].map(function (item) {
+            return '<li data-result="' + item[0] + '">' + item[1] + ' <b>' + num(results[item[0]]) + '건</b></li>';
+        }).join(''));
         var overlap = Number(d.overlap || 0);
         var notes = [];
         if (inProgress > 0) notes.push('처리 중(답변 전) ' + num(inProgress) + '건은 처분이 없어 뺐습니다.');
@@ -346,17 +365,17 @@
     var typesExpanded = false;
     function renderTypes(cat) {
         var s = overview && overview[cat];
-        var types = (s && s.report_types) || null;
+        var types = (s && s.violation_laws) || null;
         var $list = $('#statsTypeList');
         var $more = $('#statsTypeMore');
         if (!s || !types) {
-            $list.html('<li class="text-muted small">위반 유형 자료가 없습니다.</li>');
+            $list.html('<li class="text-muted small">위반법규 자료가 없습니다.</li>');
             $more.prop('hidden', true);
             $('#statsTypeBase').text('');
             return;
         }
         var total = Number(s.total || 0);
-        $('#statsTypeBase').text('유형 ' + num(types.length) + '개');
+        $('#statsTypeBase').text('저장 법규 조합 ' + num(types.length) + '개 · 복수 법규도 신고당 1건');
         if (!types.length) {
             $list.html('<li class="text-muted small">표시할 신고가 없습니다.</li>');
             $more.prop('hidden', true);
@@ -366,16 +385,17 @@
         var shown = typesExpanded ? types : types.slice(0, TYPE_TOP_N);
         $list.html(shown.map(function (t) {
             var n = Number(t.count || 0);
-            var name = t.name ? t.name : '(신고명 없음)';
+            var name = t.name ? t.name : '법규 정보 없음';
+            var href = kpiListUrl(cat, {law: t.filter, lawExact:'true'});
             return '<li class="sr-hbar" title="' + esc(name) + '">' +
-                '<span class="sr-hbar-label"><span>' + esc(name) + '</span></span>' +
+                '<span class="sr-hbar-label">' + (LIST_REPRODUCIBLE ? '<a href="' + esc(href) + '">' + esc(name) + '</a>' : esc(name)) + '</span>' +
                 '<span class="sr-hbar-track" aria-hidden="true"><span class="sr-hbar-fill" style="display:block;width:' + (n / max * 100).toFixed(2) + '%"></span></span>' +
                 '<span class="sr-hbar-value">' + num(n) + '건<small>' + pct(n, total) + '</small></span></li>';
         }).join(''));
         $('#statsTypeScroll').toggleClass('sr-types-scroll', typesExpanded);
         if (types.length > TYPE_TOP_N) {
             $more.prop('hidden', false).attr('aria-expanded', typesExpanded ? 'true' : 'false')
-                .text(typesExpanded ? '상위 ' + TYPE_TOP_N + '개만 보기' : '전체 ' + num(types.length) + '개 유형 보기 (상위 ' + TYPE_TOP_N + '개 표시 중)');
+                .text(typesExpanded ? '상위 ' + TYPE_TOP_N + '개만 보기' : '전체 ' + num(types.length) + '개 법규 조합 보기');
         } else {
             $more.prop('hidden', true);
         }
@@ -388,7 +408,8 @@
     // ── 작은 신고 지도(비동기, 최신 요청만 반영) ──
     var mapSeq = 0;
     var mapAbort = null;
-    var mapInstance = null;
+    var mapInstance = window.srEarlyMap || null;
+    document.addEventListener('sr:earlymap',function(event){mapInstance=event.detail;});
     function mapState(html) {
         $('#statsMiniMap').prop('hidden', true);
         $('#statsMapState').prop('hidden', false).html(html);
@@ -440,12 +461,16 @@
         // 팝업 '리스트 보기'에도 통계 조건(법규·답변 연도→답변일 범위·상세 조건)을 잇는다
         var listParams = {};
         listBaseParams().forEach(function (value, key) { listParams[key] = value; });
+        if(agencyQuery) {listParams.agency=agencyQuery; if(FILTERS.agencyExact) listParams.agencyExact='true';}
         mapInstance = window.SrReportMap && window.SrReportMap.create(el, points, {
             category: cat,
             dedupeMode: DATA.dedupeMode,
             listParams: listParams,
+            listReproducible: LIST_REPRODUCIBLE,
             scrollWheelZoom: false
+            ,viewportURL: '/stats/map/points?' + mapParams(cat).toString()
         });
+        performance.mark('sr-map-ready');
         if (!mapInstance) {
             mapState('<span>지도 라이브러리를 불러오지 못했습니다.</span><button type="button" class="btn btn-sm btn-outline-secondary" id="statsMapRetry">다시 시도</button>');
         }
@@ -571,12 +596,14 @@
         var unit = isPersonType(currentType) ? '명' : '곳';
         var parts = ['<b>' + esc(CAT_LABELS[currentCat]) + ' · ' + esc(TYPE_LABELS[currentType]) + '</b>', '현재 조건'];
         parts.push(searchTerm ? '검색 “' + esc(searchTerm) + '” ' + num(shown) + unit + ' / 전체 ' + num(all) + unit : '전체 ' + num(all) + unit);
-        // 표에 들어가지 않는 신고(처리기관·담당자 없음)를 요약 총 건수와 비교해 밝힌다.
+        parts.push('답변 완료 신고만 집계');
         var s = overview && overview[currentCat];
         var rows = DATA.rows && DATA.rows[currentCat];
         if (s && rows) {
             var base = isPersonType(currentType) ? sumTotals(rows.person) : sumTotals(rows.agency);
-            var missing = Number(s.total || 0) - base;
+            var excluded = Math.max(0, Number(s.total || 0) - Number(s.completed || 0));
+            if (excluded > 0) parts.push('답변 완료 전·그 외 상태 ' + num(excluded) + '건은 표에서 제외');
+            var missing = Math.max(0, Number(s.completed || 0) - base);
             if (missing > 0) {
                 parts.push(isPersonType(currentType)
                     ? '처리기관·담당자가 없는 ' + num(missing) + '건은 담당자 표에 없음'
@@ -726,12 +753,12 @@
         html.push('<li><span>금액 미확인 과태료</span><b>' + num(unknown) + '건</b></li>');
         html.push('<li><span>추정 과태료(법정 최저)</span><b>' + (row.estimated_fine_count ? won(row.estimated_fine_amount) + ' <small class="text-muted fw-normal">(' + num(row.estimated_fine_count) + '건)</small>' : '—') + '</b></li>');
         html.push('</ul>');
-        var mapHref = '/stats/map?' + mapParams(cat, { agency: row.agency, person: person ? row.person : '' }).toString();
+        var mapHref = '/stats/map?' + mapParams(cat, { agency: row.agency, agencyKey: row.agency_key || 'src:-:' + row.agency, person: person ? row.person : '' }).toString();
         html.push('<div class="sr-panel-actions">');
         html.push('<a class="btn btn-primary btn-sm" data-stats-nav href="' + esc(href) + '"><i class="fas fa-list-ul me-1"></i>해당 신고 내역 보기</a>');
         html.push('<a class="btn btn-outline-secondary btn-sm" data-stats-nav href="' + esc(mapHref) + '"><i class="fas fa-map-location-dot me-1"></i>지도에서 보기</a>');
         html.push('</div>');
-        var note = '표와 같은 값입니다. 목록·지도에는 분류·' + (person ? '기관·담당자' : '기관') + '·답변 연도' + (FILTERS.law ? '·위반법규' : '') + ' 조건이 함께 넘어갑니다.';
+        var note = '표와 같은 값입니다. 목록·지도에는 답변 완료·분류·' + (person ? '기관·담당자' : '기관') + '·답변 연도' + (FILTERS.law ? '·위반법규' : '') + ' 조건이 함께 넘어갑니다.';
         if (FILTERS.excludePolice || FILTERS.onlyPolice) note += ' 경찰기관 제외/만 조건은 목록 주소로 넘기지 못합니다(이 행은 이미 한 기관이라 결과는 같습니다).';
         html.push('<div class="sr-panel-note">' + esc(note) + '</div>');
         html.push('</div>');
@@ -946,7 +973,7 @@
             '추정 과태료(원)', '추정 과태료 건수'
         ]);
         DISP.forEach(function (item) { header.push(item.label + ' 건수', item.label + ' 비율(%)'); });
-        header.push('별점 평균', '평가 수');
+        header.push('별점 평균', '평가 수', '기관 집계 키');
         var lines = [header.map(csvCell).join(',')];
         api.rows({ search: 'applied', order: 'applied' }).nodes().each(function (tr) {
             var row = rowFor(currentCat, currentType, $(tr).attr('data-key'));
@@ -963,7 +990,7 @@
                 var n = row[item.key] == null ? null : Number(row[item.key]);
                 cells.push(n, n == null ? null : pctValue(n, total));
             });
-            cells.push(row.avg_rating == null ? null : Number(row.avg_rating), Number(row.rating_count || 0));
+            cells.push(row.avg_rating == null ? null : Number(row.avg_rating), Number(row.rating_count || 0), row.agency_key || 'src:-:' + row.agency);
             lines.push(cells.map(csvCell).join(','));
         });
         var name = ['통계', CAT_LABELS[currentCat], TYPE_LABELS[currentType], YEAR === 'all' ? '전체연도' : YEAR + '년'].join('_').replace(/\s+/g, '') + '.csv';
@@ -1006,7 +1033,7 @@
     // ── 시작 ──
     updateCategory();
     showPane();
-    loadMap(currentCat);
+    if (!window.srEarlyMap && !window.srMapLoading) loadMap(currentCat);
     if (savedView && savedView.selected && savedView.selected.cat === currentCat && savedView.selected.type === currentType) {
         var $row = activeTableEl().find('tbody tr.sr-drill').filter(function () { return $(this).attr('data-key') === savedView.selected.key; }).first();
         if ($row.length) selectRow($row, false);

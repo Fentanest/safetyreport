@@ -921,6 +921,7 @@ class LocalApiTests(CommunityTestBase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.client = self.TestClient(self.main.app, base_url="http://testserver")
+        self.client.headers.update({'X-SafetyReport-Client':'mobile','X-SafetyReport-Version':'2.0.0+31','X-SafetyReport-Protocol':'3'})
         self.addCleanup(self.client.close)
 
     def login(self):

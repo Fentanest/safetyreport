@@ -268,6 +268,7 @@ $(document).ready(function() {
     const isDuplicate = '{{ table_id }}' === 'duplicateTable';
     const offset = isDuplicate ? 1 : 0;
     const searchState = { statuses: [], ratings: [] };
+    var tableReady = false;
     const preferredStatusOrder = ['수용', '일부수용', '불수용', '처리중', '보완요청', '취하', '기타', '답변완료'];
     const ratingOptions = [
         { value: '__none__', label: '없음' },
@@ -365,6 +366,7 @@ $(document).ready(function() {
     }
 
     function runAdvancedSearch() {
+        if (!tableReady) return; // 초기 입력은 initComplete가 한 번 적용한다.
         table.search('').columns().search('');
         table.draw();
     }
@@ -568,7 +570,28 @@ $(document).ready(function() {
         if (body) $(body).find('.sr-empty-state').css('width', body.clientWidth + 'px');
     }
 
+    $('#{{ table_id }}').attr('aria-busy', 'true');
+    var $listActions = $('.sr-list-toolbar button, #btnSearch, #btnReset').prop('disabled', true);
     var table = $('#{{ table_id }}').DataTable({
+        initComplete: function () {
+            // 언어 파일이 늦게 도착해도 초기화 완료 뒤 실행한다. 동기 초기화일 때도
+            // 아래 필터·선택·스크롤 핸들러 등록이 끝난 다음 microtask에서 처리한다.
+            var api = this.api();
+            Promise.resolve().then(function () {
+                var openReport = urlParams.get('open');
+                if (openReport) $('#searchReport').val(openReport);
+                tableReady = true;
+                api.columns.adjust();
+                runAdvancedSearch();
+                syncScroll();
+                $('#{{ table_id }}').attr('aria-busy', 'false');
+                $listActions.prop('disabled', false);
+                if (openReport) {
+                    var rows = api.rows({search: 'applied'});
+                    if (rows.count() > 0) window.showReportDetail(rows.data()[0]);
+                }
+            });
+        },
         drawCallback: function () { pinEmptyState(this.api()); },
         data: _tableData,
         columns: columns,
@@ -707,26 +730,7 @@ $(document).ready(function() {
         });
     }
 
-    // 초기 로딩 및 테이블 다시 그릴 때마다 동기화 갱신
-    setTimeout(function() {
-        table.columns.adjust().draw(false);
-        syncScroll();
-    }, 100);
-
-    // ?open=신고번호 파라미터: 자동 검색 후 상세 모달 오픈 (크롬 확장 연동)
-    setTimeout(function() {
-        var openReport = new URLSearchParams(window.location.search).get('open');
-        if (!openReport) return;
-        $('#searchReport').val(openReport);
-        table.one('draw', function() {
-            var rows = table.rows({search: 'applied'});
-            if (rows.count() > 0) {
-                var d = rows.data()[0];
-                if (d) setTimeout(function() { window.showReportDetail(d); }, 150);
-            }
-        });
-        $('#btnSearch').click();
-    }, 200);
+    // 최초 검색·자동 상세 열기는 위 initComplete에서 처리한다.
 
     // draw 핸들러는 selectedRows 블록 내에서 등록하므로 여기선 제거
 
@@ -880,10 +884,6 @@ $(document).ready(function() {
 
         runAdvancedSearch();
     });
-
-    if (qAgency || qPerson || qCar || qLaw || qLocation) {
-        setTimeout(function() { $('#btnSearch').click(); }, 500);
-    }
 
     $('#btnReset').on('click', function() {
         selectedRows.clear();

@@ -1,7 +1,7 @@
 import os
 import tempfile
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, Query
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
@@ -13,6 +13,7 @@ from core.database.engine import get_engine
 from services import crawl_control, crawl_state_store, data_service, db_editor_service, duplicate_group_service, file_service, geocode_service, rating_eligibility, rating_service, sunwi_service
 from services.crawl_manager import crawl_manager
 from services.ws_manager import ws_manager
+from services import selfhost_compat
 from web.routers.filters import default_dedupe_mode, normalize_dedupe_mode
 
 router = APIRouter(prefix="/api/v1")
@@ -23,7 +24,8 @@ _api_key_query_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
 def _require_api_key(request: Request, api_key: str = Depends(_api_key_header)):
-    if not api_key or not database.validate_api_key(engine, api_key):
+    valid = getattr(request.state, 'api_key_valid', None)
+    if not api_key or not (valid if valid is not None else database.validate_api_key(engine, api_key)):
         raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
     device_name = database.get_api_key_name(engine, api_key)
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "")
@@ -33,7 +35,8 @@ def _require_api_key(request: Request, api_key: str = Depends(_api_key_header)):
 
 def _require_api_key_flex(request: Request, header_key: str = Depends(_api_key_query_header)):
     api_key = header_key or request.query_params.get("api_key", "")
-    if not api_key or not database.validate_api_key(engine, api_key):
+    valid = getattr(request.state, 'api_key_valid', None)
+    if not api_key or not (valid if valid is not None else database.validate_api_key(engine, api_key)):
         raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
     return api_key
 
@@ -66,6 +69,15 @@ def get_reports(category: str, dedupe: str | None = None, _: str = Depends(_requ
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get('/reports/{category}/page')
+def get_reports_page(category: str, offset: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=1000),
+                     dedupe: str | None = None, _: str = Depends(_require_api_key)):
+    if category not in {'traffic','parking','other'}:
+        raise HTTPException(status_code=400, detail='Invalid category')
+    from services.report_query_service import get_report_page
+    return {'status':'success', **get_report_page(engine,category,offset=offset,limit=limit,mode=normalize_dedupe_mode(dedupe))}
 
 
 @router.get("/vehicle/{vehicle_number}")
@@ -132,6 +144,25 @@ def get_stats_map(
         return {"status": "success", "data": payload}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get('/stats/map/points')
+def get_stats_map_points(_: str = Depends(_require_api_key), year: str | None = None, category: str = 'all',
+                         dedupe: str | None = None, max_points: int = Query(1200, ge=1, le=1200),
+                         bounds: str | None = None, zoom: int = Query(7, ge=0, le=19), law: str | None = None):
+    import math
+    viewport = None
+    if bounds:
+        try:
+            viewport = tuple(float(v) for v in bounds.split(','))
+            south, west, north, east = viewport
+            if not all(math.isfinite(v) for v in viewport) or not (-90<=south<=north<=90 and -180<=west<=east<=180):
+                raise ValueError()
+        except ValueError:
+            raise HTTPException(status_code=400, detail='bounds must be south,west,north,east')
+    payload = data_service.get_report_map_stats(engine,year=year,category=category,mode=normalize_dedupe_mode(dedupe),
+             filters={'law':law} if law else None,max_points=max_points,bounds=viewport,zoom=zoom)
+    return {'status':'success','data':payload}
 
 
 @router.get("/stats/map/missing")
@@ -420,6 +451,7 @@ def get_server_version(_: str = Depends(_require_api_key)):
         "version": current,
         "latest_version": latest,
         "up_to_date": up_to_date,
+        **selfhost_compat.metadata(),
     }
 
 
@@ -606,12 +638,13 @@ async def delete_files_archive(request: Request, _: str = Depends(_require_api_k
 
 @router.get("/app/config")
 def get_app_config(_: str = Depends(_require_api_key)):
+    from core.utils.updater import get_current_version
     settings._instance.load()
     return {
         "status": "success",
         "data": {
             "app_name": "나만의 안전신문고",
-            "version": "1.0.0",
+            "version": get_current_version(),
             "support_email": "support@example.com",
             "exclude_withdraw": settings.exclude_withdraw,
             "use_representative_records": settings.use_representative_records,
@@ -668,14 +701,15 @@ async def upload_database(file: UploadFile = File(...), _: str = Depends(_requir
                 out.write(chunk)
 
         from core.storage.exchange import RestoreRefused
-        kind = db_backup.detect_db_kind(tmp_path)
         try:
+            kind = db_backup.inspect_upload(tmp_path)
             if kind == "server":
                 backup, count = await run_in_threadpool(db_backup.restore_from_server_db, tmp_path)
             elif kind == "mobile":
                 backup, count = await run_in_threadpool(db_backup.restore_from_mobile_db, tmp_path)
         except RestoreRefused as exc:
-            raise HTTPException(status_code=409, detail=str(exc))
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"status": "error", "code": exc.code, "detail": str(exc), "message": str(exc)}, status_code=409)
         if kind not in ("server", "mobile"):
             raise HTTPException(
                 status_code=400,

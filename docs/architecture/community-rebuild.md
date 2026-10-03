@@ -9,6 +9,7 @@
 `source_account_namespace = sha256("safetyreport-dataset|v1|" + 공식 로그인 ID 소문자·trim)`
 (설정 `[LOGIN] username` = `settings.username`, 없으면 `prerequisites_required`).
 완료 판정은 이 키의 `completed`/`completed_with_gaps` 행 유무.
+업로드 재시도/outbox 대기는 로컬 초기화 필요 여부와 별개다.
 
 ## 새 설치·이전 버전 DB (2026-09-27)
 
@@ -56,6 +57,13 @@
 `source_generation` 증가. 재시작 시 `running` + 만료 lease → 같은 run 재개
 (`resume_on_startup`, T3a 가 `main.py` 에서 부른다).
 
+commit 트랜잭션 안에서 현재 scope·job 상태·list_complete·pending/retryable 0을 다시 확인한다.
+영구 누락은 명시적인 사용자 gaps 승인 시간이 있어야 commit한다. staging·generation·완료 표시가 같은 트랜잭션이며
+검증/commit 예외는 `failed:commit_failed`로 남고 완료로 덮지 않는다. terminal 재commit은 멱등이다.
+웹 배너는 completed/completed_with_gaps/not_required에서 숨긴다(`hidden`과 Bootstrap d-flex 충돌을 피함).
+5초 상태 확인은 작은 실제 초기화 진행 상태와 상세 복귀 링크를 유지하며 페이지 이탈 시 타이머를 정리한다.
+"다른 페이지 둘러보기"는 대시보드 이동일 뿐 pause/cancel하지 않는다. 서버 프로세스를 종료하면 진행도 중단된다.
+
 ## 증분 선정 (`core/database/database.py`)
 
 `get_pending_detail_ids(force=False)` = 기존 SQL 후보 ∪ 벡터 `list_refetch.json` 규칙
@@ -95,6 +103,9 @@ capture 재시도 ID(T4 `capture_retry_ids()`, 없으면 빈 집합 — 파일 �
 | 문서 | 코드 | 상태 |
 |---|---|---|
 | `rebuild.md` preparing_backup 실패 | `start()` → `failed`, 개인 DB 무변경 | 일치 (G07) |
+| 크롤러 실행 실패 | `start/resume/resume_on_startup`의 launch 예외는 `running`을 `failed`로 바꾸고 **해당 run 소유 lease만** 같은 트랜잭션에서 해제한다. 완료/일시정지 상태를 덮지 않으며 즉시 같은 run으로 재개 가능. 초기화 필요 판정은 유지 | 정정 |
+| 중복 제어 요청 | 같은 서버 프로세스의 start/resume/startup은 RLock으로 직렬화한다. DB의 scope별 active job 유일성도 유지한다. 건강한 live lease는 startup에서 재실행하지 않는다 | 일치 |
+| 실행·완료 감시·알림 경계 | 완료 감시 스레드를 프로세스 시작 **전에** 준비하고 성공한 process를 인계한다. Thread.start 실패는 launch 이전 실패, launch 실패는 대기 감시를 종료한다. WS 시작 알림 실패는 이미 실행된 job/lease/완료 감시를 실패로 바꾸지 않는다 | 정정 |
 | `interfaces.md` `rotate_dataset` 호출자 | `exchange.restore()` 가 `_swap_in` 직전 호출 | 일치 |
 | `schedule.md` 커뮤니티 job id | T4 `register_community_jobs` 제공 전 — 호출 자리·멱등 재확인만 구현, fake 로 검증 | T4 대기 |
 | 게이트 `require_fresh`·`verify_client_user_token`, `refresh_server_completed` | T3a·T4 제공 전 — 함수 안 import + 부재 시 통과, fake 로 검증 | T3a·T4 대기 |

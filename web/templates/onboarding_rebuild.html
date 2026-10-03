@@ -23,7 +23,7 @@
                     이전 DB 전체를 <code id="rbLegacyBackup">data/backups/</code> 에 백업한 뒤 신고 자료를 비웠습니다.
                     관리자 계정·API 키·감시목록·지도 좌표 캐시는 그대로 두었고, 신고는 초기화 크롤링으로 안전신문고에서 다시 수집합니다.
                     예전에 직접 수정한 값·중복 판단·메모는 옮겨지지 않으니 필요하면 다시 지정해 주세요. 이전 DB 는 이 버전에서 가져올 수 없습니다.</li>
-                <li>종결된 신고를 포함해 목록 전체의 상세를 다시 읽습니다. 신고 수에 따라 오래 걸릴 수 있고, 중간에 멈추거나 프로그램을 다시 켜도 이어서 진행합니다.</li>
+                <li>종결된 신고를 포함해 목록 전체의 상세를 다시 읽습니다. 서버에서 백그라운드로 진행되며, 서버 프로그램을 종료하면 중단됩니다. 다시 켠 뒤 이어서 진행할 수 있습니다.</li>
                 <li>한 번 끝나면 다시 실행하지 않습니다. 개인 DB 를 복원하거나 안전신문고 계정을 바꾸면 다시 필요할 수 있습니다.</li>
                 <li>진행 중에는 일반 수집(수동·예약)만 잠시 막히고, 다른 화면은 그대로 쓸 수 있습니다.</li>
             </ul>
@@ -31,6 +31,7 @@
     </div>
 
     <div id="rbAlert" class="alert alert-warning small d-none" role="status" aria-live="polite"></div>
+    <p id="rbBackground" class="small text-muted d-none">다른 페이지로 이동해도 서버에서 계속 진행됩니다. 브라우저 탭을 닫아도 되지만 PC 프로그램/서버 프로세스는 실행해 두세요.</p>
 
     <div class="card card-custom mb-3">
         <div class="card-body">
@@ -51,7 +52,7 @@
         <button type="button" class="btn btn-outline-primary d-none" id="rbResumeBtn">이어서 진행</button>
         <button type="button" class="btn btn-outline-secondary d-none" id="rbPauseBtn">일시 중지</button>
         <button type="button" class="btn btn-outline-warning d-none" id="rbAcceptBtn">읽지 못한 신고를 빼고 완료</button>
-        <a class="btn btn-outline-secondary ms-auto" href="{{ next }}" id="rbLaterLink">나중에 하기</a>
+        <a class="btn btn-outline-secondary ms-auto" href="/" id="rbLaterLink">다른 페이지 둘러보기</a>
     </div>
 </main>
 <script>
@@ -92,6 +93,7 @@
         });
     }
     function render(s) {
+        if (disposed) return;
         last = s || {};
         var lab = LABEL[last.state] || [last.state || '알 수 없음', 'text-bg-secondary'];
         $('rbState').textContent = lab[0]; $('rbState').className = 'badge ' + lab[1];
@@ -107,11 +109,12 @@
         if (legacy && legacy.backup) $('rbLegacyBackup').textContent = legacy.backup;
         $('rbError').textContent = last.last_error || (last.reason ? (REASON[last.reason] || last.reason) : '-');
         var st = last.state;
+        show('rbBackground', ['preparing_backup','running','validating','committing'].indexOf(st) >= 0);
         show('rbStartBtn', st === 'required' || st === 'failed' || st === 'prerequisites_required');
         show('rbResumeBtn', st === 'paused');
         show('rbPauseBtn', st === 'running');
         show('rbAcceptBtn', st === 'validating' && (c.failed_permanent || 0) > 0);
-        if (st === 'completed' || st === 'completed_with_gaps') { $('rbLaterLink').textContent = '계속'; }
+        $('rbLaterLink').textContent = (st === 'completed' || st === 'completed_with_gaps') ? '대시보드로 이동' : '다른 페이지 둘러보기';
         clearTimeout(timer);
         if (['preparing_backup', 'running', 'validating', 'committing'].indexOf(st) >= 0) timer = setTimeout(load, 3000);
     }
@@ -139,6 +142,8 @@
         act('/accept-gaps', {}, this, '안전신문고에서 읽지 못한 신고를 빼고 완료할까요? 그 신고는 공유 사본이 만들어지지 않습니다.');
     });
     load();
+    var disposed = false;
+    window.addEventListener('pagehide', function () { disposed = true; clearTimeout(timer); });
 })();
 </script>
 </body>
