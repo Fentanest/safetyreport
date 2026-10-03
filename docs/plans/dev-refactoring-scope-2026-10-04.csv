@@ -1,0 +1,400 @@
+﻿path,kind,review_level,runtime_result
+.agents/mcp_config.json,문서·지침,N: 이름·유형만,not-run
+.agents/skills/sr-agency-registry/SKILL.md,문서·지침,N: 이름·유형만,not-run
+.agents/skills/sr-browser-visual-qa/SKILL.md,문서·지침,C: 전체,not-run
+.agents/skills/sr-jinja-theme-renewal/SKILL.md,문서·지침,N: 이름·유형만,not-run
+.agents/skills/sr-multiplatform-packaging/SKILL.md,문서·지침,C: 전체,not-run
+.agents/skills/sr-statistics-semantics/SKILL.md,문서·지침,C: 전체,not-run
+.agents/skills/sr-web-contract-audit/SKILL.md,문서·지침,C: 전체,not-run
+.claude/skills/sr-agency-registry/SKILL.md,문서·지침,N: 이름·유형만,not-run
+.claude/skills/sr-browser-visual-qa/SKILL.md,문서·지침,N: 이름·유형만,not-run
+.claude/skills/sr-jinja-theme-renewal/SKILL.md,문서·지침,N: 이름·유형만,not-run
+.claude/skills/sr-multiplatform-packaging/SKILL.md,문서·지침,N: 이름·유형만,not-run
+.claude/skills/sr-statistics-semantics/SKILL.md,문서·지침,N: 이름·유형만,not-run
+.claude/skills/sr-web-contract-audit/SKILL.md,문서·지침,N: 이름·유형만,not-run
+.dockerignore,빌드·환경,F: 전체,not-run
+.github/workflows/build-linux-manual.yml,빌드·환경,N: 이름·유형만,not-run
+.github/workflows/build-macos-arm64-manual.yml,빌드·환경,N: 이름·유형만,not-run
+.github/workflows/build-macos-x64-manual.yml,빌드·환경,N: 이름·유형만,not-run
+.github/workflows/build-windows-manual.yml,빌드·환경,N: 이름·유형만,not-run
+.github/workflows/build.yml,빌드·환경,N: 이름·유형만,not-run
+.gitignore,제품,N: 이름·유형만,not-run
+.mcp.json,제품,N: 이름·유형만,not-run
+AGENTS.md,문서·지침,C: 전체,not-run
+CHANGELOG.md,문서·지침,N: 이름·유형만,not-run
+CLAUDE.md,문서·지침,N: 이름·유형만,not-run
+Dockerfile,빌드·환경,F: 전체,not-run
+Dockerfile.build,빌드·환경,N: 이름·유형만,not-run
+GEMINI.md,문서·지침,N: 이름·유형만,not-run
+LICENSE,제품,N: 이름·유형만,not-run
+PROJECT_RULES.md,문서·지침,C: 전체,not-run
+README.md,문서·지침,N: 이름·유형만,not-run
+VERSION,제품,N: 이름·유형만,not-run
+bot.py,제품,F: 모든 handler와 등록/활성 조건,not-run
+build.sh,빌드·환경,N: 이름·유형만,not-run
+community_public.json,제품,N: 이름·유형만,not-run
+contracts/community-ingest/MANIFEST.sha256,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/README.md,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/account-api.md,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/ack.schema.json,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/canonical-json.md,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/envelope.schema.json,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/errors.md,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/gate.md,계약·벡터,C: 전체,not-run
+contracts/community-ingest/interfaces.md,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/local-store.md,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/observation.md,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/observation.schema.json,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/rebuild.md,계약·벡터,C: 전체,not-run
+contracts/community-ingest/schedule.md,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/vectors/canonical-json.json,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/vectors/gate.json,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/vectors/list_refetch.json,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/vectors/observations.json,계약·벡터,N: 이름·유형만,not-run
+contracts/community-ingest/vectors/schedule.json,계약·벡터,N: 이름·유형만,not-run
+contracts/dark-palette.json,계약·벡터,N: 이름·유형만,not-run
+contracts/exif-vectors.json,계약·벡터,N: 이름·유형만,not-run
+contracts/parser-vectors.json,계약·벡터,N: 이름·유형만,not-run
+contracts/rating-eligibility-vectors.json,계약·벡터,N: 이름·유형만,not-run
+contracts/selfhost-compat/README.md,계약·벡터,C: 전체,not-run
+contracts/selfhost-compat/vectors.json,계약·벡터,N: 이름·유형만,not-run
+contracts/stats-overview-vectors.json,계약·벡터,N: 이름·유형만,not-run
+contracts/storage-contract.json,계약·벡터,C: JSON 전 entity/column 정적 열람,not-run
+contracts/upload-control/MANIFEST.sha256,계약·벡터,N: 이름·유형만,not-run
+contracts/upload-control/vectors.json,계약·벡터,N: 이름·유형만,not-run
+core/__init__.py,제품,S: AST 구조만,not-run
+core/crawler/__init__.py,제품,S: AST 구조만,not-run
+core/crawler/api_client.py,제품,S: AST 구조만,not-run
+core/crawler/crawldetail_api.py,제품,S: AST 구조만,not-run
+core/crawler/crawltitle_api.py,제품,F: crawl_titles 전체,not-run
+core/crawler/detail_pipeline.py,제품,S: AST 구조만,not-run
+core/crawler/direct_login.py,제품,S: AST 구조만,not-run
+core/crawler/driv.py,제품,S: AST 구조만,not-run
+core/crawler/login.py,제품,F: login_mysafety 반복,not-run
+core/crawler/title_pipeline.py,제품,S: AST 구조만,not-run
+core/database/__init__.py,제품,S: AST 구조만,not-run
+core/database/database.py,제품,S: AST 구조만,not-run
+core/database/engine.py,제품,S: AST 구조만,not-run
+core/database/models.py,제품,S: AST 구조만,not-run
+core/database/write_barrier.py,제품,F: 전체 장벽,not-run
+core/storage/__init__.py,제품,S: AST 구조만,not-run
+core/storage/change_log.py,제품,S: AST 구조만,not-run
+core/storage/exchange.py,제품,F: restore/barrier/swap; 변환은 구조만,not-run
+core/storage/reports_repo.py,제품,S: AST 구조만,not-run
+core/utils/__init__.py,제품,S: AST 구조만,not-run
+core/utils/csrf.py,제품,S: AST 구조만,not-run
+core/utils/export.py,제품,F: import/clear-chunk/retry,not-run
+core/utils/logger.py,제품,S: AST 구조만,not-run
+core/utils/message_formatter.py,제품,S: AST 구조만,not-run
+core/utils/notifier.py,제품,F: retry/chunk/fallback,not-run
+core/utils/path_utils.py,제품,S: AST 구조만,not-run
+core/utils/retry.py,제품,S: AST 구조만,not-run
+core/utils/runtime_mode.py,제품,S: AST 구조만,not-run
+core/utils/scheduler.py,제품,S: AST 구조만,not-run
+core/utils/security.py,제품,S: AST 구조만,not-run
+core/utils/templating.py,제품,F: 전체 설정,not-run
+core/utils/updater.py,제품,S: AST 구조만,not-run
+core/utils/ws_auth.py,제품,S: AST 구조만,not-run
+docker-compose-selenium-hub.yml,제품,N: 이름·유형만,not-run
+docker-compose.yml,제품,N: 이름·유형만,not-run
+docs/agent-dispatch-runbook.md,문서·지침,N: 이름·유형만,not-run
+docs/architecture/README.md,문서·지침,N: 이름·유형만,not-run
+docs/architecture/community-account.md,문서·지침,N: 이름·유형만,not-run
+docs/architecture/community-gate.md,문서·지침,C: 전체,not-run
+docs/architecture/community-rebuild.md,문서·지침,C: 전체,not-run
+docs/architecture/community-upload.md,문서·지침,N: 이름·유형만,not-run
+docs/architecture/crawling-and-processing.md,문서·지침,N: 이름·유형만,not-run
+docs/architecture/data-contracts.md,문서·지침,C: 현행/교환/통계/권한 절; 과거 이관 일부,not-run
+docs/architecture/legacy-claude-reference.md,문서·지침,N: 이름·유형만,not-run
+docs/architecture/overview.md,문서·지침,N: 이름·유형만,not-run
+docs/architecture/web-ui.md,문서·지침,N: 이름·유형만,not-run
+docs/design/asset-manifest.csv,문서·지침,N: 이름·유형만,not-run
+docs/design/dark-palette.md,문서·지침,N: 이름·유형만,not-run
+docs/design/feature-matrix.csv,문서·지침,C: 전 행 구조와 기능 연결,not-run
+docs/design/pilot-dom-contracts.md,문서·지침,C: 선택자/storage/CSV 계약,not-run
+docs/design/statistics-spec.md,문서·지침,C: 현행 정정/9-6/9-7/통계 의미; 법령 재조사 없음,not-run
+docs/design/ui-renewal-spec.md,문서·지침,N: 이름·유형만,not-run
+docs/development/ignore-rules-migration.md,문서·지침,N: 이름·유형만,not-run
+docs/development/runtime-and-packaging.md,문서·지침,C: fixture/외부 차단/OS 구분,not-run
+docs/development/skills-and-tools.md,문서·지침,N: 이름·유형만,not-run
+docs/plans/2026-09-27-upload-hardening-android.md,문서·지침,N: 이름·유형만,not-run
+docs/plans/agency-lineage-registry.md,문서·지침,N: 이름·유형만,not-run
+docs/plans/agency-normalization-code-history.md,문서·지침,N: 이름·유형만,not-run
+docs/plans/crawler-photo-capture-time-plan.md,문서·지침,N: 이름·유형만,not-run
+docs/plans/dev-refactoring-feature-gates-2026-10-03.csv,문서·지침,N: 이름·유형만,not-run
+docs/plans/dev-refactoring-plan-2026-10-03.md,문서·지침,C: 현재 구조/계획/과거 결과 구분,not-run
+docs/plans/dev-refactoring-review-scope-2026-10-03.csv,문서·지침,N: 이름·유형만,not-run
+docs/plans/storage-refactor-plan.md,문서·지침,N: 이름·유형만,not-run
+docs/plans/web-ui-pilot-plan.md,문서·지침,N: 이름·유형만,not-run
+docs/reference/administrative-region-codes-2014.md,문서·지침,N: 이름·유형만,not-run
+docs/reference/administrative-region-lineage-2014.csv,문서·지침,N: 이름·유형만,not-run
+docs/reference/administrative-region-lineage-2014.md,문서·지침,N: 이름·유형만,not-run
+docs/reference/administrative-region-notices-2014.csv,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-24-gemini-bootstrap-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-24-gemini-fine-research-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-24-gemini-g10-p1-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-24-gemini-g11-storage-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-24-gemini-g12-p2-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-24-gemini-g13-p3-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-24-gemini-g9-storage-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-25-g16-implementation-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-25-g17-db-parity-audit.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-25-gemini-g14-w1-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-25-gemini-g15-investigation.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-26-community-ingest-pc-integration-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-27-consent-markdown-sol.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-27-kakao-logout-owner-codex.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-27-upload-hardening-sol.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-09-28-stats-renewal-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/2026-10-03-v3-user-reports-review.md,문서·지침,N: 이름·유형만,not-run
+docs/reviews/screenshots/consent-markdown/pc-1280-dark.png,문서·지침,N: 이름·유형만,not-run
+docs/reviews/screenshots/consent-markdown/pc-1280-light.png,문서·지침,N: 이름·유형만,not-run
+docs/reviews/screenshots/consent-markdown/pc-390-light.png,문서·지침,N: 이름·유형만,not-run
+docs/status-layer-redesign-plan-2026-05.md,문서·지침,N: 이름·유형만,not-run
+docs/templates/delegation-task.md,문서·지침,N: 이름·유형만,not-run
+docs/templates/review-report.md,문서·지침,N: 이름·유형만,not-run
+docs/testing/baseline-2026-09-24.md,문서·지침,N: 이름·유형만,not-run
+docs/testing/environment-matrix.csv,문서·지침,N: 이름·유형만,not-run
+docs/testing/web-ui-test-plan.md,문서·지침,N: 이름·유형만,not-run
+entrypoint.sh,빌드·환경,N: 이름·유형만,not-run
+main.py,제품,F: import/lifespan/version/auth/gate/redirect,not-run
+mysafetyreport.icns,binary,X: 내용 미검토,not-run
+mysafetyreport.ico,binary,X: 내용 미검토,not-run
+mysafetyreport.png,binary,X: 내용 미검토,not-run
+mysafetyreport.webp,binary,X: 내용 미검토,not-run
+requirements.txt,빌드·환경,N: 이름·유형만,not-run
+scripts/__init__.py,제품,S: AST 구조만,not-run
+scripts/agency_registry/build.py,제품,S: AST 구조만,not-run
+scripts/agency_registry/build_official_index.py,제품,S: AST 구조만,not-run
+scripts/agency_registry/check.py,제품,S: AST 구조만,not-run
+scripts/agency_registry/diff.py,제품,S: AST 구조만,not-run
+scripts/agency_registry/examine.py,제품,S: AST 구조만,not-run
+scripts/agency_registry/fetch_official.py,제품,S: AST 구조만,not-run
+scripts/agency_registry/rollback.py,제품,S: AST 구조만,not-run
+scripts/agency_registry/seed_agency_links.json,제품,N: 이름·유형만,not-run
+scripts/agency_registry/sync.py,제품,S: AST 구조만,not-run
+scripts/agency_registry/validate.py,제품,S: AST 구조만,not-run
+scripts/build/__init__.py,빌드·환경,S: AST 구조만,not-run
+scripts/build/build_exe.py,빌드·환경,F: public config/options,not-run
+scripts/build/check_macos_universal2.py,빌드·환경,S: AST 구조만,not-run
+scripts/build/write_community_public.py,빌드·환경,S: AST 구조만,not-run
+scripts/debug/__init__.py,제품,S: AST 구조만,not-run
+scripts/debug/extractor.py,제품,S: AST 구조만,not-run
+scripts/debug/merge.py,제품,S: AST 구조만,not-run
+scripts/debug/save.py,제품,S: AST 구조만,not-run
+scripts/dev/__init__.py,테스트·개발도구,S: AST 구조만,not-run
+scripts/dev/community_qa_session.py,테스트·개발도구,S: AST 구조만,not-run
+scripts/dev/db_roundtrip_check.py,테스트·개발도구,S: AST 구조만,not-run
+scripts/dev/fixture_server.py,테스트·개발도구,S: AST 구조만,not-run
+scripts/dev/logic_parity_check.py,테스트·개발도구,S: AST 구조만,not-run
+scripts/dev/migration_rehearsal.py,테스트·개발도구,S: AST 구조만,not-run
+scripts/dev/review_regression_fixture.py,테스트·개발도구,S: AST 구조만,not-run
+scripts/dev/sync_project_skills.py,테스트·개발도구,S: AST 구조만,not-run
+scripts/dev/user_report_benchmark.py,테스트·개발도구,S: AST 구조만,not-run
+scripts/dev/user_report_browser_timing.cjs,테스트·개발도구,N: 이름·유형만,not-run
+scripts/dev/user_report_fixture.py,테스트·개발도구,S: AST 구조만,not-run
+scripts/dev/web_contract_inventory.py,테스트·개발도구,S: AST 구조만,not-run
+services/account_data.py,제품,S: AST 구조만,not-run
+services/agency_registry.py,제품,S: AST 구조만,not-run
+services/community_account_client.py,제품,S: AST 구조만,not-run
+services/community_auth_client.py,제품,S: AST 구조만,not-run
+services/community_auth_service.py,제품,S: AST 구조만,not-run
+services/community_auth_store.py,제품,S: AST 구조만,not-run
+services/community_capture.py,제품,S: AST 구조만,not-run
+services/community_crawl_upload.py,제품,F: flush 전체,not-run
+services/community_gate.py,제품,F: decide/evaluate/refresh/require_fresh,not-run
+services/community_ingest_client.py,제품,S: AST 구조만,not-run
+services/community_rebuild.py,제품,F: start/continue/launch/pause/resume/startup/finalize 일부,not-run
+services/community_schedule.py,제품,S: AST 구조만,not-run
+services/community_store.py,제품,S: AST 구조만,not-run
+services/community_upload_policy.py,제품,S: AST 구조만,not-run
+services/community_uploader.py,제품,F: scope/count/batch/drain/status/stop/manifest,not-run
+services/crawl_control.py,제품,F: watcher/일반·단건·다건·rebuild 시작/중지,not-run
+services/crawl_log_service.py,제품,S: AST 구조만,not-run
+services/crawl_manager.py,제품,F: after/pending/restore 함수 집중,not-run
+services/crawl_queue_report.py,제품,S: AST 구조만,not-run
+services/crawl_state_store.py,제품,S: AST 구조만,not-run
+services/data_service.py,제품,S: AST 구조만,not-run
+services/db_backup.py,제품,S: AST 구조만,not-run
+services/db_editor_service.py,제품,F: list/detail/edit 전체,not-run
+services/duplicate_group_service.py,제품,F: _safe_read/_load_inventory/refresh/get_duplicate_groups,not-run
+services/export_service.py,제품,S: AST 구조만,not-run
+services/file_service.py,제품,F: resolver/list/delete/ZIP/snapshot 함수 전체,not-run
+services/fine_estimate.py,제품,S: AST 구조만,not-run
+services/geocode_service.py,제품,S: AST 구조만,not-run
+services/maintenance_service.py,제품,S: AST 구조만,not-run
+services/media_proxy_service.py,제품,F: download/open_stream/prime/callback/cleanup,not-run
+services/parser.py,제품,S: AST 구조만,not-run
+services/photo_capture_time.py,제품,S: AST 구조만,not-run
+services/rating_eligibility.py,제품,S: AST 구조만,not-run
+services/rating_service.py,제품,F: admission/worker 전체,not-run
+services/report_cache.py,제품,F: cached/clear/observer 전체,not-run
+services/report_number_resolver.py,제품,S: AST 구조만,not-run
+services/report_query_service.py,제품,F: page/query/withdraw/ID/unrated/watchlist,not-run
+services/report_stats_service.py,제품,"F: load/filter/project/metrics/estimate/get_stats_page, map 구조",not-run
+services/satisfaction_fetcher.py,제품,S: AST 구조만,not-run
+services/selfhost_compat.py,제품,S: AST 구조만,not-run
+services/star_rating_service.py,제품,F: 제출/재조회/posted/저장/로그 전체,not-run
+services/sunwi_fetcher.py,제품,F: session/fetch retry; 나머지 AST,not-run
+services/sunwi_service.py,제품,S: AST 구조만,not-run
+services/ws_manager.py,제품,F: 전체 연결/전송/metadata 함수,not-run
+settings/settings.py,제품,F: 전체 load/update/save,not-run
+shared/agency-region-registry/data-sources/administrative-region-lineage-2014.csv,생성·원천 registry 자료,X: 내용 미검토,not-run
+shared/agency-region-registry/data-sources/administrative-region-notices-2014.csv,생성·원천 registry 자료,X: 내용 미검토,not-run
+shared/agency-region-registry/data/agency_index.json,생성·원천 registry 자료,X: 내용 미검토,not-run
+shared/agency-region-registry/data/agency_institutions.json,생성·원천 registry 자료,X: 내용 미검토,not-run
+shared/agency-region-registry/data/agency_legacy.json,생성·원천 registry 자료,X: 내용 미검토,not-run
+shared/agency-region-registry/data/agency_links.json,생성·원천 registry 자료,X: 내용 미검토,not-run
+shared/agency-region-registry/data/region_events.json,생성·원천 registry 자료,X: 내용 미검토,not-run
+shared/agency-region-registry/manifest.json,제품,N: 이름·유형만,not-run
+shared/agency-region-registry/provenance.json,제품,N: 이름·유형만,not-run
+shared/agency-region-registry/resolvers/README.md,제품,N: 이름·유형만,not-run
+shared/agency-region-registry/resolvers/resolve.dart,제품,N: 이름·유형만,not-run
+shared/agency-region-registry/resolvers/resolve.py,제품,S: AST 구조만,not-run
+shared/agency-region-registry/resolvers/resolve.ts,제품,N: 이름·유형만,not-run
+shared/agency-region-registry/schema.md,제품,N: 이름·유형만,not-run
+shared/agency-region-registry/vectors/resolve_cases.json,계약·벡터,N: 이름·유형만,not-run
+start.py,제품,F: main/_process_and_save_results,not-run
+tests/fixtures/db/server-2026-05-16.schema.sql,테스트·개발도구,N: 이름·유형만,not-run
+tests/fixtures/fine_estimate_vectors.json,테스트·개발도구,N: 이름·유형만,not-run
+tests/fixtures/share-consent-2026-09-28.1.txt,테스트·개발도구,N: 이름·유형만,not-run
+tests/js/consent_markdown_check.js,테스트·개발도구,N: 이름·유형만,not-run
+tests/test_account_data.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_agency_registry.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_auth.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_auth_live.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_capture.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_consent_markdown.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_contract_vectors.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_crawl_upload.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_deletion.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_gate.py,테스트·개발도구,T: TTL/네트워크/새 작업 assertion,not-run
+tests/test_community_live_stack.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_packaging.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_rebuild.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_schedule.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_scheduler_split.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_selection.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_store.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_upload_control.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_community_uploader.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_crawl_completion_upload.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_crawl_modes_removed.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_dark_palette.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_fine_estimate.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_fixture_runtime_mode.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_geocode_service_regression.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_maintenance_service.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_parser_vectors.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_photo_capture_time.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_rating_eligibility.py,테스트·개발도구,T: 확인/retry/DB실패 assertion,not-run
+tests/test_rebuild_launch_lifecycle.py,테스트·개발도구,T: watcher/알림 실패 일부,not-run
+tests/test_report_stats_service.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_search_form_order.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_selfhost_compat.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_start_reset_regression.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_stats_fixture_semantics.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_stats_identity_scope.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_stats_law_scope.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_stats_overview_vectors.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_storage_change_log.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_storage_contract.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_storage_duplicate_decisions.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_storage_exchange.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_storage_known_defects.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_storage_migration.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_storage_reports_repo.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_upload_policy_vectors.py,테스트·개발도구,S: AST 구조만,not-run
+tests/test_user_report_regressions.py,테스트·개발도구,S: AST 구조만,not-run
+tools/docker/compose.devtest.yml,제품,N: 이름·유형만,not-run
+tools/web-tests/month-fixes.config.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/package-lock.json,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/package.json,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/playwright.config.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/community-delete-message.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/dashboard-cards.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/duplicates-manage.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/editor-override.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/fixture-smoke.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/job-bar.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/list-empty-state.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/list-interactions.spec.ts,테스트·개발도구,T: pagination/CSV/copy assertion,not-run
+tools/web-tests/specs/map-page.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/month-fixes.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/ops-pages.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/rating-cause.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/settings-pages.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/stats-drilldown.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/stats-layout.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/stats-renewal.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/stats-top.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/theme-pilot.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/specs/user-reports.spec.ts,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/tsconfig.json,테스트·개발도구,N: 이름·유형만,not-run
+tools/web-tests/user-reports.config.ts,테스트·개발도구,N: 이름·유형만,not-run
+web/routers/__init__.py,제품,S: AST 구조만,not-run
+web/routers/api_route.py,제품,F: 중복/입력/페이지/설정 계약; 전체 라우트 구조,not-run
+web/routers/auth_route.py,제품,S: AST 구조만,not-run
+web/routers/backup_route.py,제품,S: AST 구조만,not-run
+web/routers/community_onboarding_route.py,제품,S: AST 구조만,not-run
+web/routers/community_rebuild_route.py,제품,F: web/API action/manager/token,not-run
+web/routers/community_route.py,제품,S: AST 구조만,not-run
+web/routers/community_upload_route.py,제품,F: web/API action/token,not-run
+web/routers/crawl.py,제품,S: AST 구조만,not-run
+web/routers/dashboard.py,제품,S: AST 구조만,not-run
+web/routers/data.py,제품,F: query 전달/각 category와 all 차이 집중 열람,not-run
+web/routers/db_editor_route.py,제품,S: AST 구조만,not-run
+web/routers/devices_route.py,제품,S: AST 구조만,not-run
+web/routers/duplicate_route.py,제품,F: 전체,not-run
+web/routers/file_browser_route.py,제품,S: AST 구조만,not-run
+web/routers/filters.py,제품,S: AST 구조만,not-run
+web/routers/maintenance_route.py,제품,S: AST 구조만,not-run
+web/routers/media_route.py,제품,S: AST 구조만,not-run
+web/routers/rating_route.py,제품,F: 전체,not-run
+web/routers/settings_route.py,제품,S: AST 구조만,not-run
+web/routers/stats.py,제품,S: AST 구조만,not-run
+web/routers/watchlist_route.py,제품,S: AST 구조만,not-run
+web/routers/ws_route.py,제품,F: ws_events/pinger 전체,not-run
+web/static/apple-touch-icon.png,binary,X: 내용 미검토,not-run
+web/static/brand/logo-lockup-dark.png,binary,X: 내용 미검토,not-run
+web/static/brand/logo-lockup-light.png,binary,X: 내용 미검토,not-run
+web/static/favicon.ico,binary,X: 내용 미검토,not-run
+web/static/logo.png,binary,X: 내용 미검토,not-run
+web/static/ui/badges.css,제품,N: 이름·유형만,not-run
+web/static/ui/community_consent_markdown.js,제품,N: 이름·유형만,not-run
+web/static/ui/dashboard.css,제품,N: 이름·유형만,not-run
+web/static/ui/list.css,제품,N: 이름·유형만,not-run
+web/static/ui/ops.css,제품,N: 이름·유형만,not-run
+web/static/ui/report-map.css,제품,N: 이름·유형만,not-run
+web/static/ui/report-map.js,제품,N: 이름·유형만,not-run
+web/static/ui/stats-loader.js,제품,F: 전체,not-run
+web/static/ui/stats.css,제품,N: 이름·유형만,not-run
+web/static/ui/stats.js,제품,F: footer/eager table/map lifecycle,not-run
+web/static/ui/sunwi-widget.js,제품,N: 이름·유형만,not-run
+web/static/ui/theme.css,제품,N: 이름·유형만,not-run
+web/static/ui/theme.js,제품,N: 이름·유형만,not-run
+web/static/ui/tokens.css,제품,N: 이름·유형만,not-run
+web/templates/admin_change.html,제품,N: 이름·유형만,not-run
+web/templates/backup.html,제품,N: 이름·유형만,not-run
+web/templates/base.html,제품,F: 상세 URL/날짜/셸 선택자,not-run
+web/templates/components/community_account_card.html,제품,N: 이름·유형만,not-run
+web/templates/components/community_consent_card.html,제품,N: 이름·유형만,not-run
+web/templates/components/theme_head.html,제품,N: 이름·유형만,not-run
+web/templates/crawl.html,제품,N: 이름·유형만,not-run
+web/templates/data_table.html,제품,F: JSON/query/search/date/selection/export,not-run
+web/templates/db_editor.html,제품,N: 이름·유형만,not-run
+web/templates/db_editor_form.html,제품,N: 이름·유형만,not-run
+web/templates/devices.html,제품,F: connected clients/key create,not-run
+web/templates/duplicate_groups.html,제품,N: 이름·유형만,not-run
+web/templates/file_browser.html,제품,N: 이름·유형만,not-run
+web/templates/index.html,제품,N: 이름·유형만,not-run
+web/templates/login.html,제품,N: 이름·유형만,not-run
+web/templates/onboarding_community.html,제품,N: 이름·유형만,not-run
+web/templates/onboarding_rebuild.html,제품,N: 이름·유형만,not-run
+web/templates/rating.html,제품,F: log/WS/table,not-run
+web/templates/report_map.html,제품,F: mapFilters/listParams/create,not-run
+web/templates/settings.html,제품,F: uploadJson,not-run
+web/templates/setup.html,제품,N: 이름·유형만,not-run
+web/templates/stats.html,제품,N: 이름·유형만,not-run
+web/templates/stats_fragment.html,제품,N: 이름·유형만,not-run
+web/templates/watchlist.html,제품,N: 이름·유형만,not-run
