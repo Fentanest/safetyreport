@@ -11,6 +11,7 @@
 | 디렉토리 구조 | `core/utils/runtime_mode.py`, `scripts/dev/`, `tools/`, `tests/` 가 트리에 없다. `services/db_editor_service.py`, `web/routers/filters.py` 도 빠져 있다(본문에는 db_editor_service 언급 있음). | 트리 보강 필요 — 아래 '2026-09-24 추가 구조' 절 참고 |
 | 로그 시스템 | WebSocket 로그 경로는 `/crawl/ws/logs` 외에 별점 로그 `/rating/ws/rating_logs` 도 있다(`web/routers/rating_route.py`). | 추가 |
 | 현재 주요 구조 요약 / 전체 | 테스트용 실행 경로(SAFETYREPORT_DATA_DIR / SAFETYREPORT_FIXTURE_MODE)는 2026-09-24 에 추가됐다. | docs/development/runtime-and-packaging.md |
+| 현재 서버 시작·사용 흐름의 schema4/API 버전 설명 | `2eb833d`의 서버 schema는 5, 모바일 교환 schema는 16이다. 유효 API 키 뒤에도 protocol3 검사가 있으며 인증된 최소 server/version probe만 예외다. legacy DB는 백업 후 초기화하며 아래 이관 원문의 자동 업그레이드는 과거 설명이다. | 현행 `data-contracts.md` 및 `contracts/selfhost-compat/` 우선 |
 
 ## 2026-09-24 추가 구조
 

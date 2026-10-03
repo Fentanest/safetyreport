@@ -8,6 +8,13 @@
 
 ---
 
+## 2026-10-03 (dev 리팩터링 계획 작성, 제품 코드 변경 없음)
+
+- 지정 계획 프롬프트의 구현 전 계획 범위에 따라 [상세 실행 계획](docs/plans/dev-refactoring-plan-2026-10-03.md)을 작성했다. 현재 HEAD `2eb833d`에서 발견 경로를 다시 읽고 35개 항목의 증거·수정 설계·회귀·단계별 완료 게이트와 롤백을 정리했다.
+- 추적 파일 396개의 실제 검토 수준 CSV와 기존 기능표 128행의 구현 참조·검증 연결 CSV를 추가했다. 기능표 `SH-12` 중복 두 행을 덮어쓰지 않고 보존하며 과거 fixture 숫자와 새 assertion을 분리했다.
+- architecture의 오래된 schema/API protocol 설명 및 rebuild verifier 부재 시 통과 설명을 코드 대조 정정 표에 보완했다. 제품 코드·DB 스키마·운영 자료·외부 전송·VERSION·배포는 변경하지 않았다. 기존 사용자 작업트리 변경은 보존했다.
+- 격리 임시 데이터 루트·fixture 모드 Python unittest: 573개 중 568 passed/기존 5 skipped, 138.954초. Python181개 AST 파싱 및 정적 DOM/라우트 inventory 실행. 신규 결함 재현·브라우저·성능·모바일·frozen·Docker 검증은 이번에 실행하지 않았다. 임시 근거는 `.agent-runs/refactor-audit/`에 두었다.
+
 ## 2026-10-03 (최근 한 달 코드 검토 후 수정, 로컬·배포 없음)
 
 기준: `dev a35b7d2`, 수정 전 작업 HEAD `f4a945e`. 사용자 미커밋 `VERSION` 및 기존 미추적 파일은 보존·커밋 제외.

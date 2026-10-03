@@ -108,7 +108,7 @@ capture 재시도 ID(T4 `capture_retry_ids()`, 없으면 빈 집합 — 파일 �
 | 실행·완료 감시·알림 경계 | 완료 감시 스레드를 프로세스 시작 **전에** 준비하고 성공한 process를 인계한다. Thread.start 실패는 launch 이전 실패, launch 실패는 대기 감시를 종료한다. WS 시작 알림 실패는 이미 실행된 job/lease/완료 감시를 실패로 바꾸지 않는다 | 정정 |
 | `interfaces.md` `rotate_dataset` 호출자 | `exchange.restore()` 가 `_swap_in` 직전 호출 | 일치 |
 | `schedule.md` 커뮤니티 job id | T4 `register_community_jobs` 제공 전 — 호출 자리·멱등 재확인만 구현, fake 로 검증 | T4 대기 |
-| 게이트 `require_fresh`·`verify_client_user_token`, `refresh_server_completed` | T3a·T4 제공 전 — 함수 안 import + 부재 시 통과, fake 로 검증 | T3a·T4 대기 |
+| 게이트 `require_fresh`·`verify_client_user_token`, `refresh_server_completed` | `2eb833d`에는 실제 모듈·함수가 있다. rebuild API의 사용자 토큰은 누락·검증 예외 시 False이며 검사 부재로 통과하지 않는다. `_gate_fresh`와 `_refresh_manifest`도 실제 서비스를 호출한다. | 과거 T3a·T4 대기 설명 정정; action freshness 실패 경계는 별도 회귀 검증 필요 |
 
 ## 로컬 검증 (2026-09-26)
 
