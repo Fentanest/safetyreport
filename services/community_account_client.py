@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 import requests
 
 from core.utils import runtime_mode
+from services.community_client_rules import classify_response
 
 PROTOCOL_VERSION = 1
 FUNCTION = "community-account"
@@ -20,17 +21,27 @@ TIMEOUT_SECONDS = 10
 
 
 class AccountApiError(RuntimeError):
-    def __init__(self, code: str, status: int | None = None, retry_after: float | None = None, extra: dict | None = None):
+    def __init__(self, code: str, status: int | None = None, retry_after: float | None = None, extra: dict | None = None,
+                 *, transient: bool | None = None, auth: bool | None = None):
         super().__init__(code)
         self.code = code
         self.status = status
         self.retry_after = retry_after
         self.extra = extra or {}
+        self._transient = transient
+        self._auth = auth
 
     @property
     def transient(self) -> bool:
-        return self.code in ("network_error", "busy", "rate_limited", "server_error", "service_disabled") or (
+        """일시 오류(client-rules §2): 응답을 분류할 때 정한 값. 응답 없이 만든 오류는 코드·상태로 판단한다."""
+        if self._transient is not None:
+            return self._transient
+        return self.code in ("network_error", "busy", "rate_limited", "server_error") or (
             self.status is not None and self.status >= 500)
+
+    @property
+    def auth(self) -> bool:
+        return self._auth if self._auth is not None else (self.code == "auth_required" or self.status == 401)
 
 
 class CommunityAccountClient:
@@ -51,17 +62,11 @@ class CommunityAccountClient:
                                   headers={"apikey": self.publishable_key, "Authorization": f"Bearer {access_token}"})
         except requests.RequestException:
             raise AccountApiError("network_error") from None
-        try:
-            data = resp.json()
-        except ValueError:
-            raise AccountApiError("server_error", resp.status_code) from None
-        if resp.status_code >= 400 or not isinstance(data, dict) or "error" in data:
-            err = data.get("error") if isinstance(data, dict) and isinstance(data.get("error"), dict) else {}
-            code = err.get("code") if isinstance(err.get("code"), str) else "server_error"
-            retry = err.get("retryAfterSeconds")
-            extra = {k: v for k, v in err.items() if k in ("active_writer", "required_version")}
-            raise AccountApiError(code, resp.status_code, float(retry) if isinstance(retry, (int, float)) else None, extra)
-        return data
+        result = classify_response(resp.status_code, resp.text, resp.headers)
+        if not result.success:
+            raise AccountApiError(result.code, resp.status_code, result.retry_after, result.extra,
+                                  transient=result.transient, auth=result.auth)
+        return result.data
 
     def status(self, access_token: str, connection_id: str | None = None) -> dict:
         return self._post("status", access_token, {"connection_id": connection_id} if connection_id else {})

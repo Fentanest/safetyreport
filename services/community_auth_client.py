@@ -27,6 +27,8 @@ DISPLAY_CODE_RE = re.compile(r"^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$")
 DEVICE_LABEL_MAX = 40
 _LABEL_FORBIDDEN = re.compile("[\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩<>\"'`\\\\]")
 _LABEL_SCHEME = re.compile(r"^[a-z][a-z0-9+.-]*:", re.IGNORECASE)
+# JS `\s` 와 같은 공백 집합(Python `\s` 는 U+FEFF 를 빼고 U+001C~001F·U+0085 를 넣는다 — 뒤의 것들은 어차피 금지 문자)
+_LABEL_SPACE = re.compile("[\t\n\x0b\x0c\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]+")
 
 # Supabase Auth 가 refresh 토큰을 더 이상 받지 않는다는 뜻의 오류 코드 → "다시 로그인 필요"
 REAUTH_ERROR_CODES = frozenset({
@@ -72,10 +74,10 @@ def pkce_challenge(verifier: str) -> str:
 
 
 def normalize_device_label(value) -> str | None:
-    """protocol.ts normalizeDeviceLabel 과 같은 규칙. 통과 못 하면 None."""
+    """protocol.ts normalizeDeviceLabel 과 같은 규칙(contracts/community-client/vectors/device-label.json). 통과 못 하면 None."""
     if not isinstance(value, str):
         return None
-    label = re.sub(r"\s+", " ", unicodedata.normalize("NFC", value)).strip()
+    label = _LABEL_SPACE.sub(" ", unicodedata.normalize("NFC", value)).strip(" ")
     if not label or len(label) > DEVICE_LABEL_MAX:
         return None
     if _LABEL_FORBIDDEN.search(label) or _LABEL_SCHEME.match(label):

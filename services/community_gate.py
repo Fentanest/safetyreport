@@ -24,6 +24,7 @@ import requests
 
 from core.utils import runtime_mode
 from core.utils.fallback import note_fallback
+from services.community_client_rules import is_current_response, normalize_status
 from services import community_auth_service as cas
 from services.community_account_client import AccountApiError, CommunityAccountClient
 
@@ -78,8 +79,10 @@ def config_state(cfg: cas.CommunityConfig) -> str:
     return "ok"
 
 
-def decide(config: str, session: str, status: dict | None, age: float | None, invalidated: bool) -> tuple[str, list]:
-    """gate.md 판정 순서(먼저 걸린 것이 결과). 순수 함수."""
+def decide(config: str, session: str, status: dict | None, age: float | None, invalidated: bool,
+           ttl: float | None = None) -> tuple[str, list]:
+    """gate.md 판정 순서(먼저 걸린 것이 결과). 순수 함수. status 는 normalize_status 를 거친 값(client-rules §1)."""
+    ttl = CACHE_TTL if ttl is None else ttl
     if config != "ok":
         return "config_invalid", [f"config_{config}"]
     if session == "none":
@@ -88,12 +91,13 @@ def decide(config: str, session: str, status: dict | None, age: float | None, in
         return "kakao_reauth_required", ["session_reauth_required"]
     if session == "unreadable":
         return "session_unreadable", ["session_unreadable"]
-    if status is None or invalidated or age is None or age > CACHE_TTL:
+    if status is None or invalidated or age is None or age > ttl:
         return "verification_required", ["status_stale"]
     gate = status.get("gate") or {}
     if not gate.get("kakao"):
         return "kakao_required", [r for r in (gate.get("reasons") or []) if isinstance(r, str)] or ["kakao_missing"]
-    contributor = (status.get("contributor") or {}).get("status") or "none"
+    # gate.md 5: status 가 {active, none} 밖이면 정지 — 값이 없는 응답도 밖이다(fail-closed, 모바일 evaluateGate 와 같음, D2-10)
+    contributor = (status.get("contributor") or {}).get("status")
     if contributor not in ("active", "none"):
         return "suspended", [f"contributor_{contributor}"]
     consent = status.get("consent") or {}
@@ -209,7 +213,7 @@ class _Gate:
         writer = self._load_writer(service)
         own = writer if writer and writer.get("user_id") == current.get("user_id") else None
         try:
-            status = client.status(token, own.get("connection_id") if own else None)
+            status = normalize_status(client.status(token, own.get("connection_id") if own else None))
         except AccountApiError as exc:
             self._last_error = exc.code
             if not exc.transient:
@@ -229,10 +233,10 @@ class _Gate:
 
     def _still_current(self, service, generation: int, user_id: str | None) -> bool:
         """조회를 시작한 세대·세션 계정이 그대로인가(self._lock 을 잡은 채 부른다)."""
-        if self._generation != generation:
-            return False
         session, current = self._session_state(service)
-        return session == "valid" and (current or {}).get("user_id") == user_id
+        return is_current_response({"generation": generation, "mode": "server", "user_id": user_id},
+                                   {"generation": self._generation, "mode": "server",
+                                    "user_id": (current or {}).get("user_id"), "session": session})
 
     def check_for_request(self, retry_interval: float = 15.0) -> dict:
         """HTTP 요청용: 캐시 판정. 확인이 필요하면(cold start·무효화·만료) 중앙 status 를 받되,

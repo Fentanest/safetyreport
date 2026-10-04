@@ -37,6 +37,15 @@
 - 온라인 동안 60초 주기 `community-gate-poll` job(T4 `register_community_jobs`)이 원격 철회를 반영(상한 온라인 60초, 오프라인 10분).
 - HTTP 요청의 확인(`check_for_request`)은 장애 때 요청마다 막히지 않게 15초에 한 번만 재시도한다.
 
+### 클라이언트 규칙 공용 계약 (D2-10, 2026-10-05)
+status 응답 정규화·오류 분류·기기 이름·캐시 경계·늦은 응답 규칙은 `contracts/community-client/`(정본은 이 레포, 모바일 `contracts/community-client/`·auth `tests/contracts/community-client/` 에 사본,
+MANIFEST 해시 확인)이 정하고 서버 `services/community_client_rules.py`·모바일 `lib/community/gate/community_client_rules.dart` 가 구현한다. 세 레포 시험이 같은 벡터를 읽는다.
+- status: 게이트 관련 필드를 정해진 형으로 맞춘 뒤 판정한다(`kakao` 는 JSON true 만, 문자열 필드는 문자열만). 기여자 상태가 없거나 형이 틀리면 gate.md 5 대로 정지로 판정한다(이전 서버는 none 으로 통과시켰다).
+- 오류: 본문 `retryable` 이 정본, 없으면 본문 코드(rate_limited·busy·server_error) 또는 HTTP ≥ 500. 재시도 대기는 본문 `retryAfterSeconds` → `Retry-After` 정수 초.
+  일시 오류가 아닌 status 오류는 서버·모바일 모두 게이트를 무효화한다(이전 모바일은 인증 오류가 아니면 캐시를 10분까지 유지했다).
+  HTTP 200 이어도 `error` 키가 있으면 오류다(이전 모바일은 성공으로 읽었다).
+- 기기 이름: 공백 집합을 JS `\s` 와 같게(U+FEFF 포함) 맞췄다 — 이전 서버는 U+FEFF 를 그대로 둬 중앙과 결과가 달랐다.
+
 ## writer 연결과 community.db context
 게이트가 `ok` 가 되면 업로드 연결을 확보하고 `community.db` 의 `context` 를 활성화한다(업로더·capture 가 읽음).
 - `dataset_key = sha256("safetyreport-dataset|v1|" + [LOGIN] username 소문자·앞뒤 공백 제거)` — 증명 아님, writer 충돌 제어용.
