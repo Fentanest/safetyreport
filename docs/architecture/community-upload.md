@@ -15,6 +15,13 @@
 서버는 비적격 payload·`status_correction` 이벤트를 이벤트 단위 `rejected:non_final_not_accepted`(durable=false)로 거절하며 배치 나머지는 정상 처리한다.
 답변 완료로 올라간 신고가 나중에 비종결 상태로 돌아가면(드묾) 중앙은 마지막 답변 상태를 유지한다.
 
+## 업로더 구조 (EO R-10, 2026-10-05)
+- `services/community_uploader.py`: 한 실행의 상태를 `UploadRunContext`(문맥·범위·집계·요청 ID·오류 코드·이분 대기열·대조 보류)로 들고 `_drain` → `_send` → `_apply_error` 가 이것만 받는다
+  (예전 `_drain` 은 인자 13개와 여러 dict·클로저). outbox 행 상태 전이 SQL 은 `_Outbox`(만료 회수·in_flight·시도 되돌림·재시도·격리·이분 대기·인증 필요·차단·보류)와 ACK 반영(`_apply_ack`)에만 있다.
+  owner 를 받는 전이는 그 실행이 잡고 있는 in_flight 행만 바꾼다. 백그라운드 worker(`start_background`·`wake`·`stop_background`)는 같은 모듈에 남기되 `_drain` 은 `wake()` 만 부른다.
+- `services/community_upload_status.py`: 상태 조회(`upload_status`)·재공유(`reshare_candidates`·`request_reshare`)·서버 완료 목록 갱신(`refresh_server_completed`)·outbox 크기 경고.
+  업로더 모듈이 같은 이름으로 위임한다. 업로더의 이름(`_now`·`_store`·`request_upload` 등)은 호출 시점에 찾아 써 시험·대체 구현이 바꾼 것을 그대로 쓴다.
+
 ## 흐름
 
 ```

@@ -49,7 +49,7 @@ SILENT_ALLOWED = {
     "services/community_schedule.py::register_community_jobs": ("cleanup", 1),
     "services/community_uploader.py::_run_upload": ("cleanup", 1),
     "services/community_uploader.py::_start_background_locked.loop": ("cleanup", 1),
-    "services/community_uploader.py::refresh_server_completed": ("cleanup", 1),
+    "services/community_upload_status.py::refresh_server_completed": ("cleanup", 1),
     "services/crawl_log_service.py::rotate_crawl_log": ("cleanup", 1),
     "services/crawl_manager.py::CrawlManager._publish_unresolved": ("cleanup", 1),
     "services/crawl_manager.py::CrawlManager.launch_pending_crawl._after": ("cleanup", 1),

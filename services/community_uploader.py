@@ -19,6 +19,7 @@ import random
 import threading
 import time
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from core.utils.fallback import note_fallback
@@ -370,21 +371,76 @@ def _build_batch(store, rows: list[dict], ctx: dict, trigger: str, max_events: i
 
 # ── 결과 적용 ────────────────────────────────────────────────────────────────
 
-def _dead_letter(store, rows: list[dict], code: str) -> None:
-    with store.transaction() as tx:
-        for row in rows:
-            tx.execute("UPDATE outbox SET state='dead_letter', last_error_code=?, lease_owner=NULL, lease_until=NULL"
-                       " WHERE event_id=?", (code, row["event_id"]))
+class _Outbox:
+    """outbox 행 상태 전이(EO R-10). 행 상태를 바꾸는 SQL 은 이 클래스와 ACK 반영(_apply_ack)에만 둔다.
+    owner 를 받는 전이는 그 실행이 잡고 있는 in_flight 행만 바꾼다(lease 를 잃은 뒤 새 실행이 회수한 행을 덮지 않게)."""
 
+    def __init__(self, store):
+        self.store = store
 
-def _mark_in_flight(store, rows: list[dict], owner: str) -> None:
-    """실제 HTTP 요청 직전: 이 요청의 이벤트만 attempt_count+1(UC-1 §1-3)."""
-    until = _iso(_now() + timedelta(seconds=LEASE_SECONDS))
-    with store.transaction() as tx:
-        for row in rows:
-            tx.execute("UPDATE outbox SET state='in_flight', attempt_count=attempt_count+1, lease_owner=?, lease_until=?"
-                       " WHERE event_id=?", (owner, until, row["event_id"]))
-            row["attempt_count"] = int(row.get("attempt_count") or 0) + 1
+    def recover_expired(self) -> None:
+        """죽은 실행이 남긴 in_flight(만료 lease)만 되돌린다 — attempt 는 그대로."""
+        now = _iso(_now())
+        with self.store.transaction() as tx:
+            tx.execute("UPDATE outbox SET state='retry_wait', next_retry_at=?, lease_owner=NULL, lease_until=NULL"
+                       " WHERE state='in_flight' AND (lease_until IS NULL OR lease_until < ?)", (now, now))
+
+    def mark_in_flight(self, rows: list[dict], owner: str) -> None:
+        """실제 HTTP 요청 직전: 이 요청의 이벤트만 attempt_count+1(UC-1 §1-3)."""
+        until = _iso(_now() + timedelta(seconds=LEASE_SECONDS))
+        with self.store.transaction() as tx:
+            for row in rows:
+                tx.execute("UPDATE outbox SET state='in_flight', attempt_count=attempt_count+1, lease_owner=?, lease_until=?"
+                           " WHERE event_id=?", (owner, until, row["event_id"]))
+                row["attempt_count"] = int(row.get("attempt_count") or 0) + 1
+
+    def undo_attempt(self, rows: list[dict]) -> None:
+        """전송 계층이 보내지 않았다 — 올린 attempt 를 되돌린다."""
+        with self.store.transaction() as tx:
+            for row in rows:
+                tx.execute("UPDATE outbox SET attempt_count=MAX(0, attempt_count-1) WHERE event_id=?", (row["event_id"],))
+                row["attempt_count"] = max(0, int(row.get("attempt_count") or 1) - 1)
+
+    def retry(self, rows: list[dict], code: str, hint: int | None = None, request_id: str | None = None,
+              owner: str | None = None) -> None:
+        with self.store.transaction() as tx:
+            _retry_rows(tx, rows, code, hint, request_id, owner=owner)
+
+    def dead_letter(self, rows: list[dict], code: str) -> None:
+        with self.store.transaction() as tx:
+            for row in rows:
+                tx.execute("UPDATE outbox SET state='dead_letter', last_error_code=?, lease_owner=NULL, lease_until=NULL"
+                           " WHERE event_id=?", (code, row["event_id"]))
+
+    def requeue_for_split(self, rows: list[dict]) -> None:
+        """배치를 반으로 나눠 같은 event_id·payload 로 다시 보내기 전에 pending 으로 되돌린다."""
+        with self.store.transaction() as tx:
+            for row in rows:
+                tx.execute("UPDATE outbox SET state='pending', lease_owner=NULL, lease_until=NULL WHERE event_id=?",
+                           (row["event_id"],))
+
+    def require_auth(self, rows: list[dict], code: str) -> None:
+        with self.store.transaction() as tx:
+            for row in rows:
+                tx.execute("UPDATE outbox SET state='auth_required', last_error_code=?, next_retry_at=?,"
+                           " lease_owner=NULL, lease_until=NULL WHERE event_id=?",
+                           (code, _backoff_at(int(row.get("attempt_count") or 1)), row["event_id"]))
+
+    def block(self, rows: list[dict], code: str) -> None:
+        """명시적 거절(동의·연결): 보존한 채 막고, journal 에 사유를 남긴다."""
+        with self.store.transaction() as tx:
+            for row in rows:
+                tx.execute("UPDATE outbox SET state='blocked', last_error_code=?, lease_owner=NULL, lease_until=NULL"
+                           " WHERE event_id=?", (code, row["event_id"]))
+                tx.execute("UPDATE source_journal SET blocked_reason=? WHERE event_id=?", (f"blocked:{code}", row["event_id"]))
+
+    def hold(self, suspects: list[tuple[dict, str]], owner: str) -> None:
+        """모호한 400/422 단건들을 백오프로 보류한다(버리지 않음)."""
+        with self.store.transaction() as tx:
+            for row, code in suspects:
+                tx.execute("UPDATE outbox SET state='retry_wait', next_retry_at=?, last_error_code=?, lease_owner=NULL,"
+                           " lease_until=NULL WHERE event_id=? AND state='in_flight' AND lease_owner=?",
+                           (_backoff_at(int(row.get("attempt_count") or 1)), code, row["event_id"], owner))
 
 
 def _retry_rows(tx, rows: list[dict], code: str, hint: int | None, request_id: str | None = None,
@@ -566,57 +622,88 @@ def _gate_result(gate: dict) -> str | None:
     return "blocked_gate"
 
 
-def _run_upload(run_id: str, trigger: str, data_dir=None, progress=None) -> dict:
-    store = _store(data_dir)
-    started = _iso(_now())
-    counts = {"sent": 0, "acked": 0, "dead": 0, "blocked": 0, "retry": 0, "quarantined": 0, "requests": 0}
-    request_ids: list[str] = []
-    state = {"error_code": None, "next_attempt_at": None}
+@dataclass
+class UploadRunContext:
+    """한 업로드 실행의 상태(EO R-10). 예전에는 _drain 이 인자 13개와 여러 dict·클로저로 나눠 받았다.
 
-    def report(message: str) -> None:
-        if progress is not None:
+    counts·request_ids 는 결과 dict 에 그대로 실린다. queue 는 이분한 배치(같은 event_id·payload 로 다시 보냄),
+    succeeded 는 이번 실행에서 형식이 유효한 ACK 를 받았는가(= envelope·연결은 정상), suspects 는 모호한 400/422 단건.
+    """
+    store: object
+    run_id: str
+    trigger: str
+    started: str
+    progress: object = None
+    owner: str = ""
+    ctx: dict | None = None
+    scopes: dict = field(default_factory=dict)
+    probing: bool = False
+    counts: dict = field(default_factory=lambda: {"sent": 0, "acked": 0, "dead": 0, "blocked": 0, "retry": 0,
+                                                  "quarantined": 0, "requests": 0})
+    request_ids: list = field(default_factory=list)
+    error_code: str | None = None
+    next_attempt_at: str | None = None
+    queue: list = field(default_factory=list)
+    succeeded: bool = False
+    suspects: list = field(default_factory=list)
+    single_next: bool = False
+
+    @property
+    def outbox(self) -> _Outbox:
+        return _Outbox(self.store)
+
+    def report(self, message: str) -> None:
+        if self.progress is not None:
             try:
-                progress(message)
+                self.progress(message)
             except Exception:
                 _log.info("[community] upload progress callback failed", exc_info=True)
 
-    def finish(result: str) -> dict:
-        out = {"run_id": run_id, "result": result, "counts": counts, "request_ids": request_ids,
-               "error_code": state["error_code"], "next_attempt_at": state["next_attempt_at"]}
-        _record_run(store, run_id, trigger, started, out)
-        report(f"결과 {result}: 전송 {counts['sent']}건, 확인 {counts['acked']}건, 재시도 {counts['retry']}건"
-               + (f" ({state['error_code']})" if state['error_code'] else ""))
+    def report_progress(self) -> None:
+        c = self.counts
+        self.report(f"진행: 전송 {c['sent']}건, 확인 {c['acked']}건, 재시도 {c['retry']}건"
+                    + (f" ({self.error_code})" if self.error_code else ""))
+
+    def finish(self, result: str) -> dict:
+        out = {"run_id": self.run_id, "result": result, "counts": self.counts, "request_ids": self.request_ids,
+               "error_code": self.error_code, "next_attempt_at": self.next_attempt_at}
+        _record_run(self.store, self.run_id, self.trigger, self.started, out)
+        c = self.counts
+        self.report(f"결과 {result}: 전송 {c['sent']}건, 확인 {c['acked']}건, 재시도 {c['retry']}건"
+                    + (f" ({self.error_code})" if self.error_code else ""))
         return out
+
+
+def _run_upload(run_id: str, trigger: str, data_dir=None, progress=None) -> dict:
+    store = _store(data_dir)
+    run = UploadRunContext(store=store, run_id=run_id, trigger=trigger, started=_iso(_now()), progress=progress)
 
     from services import community_capture as _cap
     if _cap.deletion_cleanup_pending(data_dir):  # 삭제 뒤 로컬 차단이 끝나기 전에는 아무것도 보내지 않는다(Sol H-03)
-        state["error_code"] = "deletion_cleanup_pending"
-        return finish("blocked_gate")
+        run.error_code = "deletion_cleanup_pending"
+        return run.finish("blocked_gate")
     gate_block = _gate_result(_gate_check())
     if gate_block:
-        return finish(gate_block)
+        return run.finish(gate_block)
     ctx = store.active_context()
     if ctx is None:
-        return finish("needs_auth")
+        return run.finish("needs_auth")
     epoch = ctx.get("writer_epoch")
     if not isinstance(epoch, int) or isinstance(epoch, bool) or epoch < 1:
-        state["error_code"] = "writer_epoch_missing"  # 지어낸 epoch(예전 `or 1`)로 보내지 않는다
-        return finish("blocked_gate")
-    scopes = _scopes(ctx)
-    control, wait_until, last_error = _control_gate(store, scopes)
+        run.error_code = "writer_epoch_missing"  # 지어낸 epoch(예전 `or 1`)로 보내지 않는다
+        return run.finish("blocked_gate")
+    run.ctx, run.scopes = ctx, _scopes(ctx)
+    control, wait_until, last_error = _control_gate(store, run.scopes)
     if control == "cooldown":
-        state["error_code"], state["next_attempt_at"] = last_error, _iso(wait_until)
-        return finish("cooldown")
-    owner = f"run:{run_id}:{trigger}"
-    if not store.acquire_lease("upload", owner, LEASE_SECONDS):
-        return finish("busy_other_run")
+        run.error_code, run.next_attempt_at = last_error, _iso(wait_until)
+        return run.finish("cooldown")
+    run.owner = f"run:{run_id}:{trigger}"
+    if not store.acquire_lease("upload", run.owner, LEASE_SECONDS):
+        return run.finish("busy_other_run")
     try:
-        now = _iso(_now())
-        with store.transaction() as tx:  # 죽은 실행이 남긴 in_flight(만료 lease)만 되돌린다 — attempt 는 그대로
-            tx.execute("UPDATE outbox SET state='retry_wait', next_retry_at=?, lease_owner=NULL, lease_until=NULL"
-                       " WHERE state='in_flight' AND (lease_until IS NULL OR lease_until < ?)", (now, now))
+        run.outbox.recover_expired()
         try:
-            counts["blocked"] += block_superseded_corrections(data_dir)  # 잔여 status_correction 은 보내지 않는다
+            run.counts["blocked"] += block_superseded_corrections(data_dir)  # 잔여 status_correction 은 보내지 않는다
         except Exception:
             _log.info("[community] superseded correction 차단 실패", exc_info=True)
         if trigger in ("manual", "midnight", "recovery"):
@@ -624,25 +711,21 @@ def _run_upload(run_id: str, trigger: str, data_dir=None, progress=None) -> dict
                 _enqueue_missing(trigger, data_dir)
             except Exception:
                 _log.info("[community] enqueue 실패", exc_info=True)
-        probing = control == "probe"
-        if probing:
-            _control_probing(store, scopes)
-        return _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_ids, state, finish, report)
+        run.probing = control == "probe"
+        if run.probing:
+            _control_probing(store, run.scopes)
+        return _drain(run)
     finally:
         try:
-            store.release_lease("upload", owner)
+            store.release_lease("upload", run.owner)
         except Exception:
             pass
 
 
-def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_ids, state, finish, report) -> dict:
+def _drain(run: UploadRunContext) -> dict:
+    store, ctx, counts = run.store, run.ctx, run.counts
     conn = store.connect()
     started = _monotonic()
-    run = {"owner": owner,
-           "queue": [],          # 이분한 배치(같은 event_id·payload 로 다시 보냄)
-           "succeeded": False,   # 이번 실행에서 형식이 유효한 ACK 를 받았는가(= envelope·연결은 정상)
-           "suspects": [],       # 모호한 400/422 를 단건으로 받은 행(대조 요청 결과로 판정)
-           "single_next": False}
     tried: set[str] = set()  # 이번 실행에서 결과가 정해진 행(다시 고르지 않음)
     refreshed = False
     had_problem = False
@@ -658,27 +741,25 @@ def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_
         if current is None or _ctx_identity(current) != _ctx_identity(ctx):
             # 실행 도중 연결·동의 문맥이 바뀌거나 꺼졌다. 시작 때 문맥(ctx)으로 새 문맥의 행을 보내면 중앙이 거절하고
             # 정상 이벤트까지 막힌다 — 남은 배치를 되돌리고 이 실행을 끝낸다. 다음 실행이 새 문맥으로 보낸다(기술일지 A2-03).
-            if run["queue"]:
-                with store.transaction() as tx:
-                    for queued in run["queue"]:
-                        _retry_rows(tx, queued, "context_changed", None, owner=owner)
-                run["queue"].clear()
-            state["error_code"] = "context_changed"
-            _hold_suspects(store, run, state)
+            for queued in run.queue:
+                run.outbox.retry(queued, "context_changed", owner=run.owner)
+            run.queue.clear()
+            run.error_code = "context_changed"
+            _hold_suspects(run)
             if current is not None:
                 wake()
-            return finish("needs_auth" if current is None else "blocked_gate")
-        if run["queue"]:
-            batch = run["queue"].pop(0)
+            return run.finish("needs_auth" if current is None else "blocked_gate")
+        if run.queue:
+            batch = run.queue.pop(0)
         else:
             rows = _front_rows(conn, ctx, _iso(_now()), PAGE_ROWS, tried)
             if not rows:
                 break
-            single = probing or run["single_next"]
-            batch, oversize = _build_batch(store, rows, ctx, trigger, 1 if single else MAX_EVENTS_PER_REQUEST)
+            single = run.probing or run.single_next
+            batch, oversize = _build_batch(store, rows, ctx, run.trigger, 1 if single else MAX_EVENTS_PER_REQUEST)
             if oversize:
                 for row in oversize:
-                    _dead_letter(store, [row], row["_reason"])
+                    run.outbox.dead_letter([row], row["_reason"])
                     tried.add(row["event_id"])
                 counts["dead"] += len(oversize)
                 had_problem = True
@@ -688,11 +769,11 @@ def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_
                 break
         if last_request_at is not None:
             _sleep(MIN_REQUEST_INTERVAL - (_monotonic() - last_request_at))
-        if not store.renew_lease("upload", owner, LEASE_SECONDS):  # 요청 직전 heartbeat — 소유권을 잃었으면 보내지 않는다
-            state["error_code"] = "lease_lost"
-            _hold_suspects(store, run, state)
-            return finish("busy_other_run")
-        response, interp = _send(store, owner, batch, ctx, trigger, counts, request_ids)
+        if not store.renew_lease("upload", run.owner, LEASE_SECONDS):  # 요청 직전 heartbeat — 소유권을 잃었으면 보내지 않는다
+            run.error_code = "lease_lost"
+            _hold_suspects(run)
+            return run.finish("busy_other_run")
+        response, interp = _send(run, batch)
         last_request_at = _monotonic()
         _last_requests[request_scope] = last_request_at
         if interp is not None and interp.error_class == "auth_required" and response.http_status == 401 \
@@ -702,13 +783,12 @@ def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_
             if isinstance(token, str) and counts['requests'] < RUN_MAX_REQUESTS and _monotonic() - started < RUN_MAX_SECONDS:
                 # 재전송도 새 요청이다: 요청 간격을 지킨 뒤 요청 직전에 소유권 heartbeat
                 _sleep(MIN_REQUEST_INTERVAL - (_monotonic() - last_request_at))
-                if not store.renew_lease("upload", owner, LEASE_SECONDS):
-                    with store.transaction() as tx:  # 아직 내 것인 행만 되돌린다
-                        _retry_rows(tx, batch, "lease_lost", None, owner=owner)
-                    state["error_code"] = "lease_lost"
-                    _hold_suspects(store, run, state)
-                    return finish("busy_other_run")
-                response, interp = _send(store, owner, batch, ctx, trigger, counts, request_ids, token=token)
+                if not store.renew_lease("upload", run.owner, LEASE_SECONDS):
+                    run.outbox.retry(batch, "lease_lost", owner=run.owner)  # 아직 내 것인 행만 되돌린다
+                    run.error_code = "lease_lost"
+                    _hold_suspects(run)
+                    return run.finish("busy_other_run")
+                response, interp = _send(run, batch, token=token)
                 last_request_at = _monotonic()
                 _last_requests[request_scope] = last_request_at
             elif not isinstance(token, str):
@@ -721,54 +801,49 @@ def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_
                 interp = ack
             else:
                 _apply_ack(store, batch, ack, counts)
-                report(f"진행: 전송 {counts['sent']}건, 확인 {counts['acked']}건, 재시도 {counts['retry']}건")
-                for scope in scopes.values():
+                run.report(f"진행: 전송 {counts['sent']}건, 확인 {counts['acked']}건, 재시도 {counts['retry']}건")
+                for scope in run.scopes.values():
                     _control_mark(store, scope, state="ready")
-                probing = False
-                run["succeeded"], run["single_next"] = True, False
-                if run["suspects"]:  # 같은 envelope 로 다른 이벤트가 저장됐다 → 앞서 거절된 단건은 그 이벤트 문제
-                    for row, code in run["suspects"]:
-                        _dead_letter(store, [row], code)
-                    counts["dead"] += len(run["suspects"])
-                    run["suspects"] = []
+                run.probing = False
+                run.succeeded, run.single_next = True, False
+                if run.suspects:  # 같은 envelope 로 다른 이벤트가 저장됐다 → 앞서 거절된 단건은 그 이벤트 문제
+                    for row, code in run.suspects:
+                        run.outbox.dead_letter([row], code)
+                    counts["dead"] += len(run.suspects)
+                    run.suspects = []
                 if ack.missing or counts["dead"] or counts["blocked"]:
                     had_problem = True
                 continue
-        outcome = _apply_error(store, batch, interp, scopes, counts, state, run)
-        report(f"진행: 전송 {counts['sent']}건, 확인 {counts['acked']}건, 재시도 {counts['retry']}건"
-               + (f" ({state['error_code']})" if state['error_code'] else ""))
+        outcome = _apply_error(run, batch, interp)
+        run.report_progress()
         if outcome == "continue":
             continue  # 이분·대조는 문제가 아니다 — 최종 결과는 격리(dead)·차단·재시도 집계로 정한다
-        _hold_suspects(store, run, state)
-        return finish(outcome)
-    if run["suspects"]:  # 대조할 다른 이벤트가 없었다 — 원인을 모르므로 버리지 않고 보류
-        _hold_suspects(store, run, state)
-        return finish("failed")
+        _hold_suspects(run)
+        return run.finish(outcome)
+    if run.suspects:  # 대조할 다른 이벤트가 없었다 — 원인을 모르므로 버리지 않고 보류
+        _hold_suspects(run)
+        return run.finish("failed")
     if counts["requests"] == 0 and not counts["dead"]:
-        return finish("not_due" if _sendable_count(conn, ctx) else "no_pending")
+        return run.finish("not_due" if _sendable_count(conn, ctx) else "no_pending")
     remaining = _sendable_count(conn, ctx)
     if remaining and (budget_hit or _front_rows(conn, ctx, _iso(_now()), 1, set())):
-        return finish("more_pending")  # 자정 key 를 끝났다고 적지 않는다(Sol 계획 검토 4)
+        return run.finish("more_pending")  # 자정 key 를 끝났다고 적지 않는다(Sol 계획 검토 4)
     if had_problem or counts["retry"] or counts["dead"] or counts["blocked"]:
-        return finish("partial")
-    return finish("sent" if not remaining else "not_due")
+        return run.finish("partial")
+    return run.finish("sent" if not remaining else "not_due")
 
 
-def _hold_suspects(store, run, state) -> None:
+def _hold_suspects(run: UploadRunContext) -> None:
     """모호한 400/422 단건들: 원인이 envelope(공통)인지 이벤트인지 모르면 버리지 않고 백오프로 보류한다.
     아직 이 실행이 잡고 있는 in_flight 행만 바꾼다(lease 를 잃은 뒤 새 실행이 회수한 행을 덮지 않게)."""
-    if not run["suspects"]:
+    if not run.suspects:
         return
-    with store.transaction() as tx:
-        for row, code in run["suspects"]:
-            tx.execute("UPDATE outbox SET state='retry_wait', next_retry_at=?, last_error_code=?, lease_owner=NULL,"
-                       " lease_until=NULL WHERE event_id=? AND state='in_flight' AND lease_owner=?",
-                       (_backoff_at(int(row.get("attempt_count") or 1)), code, row["event_id"], run["owner"]))
-    state["error_code"] = state.get("error_code") or run["suspects"][0][1]
-    run["suspects"] = []
+    run.outbox.hold(run.suspects, run.owner)
+    run.error_code = run.error_code or run.suspects[0][1]
+    run.suspects = []
 
 
-def _send(store, owner, batch, ctx, trigger, counts, request_ids, token=None):
+def _send(run: UploadRunContext, batch, token=None):
     """실제 HTTP 요청 1회. 요청 전 토큰 확보(실패면 보내지 않음·attempt 미집계) → in_flight+attempt → 전송."""
     from services import community_ingest_client as client
     from services import community_auth_service as cas
@@ -781,24 +856,21 @@ def _send(store, owner, batch, ctx, trigger, counts, request_ids, token=None):
             return response, _classify(response)
         except Exception:
             token = None
-    envelope = _envelope(ctx, trigger, [row["_event"] for row in batch])
+    envelope = _envelope(run.ctx, run.trigger, [row["_event"] for row in batch])
     if len(client.envelope_bytes(envelope)) > MAX_BODY_BYTES:
         response = client.IngestResponse(ok=False, http_status=None, code="payload_too_large",
                                          error_class="request_too_large", not_sent=True)
         return response, _classify(response)
-    _mark_in_flight(store, batch, owner)
-    counts["requests"] += 1
-    counts["sent"] += len(batch)
+    run.outbox.mark_in_flight(batch, run.owner)
+    run.counts["requests"] += 1
+    run.counts["sent"] += len(batch)
     response = client.post_envelope(envelope, token=token, now=_now())
     if response.request_id:
-        request_ids.append(response.request_id)
+        run.request_ids.append(response.request_id)
     if getattr(response, "not_sent", False):  # 전송 계층이 보내지 않았다 — 집계를 되돌린다
-        counts["requests"] -= 1
-        counts["sent"] -= len(batch)
-        with store.transaction() as tx:
-            for row in batch:
-                tx.execute("UPDATE outbox SET attempt_count=MAX(0, attempt_count-1) WHERE event_id=?", (row["event_id"],))
-                row["attempt_count"] = max(0, int(row.get("attempt_count") or 1) - 1)
+        run.counts["requests"] -= 1
+        run.counts["sent"] -= len(batch)
+        run.outbox.undo_attempt(batch)
     return response, _classify(response)
 
 
@@ -817,54 +889,43 @@ def _force_refresh(rejected: str):
     return token
 
 
-def _apply_error(store, batch, interp, scopes, counts, state, run) -> str:
+def _apply_error(run: UploadRunContext, batch, interp) -> str:
     """요청 단위 오류 → 행 상태·전송 제어. 반환: 'continue'(이분·대조 계속) 또는 실행 결과 코드."""
+    counts = run.counts
     cls, code = interp.error_class, interp.code or interp.error_class
-    state["error_code"] = code
+    run.error_code = code
     if cls in ("request_too_large", "payload_invalid"):
         ambiguous = cls == "payload_invalid" and code in policy.AMBIGUOUS_PAYLOAD_CODES
         if len(batch) > 1:  # 같은 event_id·payload 로 반씩 다시(단건만 격리)
             half = len(batch) // 2
-            with store.transaction() as tx:
-                for row in batch:
-                    tx.execute("UPDATE outbox SET state='pending', lease_owner=NULL, lease_until=NULL WHERE event_id=?",
-                               (row["event_id"],))
-            run["queue"].insert(0, batch[half:])
-            run["queue"].insert(0, batch[:half])
+            run.outbox.requeue_for_split(batch)
+            run.queue.insert(0, batch[half:])
+            run.queue.insert(0, batch[:half])
             return "continue"
-        if ambiguous and not run["succeeded"]:
+        if ambiguous and not run.succeeded:
             # 단건 schema_invalid/invalid_request 인데 이번 실행에서 정상 저장된 것이 없다 → envelope 공통 문제일 수 있다.
-            run["suspects"].append((batch[0], code))
-            if len(run["suspects"]) >= 2:  # 다른 이벤트도 같은 거절 → 공통 문제: 버리지 않고 모두 보류(_hold_suspects)
+            run.suspects.append((batch[0], code))
+            if len(run.suspects) >= 2:  # 다른 이벤트도 같은 거절 → 공통 문제: 버리지 않고 모두 보류(_hold_suspects)
                 return "failed"
-            run["single_next"] = True  # 다음 이벤트 하나로 대조
+            run.single_next = True  # 다음 이벤트 하나로 대조
             return "continue"
-        _dead_letter(store, batch, code if cls == "payload_invalid" else "payload_too_large")
+        run.outbox.dead_letter(batch, code if cls == "payload_invalid" else "payload_too_large")
         counts["dead"] += len(batch)
         return "continue"
     if cls in policy.RETRYABLE_CLASSES:
-        with store.transaction() as tx:
-            _retry_rows(tx, batch, code, interp.hint, interp.request_id)
+        run.outbox.retry(batch, code, interp.hint, interp.request_id)
         counts["retry"] += len(batch)
-        until = _control_mark(store, scopes[policy.RETRYABLE_CLASSES[cls]], state="cooling_down", error_code=code,
-                              hint=interp.hint)
-        state["next_attempt_at"] = _iso(until) if until else None
+        until = _control_mark(run.store, run.scopes[policy.RETRYABLE_CLASSES[cls]], state="cooling_down",
+                              error_code=code, hint=interp.hint)
+        run.next_attempt_at = _iso(until) if until else None
         return "failed" if cls == "request_rejected" else "cooldown"  # 남은 배치는 보내지 않는다
     if cls == "auth_required":
-        with store.transaction() as tx:
-            for row in batch:
-                tx.execute("UPDATE outbox SET state='auth_required', last_error_code=?, next_retry_at=?,"
-                           " lease_owner=NULL, lease_until=NULL WHERE event_id=?",
-                           (code, _backoff_at(int(row.get("attempt_count") or 1)), row["event_id"]))
+        run.outbox.require_auth(batch, code)
         counts["retry"] += len(batch)
         _gate_invalidate(code)
         return "needs_auth"
     # consent_rejected / connection_rejected: 명시적 거절 → blocked(보존), 게이트 무효화
-    with store.transaction() as tx:
-        for row in batch:
-            tx.execute("UPDATE outbox SET state='blocked', last_error_code=?, lease_owner=NULL, lease_until=NULL"
-                       " WHERE event_id=?", (code, row["event_id"]))
-            tx.execute("UPDATE source_journal SET blocked_reason=? WHERE event_id=?", (f"blocked:{code}", row["event_id"]))
+    run.outbox.block(batch, code)
     counts["blocked"] += len(batch)
     _gate_invalidate(code)
     return "needs_consent" if cls == "consent_rejected" else "blocked_gate"
@@ -1000,257 +1061,26 @@ def stop_background(timeout: float = 5.0) -> bool:
 legacy_result = policy.legacy_result
 
 
-def _kst(value) -> str | None:
-    dt = _parse(value)
-    return (dt + timedelta(hours=9)).strftime("%Y-%m-%d %H:%M") if dt else None
-
+# ── 상태 조회·재공유·manifest(EO R-10: services/community_upload_status.py 로 옮김, 예전 이름을 유지) ──
 
 def upload_status(data_dir=None) -> dict:
-    """지도 패널용. 현재 context 계정의 것만 집계한다(UC-1 §1-7). 원문·토큰 없음."""
-    store = _store(data_dir)
-    conn = store.connect()
-    ctx = store.active_context()
-    fingerprint = (ctx or {}).get("contributor_fingerprint")
-    last = conn.execute("SELECT * FROM upload_runs ORDER BY started_at DESC LIMIT 1").fetchone()
-    states = {s: 0 for s in ("pending", "retry_wait", "in_flight", "auth_required", "blocked", "dead_letter")}
-    blocked: dict[str, int] = {}
-    oldest = next_retry = last_ack = None
-    projections: dict[str, int] = {}
-    quarantined = stored = 0
-    if fingerprint:
-        for row in conn.execute("SELECT o.state AS s, COUNT(*) AS n FROM outbox o JOIN source_journal j ON j.event_id=o.event_id"
-                                " WHERE j.contributor_fingerprint IS ? GROUP BY o.state", (fingerprint,)):
-            states[row["s"]] = row["n"]
-        for row in conn.execute(
-                "SELECT COALESCE(j.blocked_reason, o.last_error_code, 'unknown') AS reason, COUNT(*) AS n"
-                " FROM outbox o JOIN source_journal j ON j.event_id=o.event_id"
-                " WHERE o.state IN ('blocked','dead_letter') AND j.contributor_fingerprint IS ?"
-                " GROUP BY reason", (fingerprint,)).fetchall():
-            blocked[row["reason"]] = row["n"]
-        row = conn.execute("SELECT MIN(j.captured_at), MIN(o.next_retry_at) FROM outbox o JOIN source_journal j"
-                           " ON j.event_id=o.event_id WHERE o.state IN ('pending','retry_wait','in_flight','auth_required')"
-                           " AND j.contributor_fingerprint IS ?", (fingerprint,)).fetchone()
-        oldest, next_retry = row[0], row[1]
-        acked = conn.execute("SELECT MAX(acked_at), SUM(ack_status='quarantined'), SUM(ack_status IS NOT NULL)"
-                             " FROM source_journal WHERE contributor_fingerprint IS ?", (fingerprint,)).fetchone()
-        last_ack, quarantined, stored = acked[0], int(acked[1] or 0), int(acked[2] or 0)
-        for row in conn.execute(
-                "SELECT j.projection_status AS p, COUNT(*) AS n FROM source_journal j"
-                " WHERE j.contributor_fingerprint IS ? AND j.projection_status IS NOT NULL"
-                " GROUP BY p", (fingerprint,)).fetchall():
-            projections[row["p"]] = row["n"]
-    control = {"state": "ready", "until_kst": None, "reason": None}
-    if ctx:
-        mode, until, reason = _control_gate(store, _scopes(ctx))
-        if mode == "cooldown":
-            control = {"state": "cooling_down", "until_kst": _kst(_iso(until)), "reason": reason}
-        elif mode == "probe":
-            control = {"state": "probing", "until_kst": None, "reason": None}
-    candidates = reshare_candidates(data_dir) if fingerprint else 0
-    last_upload_kst = _kst(last["finished_at"]) if last else None
-    try:
-        request_ids = json.loads(last["request_ids"]) if last and last["request_ids"] else []
-    except ValueError:
-        request_ids = []
-    return {
-        "last_upload_kst": last_upload_kst,
-        "last_result": legacy_result(last["result"]) if last else None,
-        "last_outcome": (last["result"] if last else None),
-        "last_request": (request_ids[-1][:8] if request_ids else None),
-        "pending": states["pending"] + states["retry_wait"] + states["in_flight"],
-        "states": states,
-        "auth_required": states["auth_required"],
-        "needs_attention": states["blocked"] + states["dead_letter"],
-        "blocked": blocked,
-        "quarantined": quarantined,
-        "stored": stored,
-        "oldest_unsent_kst": _kst(oldest),
-        "next_retry_kst": _kst(next_retry),
-        "last_central_ack_kst": _kst(last_ack),
-        "control": control,
-        "projections": projections,
-        "reshare_candidates": candidates,
-        "next_midnight_kst": _next_midnight_label(),
-        "has_journal": bool(conn.execute(
-            "SELECT 1 FROM source_journal WHERE contributor_fingerprint IS ? LIMIT 1",
-            (fingerprint,)).fetchone()) if fingerprint else False,
-    }
-
-
-def _next_midnight_label() -> str:
-    from services.community_schedule import next_due_at as _next_midnight
-    due = _next_midnight(_now())
-    kst = due + timedelta(hours=9)
-    return kst.strftime("%Y-%m-%d %H:%M")
+    from services import community_upload_status
+    return community_upload_status.upload_status(data_dir)
 
 
 def reshare_candidates(data_dir=None) -> int:
-    store = _store(data_dir)
-    ctx = store.active_context()
-    if ctx is None:
-        return 0
-    conn = store.connect()
-    local_id = store.local_dataset_id()
-    # 2026-09-28 계정 규칙: reshare 후보는 현 계정의 최신 eligible 행만 본다.
-    # 타 계정 행을 현 연결로 rebind하여 전송하지 않는다.
-    rows = conn.execute(
-        "SELECT source_report_id, MAX(source_revision) AS rev FROM source_journal"
-        " WHERE local_dataset_id=? AND eligible=1 AND dataset_key IS ? AND contributor_fingerprint IS ?"
-        " GROUP BY source_report_id", (local_id, ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchall()
-    count = 0
-    for item in rows:
-        row = conn.execute(
-            "SELECT consent_grant_id, connection_id, blocked_reason, ack_status FROM source_journal"
-            " WHERE local_dataset_id=? AND source_report_id=? AND source_revision=?"
-            " AND dataset_key IS ? AND contributor_fingerprint IS ?"
-            " ORDER BY source_revision DESC LIMIT 1",
-            (local_id, item["source_report_id"], item["rev"],
-             ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchone()
-        if row is None or row["blocked_reason"]:
-            continue
-        if row["consent_grant_id"] == ctx.get("consent_grant_id") \
-                and row["connection_id"] == ctx.get("connection_id"):
-            continue
-        count += 1
-    return count
+    from services import community_upload_status
+    return community_upload_status.reshare_candidates(data_dir)
 
 
 def request_reshare(data_dir=None) -> dict:
-    """최신 eligible 행을 새 event_id·revision·reshare 로 재발급 후 업로드."""
-    from services.community_capture import canonical_json as _cj
-    from services import community_capture as _cap
-    if _cap.deletion_cleanup_pending(data_dir):
-        return {"result": "blocked", "count": 0, "error_code": "deletion_cleanup_pending"}
-    store = _store(data_dir)
-    ctx = store.active_context()
-    if ctx is None:
-        return {"result": "auth_required", "count": 0}
-    local_id = store.local_dataset_id()
-    created: list[str] = []
-    with store.transaction() as tx:
-        # 현 계정의 최신 eligible 행만 재발급한다(타 계정 행 rebind 금지 — 위 reshare_candidates와 같은 범위).
-        rows = tx.execute(
-            "SELECT source_report_id, MAX(source_revision) AS rev FROM source_journal"
-            " WHERE local_dataset_id=? AND eligible=1 AND dataset_key IS ? AND contributor_fingerprint IS ?"
-            " GROUP BY source_report_id",
-            (local_id, ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchall()
-        for item in rows:
-            row = tx.execute(
-                "SELECT * FROM source_journal WHERE local_dataset_id=? AND source_report_id=?"
-                " AND source_revision=? AND dataset_key IS ? AND contributor_fingerprint IS ?"
-                " ORDER BY source_revision DESC LIMIT 1",
-                (local_id, item["source_report_id"], item["rev"],
-                 ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchone()
-            if row is None or row["blocked_reason"]:
-                continue
-            if row["consent_grant_id"] == ctx.get("consent_grant_id") \
-                    and row["connection_id"] == ctx.get("connection_id"):
-                continue
-            revision = store.next_revision(tx)
-            event_id = str(uuid.uuid4())
-            now = _iso(_now())
-            tx.execute(
-                "INSERT INTO source_journal(event_id, project_namespace, local_dataset_id, dataset_key,"
-                " source_report_id, report_number, source_revision, event_type, captured_at, capture_trigger,"
-                " schema_version, parser_version, payload_json, payload_sha256, eligible,"
-                " contributor_fingerprint, connection_id, writer_epoch, consent_grant_id, personal_save_state)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, 'reshare', ?, 'reshare', ?, ?, ?, ?, 1, ?, ?, ?, ?, 'pending')",
-                (event_id, row["project_namespace"], local_id, ctx.get("dataset_key"),
-                 row["source_report_id"], row["report_number"], revision, row["captured_at"],
-                 row["schema_version"], row["parser_version"], row["payload_json"], row["payload_sha256"],
-                 ctx.get("contributor_fingerprint"), ctx.get("connection_id"), ctx.get("writer_epoch"),
-                 ctx.get("consent_grant_id")))
-            tx.execute(
-                "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at)"
-                " VALUES (?, 'pending', 0, 'reshare', ?)", (event_id, now))
-            tx.execute(
-                "INSERT INTO report_latest(local_dataset_id, source_report_id, event_id,"
-                " payload_sha256, eligible, source_generation) VALUES (?, ?, ?, ?, 1, 0)"
-                " ON CONFLICT(local_dataset_id, source_report_id) DO UPDATE"
-                " SET event_id=excluded.event_id, payload_sha256=excluded.payload_sha256, eligible=1",
-                (local_id, row["source_report_id"], event_id, row["payload_sha256"]))
-            created.append(event_id)
-    if not created:
-        return {"result": "no_change", "count": 0}
-    result = request_upload("reshare", data_dir)
-    result["reshared"] = len(created)
-    return result
+    from services import community_upload_status
+    return community_upload_status.request_reshare(data_dir)
 
 
 def refresh_server_completed(data_dir=None, limit: int = 5000) -> bool:
-    """manifest 전 페이지를 받아 검증 후 한 트랜잭션으로 server_completed 를 교체한다. 실패면 False(fail-closed).
-
-    - 받는 동안 upload lease 를 잡아 자기 업로드로 세대(manifest_token)가 바뀌지 않게 한다.
-    - 모든 페이지의 manifest_token 이 같고, 받은 개수 = total, 중복 없음, 페이지의 dataset_key·writer_epoch 가
-      현재 연결과 같을 때만 교체. 토큰이 바뀌면 처음부터 다시(최대 3회).
-    """
-    import uuid as _uuid
-
-    from services import community_ingest_client as client
-    store = _store(data_dir)
-    ctx = store.active_context()
-    if ctx is None or not ctx.get("dataset_key") or not ctx.get("connection_id"):
-        return False
-    dataset_key = ctx["dataset_key"]
-    owner = f"manifest:{_uuid.uuid4()}"
-    if not store.acquire_lease("upload", owner, LEASE_SECONDS):
-        return False
-    try:
-        seen: list[str] | None = None
-        deadline = _monotonic() + 180
-        for _ in range(3):
-            keys: list[str] = []
-            token: str | None = None
-            total: int | None = None
-            after: str | None = None
-            consistent = True
-            cursors = set()
-            pages = 0
-            while True:
-                pages += 1
-                if pages > 10000 or _monotonic() >= deadline or not store.renew_lease('upload', owner, LEASE_SECONDS):
-                    return False
-                ok, body = client.post_manifest(connection_id=ctx["connection_id"], after=after, limit=limit)
-                if not ok:
-                    return False
-                if body.get("dataset_key") != dataset_key or body.get("writer_epoch") != ctx.get("writer_epoch"):
-                    return False
-                if token is None:
-                    token, total = body["manifest_token"], body["total"]
-                elif body["manifest_token"] != token or body["total"] != total:
-                    consistent = False
-                    break
-                keys.extend(body["key_prefixes"])
-                after = body.get("next_after")
-                if after is None:
-                    break
-                if after in cursors:
-                    return False
-                cursors.add(after)
-            if consistent:
-                if len(keys) != total or len(set(keys)) != len(keys):
-                    return False
-                seen = keys
-                break
-        if seen is None:
-            return False
-        now = _iso(_now())
-        with store.transaction() as tx:
-            lease = tx.execute("SELECT owner, until FROM leases WHERE name='upload'").fetchone()
-            active = store.active_context()
-            if not lease or lease['owner'] != owner or lease['until'] <= now or active != ctx:
-                return False
-            tx.execute("DELETE FROM server_completed WHERE dataset_key=?", (dataset_key,))
-            for prefix in seen:
-                tx.execute("INSERT INTO server_completed(dataset_key, key_prefix, fetched_at) VALUES (?, ?, ?)",
-                           (dataset_key, prefix, now))
-            store.set_meta("manifest_scope", f"{dataset_key}:{ctx.get('writer_epoch')}", tx)
-        return True
-    finally:
-        try:
-            store.release_lease("upload", owner)
-        except Exception:
-            pass
+    from services import community_upload_status
+    return community_upload_status.refresh_server_completed(data_dir, limit)
 
 
 def on_contributions_deleted(data_dir=None, deletion_id: str | None = None) -> None:
@@ -1259,9 +1089,5 @@ def on_contributions_deleted(data_dir=None, deletion_id: str | None = None) -> N
 
 
 def outbox_size_warning(data_dir=None, limit_bytes: int = 200 * 1024 * 1024) -> bool:
-    """community.db 파일이 limit 초과면 True (자동 삭제는 하지 않음)."""
-    store = _store(data_dir)
-    try:
-        return store.path and __import__("os").path.getsize(store.path) > limit_bytes
-    except OSError:
-        return False
+    from services import community_upload_status
+    return community_upload_status.outbox_size_warning(data_dir, limit_bytes)
