@@ -21,6 +21,7 @@
 | 별점 timeout은 다음 실행에서 재제출 가능 | `rating_operation_state`와 `star_rating_service`의 조회 확인 경계 | 실제 원격 결과가 미확정이면 자동 재제출하지 않음 |
 | WS 종료 알림은 현재 연결에만 전달되며 모든 client send를 함께 기다림 | `ws_event_store` terminal256·`ws_manager` 연결별 writer/queue/deadline·optional after replay | 교환 DB와 별도 private sidecar; native history/cursor 원자 저장. terminal 순서 lock의 지연 한계는 별도 |
 | 파일 임시는 response finally만으로 강제 종료까지 정리됨 | `download_artifacts` private PID 디렉터리·startup dead-PID recovery | 살아 있는 PID·불명확한 소유 파일·link/junction을 정리하지 않음 |
+| Android commit 실패면 cursor 메모리도 자동으로 되돌아감 | 모바일 `PrefsInbox.writeHistory` 실패 시 이번 history/trim/cursor만 rollback한 뒤 WsService1013 | 정상 history+cursor 단일 commit; 별도 Flutter 읽기와 OS 알림 표시까지 exactly-once로 보장하지 않음 |
 
 ## 현행 self-host 통신 계약
 

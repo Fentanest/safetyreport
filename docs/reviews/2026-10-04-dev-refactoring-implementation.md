@@ -135,6 +135,8 @@ main의 60초 값은 worker join에 배분하는 **공유 대기 예산**이다.
 
 실제 `agy --model gemini-3.1-pro-high`를 별도 detached worktree·포트·데이터에 호출했다. 이번 후속 검수 conversation은 `cebc60dc-bb85-4625-88af-adfab26dd059`(DB), `3dd52ac3-25d4-4c29-b68b-7dfc3c4a4629`(수명/예산/모바일/종료)다. 원본 보고서와 실행 stdout/stderr는 그대로 보관했다. 첫 기능 CSV의 자동 연결, 실패한 browser의 SUCCESS 서술, 준비 전에 table0을 출력한 browser 보고는 채택하지 않았다. 엄격 Playwright assertions Chromium/Firefox2passed로 재검수한 증거만 채택했다. shutdown 검수의 “전체 hardwall60초” 서술도 코드와 달라 기각하고 worker join 공유 예산으로 정정했다. raw80tests/24.353s/exit0은 확인했다. 독립 검수의 서술을 무비판적으로 정답 취급하지 않는다.
 
+마지막 모바일 실패 commit 복구도 같은 독립 conversation에 별도 복사본으로 검수했다(`MOBILE-PERSISTENCE-REVIEW.md`). 검수자는 직접 재실행했다고 하지 않고 실제 XML의 신규3건/실패0과 build 로그를 확인했다. 원 보고서의 “완벽한 디스크 일관성” 표현은 채택하지 않는다. SharedPreferences의 별도 Flutter 소비/읽기 사이클과 rollback 순간의 관찰까지 동기화하는 계약은 없으며, 알림 표시와 디스크 저장 사이의 exactly-once도 주장하지 않는다. 부모가 확인한 실제 native 전체 unit12건(기존7+신규5)과 build 성공만 실행 판정으로 사용한다.
+
 기존 `VERSION`, 사용자 미추적 DB regression/preview config/문서·issue/testresults·기관 registry ZIP, 운영 자료의 기존 해시를 보존한다. 계획 입력 ZIP과 압축 해제 폴더 삭제는 이미 처리됐으며 관계없는 registry ZIP은 유지한다. 모바일의 원래 미추적 자료도 보존했다. 테스트 도구가 변경한 원래 clean pubspec.lock은 그 도구 변경만 원복했다. 별도 venv·worktree·build/AVD/heap artifacts는 `.agent-runs/`에 두고 commit하지 않는다. 전용 Docker project/volume·자기 fixture PID·자기 AVD만 종료한다. 운영 서비스·외부 제출·push·태그·릴리즈는 수행하지 않는다.
 
 ## 롤백·열린 환경 게이트
