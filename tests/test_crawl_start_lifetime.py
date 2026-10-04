@@ -53,6 +53,6 @@ class CrawlStartLifetimeTests(unittest.TestCase):
              mock.patch.object(start, 'get_engine'), \
              mock.patch.object(start, '_prepare_database'), \
              mock.patch('core.crawler.direct_login.get_valid_token'), \
-             mock.patch.object(start, '_run_crawling_process', return_value=[]), \
+             mock.patch.object(start, '_run_crawling_process', return_value=start.CrawlResult(list_complete=True, detail_complete=True)), \
              mock.patch.object(start, '_process_and_save_results', side_effect=OSError):
             self.assertEqual(start.main(), 1)
