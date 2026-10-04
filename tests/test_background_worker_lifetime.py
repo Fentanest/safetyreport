@@ -43,11 +43,9 @@ class BackgroundWorkerLifetimeTests(unittest.TestCase):
             self.assertIsNone(service._keepalive_thread)
 
     def test_auth_cancelled_workers_remain_owned_and_share_one_join_budget(self):
-        from services import community_auth_service as module
-        service = module.CommunityAuthService.__new__(module.CommunityAuthService)
-        service._workers_lock = threading.RLock()
-        service._shutdown = threading.Event()
-        service._retiring_workers = []
+        # EO R-09: poll 스레드 감독은 services/community_auth_workers.AuthWorkerSupervisor 로 옮겼다(같은 시나리오).
+        from services import community_auth_workers as module
+        service = module.AuthWorkerSupervisor()
         clock = [0.0]
         class Worker:
             timeouts = []
@@ -58,15 +56,15 @@ class BackgroundWorkerLifetimeTests(unittest.TestCase):
         workers = [Worker(), Worker(), Worker()]
         stops = [threading.Event() for _ in workers]
         service._workers = {str(i): (worker, stops[i]) for i, worker in enumerate(workers)}
-        service._stop_worker('2')
+        service.stop('2')
         self.assertNotIn('2', service._workers)
-        self.assertEqual(service._retiring_workers, [(workers[2], stops[2])])
+        self.assertEqual(service._retiring, [(workers[2], stops[2])])
         with patch.object(module.time, 'monotonic', lambda: clock[0]):
             self.assertFalse(service.shutdown(timeout=5))
         self.assertEqual(sum(Worker.timeouts), 5)
         self.assertTrue(all(stop.is_set() for stop in stops))
         self.assertEqual(len(service._workers), 2)
-        self.assertEqual(len(service._retiring_workers), 1)
+        self.assertEqual(len(service._retiring), 1)
         with patch.object(module.threading, 'Thread') as factory:
-            service._start_worker('new')
+            service.start('new', lambda request_id, stop: None)
             factory.assert_not_called()

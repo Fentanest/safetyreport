@@ -17,6 +17,7 @@
 - EO-2 R-03 중복 대표건 투영 공개 어댑터: 목록 서비스가 통계 서비스의 private `_canonical_query` 를 가져다 쓰던 것을 `duplicate_group_service.canonical_sql` 로 옮기고, 같은 snapshot 의 `ProjectionContext`(통계 DataFrame·목록 레코드·페이지 투영)와 `normalize_mode` 를 공개했다. 통계·목록·검색·중복차량·페이지 API 가 모두 이를 쓴다(동작 변화 없음). 검증: SQL·DataFrame·레코드·페이지(1건씩)가 raw/canonical 에서 같은 ID·중복 메타·감시 승계를 내는지(수동 대표건, 비대표건만 감시, not_duplicate).
 - EO-3 D2-10 커뮤니티 클라이언트 규칙 공용 계약: `contracts/community-client/`(정본, 모바일·auth 에 바이트 사본, MANIFEST)에 status DTO 정규화·오류 분류와 재시도·기기 이름·캐시 경계·늦은 응답 규칙과 벡터를 두고, 서버 `services/community_client_rules.py`(계정 클라이언트·게이트가 사용)·모바일·auth 시험이 같은 벡터로 검사한다. 정정: 기여자 상태가 없는 status 를 서버가 통과시키던 것(gate.md 5 대로 정지), `service_disabled` 를 중앙이 재시도 불가로 알려도 서버가 일시 오류로 보던 것, 본문 코드 없는 401·400 을 일시 오류로 볼 수 있던 것, 기기 이름의 U+FEFF 를 중앙과 다르게 다루던 것. 모바일 쪽 정정은 모바일 CHANGELOG.
 - EO-3 R-08 커뮤니티 계정 업무 순서를 서비스로: 로그아웃(주인 확인 → 게이트 무효화 → 자료 삭제 → 연결 해제)·자료 채택·세션 초기화·동의·철회·업로드 연결 전환·공유 자료 삭제 요청과 중앙 호출 오류 변환을 `services/community_account_ops.py` 로 옮기고 라우터는 입력·권한·응답만 맡는다(동작 변화 없음). 호출 순서 기록 시험(주인 불명·불일치, 삭제 거절, 중앙 응답 유실, 철회 전 업로드 중단)을 더했다.
+- EO-3 R-09 인증 서비스 분리: 1,132줄 `community_auth_service.py` 에서 설정 정규화(`community_auth_config.py`), 오류 타입(`community_auth_errors.py`), 토큰 공급(`community_token_provider.py`, 같은 저장소 락), poll 스레드 감독(`community_auth_workers.py`)을 떼고 서비스는 facade 로 이름을 다시 내보낸다(827줄, 동작 변화 없음). 대기 단계 이름(`WAITING_PHASES`)과 상태 전이 설명을 두었다. 시험: 이름 호환, worker 감독(retiring 소유·한 join 예산·종료 뒤 시작 거부), 토큰 공급 위임, 코드 교환 중 취소 경합(교환 1회·받은 세션 로그아웃).
 
 ## 2026-10-05 (2026-10-04 기술일지 결함 74건·SB 권고 3건 수리, dev 반영)
 

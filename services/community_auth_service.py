@@ -13,7 +13,6 @@
 """
 from __future__ import annotations
 
-import dataclasses
 import hashlib
 import logging
 import os
@@ -21,263 +20,41 @@ import random
 import re
 import threading
 import time
-from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from core.utils import runtime_mode
 from core.utils.fallback import note_fallback
 from services.community_auth_client import (
-    AUTH_CODE_RE, DISPLAY_CODE_RE, UUID_RE, AuthError, CommunityAuthClient, CommunityHttpError, RelayError,
+    AUTH_CODE_RE, DISPLAY_CODE_RE, UUID_RE, CommunityAuthClient, CommunityHttpError, RelayError,
     jwt_claims_unverified, normalize_device_label, parse_bootstrap_url, pkce_challenge,
 )
 from services.community_auth_store import CommunitySessionStore, StoreUnreadable, random_b64url
+from services.community_auth_workers import AuthWorkerSupervisor
+from services.community_token_provider import REFRESH_MARGIN_SECONDS, CommunityTokenProvider  # noqa: F401
+from services.community_auth_config import (  # noqa: F401 — 예전 이름으로 쓰는 호출자를 위해 다시 내보낸다
+    BUNDLED_PUBLIC_FILE, DEFAULT_SITE_URL, ENV_ALIASES, ENV_ENABLED, ENV_PUBLISHABLE_KEY, ENV_SITE_URL, ENV_SUPABASE_URL,
+    SECTION, CommunityConfig, build_config, load_bundled_public, load_config_from_settings, normalize_site_url,
+    normalize_supabase_url, validate_publishable_key,
+)
+from services.community_auth_errors import (  # noqa: F401
+    HTTP_STATUS, HTTP_STATUS_EXTRA, MESSAGES, CommunityAuthError, error_dict as _error, iso as _iso,
+    parse_ts as _parse_ts,
+)
 
 _log = logging.getLogger("safetyreport.core.community_auth")
 
-SECTION = "COMMUNITY"
-DEFAULT_SITE_URL = "https://safeauth.worklazy.net/"
-ENV_ENABLED = "SAFETYREPORT_COMMUNITY_ENABLED"
-ENV_SUPABASE_URL = "SAFETYREPORT_COMMUNITY_SUPABASE_URL"
-ENV_PUBLISHABLE_KEY = "SAFETYREPORT_COMMUNITY_PUBLISHABLE_KEY"
-ENV_SITE_URL = "SAFETYREPORT_COMMUNITY_SITE_URL"
-# 별칭: 빌드·Docker 가 쓰는 짧은 이름. 공개 키는 Android·지도와 같은 정본 COMMUNITY_SUPABASE_PUBLISHABLE_KEY 와 옛 이름
-# COMMUNITY_PUBLISHABLE_KEY 를 모두 받는다. 여러 이름이 서로 다른 값이면 config_conflict(조용히 하나를 고르지 않는다).
-ENV_ALIASES = {ENV_ENABLED: ("COMMUNITY_ENABLED",), ENV_SUPABASE_URL: ("COMMUNITY_SUPABASE_URL",),
-               ENV_PUBLISHABLE_KEY: ("COMMUNITY_SUPABASE_PUBLISHABLE_KEY", "COMMUNITY_PUBLISHABLE_KEY"),
-               ENV_SITE_URL: ("COMMUNITY_SITE_URL",)}
-BUNDLED_PUBLIC_FILE = "community_public.json"
-
-REFRESH_MARGIN_SECONDS = 60
 DEFAULT_POLL_SECONDS = 5.0
 MAX_BACKOFF_SECONDS = 30.0
 COMPLETE_ATTEMPTS = 3
 FALLBACK_DISPLAY_NAME = "카카오 사용자"
+# 연결 요청의 로컬 단계(상태 전이): created → claimed → oauth_started (중앙 단계를 따라감, WAITING_PHASES)
+#   → 코드를 받으면 exchanging(code_consumed, 다시 교환하지 않음) → confirm_required(관리자 확정 대기) → current 로 원자 교체.
+#   어느 단계든 실패·취소·만료면 pending 을 비우고 last_error 를 남긴다. 재시작 때 exchanging 은 interrupted 로 끝낸다.
 LOCAL_PHASES = ("created", "claimed", "oauth_started", "exchanging", "confirm_required")
-_TRUE = {"1", "true", "yes", "on"}
-
-MESSAGES = {
-    "community_disabled": "커뮤니티 계정 연결이 꺼져 있습니다. 설정에서 켜 주세요.",
-    "community_unconfigured": "커뮤니티 계정 연결에 필요한 운영 설정(Supabase 주소·공개 키)이 없거나 올바르지 않습니다.",
-    "fixture_blocked": "테스트(fixture) 모드에서는 외부 인증 서버에 연결하지 않습니다.",
-    "no_pending": "진행 중인 연결 요청이 없습니다.",
-    "request_mismatch": "다른 연결 요청입니다. 화면을 새로고침해 주세요.",
-    "invalid_state": "지금 상태에서는 이 동작을 할 수 없습니다. 화면을 새로고침해 주세요.",
-    "expired": "연결 요청이 만료되었습니다. 다시 시작해 주세요.",
-    "rate_limited": "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
-    "relay_unavailable": "중앙 연결 서비스에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.",
-    "relay_rejected": "중앙 연결 서비스가 요청을 거부했습니다. 새로 연결을 시작해 주세요.",
-    "invalid_label": "기기 이름은 1~40자이며 < > \" ' ` \\ 와 주소 형식은 쓸 수 없습니다.",
-    "store_unreadable": "저장된 커뮤니티 로그인 정보를 읽을 수 없습니다(키 파일 분실 또는 손상). '연결 해제'로 초기화한 뒤 다시 연결해 주세요.",
-    "not_connected": "커뮤니티 계정이 연결되어 있지 않습니다.",
-    "reauth_required": "커뮤니티 로그인이 만료되었거나 해제되었습니다. 다시 연결해 주세요.",
-    "auth_unavailable": "인증 서버에 일시적으로 연결할 수 없습니다. 연결 정보는 그대로 둡니다.",
-    "exchange_failed": "로그인 결과를 이 서버의 세션으로 바꾸지 못했습니다. 새로 연결을 시작해 주세요.",
-    "user_lookup_failed": "로그인한 계정 정보를 확인하지 못했습니다. 새로 연결을 시작해 주세요.",
-    "complete_failed": "이 서버에는 연결됐지만 중앙 페이지에 완료 표시를 하지 못했습니다. 중앙 페이지는 닫아도 됩니다.",
-    "code_expired": "로그인 결과의 유효 시간이 지났습니다. 새로 연결을 시작해 주세요.",
-    "cancelled": "연결 요청이 취소되었습니다.",
-    "failed": "중앙 페이지에서 로그인이 끝나지 않았습니다(거부 또는 오류). 새로 연결을 시작해 주세요.",
-    "interrupted": "서버가 재시작되어 진행 중이던 연결을 마치지 못했습니다. 새로 연결을 시작해 주세요.",
-    "already_completed": "이미 끝난 연결 요청입니다.",
-    "invalid_response": "중앙 연결 서비스 응답이 올바르지 않습니다.",
-    "permission_required": "서버 관리자 화면에서 이 기기의 커뮤니티 계정 관리 권한을 허용해야 합니다.",
-    "invalid_settings": "설정 값이 올바르지 않습니다.",
-    "internal_error": "알 수 없는 오류가 발생했습니다. 새로 연결을 시작해 주세요.",
-}
-
-HTTP_STATUS_EXTRA = {"deletion_unconfirmed": 503}
-HTTP_STATUS = {
-    "community_disabled": 503, "community_unconfigured": 503, "fixture_blocked": 503,
-    "no_pending": 409, "request_mismatch": 409, "invalid_state": 409, "store_unreadable": 409,
-    "not_connected": 409, "reauth_required": 409,
-    "expired": 410, "rate_limited": 429,
-    "relay_unavailable": 502, "relay_rejected": 502, "auth_unavailable": 502,
-    "invalid_label": 400, "invalid_settings": 400, "permission_required": 403,
-}
-
-
-class CommunityAuthError(RuntimeError):
-    """로컬 API 로 그대로 내보낼 수 있는 오류(코드·HTTP 상태·한국어 문구)."""
-
-    def __init__(self, code: str, message: str | None = None, retry_after: float | None = None):
-        super().__init__(code)
-        self.code = code
-        self.status = HTTP_STATUS.get(code) or HTTP_STATUS_EXTRA.get(code, 500)
-        self.message = message or MESSAGES.get(code, MESSAGES["internal_error"])
-        self.retry_after = retry_after
-
-
-def _error(code: str) -> dict:
-    return {"code": code, "message": MESSAGES.get(code, MESSAGES["internal_error"])}
-
-
-def _iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-
-
-def _parse_ts(value) -> float | None:
-    if not isinstance(value, str) or not value:
-        return None
-    try:
-        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.timestamp()
-
+WAITING_PHASES = ("created", "claimed", "oauth_started")
 
 def hash_api_key(api_key: str) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
-
-
-# ── 설정 ──────────────────────────────────────────────────────────────────────
-
-def normalize_supabase_url(value) -> str | None:
-    """https origin 만. http 는 127.0.0.1(로컬 검증 스택)만. 경로·쿼리·계정정보 금지."""
-    value = (value or "").strip() if isinstance(value, str) else ""
-    if not value:
-        return None
-    if any(token in value.lower() for token in ('<', 'your_', 'project_ref', 'example')):
-        return None
-    try:
-        parts = urlsplit(value)
-        parts.port  # noqa: B018 - 잘못된 포트면 ValueError
-    except ValueError:
-        return None
-    if parts.username or parts.password or parts.query or parts.fragment or parts.path not in ("", "/"):
-        return None
-    if not parts.hostname:
-        return None
-    if parts.scheme == "https" or (parts.scheme == "http" and parts.hostname == "127.0.0.1"):
-        return f"{parts.scheme}://{parts.netloc}"
-    return None
-
-
-def normalize_site_url(value) -> str | None:
-    value = (value or "").strip() if isinstance(value, str) else ""
-    if not value:
-        return None
-    try:
-        parts = urlsplit(value)
-        parts.port  # noqa: B018
-    except ValueError:
-        return None
-    if parts.username or parts.password or parts.query or parts.fragment or not parts.path.endswith("/"):
-        return None
-    if not parts.hostname:
-        return None
-    if parts.scheme == "https" or (parts.scheme == "http" and parts.hostname == "127.0.0.1"):
-        return f"{parts.scheme}://{parts.netloc}{parts.path}"
-    return None
-
-
-def validate_publishable_key(value) -> str | None:
-    """공개(publishable/anon) 키만. sb_secret_·service_role 등 비밀 키는 거부."""
-    value = (value or "").strip() if isinstance(value, str) else ""
-    if not value or len(value) > 2048 or value.startswith("sb_secret_"):
-        return None
-    if re.fullmatch(r"sb_publishable_[A-Za-z0-9_-]{10,200}", value):
-        return value
-    if re.fullmatch(r"[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+", value):
-        return value if jwt_claims_unverified(value).get("role") == "anon" else None
-    return None
-
-
-@dataclasses.dataclass(frozen=True)
-class CommunityConfig:
-    enabled: bool = True  # 필수 기능 — 항상 True. 설정의 false 는 disabled_ignored 로만 남는다.
-    supabase_url: str = ""
-    publishable_key: str = ""
-    site_url: str = DEFAULT_SITE_URL
-    device_label: str = ""
-    api_key_managers: frozenset = frozenset()
-    problems: tuple = ()
-    env_locked: frozenset = frozenset()
-    disabled_ignored: bool = False
-
-    @property
-    def configured(self) -> bool:
-        return bool(self.supabase_url and self.publishable_key and self.site_url) and not self.problems
-
-
-def build_config(raw: dict, env: dict | None = None, bundled: dict | None = None) -> CommunityConfig:
-    """환경변수(정식 이름·별칭) > config.ini [COMMUNITY](raw) > 번들 공개값(bundled) 순서로 검증된 설정을 만든다."""
-    env = os.environ if env is None else env
-    bundled = bundled or {}
-    locked = set()
-    conflicts = set()
-
-    def pick(key: str, env_name: str, default: str = "") -> str:
-        values = [v.strip() for v in (env.get(env_name), *(env.get(a) for a in ENV_ALIASES[env_name])) if v is not None and v.strip() != ""]
-        if values:
-            locked.add(key)
-            if len(set(values)) > 1:
-                conflicts.add(key)
-            return values[0]
-        value = raw.get(key)
-        if isinstance(value, str) and any(token in value.lower() for token in ('<', 'your_', 'project_ref', 'example')) and bundled.get(key):
-            value = None  # Old sample config is not an explicit advanced override.
-        if value is not None and str(value).strip() != "":
-            return str(value).strip()
-        value = bundled.get(key)
-        return default if not isinstance(value, str) or not value.strip() else value.strip()
-
-    problems = []
-    disabled_ignored = pick("enabled", ENV_ENABLED, "true").lower() not in _TRUE
-    url_raw = pick("supabase_url", ENV_SUPABASE_URL)
-    key_raw = pick("publishable_key", ENV_PUBLISHABLE_KEY)
-    site_raw = pick("site_url", ENV_SITE_URL, DEFAULT_SITE_URL) or DEFAULT_SITE_URL
-    url = normalize_supabase_url(url_raw) or ""
-    if url_raw and not url:
-        problems.append("supabase_url")
-    key = validate_publishable_key(key_raw) or ""
-    if key_raw and not key:
-        problems.append("publishable_key")
-    site = normalize_site_url(site_raw) or ""
-    if not site:
-        problems.append("site_url")
-    label = normalize_device_label(str(raw.get("device_label") or "")) or ""
-    managers = frozenset(
-        h.strip().lower() for h in str(raw.get("api_key_managers") or "").split(",")
-        if re.fullmatch(r"[0-9a-fA-F]{64}", h.strip())
-    )
-    if conflicts:
-        problems.append("config_conflict")
-    return CommunityConfig(enabled=True, supabase_url=url, publishable_key=key, site_url=site,
-                           device_label=label, api_key_managers=managers,
-                           problems=tuple(problems), env_locked=frozenset(locked), disabled_ignored=disabled_ignored)
-
-
-_bundled_cache: dict | None = None
-
-
-def load_bundled_public() -> dict:
-    """빌드가 넣은 공개 설정(community_public.json: supabase_url·publishable_key·site_url). 없거나 틀리면 빈 dict."""
-    global _bundled_cache
-    if _bundled_cache is None:
-        import json
-
-        from core.utils.path_utils import resource_path
-
-        data = {}
-        try:
-            with open(resource_path(BUNDLED_PUBLIC_FILE), "r", encoding="utf-8") as fh:
-                loaded = json.load(fh)
-            if isinstance(loaded, dict):
-                data = {k: loaded[k] for k in ("supabase_url", "publishable_key", "site_url") if isinstance(loaded.get(k), str)}
-        except (OSError, ValueError):
-            data = {}
-        _bundled_cache = data
-    return _bundled_cache
-
-
-def load_config_from_settings() -> CommunityConfig:
-    import settings.settings as app_settings
-
-    cfg = app_settings._instance.config
-    raw = dict(cfg.items(SECTION)) if cfg.has_section(SECTION) else {}
-    return build_config(raw, bundled=load_bundled_public())
 
 
 # ── 서비스 ────────────────────────────────────────────────────────────────────
@@ -293,12 +70,10 @@ class CommunityAuthService:
         self._clock = clock
         self.poll_interval_override = poll_interval_override
         self.retry_base_seconds = retry_base_seconds
-        self._workers: dict[str, tuple[threading.Thread, threading.Event]] = {}
-        self._retiring_workers = []
-        self._workers_lock = threading.Lock()
+        self._workers = AuthWorkerSupervisor()
         self._start_lock = threading.Lock()
-        self._shutdown = threading.Event()
         self.upload_allowed_provider = None  # get_service() 가 community_gate 판정을 연결한다
+        self._tokens = CommunityTokenProvider(self)
 
     # 기본 도우미 -----------------------------------------------------------
     def config(self) -> CommunityConfig:
@@ -516,36 +291,13 @@ class CommunityAuthService:
 
     # poll 스레드 -----------------------------------------------------------
     def _start_worker(self, request_id: str) -> None:
-        if self._shutdown.is_set():
-            return
-        with self._workers_lock:
-            if self._shutdown.is_set():
-                return
-            existing = self._workers.get(request_id)
-            if existing and existing[0].is_alive():
-                return
-            stop = threading.Event()
-            thread = threading.Thread(target=self._poll_loop, args=(request_id, stop),
-                                      name="community-auth-poll", daemon=True)
-            self._workers[request_id] = (thread, stop)
-            thread.start()
+        self._workers.start(request_id, self._poll_loop)
 
     def _stop_worker(self, request_id: str | None, join: bool = False) -> None:
-        if not request_id:
-            return
-        with self._workers_lock:
-            entry = self._workers.pop(request_id, None)
-            self._retiring_workers = [item for item in self._retiring_workers if item[0].is_alive()]
-            if entry and entry[0].is_alive():
-                self._retiring_workers.append(entry)
-        if entry:
-            entry[1].set()
-            if join and entry[0] is not threading.current_thread():
-                entry[0].join(timeout=5)
+        self._workers.stop(request_id, join=join)
 
     def active_workers(self) -> int:
-        with self._workers_lock:
-            return sum(1 for t, _ in self._workers.values() if t.is_alive())
+        return self._workers.active()
 
     def _interval(self, base: float) -> float:
         if self.poll_interval_override is not None:
@@ -559,14 +311,14 @@ class CommunityAuthService:
             return None
         if not p or p.get("request_id") != request_id or p.get("code_consumed"):
             return None
-        if p.get("phase") not in ("created", "claimed", "oauth_started"):
+        if p.get("phase") not in WAITING_PHASES:
             return None
         return p
 
     def _poll_loop(self, request_id: str, stop: threading.Event) -> None:
         backoff = 0.0
         try:
-            while not stop.is_set() and not self._shutdown.is_set():
+            while not stop.is_set() and not self._workers.shutting_down:
                 p = self._poll_snapshot(request_id)
                 if p is None:
                     return
@@ -600,7 +352,7 @@ class CommunityAuthService:
                 status = resp.get("status")
                 if status == "pending":
                     phase = resp.get("phase")
-                    if phase in ("created", "claimed", "oauth_started") and phase != p.get("phase"):
+                    if phase in WAITING_PHASES and phase != p.get("phase"):
                         self._set_phase(request_id, phase)
                     wait = resp.get("poll_after_seconds")
                     base = float(wait) if isinstance(wait, (int, float)) and 1 <= wait <= 60 else interval
@@ -625,16 +377,13 @@ class CommunityAuthService:
             _log.warning("[community] poll 스레드 오류: %s", type(exc).__name__)
             self._fail_pending(request_id, "internal_error", cancel_relay=True)
         finally:
-            with self._workers_lock:
-                entry = self._workers.get(request_id)
-                if entry and entry[0] is threading.current_thread():
-                    self._workers.pop(request_id, None)
+            self._workers.finished(request_id)
 
     def _set_phase(self, request_id: str, phase: str) -> None:
         with self.store.locked():
             st = self.store.load()
             p = st.get("pending")
-            if p and p.get("request_id") == request_id and p.get("phase") in ("created", "claimed", "oauth_started"):
+            if p and p.get("request_id") == request_id and p.get("phase") in WAITING_PHASES:
                 p["phase"] = phase
                 self.store.save(st)
 
@@ -911,46 +660,8 @@ class CommunityAuthService:
 
     # 세션 공급 ---------------------------------------------------------------
     def get_access_token(self, *, rejected: str | None = None) -> str:
-        """업로더용: 유효한 access token. 60초 안에 만료되면 락 안에서 한 번만 refresh 한다.
-
-        rejected: 서버가 401 로 거절한 토큰. 저장된 토큰이 그것과 같으면 만료 전이어도 **실제로** refresh 한다(같은 토큰을
-        다시 돌려주는 것은 갱신이 아니다). 다른 호출자가 이미 바꿨으면 새 토큰을 그대로 돌려준다(회전된 refresh token 을 덮지 않음).
-        refresh 네트워크 실패는 auth_unavailable(일시), refresh token 거부는 reauth_required(확정)."""
-        cfg = self.config()
-        self._require_ready(cfg)
-        with self.store.locked():
-            st = self._load()  # 락을 잡은 뒤 다시 읽는다 → 다른 호출자가 이미 갱신했으면 그 값을 쓴다
-            cur = st.get("current")
-            if not cur:
-                raise CommunityAuthError("reauth_required" if st.get("reauth") else "not_connected")
-            forced = rejected is not None and cur.get("access_token") == rejected
-            if not forced and float(cur.get("expires_at") or 0) - self._now() > REFRESH_MARGIN_SECONDS:
-                return cur["access_token"]
-            try:
-                session = self._client(cfg).refresh(refresh_token=cur["refresh_token"])
-            except AuthError as exc:
-                if exc.reauth_required:
-                    st["reauth"] = {k: cur.get(k) for k in ("display_name", "connected_at", "has_email", "user_id", "kakao_id")}
-                    st["current"] = None
-                    st["last_error"] = {"code": "reauth_required", "at": _iso(self._now())}
-                    self.store.save(st)
-                    _log.warning("[community] refresh 토큰이 거부되어 다시 로그인이 필요합니다: %s", exc.code)
-                    raise CommunityAuthError("reauth_required") from None
-                raise CommunityAuthError("auth_unavailable") from None
-            except CommunityHttpError:
-                raise CommunityAuthError("auth_unavailable") from None
-            now = self._now()
-            expires_at = session.get("expires_at")
-            if not isinstance(expires_at, (int, float)):
-                expires_in = session.get("expires_in")
-                expires_at = now + (float(expires_in) if isinstance(expires_in, (int, float)) else 3600.0)
-            claims = jwt_claims_unverified(session["access_token"])
-            cur.update({"access_token": session["access_token"], "refresh_token": session["refresh_token"],
-                        "expires_at": float(expires_at), "refreshed_at": _iso(now)})
-            if isinstance(claims.get("session_id"), str):
-                cur["session_id"] = claims["session_id"]
-            self.store.save(st)  # access + refresh 를 함께 원자 저장
-            return cur["access_token"]
+        """업로더용: 유효한 access token(CommunityTokenProvider — 같은 저장소 락 안에서 한 번만 refresh)."""
+        return self._tokens.get_access_token(rejected=rejected)
 
     # 수명주기 ---------------------------------------------------------------
     def resume(self) -> None:
@@ -986,19 +697,7 @@ class CommunityAuthService:
         self._start_worker(p["request_id"])
 
     def shutdown(self, timeout: float = 5.0) -> bool:
-        self._shutdown.set()
-        deadline = time.monotonic() + max(0, timeout)
-        with self._workers_lock:
-            entries = list(self._workers.values()) + list(self._retiring_workers)
-        for _, stop in entries:
-            stop.set()
-        for thread, _ in entries:
-            if thread is not threading.current_thread():
-                thread.join(timeout=max(0, deadline - time.monotonic()))
-        with self._workers_lock:
-            self._workers = {key: entry for key, entry in self._workers.items() if entry[0].is_alive()}
-            self._retiring_workers = [entry for entry in self._retiring_workers if entry[0].is_alive()]
-        return not any(thread.is_alive() for thread, _ in entries)
+        return self._workers.shutdown(timeout)
 
 
 _KAKAO_ID_RE = re.compile(r"^[0-9]{1,20}$")

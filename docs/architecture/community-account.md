@@ -26,7 +26,12 @@
 
 | 파일 | 역할 |
 |---|---|
-| `services/community_auth_service.py` | 설정 검증, 상태 DTO, start/poll 스레드/confirm/cancel/disconnect, `get_access_token()`·`is_upload_allowed()`, `kakao_member_id()`·`current_kakao_id()` |
+| `services/community_auth_service.py` | 공개 진입점(facade): 상태 DTO, 연결 상태 전이(start/poll/코드 교환/confirm/cancel/disconnect), `get_access_token()`·`is_upload_allowed()`, `kakao_member_id()`·`current_kakao_id()`. 아래 모듈의 이름을 다시 내보낸다 |
+| `services/community_auth_config.py` | 공개 설정 정규화(EO R-09): 환경변수 > config.ini > 번들, `CommunityConfig`·`build_config`·`load_config_from_settings` |
+| `services/community_auth_errors.py` | `CommunityAuthError`·문구·HTTP 상태, 시각 도우미 |
+| `services/community_token_provider.py` | 토큰 공급: 세션 저장소 락 안에서 만료 60초 전·401 거절 때 한 번만 refresh, access·refresh 원자 저장 |
+| `services/community_auth_workers.py` | poll 스레드 감독: 요청별 스레드, 멈춘 스레드 retiring 소유, 종료 시 한 예산으로 join |
+| `services/community_account_ops.py` | 계정 업무 순서(EO R-08): 로그아웃·자료 채택·동의·철회·업로드 연결 전환 |
 | `services/account_data.py` | 신고 자료의 주인(카카오 회원번호) 확인·기록, 로그아웃 때 신고 자료 비우기, 다른 계정 DB 가져오기 거절 |
 | `services/community_auth_client.py` | 중계·GoTrue HTTP 클라이언트(requests, 10초, 리다이렉트 안 따라감), PKCE, 기기 이름·연결 링크 검증 |
 | `services/community_auth_store.py` | 암호화 저장소, 파일 락, 원자적 쓰기, 설치 ID |
