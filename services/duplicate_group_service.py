@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
 import hashlib
 import re
 from datetime import datetime
@@ -723,10 +724,74 @@ def build_projection_map(conn, report_ids=None) -> tuple[dict[str, dict], dict[s
     return group_map, member_map
 
 
+def normalize_mode(mode) -> str:
+    """dedupe 모드: 'canonical'(확정 중복군은 대표건만) 또는 'raw'(전부). 그 밖의 값은 raw."""
+    normalized = _text(mode).lower() or "raw"
+    return normalized if normalized in {"raw", "canonical"} else "raw"
+
+
+def canonical_sql(table, query, mode):
+    """SQL 투영: canonical 이면 확정 중복군의 비대표건을 뺀다(ProjectionContext.excluded_ids 와 같은 행)."""
+    if normalize_mode(mode) != "canonical":
+        return query
+    member, group = models.duplicate_member_table, models.duplicate_group_table
+    excluded = select(member.c.report_id).join(group, member.c.group_id == group.c.group_id).where(
+        member.c.report_id == table.c.ID, member.c.is_representative != 1,
+        group.c.status == "confirmed_duplicate").exists()
+    return query.where(~excluded)
+
+
+@dataclass(frozen=True)
+class ProjectionContext:
+    """한 읽기 snapshot 의 중복군 투영 문맥(EO R-03). SQL·DataFrame·레코드 투영이 같은 멤버 사전을 쓴다.
+
+    - canonical: 확정 중복군의 비대표건을 빼고, 그룹 안 누군가 감시 중이면 남는 대표건을 감시로 표시한다.
+    - raw: 행을 빼지 않는다. 레코드 투영은 중복 메타와 그룹 감시 표시를 붙이고, DataFrame(통계) 투영은 그대로 둔다.
+    - `not_duplicate` 등 확정이 아닌 그룹은 멤버 사전에 없으므로 모든 모드에서 그대로 남는다.
+    """
+
+    mode: str
+    groups: dict
+    members: dict
+
+    @classmethod
+    def load(cls, conn, mode, report_ids=None) -> "ProjectionContext":
+        """호출자의 연결(같은 snapshot)에서 읽는다. raw 는 DB 를 읽지 않는다."""
+        normalized = normalize_mode(mode)
+        if normalized != "canonical":
+            return cls(normalized, {}, {})
+        groups, members = build_projection_map(conn, report_ids)
+        return cls(normalized, groups, members)
+
+    @classmethod
+    def with_members(cls, mode, members) -> "ProjectionContext":
+        return cls(normalize_mode(mode), {}, dict(members or {}))
+
+    @property
+    def excluded_ids(self) -> set:
+        if self.mode != "canonical":
+            return set()
+        return {rid for rid, meta in self.members.items() if not meta["is_representative"]}
+
+    def project_frame(self, df: pd.DataFrame) -> pd.DataFrame:
+        """통계 DataFrame 투영. raw 는 그대로, canonical 은 비대표건 제외 + 대표건 감시 승계."""
+        if self.mode != "canonical" or df.empty or "ID" not in df.columns:
+            return df
+        ids = df["ID"].astype(str)
+        projected = df[~ids.isin(self.excluded_ids)].copy()
+        if "감시목록" in df and self.members:
+            watched = {self.members[rid]["group_id"] for rid in ids[df["감시목록"] == "Y"] if rid in self.members}
+            representatives = {rid for rid, meta in self.members.items() if meta["group_id"] in watched}
+            projected.loc[projected["ID"].astype(str).isin(representatives), "감시목록"] = "Y"
+        return projected
+
+    def project_records(self, records: list[dict]) -> list[dict]:
+        """레코드 투영. 중복 메타(duplicate_group_id 등)를 붙이고, canonical 이면 비대표건을 뺀다."""
+        return project_records_with_map(records, self.members, mode=self.mode)
+
+
 def project_records(engine, records: list[dict], *, mode: str = "raw") -> list[dict]:
-    normalized_mode = _text(mode).lower() or "raw"
-    if normalized_mode not in {"raw", "canonical"}:
-        normalized_mode = "raw"
+    normalized_mode = normalize_mode(mode)
     if not records:
         return []
 

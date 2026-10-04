@@ -137,10 +137,12 @@ class ExternalPayloadTests(unittest.TestCase):
 
 class StatsPopulationTests(unittest.TestCase):
     def test_a1_01_empty_projection_returns_empty_frames(self):
+        from services import duplicate_group_service as dgs
         from services import report_stats_service as rss
 
         engine = _seeded_engine(self)
-        with mock.patch.object(rss, "_project_stats_frame", side_effect=lambda engine, df, **k: df.iloc[0:0]):
+        # 투영 단계가 모든 행을 뺀 경우(EO R-03 뒤로 투영은 ProjectionContext.project_frame)
+        with mock.patch.object(dgs.ProjectionContext, "project_frame", lambda self, df: df.iloc[0:0]):
             _, df_t, df_p, df_o = rss._load_stats_frames(engine, {}, "canonical")
         self.assertEqual((len(df_t), len(df_p), len(df_o)), (0, 0, 0))
 

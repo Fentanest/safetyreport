@@ -484,6 +484,11 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
   - 기본 자동 감지 결과에서 충돌이 없으면 `confirmed_duplicate`, 충돌이 있으면 `review_required`로 시작한다.
   - `not_duplicate`는 “화면에서 숨김”이 아니라 “중복군 메타는 유지하되 canonical projection에서 원본 child를 모두 살려둠”을 뜻한다.
   - `representative_mode='auto'`인 그룹은 refresh 때마다 대표건이 다시 계산될 수 있고, `manual`은 저장된 대표건을 유지한다.
+  - 투영 구현(EO R-03, 2026-10-05): `duplicate_group_service` 의 공개 어댑터 하나로 모은다. `normalize_mode`(raw/canonical),
+    SQL 투영 `canonical_sql(table, query, mode)`, 같은 snapshot 의 투영 문맥 `ProjectionContext.load(conn, mode, report_ids=None)` →
+    `project_frame(df)`(통계: raw 는 그대로, canonical 은 비대표건 제외 + 대표건 감시 승계) / `project_records(records)`(목록: 중복 메타 부착,
+    canonical 은 비대표건 제외). 목록 페이지는 페이지 신고가 속한 그룹만 읽는다(`report_ids`). 통계·목록·페이지가 같은 행과 메타를 내는지
+    `tests/test_projection_context.py` 가 수동 대표건·비대표건만 감시·not_duplicate 로 검사한다.
   - `raw_content`가 없는 과거 데이터는 자동 확정 대상이 아니라 후속 검토 후보 경로로 다룬다.
 
 ---

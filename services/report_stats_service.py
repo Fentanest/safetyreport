@@ -256,34 +256,7 @@ def _read_stats_frame(conn, table_obj, filters=None, column_names=None):
     return pd.read_sql_query(_build_stats_query(table_obj, filters, column_names=column_names), conn)
 
 
-def _normalize_mode(mode: str | None) -> str:
-    normalized = _text_or_empty(mode).lower() or "raw"
-    return normalized if normalized in {"raw", "canonical"} else "raw"
-
-
-def _project_stats_frame(engine, df: pd.DataFrame, *, mode: str = "raw", members=None) -> pd.DataFrame:
-    normalized_mode = _normalize_mode(mode)
-    if normalized_mode == "raw" or df.empty or "ID" not in df.columns:
-        return df
-    if members is None:
-        with engine.connect() as conn:
-            _, members = duplicate_group_service.build_projection_map(conn)
-    excluded = {rid for rid, meta in members.items() if not meta['is_representative']}
-    projected = df[~df['ID'].astype(str).isin(excluded)].copy()
-    if '감시목록' in df and members:
-        watched = {members[rid]['group_id'] for rid in df.loc[df['감시목록'] == 'Y', 'ID'].astype(str) if rid in members}
-        representatives = {rid for rid, meta in members.items() if meta['group_id'] in watched}
-        projected.loc[projected['ID'].astype(str).isin(representatives), '감시목록'] = 'Y'
-    return projected
-
-
-def _canonical_query(table, query, mode):
-    if _normalize_mode(mode) != 'canonical':
-        return query
-    member, group = database.duplicate_member_table, database.duplicate_group_table
-    excluded = select(member.c.report_id).join(group, member.c.group_id == group.c.group_id).where(
-        member.c.report_id == table.c.ID, member.c.is_representative != 1, group.c.status == 'confirmed_duplicate').exists()
-    return query.where(~excluded)
+_normalize_mode = duplicate_group_service.normalize_mode
 
 
 def _ensure_id_column(df: pd.DataFrame) -> pd.DataFrame:
@@ -388,7 +361,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
             # Full-population SQL aggregation; no report bodies in the count path.
             query = select(table_obj.c['처리상태'], table_obj.c['범칙금_과태료'], func.count().label('_weight')).group_by(
                 table_obj.c['처리상태'], table_obj.c['범칙금_과태료'])
-            df = pd.read_sql_query(_canonical_query(table_obj, query, mode), conn)
+            df = pd.read_sql_query(duplicate_group_service.canonical_sql(table_obj, query, mode), conn)
             if df.empty:
                 continue
             category = table_category_map.get(table_obj, "")
@@ -398,7 +371,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
                 table_obj.c['답변일'] < str(today + timedelta(days=1)))
             if app_settings.exclude_withdraw:
                 recent_query = recent_query.where(report_policy.sql_not_withdrawn(table_obj.c['처리상태']))
-            recent_query = _canonical_query(table_obj, recent_query, mode).order_by(
+            recent_query = duplicate_group_service.canonical_sql(table_obj, recent_query, mode).order_by(
                 table_obj.c.synced_at.desc(), table_obj.c['답변일'].desc(), table_obj.c['신고번호'].desc()).limit(200)
             for row in conn.execute(recent_query):
                 item = _row_to_dict(row._mapping)
@@ -508,7 +481,7 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
         df_p = _read_stats_frame(conn, database.merge_parking_table, filters)
         df_o = _read_stats_frame(conn, database.merge_other_table, filters)
         df_entry = pd.read_sql_query(select(database.entry_value_table.c.ID, database.entry_value_table.c.entry_value), conn)
-        _, members = duplicate_group_service.build_projection_map(conn) if mode == 'canonical' else ({}, {})
+        projection = duplicate_group_service.ProjectionContext.load(conn, mode)
 
     df_t = _ensure_id_column(df_t)
     df_p = _ensure_id_column(df_p)
@@ -522,7 +495,7 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
         df_o["category"] = "other"
 
     combined_df = pd.concat([df_t, df_p, df_o], ignore_index=True) if not (df_t.empty and df_p.empty and df_o.empty) else pd.DataFrame()
-    combined_df = _project_stats_frame(engine, combined_df, mode=mode, members=members)
+    combined_df = projection.project_frame(combined_df)
     if not combined_df.empty and "처리기관" in combined_df.columns:
         combined_df = _apply_registry_agency_display(combined_df)
     if not combined_df.empty and "ID" in combined_df.columns:
@@ -1138,7 +1111,7 @@ def _load_map_records_frame(
             if not df.empty:
                 df["category"] = table_category
                 frames.append(df)
-        _, members = duplicate_group_service.build_projection_map(conn) if mode == 'canonical' else ({}, {})
+        projection = duplicate_group_service.ProjectionContext.load(conn, mode)
 
     combined_df = (
         pd.concat(frames, ignore_index=True)
@@ -1152,7 +1125,7 @@ def _load_map_records_frame(
         combined_df["category"] = normalized_category if normalized_category != "all" else "other"
 
     combined_df = _ensure_id_column(combined_df)
-    combined_df = _project_stats_frame(engine, combined_df, mode=mode, members=members)
+    combined_df = projection.project_frame(combined_df)
     if not combined_df.empty and "처리기관" in combined_df.columns:
         combined_df = _apply_registry_agency_display(combined_df)
     if stats_filters and not combined_df.empty:

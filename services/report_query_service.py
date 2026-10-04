@@ -42,9 +42,7 @@ def _filter_withdraw(df):
     return df
 
 
-def _normalize_mode(mode: str | None) -> str:
-    normalized = str(mode or "raw").strip().lower()
-    return normalized if normalized in {"raw", "canonical"} else "raw"
+_normalize_mode = duplicate_group_service.normalize_mode
 
 
 def _project_records(engine, records, *, mode="raw"):
@@ -97,20 +95,21 @@ def _build_records_query(table_obj, filters=None):
 
 def get_report_page(engine, category, *, offset=0, limit=200, mode='canonical'):
     """Additive SQL pagination. Legacy full-list functions remain unchanged."""
-    from services.report_stats_service import _canonical_query
     table = {'traffic':database.merge_traffic_table, 'parking':database.merge_parking_table,
              'other':database.merge_other_table}[category]
-    query = _canonical_query(table, _build_records_query(table), mode)
-    members = {}
+    query = duplicate_group_service.canonical_sql(table, _build_records_query(table), mode)
+    projection = duplicate_group_service.ProjectionContext.with_members(mode, {})
     with engine.connect() as conn:
         # One read transaction for count and page; no full materialization.
         conn.exec_driver_sql('BEGIN')
         total = conn.execute(select(func.count()).select_from(query.order_by(None).subquery())).scalar_one()
         df = pd.read_sql_query(query.order_by(None).order_by(table.c.ID).offset(offset).limit(limit), conn)
         watch_ids = _get_watch_ids(conn)
-        if mode == 'canonical' and not df.empty:
+        if projection.mode == 'canonical' and not df.empty:
             page_ids = set(df['ID'].astype(str))
-            _, members = duplicate_group_service.build_projection_map(conn, page_ids)
+            # 페이지 신고가 속한 그룹만 같은 snapshot 에서 읽는다(기술일지 B-04)
+            projection = duplicate_group_service.ProjectionContext.load(conn, mode, page_ids)
+            members = projection.members
             group_ids = {members[rid]['group_id'] for rid in page_ids if rid in members}
             related = {rid for rid, meta in members.items() if meta['group_id'] in group_ids}
             watched_groups = set()
@@ -122,7 +121,7 @@ def get_report_page(engine, category, *, offset=0, limit=200, mode='canonical'):
                 meta = members.get(str(row['ID']))
                 if meta and meta['group_id'] in watched_groups: watch_ids.add(row['신고번호'])
     df = _apply_record_defaults(df, watch_ids=watch_ids, category=category, exact_values=True)
-    records = duplicate_group_service.project_records_with_map(df.to_dict(orient='records'), members, mode=mode) if not df.empty else []
+    records = projection.project_records(df.to_dict(orient='records')) if not df.empty else []
     return {'category':category,'total':total,'offset':offset,'limit':limit,'count':len(records),
             'next_offset':offset+len(records) if offset+len(records)<total else None,
             'dedupe_mode':mode,'data':records}
@@ -139,7 +138,7 @@ def _get_records_from_table(engine, table_obj, filters=None, category: str = '',
 def _get_records_from_connection(conn, table_obj, filters=None, *, category='', mode='raw', exact_values=False):
     df = pd.read_sql_query(_build_records_query(table_obj, filters), conn)
     watch_ids = _get_watch_ids(conn)
-    _, member_map = duplicate_group_service.build_projection_map(conn) if _normalize_mode(mode) == 'canonical' else ({}, {})
+    projection = duplicate_group_service.ProjectionContext.load(conn, mode)
 
     agency_key = (filters or {}).get("agencyKey")
     if agency_key and not df.empty and "처리기관" in df.columns:
@@ -180,7 +179,7 @@ def _get_records_from_connection(conn, table_obj, filters=None, *, category='', 
 
     df = _apply_record_defaults(df, watch_ids=watch_ids, category=category, exact_values=exact_values)
     records = df.to_dict(orient="records") if not df.empty else []
-    return duplicate_group_service.project_records_with_map(records, member_map, mode=mode)
+    return projection.project_records(records)
 
 
 def get_traffic_records(engine, filters=None, mode: str = "raw", exact_values: bool = False):
@@ -215,7 +214,7 @@ def search_by_vehicle(engine, vehicle_number: str, mode: str = "raw"):
     results = []
     with engine.connect() as conn:
         conn.exec_driver_sql('BEGIN')
-        _, member_map = duplicate_group_service.build_projection_map(conn) if _normalize_mode(mode) == 'canonical' else ({}, {})
+        projection = duplicate_group_service.ProjectionContext.load(conn, mode)
         watch_ids = _get_watch_ids(conn)
         for table_obj, category in [
             (database.merge_traffic_table, "traffic"),
@@ -233,7 +232,7 @@ def search_by_vehicle(engine, vehicle_number: str, mode: str = "raw"):
             results.extend(df.to_dict(orient="records"))
 
     results.sort(key=lambda item: item.get("신고번호", "") or "", reverse=True)
-    return duplicate_group_service.project_records_with_map(results, member_map, mode=mode)
+    return projection.project_records(results)
 
 
 def search_by_address(engine, address: str, mode: str = "raw"):
@@ -244,7 +243,7 @@ def search_by_address(engine, address: str, mode: str = "raw"):
     results = []
     with engine.connect() as conn:
         conn.exec_driver_sql('BEGIN')
-        _, member_map = duplicate_group_service.build_projection_map(conn) if _normalize_mode(mode) == 'canonical' else ({}, {})
+        projection = duplicate_group_service.ProjectionContext.load(conn, mode)
         watch_ids = _get_watch_ids(conn)
         for table_obj, category in [
             (database.merge_traffic_table, "traffic"),
@@ -262,13 +261,13 @@ def search_by_address(engine, address: str, mode: str = "raw"):
             results.extend(df.to_dict(orient="records"))
 
     results.sort(key=lambda item: item.get("신고번호", "") or "", reverse=True)
-    return duplicate_group_service.project_records_with_map(results, member_map, mode=mode)
+    return projection.project_records(results)
 
 
 def get_duplicate_records(engine, mode: str = "raw"):
     with engine.connect() as conn:
         conn.exec_driver_sql('BEGIN')
-        _, member_map = duplicate_group_service.build_projection_map(conn) if _normalize_mode(mode) == 'canonical' else ({}, {})
+        projection = duplicate_group_service.ProjectionContext.load(conn, mode)
         df_t = pd.read_sql_query(select(database.merge_traffic_table), conn)
         df_p = _safe_read(conn, database.merge_parking_table)
         df_o = pd.read_sql_query(select(database.merge_other_table), conn)
@@ -310,7 +309,7 @@ def get_duplicate_records(engine, mode: str = "raw"):
                     df_dups = df_dups[~df_dups["차량번호"].isin(single_after_filter)]
 
         records = df_dups.fillna("").to_dict("records")
-        return duplicate_group_service.project_records_with_map(records, member_map, mode=mode)
+        return projection.project_records(records)
 
 
 def resolve_to_report_numbers(engine, mixed_list):
