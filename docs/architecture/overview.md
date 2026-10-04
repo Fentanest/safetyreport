@@ -258,6 +258,11 @@ PyInstaller 단일 바이너리 배포 시 서브프로세스가 `sys.executable
 - 경계: 설정(`settings.settings`)과 DB 경로는 프로세스 전역이라 한 프로세스에 데이터 루트가 다른 앱 둘은 만들 수 없다. 라우터 9개는 여전히 모듈 전역으로 같은 프로세스 엔진(`get_engine()` 단일 객체)을 들고 있다.
   설정 모듈은 import 때 data 폴더를 만든다(이번에 바꾸지 않음).
 
+### 설정 저장 (EO R-13, 2026-10-05)
+`services/settings_service.py` 가 설정 명령을 만든다: 웹 전체(`web_command`: 시트 주소 → ID, 전화번호 숫자만, 프록시 공백 제거) / API 부분(`api_command`: 모바일 불리언 4개, 형이 틀리면 400, 모르는 키는 무시).
+`apply` 는 한 번에 기록·원자 저장 → 안전신문고 계정이 바뀌었으면 이전 계정 토큰 무효화(A2-01) → (웹) 스케줄러 job 갱신. job 실패는 저장을 되돌리지 않고 기록한다.
+설정 화면 값(`view_values`)과 구글 인증 파일 검증·저장도 여기 있고, 라우터는 `settings._instance` 를 직접 다루지 않는다.
+
 ### 리소스 경로 (`path_utils.py`)
 - Frozen: `sys._MEIPASS` 또는 `os.path.dirname(sys.executable)` 기준
 - Dev: 프로젝트 루트 기준

@@ -704,17 +704,13 @@ async def upload_database(file: UploadFile = File(...), _: str = Depends(_requir
 
 @router.post("/settings")
 async def update_settings(request: Request, _: str = Depends(_require_api_key)):
+    """모바일이 바꿀 수 있는 설정만(services/settings_service.api_command, EO R-13). 모르는 키는 무시한다."""
+    from services import settings_service
+
     body = await json_object(request)
-    for key in ('exclude_withdraw', 'use_representative_records', 'auto_export_excel', 'auto_export_sheet'):
-        if key in body and not isinstance(body[key], bool):
-            raise HTTPException(status_code=400, detail=f'{key} must be a boolean')
-    if "exclude_withdraw" in body:
-        settings._instance.update_config("SETTINGS", "exclude_withdraw", body["exclude_withdraw"])
-    if "use_representative_records" in body:
-        settings._instance.update_config("SETTINGS", "use_representative_records", body["use_representative_records"])
-    if "auto_export_excel" in body:
-        settings._instance.update_config("SETTINGS", "auto_export_excel", body["auto_export_excel"])
-    if "auto_export_sheet" in body:
-        settings._instance.update_config("SETTINGS", "auto_export_sheet", body["auto_export_sheet"])
-    settings._instance.save()
+    try:
+        command = settings_service.api_command(body)
+    except settings_service.SettingsInvalid as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    settings_service.apply(command)
     return {"status": "success"}
