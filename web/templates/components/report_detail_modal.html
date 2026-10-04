@@ -1,0 +1,64 @@
+<!-- 신고 상세 팝업 모달 -->
+<div class="modal fade" id="reportDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header pb-2">
+        <div class="flex-grow-1 me-2">
+          <h6 class="modal-title fw-bold mb-1" id="rdName"></h6>
+          <div id="rdStatusBadge"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body py-3">
+        <div id="rdFields" class="row g-2 mb-3"></div>
+        
+        <div id="rdReportContent" class="card card-custom mb-3" style="display:none">
+          <div class="card-body p-3">
+            <div class="fw-bold text-muted small mb-2"><i class="fas fa-file-alt me-1"></i> 신고내용</div>
+            <div class="p-2 rounded rd-body-text" id="rdReportContentText"></div>
+          </div>
+        </div>
+        
+        <div id="rdProcessContent" class="card card-custom mb-3" style="display:none">
+          <div class="card-body p-3">
+            <div class="fw-bold text-muted small mb-2"><i class="fas fa-gavel me-1"></i> 처리내용</div>
+            <div class="p-2 rounded rd-body-text" id="rdProcessContentText"></div>
+          </div>
+        </div>
+        
+        <div id="rdSupplements" class="card card-custom mb-3" style="display:none">
+          <div class="card-body p-3">
+            <div class="fw-bold text-muted small mb-3">보완 요청 <span id="rdSupplementsBadge" class="sr-badge sr-badge-supplement ms-1 rd-count-badge"></span></div>
+            <div id="rdSupplementsBody" class="rounded p-2 rd-surface"></div>
+          </div>
+        </div>
+        
+        <div id="rdMedia" class="card card-custom mb-3" style="display:none">
+          <div class="card-body p-3">
+            <div class="fw-bold text-muted small mb-3"><i class="fas fa-image me-1"></i> 첨부 사진</div>
+            <div id="rdMediaList"></div>
+          </div>
+        </div>
+        
+        <div id="rdVideos" class="card card-custom mb-3" style="display:none">
+          <div class="card-body p-3">
+            <div class="fw-bold text-muted small mb-3"><i class="fas fa-video me-1"></i> 첨부 동영상</div>
+            <div id="rdVideoList"></div>
+          </div>
+        </div>
+        
+        <div id="rdFiles" class="card card-custom mb-2" style="display:none">
+          <div class="card-body p-3">
+            <div class="fw-bold text-muted small mb-3"><i class="fas fa-paperclip me-1"></i> 첨부파일</div>
+            <div id="rdFileList"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer pt-2">
+        <button type="button" class="btn btn-primary w-100" id="rdViewBtn">
+          <i class="fas fa-external-link-alt me-1"></i>안전신문고 앱에서 보기
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

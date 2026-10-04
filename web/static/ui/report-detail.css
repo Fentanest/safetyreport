@@ -1,0 +1,14 @@
+/* 신고 상세 팝업 표현(EO R-15: report-detail.js 와 components/report_detail_modal.html 의 인라인 스타일을 옮겼다). 색은 테마 토큰. */
+.rd-field-icon { width: 14px; font-size: .82rem; margin-top: 2px; }
+.rd-field-label { min-width: 78px; font-size: .82rem; }
+.rd-field-value { font-size: .82rem; word-break: break-all; }
+.rd-field-chevron { font-size: .7rem; opacity: .5; }
+.rd-round { font-size: .8rem; line-height: 1.6; }
+.rd-text-block { font-size: .82rem; line-height: 1.6; white-space: pre-wrap; }
+.rd-small-alert { font-size: .82rem; }
+.rd-body-text { background: var(--sr-surface-2); font-size: .85rem; line-height: 1.7; white-space: pre-wrap; }
+.rd-surface { background: var(--sr-surface-2); }
+.rd-count-badge { font-size: .7rem; }
+/* 사진·영상은 원본 비율 그대로 검은 바탕에 보인다(테마와 무관한 미디어 여백) */
+.rd-image { max-height: 340px; width: 100%; object-fit: contain; background: #000; }
+.rd-video { max-height: 340px; background: #000; }

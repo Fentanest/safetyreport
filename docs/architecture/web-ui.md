@@ -99,6 +99,12 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 `agencyExact=True` 시 `df['처리기관'] == agency` 정확히 일치 필터 적용.
 통계 행 클릭 링크에는 `&agencyExact=true` 자동 포함. 직접 검색 시는 기본값 `false` (contains).
 
+### 공통 셸 구성 (EO R-15, 2026-10-05)
+`base.html`(980 → 216줄)은 레이아웃만 둔다. 스크립트는 같은 자리·같은 순서로 정적 파일에서 읽는다:
+`shell-polling.js`(업데이트 뒤 작업 진행 바·최신 버전 표시·초기화 크롤링 안내, jQuery 앞) → … → `app-shell.js`(모바일 사이드바 inert·Esc, 떠 있는 버튼, 세션 만료 이동, 안전신문고 새 창 워밍업) →
+`report-detail.js`(상세 렌더러·보완 이력·첨부 미디어 proxy; 전역 `showReportDetail`·`proxyMediaUrl`·`prepareProxyVideos`·`resetProxyVideos`·`srDisplayDateTime`).
+상세 모달 마크업은 `components/report_detail_modal.html`, 표현은 `report-detail.css`(인라인 style·cssText 를 클래스로, 색은 테마 토큰). 카드 표시·숨김(`style.display`)은 JS 가 그대로 정한다.
+
 ### 신고 목록 표 스크립트 구성 (EO R-14, 2026-10-05)
 `data_table.html` 은 표 마크업과 JSON bootstrap(`#srDataTableBootstrap`: `records`·`tableId`)만 두고, 스크립트는 정적 파일로 옮겼다:
 `list-predicates.js`(행 검색 판정, R-02) → `data-table-cells.js`(셀 렌더러: 이스케이프·첨부 링크·배지·말줄임·지도, 순수 함수) →

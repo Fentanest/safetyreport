@@ -27,6 +27,7 @@
 - EO-6 R-04 앱 조립: `main.py` 의 import 시점 초기화(코어 로거·data 하위 폴더·세션 키·시그널 처리기·앱·미들웨어·라우터)를 `create_app()` 으로 모으고, `main.app` 은 처음 읽을 때 만든다(PEP 562, `main:app` 그대로). PyInstaller 하위 모드 분기를 라우터 import 앞으로 옮겼다. 미들웨어 순서·라우트 32개는 원래와 같다. 시험: 새 프로세스에서 `import main` 무부작용 → `main:app` 접근 뒤 같은 앱·로거·폴더·시그널·미들웨어 순서, 하위 모드 분기 위치. 앱 구성을 쓰는 시험 3개는 `main.get_app()` 을 부르도록 바꿨다. 경계: 설정·DB 경로가 프로세스 전역이라 데이터 루트가 다른 앱 둘은 만들 수 없다(문서 overview "앱 조립").
 - EO-6 R-13 설정 명령 서비스: 설정 라우터·API 설정 경로가 private `settings._instance` 의 섹션·키를 직접 다루던 것을 `services/settings_service.py`(웹 전체·API 부분 명령, 정규화·허용 필드 검증, 저장 → 계정 변경 시 토큰 무효화 → job 갱신, 화면 값, 구글 인증 파일)로 옮겼다(응답·저장 값 그대로). 시험: 폼 전체 키·정규화, API 허용 키·형 검증·모르는 키 무시, 부분 저장이 다른 값 보존, 계정이 바뀔 때만 토큰 무효화, job 실패에도 저장 유지, 인증 파일 검증.
 - EO-6 R-14 신고 목록 표 스크립트 분리: `data_table.html` 안의 약 1,000줄 인라인 스크립트를 JSON bootstrap(`#srDataTableBootstrap`) + `web/static/ui/data-table-cells.js`(순수 셀 렌더러) + `web/static/ui/data-table.js`(화면 컨트롤러)로 옮겼다(템플릿 1,244 → 243줄, DOM ID·전역 그대로). 시험: 셀 렌더러 node 시험, 목록·통계 드릴다운·기능 게이트 브라우저 시험(Chromium 38건).
+- EO-6 R-15 공통 셸 분리: `base.html`(980 → 216줄)의 상세 모달을 `components/report_detail_modal.html` 로, 인라인 스크립트를 `shell-polling.js`(작업 진행·버전·초기화 안내)·`app-shell.js`(사이드바·세션·새 창)·`report-detail.js`(상세 렌더러·미디어 제어)로 같은 순서에 옮기고, 상세 팝업의 인라인 style·cssText 를 `report-detail.css` 클래스로 바꿨다(전역 접점·모달 ID 그대로). 시험: 상세·작업 바·사이드바·테마·대시보드 등 브라우저 시험 Chromium 75건.
 
 ## 2026-10-05 (2026-10-04 기술일지 결함 74건·SB 권고 3건 수리, dev 반영)
 
