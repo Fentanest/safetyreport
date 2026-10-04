@@ -5,6 +5,7 @@ from sqlalchemy.exc import OperationalError
 from core.database import database
 import settings.settings as app_settings
 from services import duplicate_group_service, rating_eligibility, report_policy
+from services.report_filter_spec import ReportFilterSpec
 
 
 def _safe_read(conn, table):
@@ -159,18 +160,11 @@ def _get_records_from_connection(conn, table_obj, filters=None, *, category='', 
         ]
 
     if filters and not df.empty:
-        agency = filters.get("agency")
-        if agency and not agency_key and "처리기관" in df.columns:
-            from services.report_stats_service import _apply_text_query
-            exact = filters.get('agencyExact') and '&' not in agency and ',' not in agency
-            df = _apply_text_query(df, '처리기관', agency, exact=exact)
-
-        if '처리기관' in df:
-            police = df['처리기관'].fillna('').astype(str).str.contains('경찰', regex=False)
-            if filters.get('excludePolice'):
-                df = df[~police]
-            elif filters.get('onlyPolice'):
-                df = df[police]
+        # 기관(표시명)·경찰 조건: 통계와 같은 ReportFilterSpec(EO R-02). 기관 키가 있으면 위에서 이미 골랐다.
+        spec = ReportFilterSpec.from_filters({
+            "agency": "" if agency_key else filters.get("agency"), "agencyExact": filters.get("agencyExact"),
+            "excludePolice": filters.get("excludePolice"), "onlyPolice": filters.get("onlyPolice")})
+        df = spec.apply_rows(df)
         rating = filters.get('rating')
         if rating and "별점" in df.columns:
             if rating == "__none__":

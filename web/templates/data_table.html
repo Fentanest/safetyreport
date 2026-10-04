@@ -281,31 +281,6 @@ $(document).ready(function() {
         { value: '5', label: '5점' }
     ];
 
-    function normalizeText(v) {
-        return String(v == null ? '' : v).trim().toLowerCase();
-    }
-
-    function parseAndOrGroups(query) {
-        return String(query == null ? '' : query)
-            .split(',')
-            .map(group => group.split('&').map(term => normalizeText(term)).filter(Boolean))
-            .filter(group => group.length > 0);
-    }
-
-    function matchesAndOr(value, groups) {
-        if (!groups.length) return true;
-        const haystack = normalizeText(value);
-        return groups.some(group => group.every(term => haystack.includes(term)));
-    }
-
-    function normalizeRatingValue(value) {
-        const text = String(value == null ? '' : value).trim();
-        if (!text) return '__none__';
-        const numeric = Number(text);
-        if (!Number.isFinite(numeric) || numeric <= 0) return '__none__';
-        return String(Math.trunc(numeric));
-    }
-
     function canonicalStatus(value) {
         return window.SrReportPolicy.displayStatus(value);
     }
@@ -371,7 +346,7 @@ $(document).ready(function() {
     };
     function captureSearch() {
         const text = Object.entries(textFilters).map(([id, field]) =>
-            Object.freeze({field, groups: parseAndOrGroups(document.getElementById(id).value)}));
+            Object.freeze({field, groups: SrListPredicates.parseGroups(document.getElementById(id).value)}));
         const ranges = ['ReportDate', 'ResponseDate', 'OccurDate', 'OccurTime'].map(name =>
             Object.freeze({min: document.getElementById('search' + name + 'Start').value,
                            max: document.getElementById('search' + name + 'End').value,
@@ -764,18 +739,7 @@ $(document).ready(function() {
                 ? settings.aoData[dataIndex]._aData
                 : {};
 
-            const filters = appliedSearch;
-            if (filters.text.some(item => !matchesAndOr(row[item.field], item.groups))) return false;
-            if (filters.poll && String(row['만족도조사여부'] || '').trim() !== filters.poll) return false;
-            if (filters.statuses.length && !filters.statuses.includes(canonicalStatus(row['처리상태']))) return false;
-            if (filters.ratings.length && !filters.ratings.includes(normalizeRatingValue(row['별점']))) return false;
-            const fields = ['신고일', '답변일', '발생일자', '발생시각'];
-            if (!filters.ranges.every((range, i) =>
-                SrListPredicates.inRange(row[fields[i]], range.min, range.max, range.time))) return false;
-            const agency = String(row['처리기관'] || '');
-            if (filters.excludePolice && agency.includes('경찰')) return false;
-            if (filters.onlyPolice && !agency.includes('경찰')) return false;
-            return true;
+            return SrListPredicates.matchesSearch(appliedSearch, row);
         }
     );
 

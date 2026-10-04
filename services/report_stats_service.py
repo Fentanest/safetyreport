@@ -10,6 +10,7 @@ from sqlalchemy.exc import OperationalError
 from core.database import database
 from core.utils.fallback import note_fallback
 from services import report_policy
+from services.report_filter_spec import ReportFilterSpec
 import settings.settings as app_settings
 from services import duplicate_group_service
 from services.report_query_service import _safe_read
@@ -238,87 +239,16 @@ def _recent_answer_sort_key(item):
     return (0, response_date, report_number, "")
 
 
-def _parse_and_or_groups(query: str):
-    text = _text_or_empty(query)
-    if not text:
-        return []
-    groups = []
-    for raw_group in text.split(","):
-        terms = [_text_or_empty(term) for term in raw_group.split("&")]
-        terms = [term for term in terms if term]
-        if terms:
-            groups.append(terms)
-    return groups
-
-
-def _matches_and_or_text(value, query: str, exact: bool = False) -> bool:
-    groups = _parse_and_or_groups(query)
-    if not groups:
-        return True
-
-    source_cmp = _text_or_empty(value).casefold()
-    if exact and len(groups) == 1 and len(groups[0]) == 1:
-        return source_cmp == groups[0][0].casefold()
-
-    return any(all(term.casefold() in source_cmp for term in group) for group in groups)
-
-
-def _apply_text_query(df, column: str, query: str, exact: bool = False):
-    if df.empty or column not in df.columns or not _text_or_empty(query):
-        return df
-    series = df[column].fillna("").astype(str)
-    mask = series.apply(lambda value: _matches_and_or_text(value, query, exact=exact))
-    return df[mask]
-
-
-def _can_push_simple_text_query(query: str) -> bool:
-    text = _text_or_empty(query)
-    return bool(text) and "&" not in text and "," not in text
-
-
 def _build_select_for_columns(table_obj, column_names):
     columns = [table_obj.c[column] for column in column_names if column in table_obj.c]
     return select(*columns)
 
 
 def _build_stats_query(table_obj, filters=None, column_names=None):
+    """SQL 후보 축소만 한다(ReportFilterSpec.sql_candidates — 최종 결과의 상위 집합). 최종 판정은 pandas 단계."""
     query = _build_select_for_columns(table_obj, column_names or _STATS_COLUMNS)
-    if not filters:
-        return query
-
-    if filters.get("year") and filters["year"] not in ("all", "", None) and "답변일" in table_obj.c:
-        query = query.where(table_obj.c["답변일"].startswith(filters["year"]))
-
-    for prefix, column, width in [('reportDate', '신고일', 10), ('occurDate', '발생일자', 10),
-                                  ('responseDate', '답변일', 10), ('occurTime', '발생시각', 5)]:
-        if column not in table_obj.c:
-            continue
-        value = func.substr(table_obj.c[column], 1, width)
-        # 앞자리 비교(substr)는 의미 그대로 두고, 같은 범위를 원래 열 비교로 한 번 더 건다 — 원래 열의 인덱스
-        # (ix_merge_*_answer 등)로 범위를 좁힌 뒤 substr 로 정확히 거른다(기술일지 B-05). 결과 행은 같다.
-        if filters.get(prefix + 'Start'):
-            query = query.where(value >= filters[prefix + 'Start'])
-            if width == 10 and len(str(filters[prefix + 'Start'])) == 10:
-                query = query.where(table_obj.c[column] >= filters[prefix + 'Start'])
-        if filters.get(prefix + 'End'):
-            query = query.where(value <= filters[prefix + 'End'], func.length(value) == width)
-            if width == 10 and len(str(filters[prefix + 'End'])) == 10:
-                query = query.where(table_obj.c[column] < str(filters[prefix + 'End']) + "\U0010ffff")
-
-    if filters.get("excludePolice") and "처리기관" in table_obj.c:
-        # 처리기관이 비어 있는(NULL) 신고는 경찰이 아니다 — 목록 필터와 같게 남긴다(기술일지 A1-06)
-        query = query.where(~func.coalesce(table_obj.c["처리기관"], "").contains("경찰"))
-    if filters.get("onlyPolice") and "처리기관" in table_obj.c:
-        query = query.where(table_obj.c["처리기관"].contains("경찰"))
-
-    report_name = filters.get("reportName")
-    if report_name and "신고명" in table_obj.c and _can_push_simple_text_query(report_name):
-        query = query.where(table_obj.c["신고명"].contains(_text_or_empty(report_name)))
-
-    location = filters.get("location")
-    if location and "위반장소" in table_obj.c and _can_push_simple_text_query(location):
-        query = query.where(table_obj.c["위반장소"].contains(_text_or_empty(location)))
-
+    for clause in ReportFilterSpec.from_filters(filters).sql_candidates(table_obj):
+        query = query.where(clause)
     return query
 
 
@@ -560,52 +490,13 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
 
 
 def _apply_stats_row_filters(df: pd.DataFrame, filters=None) -> pd.DataFrame:
-    """`get_agency_stats` 와 `get_stats_overview` 가 공유하는 행 필터(연도·날짜·기관·텍스트)."""
-    if filters:
-        if filters.get("year") and filters["year"] not in ("all", "", None) and "답변일" in df.columns:
-            df = df[df["답변일"].str.startswith(filters["year"], na=False)]
-        if filters.get("reportName") and "신고명" in df.columns:
-            df = _apply_text_query(df, "신고명", filters["reportName"])
-        if filters.get("location") and "위반장소" in df.columns:
-            df = _apply_text_query(df, "위반장소", filters["location"])
-        for prefix, column, width in [('reportDate', '신고일', 10), ('occurDate', '발생일자', 10),
-                                      ('responseDate', '답변일', 10), ('occurTime', '발생시각', 5)]:
-            if column not in df:
-                continue
-            minimum, maximum = filters.get(prefix + 'Start'), filters.get(prefix + 'End')
-            if not minimum and not maximum:
-                continue
-            value = df[column].fillna('').astype(str).str[:width]
-            valid = value.str.len() == width
-            if width == 10:
-                parsed = pd.to_datetime(value, format='%Y-%m-%d', errors='coerce')
-                valid &= parsed.notna()
-            else:
-                valid &= value.str.match(r'^([01][0-9]|2[0-3]):[0-5][0-9]$')
-            if minimum:
-                valid &= value >= minimum
-            if maximum:
-                valid &= value <= maximum
-            df = df[valid]
-        if filters.get("agency") and "처리기관" in df.columns:
-            agency_query = filters["agency"]
-            use_exact_agency = filters.get("agencyExact") and "&" not in agency_query and "," not in agency_query
-            df = _apply_text_query(df, "처리기관", agency_query, exact=use_exact_agency)
-        if filters.get("excludePolice") and "처리기관" in df.columns:
-            df = df[~df["처리기관"].str.contains("경찰", na=False)]
-        if filters.get("onlyPolice") and "처리기관" in df.columns:
-            df = df[df["처리기관"].str.contains("경찰", na=False)]
-    return df
+    """`get_agency_stats` 와 `get_stats_overview` 가 공유하는 행 필터(연도·날짜·기관·텍스트·경찰). 최종 판정."""
+    return ReportFilterSpec.from_filters(filters).apply_rows(df) if filters else df
 
 
 def _apply_stats_law_filter(df: pd.DataFrame, filters=None) -> pd.DataFrame:
-    if filters and filters.get("law") and "위반법규" in df.columns:
-        if filters["law"] == "__없음__":
-            df = df[df["위반법규"].fillna("").astype(str).str.strip() == ""]
-        else:
-            # S-09: 완전 일치(드롭다운 값 그대로). 부분 일치는 이름이 겹치는 다른 법규를 섞는다.
-            df = df[df["위반법규"].fillna("").astype(str).str.strip() == str(filters["law"]).strip()]
-    return df
+    """S-09: 완전 일치(드롭다운 값 그대로, 앞뒤 공백 무시). 부분 일치는 이름이 겹치는 다른 법규를 섞는다."""
+    return ReportFilterSpec.from_filters(filters).apply_law(df) if filters else df
 
 
 def _load_stats_frames(engine, filters=None, mode: str = "canonical"):

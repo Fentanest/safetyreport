@@ -19,5 +19,56 @@
         }
         return (!min || min <= current) && (!max || current <= max);
     }
-    root.SrListPredicates = { inRange: inRange };
+    // 아래는 목록 검색(data_table)의 행 판정. 서버 services/report_filter_spec.py·모바일 report_query.dart 와 같은 의미이며
+    // contracts/report-filter-vectors.json 으로 함께 검사한다(EO R-02).
+    function normalizeText(value) {
+        return String(value == null ? '' : value).trim().toLowerCase();
+    }
+
+    function parseGroups(query) {
+        return String(query == null ? '' : query)
+            .split(',')
+            .map(function (group) { return group.split('&').map(normalizeText).filter(Boolean); })
+            .filter(function (group) { return group.length > 0; });
+    }
+
+    function matchesGroups(value, groups) {
+        if (!groups.length) return true;
+        var haystack = normalizeText(value);
+        return groups.some(function (group) {
+            return group.every(function (term) { return haystack.indexOf(term) >= 0; });
+        });
+    }
+
+    function ratingKey(value) {
+        var text = String(value == null ? '' : value).trim();
+        if (!text) return '__none__';
+        var numeric = Number(text);
+        if (!Number.isFinite(numeric) || numeric <= 0) return '__none__';
+        return String(Math.trunc(numeric));
+    }
+
+    var RANGE_FIELDS = ['신고일', '답변일', '발생일자', '발생시각'];
+
+    /* search: {text:[{field, groups}], ranges:[{min,max,time}] (RANGE_FIELDS 순서), statuses, ratings, poll,
+       excludePolice, onlyPolice} */
+    function matchesSearch(search, row) {
+        if (search.text.some(function (item) { return !matchesGroups(row[item.field], item.groups); })) return false;
+        if (search.poll && String(row['만족도조사여부'] || '').trim() !== search.poll) return false;
+        if (search.statuses.length && search.statuses.indexOf(root.SrReportPolicy.displayStatus(row['처리상태'])) < 0) return false;
+        if (search.ratings.length && search.ratings.indexOf(ratingKey(row['별점'])) < 0) return false;
+        for (var i = 0; i < search.ranges.length; i++) {
+            var range = search.ranges[i];
+            if (!inRange(row[RANGE_FIELDS[i]], range.min, range.max, range.time)) return false;
+        }
+        var agency = String(row['처리기관'] || '');
+        if (search.excludePolice && agency.indexOf('경찰') >= 0) return false;
+        if (search.onlyPolice && agency.indexOf('경찰') < 0) return false;
+        return true;
+    }
+
+    root.SrListPredicates = {
+        inRange: inRange, parseGroups: parseGroups, matchesGroups: matchesGroups, ratingKey: ratingKey,
+        matchesSearch: matchesSearch, RANGE_FIELDS: RANGE_FIELDS,
+    };
 })(typeof window === 'undefined' ? globalThis : window);

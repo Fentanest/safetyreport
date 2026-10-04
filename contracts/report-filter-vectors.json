@@ -1,0 +1,529 @@
+{
+ "description": "신고 필터 사양(EO R-02). 서버 services/report_filter_spec.py(통계 최종 판정\u00b7SQL 후보는 상위 집합), 웹 목록 web/static/ui/list-predicates.js, 모바일 목록 lib/services/report_query.dart 가 같은 결과를 내는지 확인한다(두 레포 바이트 동일). targets 에 없는 화면은 그 조건이 없다. 키 이름은 서버 통계 필터 키.",
+ "rows": [
+  {
+   "신고명": "불법 주정차",
+   "위반장소": "서울 강남구 테헤란로",
+   "처리기관": "서울강남경찰서",
+   "신고일": "2024-02-29 23:59:59",
+   "발생일자": "2024-02-29",
+   "답변일": "2024-03-01",
+   "발생시각": "23:59",
+   "위반법규": "도로교통법 제32조",
+   "처리상태": "수용"
+  },
+  {
+   "신고명": "신호위반 ABC",
+   "위반장소": "부산 해운대",
+   "처리기관": "부산광역시 해운대구",
+   "신고일": "2026-01-31 00:00:00",
+   "발생일자": "2026-01-31",
+   "답변일": "2026-02-03 10:00:00",
+   "발생시각": "00:00",
+   "위반법규": " 도로교통법 제5조 ",
+   "처리상태": "진행"
+  },
+  {
+   "신고명": null,
+   "위반장소": "",
+   "처리기관": null,
+   "신고일": null,
+   "발생일자": "",
+   "답변일": null,
+   "발생시각": null,
+   "위반법규": null,
+   "처리상태": null
+  },
+  {
+   "신고명": "쓰레기 무단투기",
+   "위반장소": "서울 강남구",
+   "처리기관": "서울특별시 강남구",
+   "신고일": "2026-02-30 10:00:00",
+   "발생일자": "2026-1-05",
+   "답변일": "2026-03-01X",
+   "발생시각": "24:00",
+   "위반법규": "",
+   "처리상태": "불수용"
+  },
+  {
+   "신고명": "불법주정차 abc",
+   "위반장소": "서울 서초구",
+   "처리기관": "서울서초경찰서",
+   "신고일": "2026-01-01T08:00:00",
+   "발생일자": "2026-01-01",
+   "답변일": "2026-01-02",
+   "발생시각": "08:05:30",
+   "위반법규": "도로교통법 제32조",
+   "처리상태": "기타"
+  },
+  {
+   "신고명": "주정차",
+   "위반장소": "서울",
+   "처리기관": "서울특별시 강남구청",
+   "신고일": "2025-12-31 23:59:59",
+   "발생일자": "2025-12-31",
+   "답변일": "2026-01-01 00:00:01",
+   "발생시각": "12:30",
+   "위반법규": "도로교통법",
+   "처리상태": "수용"
+  },
+  {
+   "신고명": "기타 신고",
+   "위반장소": "대전",
+   "처리기관": "대전광역시",
+   "신고일": "0000-01-01",
+   "발생일자": "2026-04-31",
+   "발생시각": "9:30",
+   "답변일": "",
+   "위반법규": "도로교통법 제32조의2",
+   "처리상태": " 검토중 "
+  }
+ ],
+ "cases": [
+  {
+   "name": "조건 없음",
+   "filters": {},
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ]
+  },
+  {
+   "name": "신고명 한 단어",
+   "filters": {
+    "reportName": "불법"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    0,
+    4
+   ]
+  },
+  {
+   "name": "신고명 AND",
+   "filters": {
+    "reportName": "불법&abc"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    4
+   ]
+  },
+  {
+   "name": "영문 대소문자 무시",
+   "filters": {
+    "reportName": "ABC"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    1,
+    4
+   ]
+  },
+  {
+   "name": "신고명 OR",
+   "filters": {
+    "reportName": "쓰레기,신호"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    1,
+    3
+   ]
+  },
+  {
+   "name": "빈 항목만 있는 검색은 조건 없음",
+   "filters": {
+    "reportName": " , & "
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ]
+  },
+  {
+   "name": "위반장소",
+   "filters": {
+    "location": "강남"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    0,
+    3
+   ]
+  },
+  {
+   "name": "기관 부분 일치",
+   "filters": {
+    "agency": "강남"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    0,
+    3,
+    5
+   ]
+  },
+  {
+   "name": "기관 부분 일치(동명 접두)",
+   "filters": {
+    "agency": "서울특별시 강남구"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    3,
+    5
+   ]
+  },
+  {
+   "name": "기관 정확 일치",
+   "filters": {
+    "agency": "서울특별시 강남구",
+    "agencyExact": true
+   },
+   "targets": [
+    "stats"
+   ],
+   "expected": [
+    3
+   ]
+  },
+  {
+   "name": "정확 일치 요청이어도 &\u00b7, 가 있으면 부분 일치",
+   "filters": {
+    "agency": "서울&강남,부산",
+    "agencyExact": true
+   },
+   "targets": [
+    "stats"
+   ],
+   "expected": [
+    0,
+    1,
+    3,
+    5
+   ]
+  },
+  {
+   "name": "경찰 제외(기관 없음은 남김)",
+   "filters": {
+    "excludePolice": true
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    1,
+    2,
+    3,
+    5,
+    6
+   ]
+  },
+  {
+   "name": "경찰만",
+   "filters": {
+    "onlyPolice": true
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    0,
+    4
+   ]
+  },
+  {
+   "name": "경찰 제외와 경찰만을 함께 켜면 없음",
+   "filters": {
+    "excludePolice": true,
+    "onlyPolice": true
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": []
+  },
+  {
+   "name": "윤년 하루",
+   "filters": {
+    "reportDateStart": "2024-02-29",
+    "reportDateEnd": "2024-02-29"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    0
+   ]
+  },
+  {
+   "name": "끝 날짜는 그날 전체(시각 무시)",
+   "filters": {
+    "reportDateEnd": "2025-12-31"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    0,
+    5,
+    6
+   ]
+  },
+  {
+   "name": "시작 날짜, T 구분자 허용, 잘못된 날짜 제외",
+   "filters": {
+    "reportDateStart": "2026-01-01"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    1,
+    4
+   ]
+  },
+  {
+   "name": "답변일 범위(시각 붙은 값\u00b7뒤에 글자 붙은 값)",
+   "filters": {
+    "responseDateStart": "2026-01-01",
+    "responseDateEnd": "2026-01-31"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    4,
+    5
+   ]
+  },
+  {
+   "name": "발생일자: 한 자리 월\u00b7없는 날짜 제외",
+   "filters": {
+    "occurDateStart": "2026-01-01"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    1,
+    4
+   ]
+  },
+  {
+   "name": "발생시각 끝 분(24:00\u00b7한 자리 시 제외)",
+   "filters": {
+    "occurTimeStart": "23:59"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    0
+   ]
+  },
+  {
+   "name": "발생시각 범위(초는 무시)",
+   "filters": {
+    "occurTimeStart": "00:00",
+    "occurTimeEnd": "08:05"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    1,
+    4
+   ]
+  },
+  {
+   "name": "0000년도 날짜로 받음",
+   "filters": {
+    "reportDateEnd": "0001-01-01"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    6
+   ]
+  },
+  {
+   "name": "답변 연도",
+   "filters": {
+    "year": "2026"
+   },
+   "targets": [
+    "stats"
+   ],
+   "expected": [
+    1,
+    3,
+    4,
+    5
+   ]
+  },
+  {
+   "name": "법규 완전 일치",
+   "filters": {
+    "law": "도로교통법 제32조"
+   },
+   "targets": [
+    "stats",
+    "mobile_list"
+   ],
+   "expected": [
+    0,
+    4
+   ]
+  },
+  {
+   "name": "법규 앞뒤 공백 무시",
+   "filters": {
+    "law": "도로교통법 제5조"
+   },
+   "targets": [
+    "stats",
+    "mobile_list"
+   ],
+   "expected": [
+    1
+   ]
+  },
+  {
+   "name": "법규 없음",
+   "filters": {
+    "law": "__없음__"
+   },
+   "targets": [
+    "stats",
+    "mobile_list"
+   ],
+   "expected": [
+    2,
+    3
+   ]
+  },
+  {
+   "name": "조합",
+   "filters": {
+    "reportName": "주정차",
+    "excludePolice": true,
+    "reportDateStart": "2025-01-01"
+   },
+   "targets": [
+    "stats",
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    5
+   ]
+  },
+  {
+   "name": "처리중 상태(진행\u00b7검토중 포함)",
+   "filters": {
+    "statuses": [
+     "처리중"
+    ]
+   },
+   "targets": [
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    1,
+    6
+   ]
+  },
+  {
+   "name": "여러 상태",
+   "filters": {
+    "statuses": [
+     "기타",
+     "수용"
+    ]
+   },
+   "targets": [
+    "web_list",
+    "mobile_list"
+   ],
+   "expected": [
+    0,
+    4,
+    5
+   ]
+  }
+ ]
+}
