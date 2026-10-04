@@ -45,7 +45,7 @@
             <table id="watchlistTable" class="ops-table table-hover table-bordered nowrap" style="width:100%">
                 <thead>
                     <tr>
-                        <th class="text-center" style="width: 40px;"><input type="checkbox" id="selectAll"></th>
+                        <th class="text-center" style="width: 40px;"><input type="checkbox" id="selectAll" aria-label="모두 선택"></th>
                         <th>신고번호</th>
                         <th>신고명</th>
                         <th>신고일</th>
@@ -59,7 +59,7 @@
                 <tbody>
                     {% for r in records %}
                     <tr>
-                        <td class="text-center"><input type="checkbox" class="row-checkbox" value="{{ r.신고번호 }}"></td>
+                        <td class="text-center"><input type="checkbox" class="row-checkbox" value="{{ r.신고번호 }}" aria-label="신고 {{ r.신고번호 }} 선택"></td>
                         <td><a href="#" class="report-detail-link" data-report='{{ r | tojson }}' style="color: var(--sr-primary); font-weight: 600;">{{ r.신고번호 }}</a></td>
                         <td>{{ r.신고명 }}</td>
                         <td>{{ r.신고일 }}</td>

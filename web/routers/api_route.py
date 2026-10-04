@@ -333,7 +333,10 @@ def get_editor_record(category: str, record_id: str, _: str = Depends(_require_a
 async def save_editor_record(category: str, record_id: str, request: Request, _: str = Depends(_require_api_key)):
     body = await json_object(request)
     values = body.get("values") if isinstance(body.get("values"), dict) else body
-    updated = await run_in_threadpool(db_editor_service.update_record, engine, category, record_id, values or {})
+    try:
+        updated = await run_in_threadpool(db_editor_service.update_record, engine, category, record_id, values or {})
+    except db_editor_service.InvalidEditorValue as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     if not updated:
         raise HTTPException(status_code=404, detail="수정 대상을 찾을 수 없습니다.")
     return {"status": "success", "message": "데이터가 저장되었습니다."}
@@ -694,16 +697,18 @@ async def upload_database(file: UploadFile = File(...), _: str = Depends(_requir
 
     fd, tmp_path = tempfile.mkstemp(suffix=".db", prefix="safetyreport_upload_")
     try:
+        # 디스크 쓰기와 형식·무결성 검사(PRAGMA integrity_check)는 이벤트 루프 밖에서 한다 — 큰 DB 를 올리는 동안
+        # 다른 HTTP·WS 처리가 멈추지 않게(기술일지 B-02).
         with os.fdopen(fd, "wb") as out:
             while True:
                 chunk = await file.read(1024 * 1024)
                 if not chunk:
                     break
-                out.write(chunk)
+                await run_in_threadpool(out.write, chunk)
 
         from core.storage.exchange import RestoreRefused
         try:
-            kind = db_backup.inspect_upload(tmp_path)
+            kind = await run_in_threadpool(db_backup.inspect_upload, tmp_path)
             if kind == "server":
                 backup, count = await run_in_threadpool(db_backup.restore_from_server_db, tmp_path)
             elif kind == "mobile":

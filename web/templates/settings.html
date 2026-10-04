@@ -13,18 +13,18 @@
 
                 <h6 class="mb-3 text-primary border-bottom pb-2">안전신문고 로그인 계정</h6>
                 <div class="mb-3">
-                    <label class="form-label">아이디 (ID)</label>
-                    <input type="text" class="form-control" name="username" value="{{ username }}">
+                    <label class="form-label" for="fld_username">아이디 (ID)</label>
+                    <input id="fld_username" type="text" class="form-control" name="username" value="{{ username }}">
                 </div>
                 <div class="mb-3">
-                    <label class="form-label">비밀번호 (Password)</label>
-                    <input type="password" class="form-control" name="password" value="{{ password }}">
+                    <label class="form-label" for="fld_password">비밀번호 (Password)</label>
+                    <input id="fld_password" type="password" class="form-control" name="password" value="{{ password }}">
                 </div>
 
                 <h6 class="mb-3 mt-4 text-warning border-bottom pb-2"><i class="fas fa-star me-1"></i>만족도(별점) 부여 시스템</h6>
                 <div class="mb-4">
-                    <label class="form-label">안전신문고 휴대폰 번호</label>
-                    <input type="text" class="form-control" name="phone_number" value="{{ phone_number }}"
+                    <label class="form-label" for="fld_phone_number">안전신문고 휴대폰 번호</label>
+                    <input id="fld_phone_number" type="text" class="form-control" name="phone_number" value="{{ phone_number }}"
                         placeholder="01012345678">
                     <small class="text-muted">하이픈(-)은 자동 제거됩니다. 별점 매크로 구동 시 필수.</small>
                 </div>
@@ -44,17 +44,17 @@
 
                 <h6 class="mb-3 text-primary border-bottom pb-2">시스템 설정</h6>
                 <div class="mb-2">
-                    <label class="form-label">로그인 세션 유지시간 (초)</label>
+                    <label class="form-label" for="fld_session_max_age">로그인 세션 유지시간 (초)</label>
                     <div class="input-group">
-                        <input type="number" class="form-control" name="session_max_age"
+                        <input type="number" class="form-control" id="fld_session_max_age" name="session_max_age"
                             value="{{ session_max_age }}" min="300" step="300">
                         <span class="input-group-text" id="sessionAgeDisplay">-</span>
                     </div>
                     <div class="form-text">기본값: 10800 (3시간). 변경 후 저장하면 다음 로그인부터 적용됩니다.</div>
                 </div>
                 <div class="mb-2">
-                    <label class="form-label">신뢰할 수 있는 프록시 IP</label>
-                    <input type="text" class="form-control" name="trusted_proxies"
+                    <label class="form-label" for="fld_trusted_proxies">신뢰할 수 있는 프록시 IP</label>
+                    <input id="fld_trusted_proxies" type="text" class="form-control" name="trusted_proxies"
                         value="{{ trusted_proxies }}" placeholder="192.168.0.1">
                     <div class="form-text">리버스 프록시(Nginx 등) IP를 입력하면 X-Forwarded-For 헤더를 신뢰합니다. 비워두면 비활성화. <strong>변경 후 서버 재시작 필요.</strong></div>
                 </div>
@@ -70,15 +70,15 @@
 
                 <h6 class="mb-3 text-primary border-bottom pb-2">크롬 구동 방식 설정</h6>
                 <div class="mb-3">
-                    <select class="form-select" name="chrome_mode" id="chromeModeSelect">
+                    <select class="form-select" name="chrome_mode" id="chromeModeSelect" aria-label="크롬 구동 방식">
                         <option value="hub" {% if chrome_mode=='hub' %}selected{% endif %}>1. Selenium Hub (원격 서버 연결)</option>
                         <option value="desktop" {% if chrome_mode=='desktop' %}selected{% endif %}>2. 로컬 데스크톱 크롬</option>
                         <option value="remote" {% if chrome_mode=='remote' %}selected{% endif %}>3. 원격 디버깅 크롬 ({{ remote_debug_port }})</option>
                     </select>
                 </div>
                 <div class="mb-3 {% if chrome_mode != 'hub' %}d-none{% endif %}" id="hubUrlDiv">
-                    <label class="form-label">Selenium Hub 원격 주소</label>
-                    <input type="text" class="form-control" name="remotepath" value="{{ remotepath }}"
+                    <label class="form-label" for="fld_remotepath">Selenium Hub 원격 주소</label>
+                    <input id="fld_remotepath" type="text" class="form-control" name="remotepath" value="{{ remotepath }}"
                         placeholder="http://localhost:4444/wd/hub">
                 </div>
                 <div class="mb-3 form-check form-switch {% if chrome_mode != 'desktop' %}d-none{% endif %}" id="headlessDiv">
@@ -87,8 +87,8 @@
                     <label class="form-check-label" for="headlessSwitch">크롬 창 숨기기 (Headless 모드)</label>
                 </div>
                 <div class="mb-4 {% if chrome_mode != 'remote' %}d-none{% endif %}" id="debugPortDiv">
-                    <label class="form-label">원격 디버깅 IP:포트 번호</label>
-                    <input type="text" class="form-control" name="remote_debug_port" value="{{ remote_debug_port }}"
+                    <label class="form-label" for="fld_remote_debug_port">원격 디버깅 IP:포트 번호</label>
+                    <input id="fld_remote_debug_port" type="text" class="form-control" name="remote_debug_port" value="{{ remote_debug_port }}"
                         placeholder="예: 127.0.0.1:9222">
                     <div class="form-text">크롬을 <code>--remote-debugging-port=9222</code> 옵션으로 실행 후 여기에 IP:포트를 입력하세요.</div>
                 </div>
@@ -108,21 +108,21 @@
                 <h6 class="mb-3 text-primary border-bottom pb-2">크롤링 고급 설정</h6>
                 <div class="row mb-3">
                     <div class="col-md-6">
-                        <label class="form-label">재시도 간격 (초)</label>
-                        <input type="number" class="form-control" name="retry_interval"
+                        <label class="form-label" for="fld_retry_interval">재시도 간격 (초)</label>
+                        <input id="fld_retry_interval" type="number" class="form-control" name="retry_interval"
                             value="{{ retry_interval }}">
                         <div class="form-text">크롤링 실패 시 대기 시간</div>
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">최대 재시도 횟수</label>
-                        <input type="number" class="form-control" name="max_retry_attemps"
+                        <label class="form-label" for="fld_max_retry_attemps">최대 재시도 횟수</label>
+                        <input id="fld_max_retry_attemps" type="number" class="form-control" name="max_retry_attemps"
                             value="{{ max_retry_attemps }}">
                         <div class="form-text">실패 시 재시도할 최대 횟수</div>
                     </div>
                 </div>
                 <div class="mb-4">
-                    <label class="form-label">로그 출력 중요도 (Log Level)</label>
-                    <select class="form-select" name="log_level">
+                    <label class="form-label" for="fld_log_level">로그 출력 중요도 (Log Level)</label>
+                    <select id="fld_log_level" class="form-select" name="log_level">
                         <option value="DEBUG" {% if log_level=='DEBUG' %}selected{% endif %}>DEBUG (모든 상세 메시지 출력)</option>
                         <option value="INFO" {% if log_level=='INFO' %}selected{% endif %}>INFO (일반적인 진행 상황만 출력)</option>
                         <option value="WARNING" {% if log_level=='WARNING' %}selected{% endif %}>WARNING (경고 이상만 출력)</option>
@@ -151,8 +151,8 @@
                     </div>
                     <div id="intervalInput" class="mb-2 {% if scheduler_mode != 'interval' %}d-none{% endif %}">
                         <div class="mb-2">
-                            <label class="form-label" style="font-size:0.85em;">간격 시작 시각 (HH:MM)</label>
-                            <input type="text" class="form-control form-control-sm" name="scheduler_interval_start"
+                            <label class="form-label" style="font-size:0.85em;" for="fld_scheduler_interval_start">간격 시작 시각 (HH:MM)</label>
+                            <input id="fld_scheduler_interval_start" type="text" class="form-control form-control-sm" name="scheduler_interval_start"
                                 value="{{ scheduler_interval_start }}" placeholder="00:00">
                         </div>
                         <div class="input-group input-group-sm">
@@ -163,8 +163,8 @@
                         </div>
                     </div>
                     <div id="cronInput" class="mb-2 {% if scheduler_mode == 'interval' %}d-none{% endif %}">
-                        <label class="form-label" style="font-size:0.85em;">실행할 시각 (예: 09:00, 15:30. 콤마 구별)</label>
-                        <input type="text" class="form-control form-control-sm" name="scheduler_cron_times"
+                        <label class="form-label" style="font-size:0.85em;" for="fld_scheduler_cron_times">실행할 시각 (예: 09:00, 15:30. 콤마 구별)</label>
+                        <input id="fld_scheduler_cron_times" type="text" class="form-control form-control-sm" name="scheduler_cron_times"
                             value="{{ scheduler_cron_times }}" placeholder="09:00, 15:30">
                     </div>
                 </div>
@@ -176,18 +176,18 @@
             <div class="card-body">
                 <h6 class="mb-3 text-success border-bottom pb-2"><i class="fab fa-telegram me-1"></i>텔레그램 (Telegram) API</h6>
                 <div class="mb-3">
-                    <label class="form-label">Telegram Bot Token</label>
-                    <input type="text" class="form-control" name="telegram_token" value="{{ telegram_token }}">
+                    <label class="form-label" for="fld_telegram_token">Telegram Bot Token</label>
+                    <input id="fld_telegram_token" type="text" class="form-control" name="telegram_token" value="{{ telegram_token }}">
                 </div>
                 <div class="mb-4">
-                    <label class="form-label">Chat ID</label>
-                    <input type="text" class="form-control" name="chat_id" value="{{ chat_id }}">
+                    <label class="form-label" for="fld_chat_id">Chat ID</label>
+                    <input id="fld_chat_id" type="text" class="form-control" name="chat_id" value="{{ chat_id }}">
                 </div>
 
                 <h6 class="mb-3 mt-4 text-success border-bottom pb-2"><i class="fas fa-file-excel me-1"></i>구글 스프레드시트 외부 적재</h6>
                 <div class="mb-3">
-                    <label class="form-label">Sheet URL 또는 ID 고유키</label>
-                    <input type="text" class="form-control" name="sheet_key" value="{{ sheet_key }}"
+                    <label class="form-label" for="fld_sheet_key">Sheet URL 또는 ID 고유키</label>
+                    <input id="fld_sheet_key" type="text" class="form-control" name="sheet_key" value="{{ sheet_key }}"
                         placeholder="https://docs.google.com/spreadsheets/d/...">
                     <small class="text-muted">엑셀 링크의 전체 주소를 입력하시면 ID를 자동 추출합니다.</small>
                 </div>
@@ -206,7 +206,7 @@
                         구글 스프레드시트 업데이트 권한을 위한 <code>Service Account Private JSON 키</code>를 여기에 업로드하세요.
                     </label>
                     <div class="d-flex gap-2">
-                        <input class="form-control form-control-sm" type="file" id="jsonFile" accept=".json">
+                        <input class="form-control form-control-sm" type="file" id="jsonFile" accept=".json" aria-label="Service Account JSON 키 파일">
                         <button type="button" class="btn btn-sm btn-warning text-nowrap fw-bold" onclick="uploadJson()">
                             <i class="fas fa-upload me-1"></i>업로드
                         </button>

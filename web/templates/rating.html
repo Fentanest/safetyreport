@@ -38,8 +38,8 @@
                     </div>
                     <div class="col-md-3 mb-3 d-flex flex-column align-items-end justify-content-end" style="height: 100%;">
                         <input type="hidden" id="phoneNumberSet" value="{{ phone_number }}">
-                        <button type="submit" class="btn text-white w-100" id="btnStartRating"
-                            style="background-color: var(--sr-status-supplement); height: 60px; font-weight: bold; font-size: 1.1em; border: none;">
+                        <button type="submit" class="btn w-100" id="btnStartRating"
+                            style="background-color: var(--sr-status-supplement); color: var(--sr-on-status-supplement); height: 60px; font-weight: bold; font-size: 1.1em; border: none;">
                             <i class="fas fa-play me-2"></i> 선택 건 별점 처리 시작
                         </button>
                     </div>
@@ -71,23 +71,23 @@
         <!-- Advanced Search Form -->
         <form class="row g-2 mb-4 align-items-end" id="ratingSearchForm">
             <div class="col-md-2">
-                <label class="ops-label">신고명</label>
+                <label class="ops-label" for="sTitle">신고명</label>
                 <input type="text" class="ops-input" id="sTitle">
             </div>
             <div class="col-md-2">
-                <label class="ops-label">처리기관</label>
+                <label class="ops-label" for="sAgency">처리기관</label>
                 <input type="text" class="ops-input" id="sAgency">
             </div>
             <div class="col-md-2">
-                <label class="ops-label">담당자</label>
+                <label class="ops-label" for="sPerson">담당자</label>
                 <input type="text" class="ops-input" id="sPerson">
             </div>
             <div class="col-md-2">
-                <label class="ops-label">처리상태</label>
+                <label class="ops-label" for="sStatus">처리상태</label>
                 <input type="text" class="ops-input" id="sStatus">
             </div>
             <div class="col-md-2">
-                <label class="ops-label">과태료/범칙금</label>
+                <label class="ops-label" for="sFine">과태료/범칙금</label>
                 <input type="text" class="ops-input" id="sFine">
             </div>
             <div class="col-md-2 d-flex gap-2">

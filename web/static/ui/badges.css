@@ -16,7 +16,8 @@
 
 /* 라이트 모드 기본: 옅은 배경 + 진한 글자 */
 .sr-badge-accept { background-color: rgba(22, 163, 74, 0.15); color: #15803d; }
-.sr-badge-partial { background-color: rgba(37, 99, 235, 0.15); color: #1d4ed8; }
+/* 일부수용 = 노랑(명세 ui-renewal-spec 상태 색, 대시보드와 같은 계열). 예전 파랑은 처리중과 섞였다(기술일지 C14) */
+.sr-badge-partial { background-color: rgba(202, 138, 4, 0.16); color: #854d0e; }
 .sr-badge-reject { background-color: rgba(220, 38, 38, 0.15); color: #b91c1c; }
 .sr-badge-processing { background-color: rgba(107, 114, 128, 0.15); color: #4b5563; }
 .sr-badge-supplement { background-color: rgba(245, 158, 11, 0.15); color: #b45309; }
@@ -26,7 +27,7 @@
 
 /* 다크 모드: 어두운 배경 + 밝은 글자 대비 확보 */
 [data-bs-theme="dark"] .sr-badge-accept { background-color: rgba(34, 197, 94, 0.2); color: #4ade80; border-color: rgba(34, 197, 94, 0.3); }
-[data-bs-theme="dark"] .sr-badge-partial { background-color: rgba(59, 130, 246, 0.2); color: #60a5fa; border-color: rgba(59, 130, 246, 0.3); }
+[data-bs-theme="dark"] .sr-badge-partial { background-color: rgba(234, 179, 8, 0.2); color: #facc15; border-color: rgba(234, 179, 8, 0.3); }
 [data-bs-theme="dark"] .sr-badge-reject { background-color: rgba(239, 68, 68, 0.2); color: #f87171; border-color: rgba(239, 68, 68, 0.3); }
 [data-bs-theme="dark"] .sr-badge-processing { background-color: rgba(156, 163, 175, 0.2); color: #9ca3af; border-color: rgba(156, 163, 175, 0.3); }
 [data-bs-theme="dark"] .sr-badge-supplement { background-color: rgba(245, 158, 11, 0.2); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }

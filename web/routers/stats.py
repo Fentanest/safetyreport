@@ -182,7 +182,9 @@ def view_report_map(
         filters=map_filters or None,
         max_points=1200,
     )
-    missing_payload = data_service.get_report_map_missing_groups(
+    from services.report_stats_service import get_report_map_missing_summary
+    # 좌표 없는 신고 목록은 모달을 처음 열 때 받는다 — 첫 응답에는 건수만(기술일지 B-03)
+    missing_meta = get_report_map_missing_summary(
         engine,
         year=year,
         category=selected_category,
@@ -195,8 +197,7 @@ def view_report_map(
         "title": "신고 지도",
         "map_points": map_payload.get("points", []),
         "map_meta": meta,
-        "missing_map_groups": missing_payload.get("groups", []),
-        "missing_map_meta": missing_payload.get("meta", {}),
+        "missing_map_meta": missing_meta,
         "map_error": map_error,
         "current_year": meta.get("current_year", year or "all"),
         "available_years": meta.get("available_years", []),

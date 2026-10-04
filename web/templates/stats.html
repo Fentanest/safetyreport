@@ -202,7 +202,7 @@
                 <button type="button" class="btn btn-sm stats-type-btn" aria-pressed="false" data-type="other-person"><i class="fas fa-user-tie me-1"></i>비경찰 담당자</button>
             </div>
             <div class="sr-detail-tools">
-                <label class="sr-search mb-0">
+                <label class="sr-search mb-0" for="statsPageLength">
                     <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
                     <input type="search" class="form-control form-control-sm" id="statsTableSearch" placeholder="기관명·담당자명 검색" aria-label="상세표 검색(기관명·담당자명)" autocomplete="off">
                 </label>
@@ -370,21 +370,21 @@
                 </div>
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">처리기관</label>
-                <input type="text" class="form-control" name="agency" value="{{ f.agency or '' }}" placeholder="예: 강남경찰서">
+                <label class="form-label fw-bold" for="fld_agency">처리기관</label>
+                <input id="fld_agency" type="text" class="form-control" name="agency" value="{{ f.agency or '' }}" placeholder="예: 강남경찰서">
                 <div class="form-check mt-1">
                     <input class="form-check-input" type="checkbox" name="agencyExact" id="agencyExact" {% if f.agencyExact %}checked{% endif %} value="true">
                     <label class="form-check-label small text-muted" for="agencyExact">단일어 입력 시 정확히 일치</label>
                 </div>
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">신고명</label>
-                <input type="text" class="form-control" name="reportName" value="{{ f.reportName or '' }}">
+                <label class="form-label fw-bold" for="fld_reportName">신고명</label>
+                <input id="fld_reportName" type="text" class="form-control" name="reportName" value="{{ f.reportName or '' }}">
             </div>
             {% if f.law %}<input type="hidden" name="law" value="{{ f.law }}">{% endif %}
             <div class="col-12">
-                <label class="form-label fw-bold">위반장소</label>
-                <input type="text" class="form-control" name="location" value="{{ f.location or '' }}">
+                <label class="form-label fw-bold" for="fld_location">위반장소</label>
+                <input id="fld_location" type="text" class="form-control" name="location" value="{{ f.location or '' }}">
             </div>
             <div class="col-12">
                 <div class="form-check form-switch mb-1">

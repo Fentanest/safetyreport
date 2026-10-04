@@ -43,6 +43,14 @@
             transform: scale(1.05);
             box-shadow: 0 6px 20px rgba(0,0,0,0.3);
         }
+        /* 떠 있는 검색 버튼이 마지막 내용(표 행·확정/추정 과태료 카드)을 가리지 않게 본문 끝에 여백을 둔다.
+           좁은 화면에서 아래로 스크롤하면 아이콘만 남긴다(기술일지 O-03). */
+        body.has-floating-btn .main-content { padding-bottom: 8rem; }
+        @media (max-width: 767.98px) {
+            .floating-search-btn.is-compact { font-size: 0; padding: 14px; border-radius: 50%; }
+            .floating-search-btn.is-compact i { font-size: 1.15rem; margin: 0 !important; }
+        }
+        @media (prefers-reduced-motion: reduce) { .floating-search-btn { transition: none; } }
         .btn-sidebar-toggle {
             position: fixed;
             top: 12px;
@@ -279,6 +287,7 @@
 <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
 <!-- Bootstrap 5 JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/ui/sr-confirm.js?v={{ request.state.app_version }}"></script>
 <!-- DataTables JS & Extensions -->
 <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
 <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
@@ -305,21 +314,54 @@ document.addEventListener('DOMContentLoaded', function() {
     var overlay = document.getElementById('sidebarOverlay');
     var toggleBtn = document.getElementById('btnSidebarToggle');
 
+    // 좁은 화면에서 닫힌 사이드바는 inert — 화면 밖 링크로 Tab 포커스가 가지 않게 한다. 열면 첫 링크로,
+    // Esc·바깥 클릭으로 닫으면 토글 버튼으로 포커스를 돌린다(기술일지 C07).
+    var narrow = window.matchMedia('(max-width: 767.98px)');
+    function syncInert() {
+        var hidden = narrow.matches && !sidebar.classList.contains('sidebar-open');
+        if (hidden) sidebar.setAttribute('inert', ''); else sidebar.removeAttribute('inert');
+        toggleBtn.setAttribute('aria-expanded', sidebar.classList.contains('sidebar-open') ? 'true' : 'false');
+    }
     function openSidebar() {
         sidebar.classList.add('sidebar-open');
         overlay.classList.add('sidebar-open');
+        syncInert();
+        var first = sidebar.querySelector('a[href], button:not([disabled])');
+        if (first) first.focus();
     }
-    function closeSidebar() {
+    function closeSidebar(restoreFocus) {
+        var wasOpen = sidebar.classList.contains('sidebar-open');
         sidebar.classList.remove('sidebar-open');
         overlay.classList.remove('sidebar-open');
+        syncInert();
+        if (wasOpen && restoreFocus === true) toggleBtn.focus();
     }
 
+    toggleBtn.setAttribute('aria-controls', 'mainSidebar');
     toggleBtn.addEventListener('click', openSidebar);
-    overlay.addEventListener('click', closeSidebar);
+    overlay.addEventListener('click', function () { closeSidebar(true); });
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && sidebar.classList.contains('sidebar-open')) closeSidebar(true);
+    });
+    if (narrow.addEventListener) narrow.addEventListener('change', syncInert); else narrow.addListener(syncInert);
+    syncInert();
     // 사이드바 링크 클릭 시 자동 닫기
     sidebar.querySelectorAll('a').forEach(function(a) {
         a.addEventListener('click', closeSidebar);
     });
+})();
+
+(function () {
+    var fab = document.querySelector('.floating-search-btn');
+    if (!fab) return;
+    document.body.classList.add('has-floating-btn');
+    if (!fab.getAttribute('aria-label')) fab.setAttribute('aria-label', fab.textContent.trim());
+    var lastY = window.scrollY, narrow = window.matchMedia('(max-width: 767.98px)');
+    window.addEventListener('scroll', function () {
+        var y = window.scrollY;
+        fab.classList.toggle('is-compact', narrow.matches && y > 120 && y >= lastY);
+        lastY = y;
+    }, { passive: true });
 })();
 
 // Offcanvas 열릴 때 떠 있는 버튼 숨기기. 휴대폰 폭의 메뉴 버튼(z-index 1046)은 offcanvas(1045) 위라 제목을 가린다.
@@ -696,8 +738,8 @@ document.addEventListener('click', function(e) {
         document.getElementById('rdStatusBadge').innerHTML = '';
         document.getElementById('rdFields').innerHTML =
             field('fas fa-tag', '신고번호', record['신고번호']) +
-            field('fas fa-calendar', '신고일', record['신고일']) +
-            field('fas fa-check-circle', '답변일', record['답변일']) +
+            field('fas fa-calendar', '신고일', window.srDisplayDateTime(record['신고일'])) +
+            field('fas fa-check-circle', '답변일', window.srDisplayDateTime(record['답변일'])) +
             '<div class="col-12"><div class="alert alert-warning py-2 mb-0" style="font-size:.82rem">일부 필드 형식이 예상과 달라 상세 화면을 완전히 그리지 못했습니다.</div></div>';
         document.getElementById('rdReportContent').style.display = 'none';
         document.getElementById('rdProcessContent').style.display = 'none';
@@ -710,6 +752,13 @@ document.addEventListener('click', function(e) {
         };
         getModal().show();
     }
+
+    // 날짜·시각 표시는 분까지로 맞춘다(발생일자와 같은 형식). 정렬·내보내기 원문은 그대로(기술일지 O-04).
+    window.srDisplayDateTime = function (value) {
+        if (typeof value !== 'string') return value;
+        var m = value.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}):\d{2}(?:\.\d+)?$/);
+        return m ? m[1] + ' ' + m[2] : value;
+    };
 
     window.showReportDetail = function(d) {
         var record = (d && typeof d === 'object') ? d : {};
@@ -740,8 +789,8 @@ document.addEventListener('click', function(e) {
 
             document.getElementById('rdFields').innerHTML =
                 field('fas fa-tag',              '신고번호',    record['신고번호']) +
-                field('fas fa-calendar',         '신고일',      record['신고일']) +
-                field('fas fa-check-circle',     '답변일',      record['답변일']) +
+                field('fas fa-calendar',         '신고일',      window.srDisplayDateTime(record['신고일'])) +
+                field('fas fa-check-circle',     '답변일',      window.srDisplayDateTime(record['답변일'])) +
                 field('fas fa-building',         '처리기관',    record['처리기관']) +
                 linkField('fas fa-user',         '담당자',      record['담당자'],     category, 'person') +
                 field('fas fa-coins',            '과태료/범칙금', record['범칙금_과태료']) +

@@ -256,6 +256,15 @@ _CTX_FILTER = (" AND j.project_namespace IS ? AND j.contributor_fingerprint IS ?
                " AND j.consent_grant_id IS ? AND (j.blocked_reason IS NULL OR j.blocked_reason='')")
 
 
+_CTX_IDENTITY_FIELDS = ("contributor_fingerprint", "connection_id", "writer_epoch", "dataset_key", "consent_grant_id",
+                        "policy_version", "consent_text_sha256")
+
+
+def _ctx_identity(ctx: dict) -> tuple:
+    """한 실행이 같은 봉투로 보내도 되는 문맥인지 비교하는 값(연결·writer epoch·동의)."""
+    return tuple(ctx.get(k) for k in _CTX_IDENTITY_FIELDS)
+
+
 def _ctx_args(ctx: dict) -> tuple:
     return (_project_ns(), ctx.get("contributor_fingerprint"), ctx.get("connection_id"), ctx.get("consent_grant_id"))
 
@@ -642,10 +651,24 @@ def _drain(store, run_id, owner, trigger, ctx, scopes, probing, counts, request_
             budget_hit = True
             wake()  # 예산을 다 썼다 — 남은 것은 곧바로 이어서(요청 간격은 다음 실행도 지킨다)
             break
+        current = store.active_context()
+        if current is None or _ctx_identity(current) != _ctx_identity(ctx):
+            # 실행 도중 연결·동의 문맥이 바뀌거나 꺼졌다. 시작 때 문맥(ctx)으로 새 문맥의 행을 보내면 중앙이 거절하고
+            # 정상 이벤트까지 막힌다 — 남은 배치를 되돌리고 이 실행을 끝낸다. 다음 실행이 새 문맥으로 보낸다(기술일지 A2-03).
+            if run["queue"]:
+                with store.transaction() as tx:
+                    for queued in run["queue"]:
+                        _retry_rows(tx, queued, "context_changed", None, owner=owner)
+                run["queue"].clear()
+            state["error_code"] = "context_changed"
+            _hold_suspects(store, run, state)
+            if current is not None:
+                wake()
+            return finish("needs_auth" if current is None else "blocked_gate")
         if run["queue"]:
             batch = run["queue"].pop(0)
         else:
-            rows = _front_rows(conn, store.active_context() or ctx, _iso(_now()), PAGE_ROWS, tried)
+            rows = _front_rows(conn, ctx, _iso(_now()), PAGE_ROWS, tried)
             if not rows:
                 break
             single = probing or run["single_next"]

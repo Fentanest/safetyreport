@@ -33,6 +33,12 @@ def crawl_dashboard(request: Request):
     })
 
 
+@router.get("/status")
+def crawl_status(request: Request):
+    """크롤 화면이 실행 종료를 알아채는 데 쓰는 관리자 세션용 상태(기술일지 C03). 모바일 API·WS 계약과 무관하다."""
+    return {"running": crawl_manager.is_crawling()}
+
+
 def _community_blocked(status: int, code: str) -> JSONResponse:
     return JSONResponse({"status": "error", "code": code, "message": community_gate.BLOCK_MESSAGES[code]}, status_code=status)
 

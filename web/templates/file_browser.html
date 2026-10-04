@@ -41,10 +41,11 @@
                         <i class="fas fa-eraser me-1"></i> 결과 파일 일괄 삭제
                     </button>
                 </div>
+                <div class="table-responsive">
                 <table id="resultTable" class="table table-hover table-bordered nowrap" style="width:100%">
                     <thead>
                         <tr>
-                            <th style="width: 30px;" class="text-center"><input type="checkbox" class="select-all" data-target=".log-checkbox"></th>
+                            <th style="width: 30px;" class="text-center"><input type="checkbox" class="select-all" aria-label="이 표의 파일 모두 선택"></th>
                             <th>파일명</th>
                             <th>크기</th>
                             <th>수정일시</th>
@@ -55,7 +56,7 @@
                         {% for f in files.results %}
                         <tr>
                             <td class="text-center">
-                                <input type="checkbox" class="file-checkbox log-checkbox" value="{{ f.path }}">
+                                <input type="checkbox" class="file-checkbox log-checkbox" value="{{ f.path }}" aria-label="{{ f.name }} 선택">
                             </td>
                             <td class="fw-bold text-success">{{ f.name }}</td>
                             <td data-order="{{ f.size }}">
@@ -80,6 +81,7 @@
                         {% endfor %}
                     </tbody>
                 </table>
+                </div>
             </div>
 
             <!-- Logs Tab -->
@@ -89,10 +91,11 @@
                         <i class="fas fa-eraser me-1"></i> 로그 파일 일괄 삭제
                     </button>
                 </div>
+                <div class="table-responsive">
                 <table id="logTable" class="table table-hover table-bordered nowrap" style="width:100%">
                     <thead>
                         <tr>
-                            <th style="width: 30px;" class="text-center"><input type="checkbox" class="select-all" data-target=".log-checkbox"></th>
+                            <th style="width: 30px;" class="text-center"><input type="checkbox" class="select-all" aria-label="이 표의 파일 모두 선택"></th>
                             <th>파일명</th>
                             <th>크기</th>
                             <th>수정일시</th>
@@ -103,7 +106,7 @@
                         {% for f in files.logs %}
                         <tr>
                             <td class="text-center">
-                                <input type="checkbox" class="file-checkbox log-checkbox" value="{{ f.path }}">
+                                <input type="checkbox" class="file-checkbox log-checkbox" value="{{ f.path }}" aria-label="{{ f.name }} 선택">
                             </td>
                             <td class="fw-bold text-primary">{{ f.name }}</td>
                             <td data-order="{{ f.size }}">
@@ -128,6 +131,7 @@
                         {% endfor %}
                     </tbody>
                 </table>
+                </div>
             </div>
         </div>
     </div>
@@ -164,19 +168,30 @@ $(document).ready(function() {
         tabTrigger.show();
     }
 
-    // Select All (Individual for each table)
+    // 전체 선택은 그 표 안(검색 결과의 모든 페이지)만. 예전에는 두 표가 같은 클래스를 써서 보이지 않는
+    // 다른 탭의 파일까지 선택·삭제됐다(기술일지 C01).
+    var tablesByTab = { results: resultTable, logs: logTable };
     $('.select-all').on('change', function() {
         var isChecked = $(this).prop('checked');
-        var targetClass = $(this).attr('data-target');
-        $(targetClass).prop('checked', isChecked);
+        var api = $(this).closest('.tab-pane').attr('id') === 'logs-pane' ? logTable : resultTable;
+        $(api.rows({ search: 'applied' }).nodes()).find('.file-checkbox').prop('checked', isChecked);
     });
+
+    // 선택한 파일(두 표, 모든 페이지). 다운로드·삭제가 같이 쓴다.
+    function selectedFiles() {
+        var picked = [];
+        Object.keys(tablesByTab).forEach(function (tab) {
+            $(tablesByTab[tab].rows().nodes()).find('.file-checkbox:checked').each(function () {
+                var path = $(this).val();
+                picked.push({ tab: tab, path: path, name: String(path).split(/[\\/]/).pop() });
+            });
+        });
+        return picked;
+    }
 
     // Multi-download (ZIP) - Collects from ALL tabs
     $('#btnDownloadSelected').on('click', function() {
-        var selected = [];
-        $('.file-checkbox:checked').each(function() {
-            selected.push($(this).val());
-        });
+        var selected = selectedFiles().map(function (f) { return f.path; });
 
         if (selected.length === 0) {
             alert('다운로드할 파일을 선택해주세요.');
@@ -250,17 +265,24 @@ $(document).ready(function() {
 
     // 선택 삭제
     $('#btnDeleteSelected').on('click', function() {
-        var selected = [];
-        $('.file-checkbox:checked').each(function() {
-            selected.push($(this).val());
-        });
+        var files = selectedFiles();
+        var selected = files.map(function (f) { return f.path; });
 
         if (selected.length === 0) {
             alert('삭제할 파일을 선택해주세요.');
             return;
         }
 
-        if(!confirm(`${selected.length}개의 파일을 정말 삭제하시겠습니까?`)) return;
+        // 어느 탭의 무엇을 지우는지 확인창에 밝힌다(기술일지 C01)
+        var lines = [];
+        [['results', '결과 파일'], ['logs', '로그 파일']].forEach(function (pair) {
+            var names = files.filter(function (f) { return f.tab === pair[0]; }).map(function (f) { return f.name; });
+            if (!names.length) return;
+            lines.push(pair[1] + ' ' + names.length + '개');
+            names.slice(0, 8).forEach(function (n) { lines.push('  - ' + n); });
+            if (names.length > 8) lines.push('  … 외 ' + (names.length - 8) + '개');
+        });
+        if(!confirm('다음 파일을 삭제합니다. 되돌릴 수 없습니다.\n\n' + lines.join('\n'))) return;
 
         const btn = $(this);
         btn.prop('disabled', true);

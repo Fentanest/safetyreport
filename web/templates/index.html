@@ -72,7 +72,7 @@
                     ('일부수용', partialCount, 'var(--sr-status-partial)', '#ffffff'),
                     ('불수용/기타', rejectCount, 'var(--sr-status-reject)', '#ffffff'),
                     ('처리 중', processingCount, 'var(--sr-status-processing)', '#ffffff'),
-                    ('보완 요청', supplementCount, 'var(--sr-status-supplement)', '#ffffff'),
+                    ('보완 요청', supplementCount, 'var(--sr-status-supplement)', 'var(--sr-on-status-supplement)'),
                     ('취하', bar_withdraw, 'var(--sr-status-withdraw)', '#ffffff'),
                 ] %}
                 {% set bar_total = acceptCount + partialCount + rejectCount + processingCount + supplementCount + bar_withdraw %}

@@ -510,6 +510,9 @@ class CrawlManager:
                 changed_count = 0
             try:
                 changes = crawl_state_store.peek_crawl_changes()
+                # 이 완료에서 한 번만 쓴다. 남겨 두면 다음 실행이 후처리 전에(로그인 등) 실패했을 때 이 목록이
+                # 그 실행의 변경처럼 다시 나갔다(기술일지 A2-05). 모바일 변경 기록(change_log)은 따로 남아 있다.
+                crawl_state_store.clear_crawl_changes()
                 if changes:
                     ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
                 crawl_state_store.save_crawl_done_ext(changed_count, changes or [])
@@ -574,64 +577,69 @@ class CrawlManager:
                 with self._state_lock:
                     self._reserved.update(pending)
 
+            # 감시 스레드를 자식을 띄우기 전에 준비한다(수동 크롤 _launch_watched 와 같은 순서, 기술일지 A2-04).
+            # 스레드를 못 띄우면 자식을 만들기 전에 실패하고, 띄운 뒤에는 자식이 생기면 반드시 완료 처리가 붙는다.
+            proc_ref: list = [None]
+            ready = threading.Event()
+
+            def _after():
+                ready.wait()
+                proc = proc_ref[0]
+                if proc is None:  # 시작하지 않았다 — 예약·파일 정리는 시작 쪽이 이미 했다
+                    return
+                # 무슨 일이 있어도(보고 손상·완료 훅 예외) 예약을 풀고 실행 파일을 지운다(감사 R6-05).
+                left = list(pending)
+                try:
+                    try:
+                        proc.wait()
+                    except Exception:
+                        pass
+                    done = self._read_queue_report(queue_file)
+                    # 끝낸 번호는 먼저 빼고, 남은 번호의 예약은 완료 훅 뒤에 푼다 — 실패한 번호로 곧바로 다시 돌지 않게.
+                    finished_now = [r for r in pending if r in done]
+                    if finished_now:
+                        self._settle_pending(finished_now, done)
+                    left = [r for r in pending if r not in done]
+                    self.run_after_crawl(proc, log_file)
+                finally:
+                    if left:
+                        self._settle_pending(left, set())
+                        self._schedule_retry()  # 남은 번호는 늘어나는 간격으로 다시(R5-02)
+                    else:
+                        with self._state_lock:
+                            self._retry_delay = self.RETRY_FIRST_SECONDS
+                    self._remove_run_files(queue_file)
+
+            threading.Thread(target=_after, daemon=True, name="crawl-pending-after").start()
             work_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
             try:
-                started = self.start_crawl(cmd, cwd=work_dir, log_file=log_file, prepare=prepare,
-                                           restore_generation=generation)
-            except CrawlBlockedByRestore as exc:
-                logger.LoggerFactory.logbot.info(f"[crawl] 대기 큐 {len(pending)}건 보류: {exc}")
-                started = False
-            except Exception as exc:
-                from services.community_crawl_upload import PendingUploadError
-                if isinstance(exc, PendingUploadError):
-                    logger.LoggerFactory.logbot.info(f"[crawl] 이전 공유 자료 업로드가 남아 대기 큐 {len(pending)}건 보류: {exc}")
-                    self._remove_run_files(queue_file)
-                    self._schedule_retry()
-                    return False
-                # prepare 나 Popen 이 실패했다 — 예약을 풀고 큐에 남긴다. 번호가 담긴 임시 파일도 지운다(R5-04)
-                with self._state_lock:
-                    self._reserved.difference_update(pending)
-                self._remove_run_files(queue_file)
-                raise
-            if not started:
-                with self._state_lock:
-                    self._reserved.difference_update(pending)
-                self._remove_run_files(queue_file)
-                return False
-            proc = self.get_process()
-
-        def _after():
-            # 무슨 일이 있어도(보고 손상·완료 훅 예외) 예약을 풀고 실행 파일을 지운다(감사 R6-05).
-            left = list(pending)
-            try:
                 try:
-                    if proc:
-                        proc.wait()
-                except Exception:
-                    pass
-                done = self._read_queue_report(queue_file)
-                # 끝낸 번호는 먼저 빼고, 남은 번호의 예약은 완료 훅 뒤에 푼다 — 실패한 번호로 곧바로 다시 돌지 않게.
-                finished_now = [r for r in pending if r in done]
-                if finished_now:
-                    self._settle_pending(finished_now, done)
-                left = [r for r in pending if r not in done]
-                self.run_after_crawl(proc, log_file)
-            finally:
-                if left:
-                    self._settle_pending(left, set())
-                    self._schedule_retry()  # 남은 번호는 늘어나는 간격으로 다시(R5-02)
-                else:
+                    started = self.start_crawl(cmd, cwd=work_dir, log_file=log_file, prepare=prepare,
+                                               restore_generation=generation)
+                except CrawlBlockedByRestore as exc:
+                    logger.LoggerFactory.logbot.info(f"[crawl] 대기 큐 {len(pending)}건 보류: {exc}")
+                    started = False
+                except Exception as exc:
+                    from services.community_crawl_upload import PendingUploadError
+                    if isinstance(exc, PendingUploadError):
+                        logger.LoggerFactory.logbot.info(f"[crawl] 이전 공유 자료 업로드가 남아 대기 큐 {len(pending)}건 보류: {exc}")
+                        self._remove_run_files(queue_file)
+                        self._schedule_retry()
+                        return False
+                    # prepare 나 Popen 이 실패했다 — 예약을 풀고 큐에 남긴다. 번호가 담긴 임시 파일도 지운다(R5-04)
                     with self._state_lock:
-                        self._retry_delay = self.RETRY_FIRST_SECONDS
-                self._remove_run_files(queue_file)
+                        self._reserved.difference_update(pending)
+                    self._remove_run_files(queue_file)
+                    raise
+                if not started:
+                    with self._state_lock:
+                        self._reserved.difference_update(pending)
+                    self._remove_run_files(queue_file)
+                    return False
+                proc_ref[0] = self.get_process()
+            finally:
+                ready.set()
 
-        # 감시 스레드를 먼저 붙인다 — 알림이 실패해도 예약이 풀리게(R5-03). 스레드를 못 띄우면 예약을 풀고 알린다.
-        try:
-            threading.Thread(target=_after, daemon=True, name="crawl-pending-after").start()
-        except Exception:
-            with self._state_lock:
-                self._reserved.difference_update(pending)
-            raise
         try:
             ws_manager.broadcast_from_thread("crawl_started", {
                 "source": "pending_queue",

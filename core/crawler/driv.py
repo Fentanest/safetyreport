@@ -129,21 +129,35 @@ def create_driver():
         logger.LoggerFactory.logbot.info(f"Selenium Hub를 사용합니다: {settings.remotepath}")
         driver = webdriver.Remote(command_executor=settings.remotepath, options=options)
         
-    driver.maximize_window()
-    driver.get("https://www.whatismybrowser.com/detect/what-is-my-user-agent/")
-    
-    user_agent_element = None
+    # 세션을 만든 뒤의 준비 단계에서 예외가 나면 호출자는 driver 를 받지 못해 quit() 를 못 부른다 — 여기서 닫는다.
+    # 창 최대화·UA 확인은 로그인에 필요 없으므로 실패해도 진행한다(기술일지 A2-09).
     try:
-        user_agent_element = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, 'detected_value'))
-        ) # User_agent 값 추출
-    except Exception as e:
-        logger.LoggerFactory.logbot.warning(f"User agent를 가져오는 데 실패했습니다: {e}")
+        try:
+            driver.maximize_window()
+        except Exception as e:
+            logger.LoggerFactory.logbot.warning(f"브라우저 창 최대화 실패(계속 진행): {e}")
+        user_agent_element = None
+        try:
+            driver.set_page_load_timeout(20)
+            driver.get("https://www.whatismybrowser.com/detect/what-is-my-user-agent/")
+            user_agent_element = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.ID, 'detected_value'))
+            ) # User_agent 값 추출
+        except Exception as e:
+            logger.LoggerFactory.logbot.warning(f"User agent를 가져오는 데 실패했습니다(계속 진행): {e}")
+        finally:
+            driver.set_page_load_timeout(300)
 
-    if user_agent_element:
-        logger.LoggerFactory.logbot.debug(f"before: {user_agent_element.text}")
-        user_agent_text = user_agent_element.text.replace("HeadlessChrome","Chrome")
-        logger.LoggerFactory.logbot.debug(f"after: {user_agent_text}")
-        options.add_argument(f'user-agent={user_agent_text}')
+        if user_agent_element:
+            logger.LoggerFactory.logbot.debug(f"before: {user_agent_element.text}")
+            user_agent_text = user_agent_element.text.replace("HeadlessChrome","Chrome")
+            logger.LoggerFactory.logbot.debug(f"after: {user_agent_text}")
+            options.add_argument(f'user-agent={user_agent_text}')
+    except BaseException:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+        raise
 
     return driver

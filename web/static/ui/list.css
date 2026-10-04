@@ -158,8 +158,16 @@ tr.row-selected td {
         flex: 1;
         font-size: 0.85rem;
         padding: 0.4rem 0.5rem;
+        white-space: nowrap;
+    }
+    /* 복사·엑셀 4개는 2열 격자 — 한 줄에 4개를 끼우면 '선택/복사'처럼 글자가 꺾였다(기술일지 O-08) */
+    .sr-list-toolbar .secondary-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
+/* 아래 작업 바는 표가 한 화면을 넘을 때만 보인다(data_table.html syncBottomToolbar) */
+.sr-list-toolbar-bottom.is-redundant { display: none; }
 
 /* 빈 결과: 넓은 표(scrollX)의 보이는 영역 왼쪽에 고정. 폭은 data_table.html pinEmptyState() 가 맞춘다. */
 table.dataTable td.dataTables_empty {

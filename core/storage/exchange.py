@@ -287,10 +287,13 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
         # entry_value(감사 SOL-03): 앱에 열이 있으면 앱 값이 원천 — 빈 문자열도 그대로 쓰고, NULL(모름)은 서버 행 없음.
         # 열이 없는 구앱이면 서버 값을 유지한다. 사라진 신고의 행은 삭제.
         if "entry_value" in snapshot.report_columns:
-            for r in snapshot.reports:
-                conn.execute(models.entry_value_table.delete().where(models.entry_value_table.c.ID == r["ID"]))
-                if r.get("entry_value") is not None:
-                    conn.execute(models.entry_value_table.insert().values(ID=r["ID"], entry_value=r["entry_value"]))
+            # 행마다 지우고 넣던 것을 묶음으로(기술일지 B-09). 의미는 같다: 앱의 모든 신고 ID 행을 지우고,
+            # 값이 NULL 이 아닌 것(빈 문자열 포함)만 넣는다.
+            ids = [r["ID"] for r in snapshot.reports]
+            for i in range(0, len(ids), BATCH):
+                conn.execute(models.entry_value_table.delete().where(models.entry_value_table.c.ID.in_(ids[i:i + BATCH])))
+            _insert(conn, models.entry_value_table, [
+                {"ID": r["ID"], "entry_value": r["entry_value"]} for r in snapshot.reports if r.get("entry_value") is not None])
         existing_ev = [row[0] for row in conn.execute(select(models.entry_value_table.c.ID))]
         orphan = [i for i in existing_ev if i not in report_ids]
         for i in range(0, len(orphan), BATCH):

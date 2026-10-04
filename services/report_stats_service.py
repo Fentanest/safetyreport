@@ -292,10 +292,16 @@ def _build_stats_query(table_obj, filters=None, column_names=None):
         if column not in table_obj.c:
             continue
         value = func.substr(table_obj.c[column], 1, width)
+        # 앞자리 비교(substr)는 의미 그대로 두고, 같은 범위를 원래 열 비교로 한 번 더 건다 — 원래 열의 인덱스
+        # (ix_merge_*_answer 등)로 범위를 좁힌 뒤 substr 로 정확히 거른다(기술일지 B-05). 결과 행은 같다.
         if filters.get(prefix + 'Start'):
             query = query.where(value >= filters[prefix + 'Start'])
+            if width == 10 and len(str(filters[prefix + 'Start'])) == 10:
+                query = query.where(table_obj.c[column] >= filters[prefix + 'Start'])
         if filters.get(prefix + 'End'):
             query = query.where(value <= filters[prefix + 'End'], func.length(value) == width)
+            if width == 10 and len(str(filters[prefix + 'End'])) == 10:
+                query = query.where(table_obj.c[column] < str(filters[prefix + 'End']) + "\U0010ffff")
 
     if filters.get("excludePolice") and "처리기관" in table_obj.c:
         # 처리기관이 비어 있는(NULL) 신고는 경찰이 아니다 — 목록 필터와 같게 남긴다(기술일지 A1-06)
@@ -770,6 +776,9 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
 
 def get_agency_stats(engine, filters=None, mode: str = "canonical"):
     available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
+    # 웹 get_stats_page 와 같이 날짜·처분·금액 파생값을 한 번만 계산한다(모바일 /api/v1/stats, 기술일지 B-08).
+    # 결과는 같다(test_stats_page_matches_separate_calls).
+    df_t, df_p, df_o = map(_prepare_metrics, (df_t, df_p, df_o))
     return _compute_agency_stats(available_years, df_t, df_p, df_o, filters, mode)
 
 
@@ -1493,6 +1502,18 @@ def _aggregate_map_points(frame, *, max_points=None, zoom=7):
         if clustered: point['cluster'] = True
         points.append(point)
     return points
+
+
+def get_report_map_missing_summary(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical",
+                                   filters: dict | None = None) -> dict:
+    """지도 첫 화면용: 좌표 없는 신고의 주소 그룹 수·신고 수만. 목록(본문 열 포함)은 모달을 열 때
+    /stats/map/missing 으로 받는다(기술일지 B-03). 판정은 get_report_map_missing_groups 와 같다."""
+    category, _available_years, combined_df = _load_map_records_frame(
+        engine, year=year, category=category, mode=mode, column_names=_MAP_COLUMNS, filters=filters)
+    if combined_df.empty:
+        return {"group_count": 0, "report_count": 0}
+    missing = combined_df[(combined_df["주소키"].str.strip() != "") & ~combined_df["유효좌표"]]
+    return {"group_count": int(missing["주소키"].nunique(dropna=False)), "report_count": int(len(missing))}
 
 
 def get_report_map_missing_groups(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None):

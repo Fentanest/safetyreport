@@ -758,7 +758,8 @@ class CommunityAuthService:
             raise CommunityAuthError("expired")
         self._stop_worker(request_id)
         _log.info("[community] 커뮤니티 계정을 이 서버에 연결했습니다.")
-        completed = self._complete_with_retry(cfg, request_id, device_secret, candidate["access_token"])
+        completed = self._complete_with_retry(cfg, request_id, device_secret, candidate["access_token"],
+                                              deadline_ts=p.get("expires_ts"))
         if not completed:
             with self.store.locked():
                 st = self._load()
@@ -768,7 +769,11 @@ class CommunityAuthService:
             self._logout_quietly(cfg, old)  # 교체된 이전 세션은 이 세션만 끝낸다(best-effort)
         return self.status(can_manage=True)
 
-    def _complete_with_retry(self, cfg, request_id: str, device_secret: str, access_token: str) -> bool:
+    def _complete_with_retry(self, cfg, request_id: str, device_secret: str, access_token: str,
+                             deadline_ts: float | None = None) -> bool:
+        """중앙에 연결 완료를 알린다. 429 의 Retry-After 는 최소 대기 시간으로 지키고(정본 protocol.md),
+        자체 백오프 상한(MAX_BACKOFF_SECONDS)은 서버 지시를 줄이는 데 쓰지 않는다. 요청 만료를 넘기면 그만둔다
+        (기술일지 D2-07, 중앙 페이지 flow.ts 와 같은 규칙)."""
         delay = self.retry_base_seconds
         for attempt in range(COMPLETE_ATTEMPTS):
             try:
@@ -783,7 +788,11 @@ class CommunityAuthService:
                 if not exc.transient or attempt == COMPLETE_ATTEMPTS - 1:
                     _log.warning("[community] complete 실패: %s", exc.code)
                     return False
-                time.sleep(min(MAX_BACKOFF_SECONDS, delay))
+                wait = max(min(MAX_BACKOFF_SECONDS, delay), float(exc.retry_after or 0))
+                if deadline_ts is not None and self._now() + wait >= deadline_ts:
+                    _log.warning("[community] complete 재시도가 연결 요청 만료를 넘겨 멈춥니다: %s", exc.code)
+                    return False
+                time.sleep(wait)
                 delay *= 2
         return False
 

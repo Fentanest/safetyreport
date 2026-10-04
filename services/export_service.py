@@ -12,11 +12,12 @@ def build_export_payloads(engine):
     excel_data = {}
     sheet_data = {}
     for label, dataframe in category_dfs.items():
-        if dataframe.empty:
-            continue
         processed_df, photo_cols = export._process_dataframe(dataframe)
-        excel_data[label] = processed_df
+        # 0건 분류도 구글 시트에는 머리글만 보내 이전 행을 비운다 — 빠지면 그 시트의 옛 신고가 남았다(기술일지 A2-07).
+        # 엑셀은 파일을 통째로 새로 쓰므로 빈 시트를 만들지 않는다(기존 동작).
         sheet_data[label] = (processed_df, photo_cols)
+        if not dataframe.empty:
+            excel_data[label] = processed_df
     return excel_data, sheet_data
 
 
