@@ -23,6 +23,7 @@ from sqlalchemy import create_engine, func, select
 import settings.settings as settings
 from core.database import models, write_barrier
 from core.utils import logger
+from core.utils.fallback import note_fallback
 
 BATCH = 200
 SERVER_RUNTIME_META_KEYS = {"map_backfill_state"}
@@ -440,7 +441,8 @@ def _current_kakao_id() -> str | None:
 
     try:
         return cas.current_kakao_id()
-    except Exception:  # 네트워크·세션 문제면 모름 → 거절(fail-closed)
+    except Exception as exc:  # 네트워크·세션 문제면 모름 → 거절(fail-closed)
+        note_fallback("exchange.current_kakao_id", exc)
         return None
 
 

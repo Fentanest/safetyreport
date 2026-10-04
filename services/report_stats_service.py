@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import OperationalError
 
 from core.database import database
+from core.utils.fallback import note_fallback
 import settings.settings as app_settings
 from services import duplicate_group_service
 from services.report_query_service import _safe_read
@@ -475,7 +476,8 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
 
         try:
             watch_df = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
-        except Exception:
+        except Exception as exc:
+            note_fallback("report_stats.dashboard_watchlist", exc)
             watch_df = pd.DataFrame()
         watch_ids = watch_df["신고번호"].tolist() if "신고번호" in watch_df.columns else []
 
@@ -484,7 +486,8 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
                 query = select(table_obj).where(table_obj.c.신고번호.in_(watch_ids))
                 try:
                     df_watch_part = pd.read_sql_query(query, conn)
-                except Exception:
+                except Exception as exc:
+                    note_fallback("report_stats.dashboard_watch_rows", exc)
                     continue
                 category = table_category_map.get(table_obj, "")
                 for _, row in df_watch_part.iterrows():
@@ -664,7 +667,8 @@ def _calc_avg_days_with_count(group_df):
         days = (d_end - d_start).dt.days.dropna()
         days = days[days >= 0]
         return (_round_half_up(float(days.mean()), 1) if len(days) > 0 else None), int(len(days))
-    except Exception:
+    except Exception as exc:
+        note_fallback("report_stats.average_processing_days", exc)
         return None, 0
 
 

@@ -13,6 +13,7 @@ import time
 from datetime import datetime
 
 from core.utils import logger
+from core.utils.fallback import note_fallback
 
 PHOTO_JOB = "photo_capture_time"
 _REQUEST_INTERVAL_SECONDS = 0.4
@@ -49,7 +50,8 @@ def _is_crawling() -> bool:
         from services.crawl_manager import crawl_manager
 
         return bool(crawl_manager.is_crawling())
-    except Exception:
+    except Exception as exc:
+        note_fallback("maintenance.is_crawling", exc)
         return False
 
 

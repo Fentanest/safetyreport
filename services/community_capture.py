@@ -18,6 +18,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
+from core.utils.fallback import note_fallback
+
 STATUS_MAP = {
     "수용": "accepted",
     "일부수용": "partial",
@@ -604,7 +606,8 @@ def deletion_state(data_dir: str | None = None) -> str | None:
     try:
         rows = _store(data_dir).connect().execute(
             "SELECT json_extract(value, '$.state') AS state FROM meta WHERE key LIKE ?", (DELETION_KEY_PREFIX + "%",)).fetchall()
-    except Exception:
+    except Exception as exc:
+        note_fallback("community_capture.deletion_state", exc)
         return "cleanup_pending"
     states = {r["state"] for r in rows}
     return "unconfirmed" if "prepared" in states else ("cleanup_pending" if states else None)
@@ -621,5 +624,6 @@ def deletion_cleanup_pending(data_dir: str | None = None) -> bool:
     """삭제 표시가 남아 있으면 True(업로드·reshare 금지). confirmed 는 적용을 시도하고, prepared(중앙 결과 전·불명)는 그대로 둔다."""
     try:
         return not apply_pending_deletion(data_dir)
-    except Exception:
+    except Exception as exc:
+        note_fallback("community_capture.apply_pending_deletion", exc)
         return True

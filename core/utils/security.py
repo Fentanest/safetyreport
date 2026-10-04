@@ -3,6 +3,8 @@ import hashlib
 import hmac
 import secrets
 
+from core.utils.fallback import note_fallback
+
 
 # ── Config 값 암호화/복호화 (Fernet 대칭키) ────────────────────────────────
 
@@ -39,7 +41,8 @@ def decrypt_config_value(value: str, datapath: str) -> str:
         from cryptography.fernet import Fernet
         key = _get_or_create_config_key(datapath)
         return Fernet(key).decrypt(value[4:].encode('utf-8')).decode('utf-8')
-    except Exception:
+    except Exception as exc:
+        note_fallback("security.decrypt_config_value", exc)
         return ''
 
 

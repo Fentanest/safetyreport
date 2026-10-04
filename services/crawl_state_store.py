@@ -7,6 +7,7 @@ from datetime import datetime
 import settings.settings as app_settings
 
 from core.database import database
+from core.utils.fallback import note_fallback
 
 
 def _state_file(name: str) -> str:
@@ -27,7 +28,8 @@ def _read_json(path: str, default):
     try:
         with open(path, "r", encoding="utf-8") as file_obj:
             return json.load(file_obj)
-    except Exception:
+    except Exception as exc:
+        note_fallback(f"crawl_state.read:{os.path.basename(path)}", exc)
         return default
 
 
@@ -38,7 +40,8 @@ def _take_json(path: str, default):
     try:
         with open(path, "r", encoding="utf-8") as file_obj:
             payload = json.load(file_obj)
-    except Exception:
+    except Exception as exc:
+        note_fallback(f"crawl_state.take:{os.path.basename(path)}", exc)
         return default
     try:
         os.remove(path)

@@ -3,6 +3,7 @@ import pandas as pd
 from sqlalchemy import select, func, exists, update, text, inspect, bindparam, or_
 from sqlalchemy.dialects.sqlite import insert
 from core.utils import logger
+from core.utils.fallback import note_fallback
 import os
 import threading
 from datetime import datetime
@@ -232,7 +233,8 @@ def migrate_by_entry_value(engine):
                         current_table = tbl
                         current_cat = cat
                         break
-                except Exception:
+                except Exception as exc:
+                    note_fallback("database.find_detail_table", exc)
                     continue
 
             if current_table is None or current_cat == correct_cat:
@@ -674,7 +676,8 @@ def legacy_reset_info(engine) -> dict | None:
         with engine.connect() as conn:
             value = conn.execute(select(sync_meta_table.c.value).where(
                 sync_meta_table.c.key == LEGACY_RESET_META_KEY)).scalar()
-    except Exception:
+    except Exception as exc:
+        note_fallback("database.legacy_reset_info", exc)
         return None
     if not value:
         return None
@@ -808,7 +811,8 @@ def _community_detail_status_labels() -> dict:
             "SELECT source_report_id, c_now_label FROM detail_status WHERE local_dataset_id=?",
             (dataset_id,)).fetchall()
         return {row["source_report_id"]: row["c_now_label"] for row in rows}
-    except Exception:
+    except Exception as exc:
+        note_fallback("database.community_detail_status_labels", exc)
         return {}
 
 
@@ -825,7 +829,8 @@ def _community_rebuild_permanent_labels() -> dict:
         for row in rows:
             labels.setdefault(row["rid"], row["label"])
         return labels
-    except Exception:
+    except Exception as exc:
+        note_fallback("database.community_rebuild_permanent_labels", exc)
         return {}
 
 
@@ -837,7 +842,8 @@ def _community_capture_retry_ids() -> set:
         if fn is None:
             return set()
         return set(fn() or set())
-    except Exception:
+    except Exception as exc:
+        note_fallback("database.community_capture_retry_ids", exc)
         return set()
 
 

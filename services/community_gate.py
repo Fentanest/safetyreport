@@ -23,6 +23,7 @@ from urllib.parse import urlsplit
 import requests
 
 from core.utils import runtime_mode
+from core.utils.fallback import note_fallback
 from services import community_auth_service as cas
 from services.community_account_client import AccountApiError, CommunityAccountClient
 
@@ -513,7 +514,8 @@ def _deletion_state() -> str | None:
         from services import community_capture
 
         return community_capture.deletion_state()
-    except Exception:
+    except Exception as exc:
+        note_fallback("community_gate.deletion_state", exc)
         return None
 
 

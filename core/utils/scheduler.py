@@ -1,6 +1,7 @@
 from apscheduler.schedulers.background import BackgroundScheduler
 import settings.settings as app_settings
 from core.utils import logger
+from core.utils.fallback import note_fallback
 from services import crawl_control
 from services.crawl_manager import crawl_manager
 
@@ -20,16 +21,16 @@ def run_crawler():
         if fresh is not None and not fresh.get("can_enter"):
             logger.LoggerFactory.logbot.warning("스케줄러: 커뮤니티 게이트 미충족. 건너뜁니다.")
             return
-    except Exception:
-        pass
+    except Exception as exc:  # 사전 확인만 실패했다. start_crawl 이 게이트를 다시 확인한다.
+        note_fallback("scheduler.gate_precheck", exc)
     try:
         from services import community_rebuild as _rebuild
 
         if _rebuild.required() or _rebuild.blocking_state() is not None:
             logger.LoggerFactory.logbot.warning("스케줄러: 초기화 크롤 필요·진행 중. 건너뜁니다.")
             return
-    except Exception:
-        pass
+    except Exception as exc:
+        note_fallback("scheduler.rebuild_precheck", exc)
 
     logger.LoggerFactory.logbot.info("스케줄러에 의해 크롤러가 시작됩니다.")
     try:

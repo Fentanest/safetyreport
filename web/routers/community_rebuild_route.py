@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from core.utils import csrf
+from core.utils.fallback import note_fallback
 from services import community_rebuild as rebuild
 from web.routers.api_route import _require_api_key
 
@@ -115,7 +116,8 @@ def _can_manage(api_key: str) -> bool:
     try:
         from services import community_auth_service as cas
         return cas.hash_api_key(api_key) in cas.get_service().config().api_key_managers
-    except Exception:
+    except Exception as exc:
+        note_fallback("rebuild_route.can_manage", exc)
         return False
 
 
@@ -126,7 +128,8 @@ def _verify_client_user_token(token: str) -> bool:
         return False
     try:
         return bool(gate.verify_client_user_token(token))
-    except Exception:
+    except Exception as exc:
+        note_fallback("rebuild_route.verify_client_user_token", exc)
         return False
 
 

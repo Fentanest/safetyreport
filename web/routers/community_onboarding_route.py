@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 
 from core.utils import csrf
+from core.utils.fallback import note_fallback
 from core.utils.path_utils import resource_path
 from services import community_gate
 
@@ -46,7 +47,8 @@ def _rebuild_status() -> dict | None:
         return None
     try:
         return {"required": bool(community_rebuild.required()), **community_rebuild.status()}
-    except Exception:
+    except Exception as exc:
+        note_fallback("onboarding.rebuild_status", exc)
         return None
 
 

@@ -43,6 +43,10 @@ requireFresh 재검증(D2-03), 대시보드 총 신고 취하 표기(O-01). 중�
 | 카카오 연결·동의 흐름 | 2026-10-04 실측(passed) 이후 서버 쪽 변경은 회귀 시험으로만 확인 | 실제 카카오·운영 중앙은 not-run |
 
 ## 남은 경계
-- 실제 Windows/macOS/ARM, 물리 기기, 실제 카카오·운영 Supabase 적용은 not-run. auth migration 운영 적용과 Edge 함수 재배포는 배포 단계(사용자 승인)에서 한다.
-- community-map manifest 커밋은 push 하지 않았다(이번 지시 범위 밖).
-- EO 개조 18건은 별도 결정 대기.
+- 실제 Windows/macOS/ARM, 물리 기기, 실제 카카오 로그인은 not-run.
+- 2026-10-05 01:36 KST 운영 적용(사용자 승인): map main `9d67fe0` + auth main `6afa112` 합성본(check 통과)으로
+  `db push --linked` dry-run 결과 `202610050100_relay_hardening.sql` 1건만 확인 → 적용 → 재 dry-run "up to date".
+  Edge `community-auth-relay`(v6)·`community-account`(v7) 재배포, 두 함수 ACTIVE·무인증 요청 405/401 응답 확인.
+  다른 함수(community-ingest 등)는 바꾸지 않았다.
+- community-map manifest 커밋 `9d67fe0` 은 main 에 push 했다.
+- EO 개조 18건은 `refactor/eo-2026-10-05` 에서 진행한다.

@@ -21,6 +21,8 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
+from core.utils.fallback import note_fallback
+
 from services import community_upload_policy as policy
 
 _log = logging.getLogger("safetyreport.community.uploader")
@@ -111,7 +113,8 @@ def _project_ns() -> str:
         from services.community_store import project_namespace as _ns
         from services import community_auth_service as _cas
         return _ns(_cas.load_config_from_settings().supabase_url)
-    except Exception:
+    except Exception as exc:
+        note_fallback("community_uploader.project_namespace", exc)
         return "unconfigured"
 
 
@@ -521,8 +524,8 @@ def _request_upload(trigger: str, data_dir, arrived: int, progress=None) -> dict
         result = {"run_id": run_id, "result": "failed", "counts": {}, "request_ids": [], "error_code": type(exc).__name__}
         try:
             _record_run(_store(data_dir), run_id, trigger, _iso(_now()), result)
-        except Exception:
-            pass
+        except Exception as record_exc:
+            note_fallback("community_uploader.record_failed_run", record_exc)
     finally:
         with _run_lock:
             if _active_run is not None:
@@ -530,8 +533,8 @@ def _request_upload(trigger: str, data_dir, arrived: int, progress=None) -> dict
                 _active_run["finished"].set()
         try:
             _refresh_next_due(data_dir, result)
-        except Exception:
-            pass
+        except Exception as exc:
+            note_fallback("community_uploader.refresh_next_due", exc)
     return result
 
 

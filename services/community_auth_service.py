@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from core.utils import runtime_mode
+from core.utils.fallback import note_fallback
 from services.community_auth_client import (
     AUTH_CODE_RE, DISPLAY_CODE_RE, UUID_RE, AuthError, CommunityAuthClient, CommunityHttpError, RelayError,
     jwt_claims_unverified, normalize_device_label, parse_bootstrap_url, pkce_challenge,
@@ -402,7 +403,8 @@ class CommunityAuthService:
             return False
         try:
             return bool(provider())
-        except Exception:
+        except Exception as exc:
+            note_fallback("community_auth.upload_allowed", exc)
             return False
 
     def is_connected(self) -> bool:
@@ -1006,7 +1008,8 @@ def _differs_from_data_owner(kakao_id: str | None) -> bool:
     try:
         from services import account_data
         owner = account_data.db_owner()
-    except Exception:
+    except Exception as exc:
+        note_fallback("community_auth.data_owner", exc)
         return False
     return bool(owner and kakao_id and owner != kakao_id)
 

@@ -11,6 +11,7 @@ from core.utils import logger
 logger.LoggerFactory.create_logger(mode='crawl')
 from core.database import database
 from core.utils import message_formatter
+from core.utils.fallback import note_fallback
 from core.database.engine import get_engine
 from core.utils.path_utils import resource_path, is_frozen, enforce_utf8
 from services import crawl_state_store, export_service
@@ -638,8 +639,8 @@ def _execute(run_id):
                 from services import community_rebuild as _rebuild
 
                 _rebuild.mark_login_failed(rebuild_run_id, f"login_failed: {e}")
-            except Exception:
-                pass
+            except Exception as exc:
+                note_fallback("start.rebuild_mark_login_failed", exc)
         changed_item_ids = []
         return 1
     finally:

@@ -20,6 +20,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from core.utils import csrf
+from core.utils.fallback import note_fallback
 from services import community_auth_service as cas
 from services import community_gate
 from services.community_account_client import AccountApiError, CommunityAccountClient
@@ -378,8 +379,8 @@ def _contributions_delete() -> dict:
             # 중앙이 확실히 거절(4xx·토큰 없음 등 — 삭제가 일어나지 않음): 이 prepared 표시만 지운다
             try:
                 community_capture.cancel_deletion(local_id)
-            except Exception:
-                pass  # 지우지 못하면 업로드가 막힌 채 남는다(fail-closed)
+            except Exception as cancel_exc:  # 지우지 못하면 업로드가 막힌 채 남는다(fail-closed)
+                note_fallback("community_route.cancel_deletion", cancel_exc)
             raise
         # 응답 불명(네트워크·타임아웃·5xx): 중앙이 이미 지웠을 수 있다 → 표시를 유지하고(업로드·reshare 차단) 다시 요청하게 한다.
         # 삭제는 여러 번 요청해도 안전하다(Sol 3차 H-03d).

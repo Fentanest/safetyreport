@@ -224,6 +224,18 @@
 - `LoggerFactory.star_log` — `set_star_log_file(path)` 로 파일 핸들러 동적 교체
 - 웹/모바일 모두 WebSocket(`/crawl/ws/logs`)으로 실시간 스트리밍 가능
 
+### 실패 대체 정책 (EO R-17, 2026-10-05)
+조회·판정이 실패했을 때 빈 값이나 기본값으로 바꾸는 곳이 많다. 기본값 자체(best-effort·fail-closed)는 기능마다 정한 그대로 두고, 진단 방식만 통일한다.
+- **기록하는 대체**: 화면 값·수집 판단·권한 판정에 쓰이는 조회가 실패하면 `core/utils/fallback.note_fallback(동작명, exc)` 로 남긴다.
+  예: 대시보드 감시목록, 평균 처리일, community 상태 라벨·재시도 ID, 손상된 상태 JSON, 설정 복호화, 데이터 주인·업로드 허용·삭제 표시 확인, 크롤 후 rebuild·변경 목록 게시, 스케줄러 사전 확인.
+- **기록 형식**: `[fallback] <동작명>: <예외 종류>` 만 남긴다. 예외 메시지·인자·SQL 값은 경로·쿠키·계정이 섞일 수 있어 남기지 않는다.
+  같은 (동작명, 예외 종류)는 60초에 한 번만 남겨, polling 화면이 로그를 채우지 않게 한다.
+- **기록하지 않는 대체**: 정리·종료·알림(cleanup), 형식 판정(parse), 다음 실행에서 다시 시도(retry), 부가 정보 보강(optional),
+  오류를 값으로 돌려줌(explicit)만 허용한다. 목록과 분류는 `tests/test_fallback_policy.py` 의 `SILENT_ALLOWED` 가 정본이고,
+  목록에 없는 새 `except Exception: pass/return/continue` 는 시험이 막는다.
+- **요청 경계**: 인증 미들웨어가 잡은 예외(공개 경로 포함)는 `log_request_exception(path, exc)` 로 경로·예외 종류·traceback 프레임만 남기고 500 을 돌려준다.
+  공개 경로 예외는 이전에는 기록 없이 500 이었다.
+
 ---
 
 

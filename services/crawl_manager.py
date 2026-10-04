@@ -10,6 +10,7 @@ from typing import Optional, List
 from services import crawl_state_store
 from services.crawl_log_service import rotate_crawl_log
 from core.utils.runtime_mode import block_if_fixture
+from core.utils.fallback import note_fallback
 
 
 class CrawlBlockedByRestore(RuntimeError):
@@ -480,8 +481,8 @@ class CrawlManager:
                 if "--rebuild" in cmd_args:
                     _run_id = str(cmd_args[cmd_args.index("--rebuild") + 1])
                     _rebuild.on_crawl_finished(_run_id, attempt=getattr(proc, '_safetyreport_run_id', None))
-            except Exception:
-                pass
+            except Exception as exc:
+                note_fallback("crawl_manager.rebuild_on_crawl_finished", exc)
             time.sleep(1)
 
             try:
@@ -489,8 +490,8 @@ class CrawlManager:
                     try:
                         from services.community_crawl_upload import flush
                         flush(log_file, before_crawl=False)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        note_fallback("crawl_manager.community_crawl_flush", exc)
                     try:
                         with open(log_file, 'a', encoding='utf-8') as f:
                             label = '완료되었습니다' if outcome['state'] == 'succeeded' else f"종료되었습니다 ({outcome['state']})"
@@ -516,8 +517,8 @@ class CrawlManager:
                 if changes:
                     ws_manager.broadcast_from_thread("crawl_changes", {"changes": changes})
                 crawl_state_store.save_crawl_done_ext(changed_count, changes or [])
-            except Exception:
-                pass
+            except Exception as exc:
+                note_fallback("crawl_manager.publish_crawl_changes", exc)
 
             # 모든 크롤링 진입점(수동·API·대기 큐)이 이 훅을 지난다. 자식 프로세스의
             # wake 이벤트는 부모 업로더에 닿지 않으므로 종료 뒤 한 번 더 깨운다.

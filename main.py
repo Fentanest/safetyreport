@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
+from core.utils.fallback import log_request_exception, note_fallback
 import uvicorn
 import webbrowser
 import threading
@@ -315,7 +316,8 @@ async def version_latest():
         if _version_gt(latest, APP_VERSION):
             return JSONResponse({"status": "outdated", "latest": latest})
         return JSONResponse({"status": "up_to_date", "latest": latest})
-    except Exception:
+    except Exception as exc:
+        note_fallback("version_latest", exc)
         return JSONResponse({"status": "unknown"})
 
 
@@ -526,7 +528,8 @@ async def auth_middleware(request: Request, call_next):
             or any(path.startswith(p) for p in _PUBLIC_PREFIXES)):
         try:
             return await call_next(request)
-        except Exception:
+        except Exception as exc:
+            log_request_exception(path, exc)
             from fastapi.responses import Response
             return Response(status_code=500)
 
@@ -536,8 +539,7 @@ async def auth_middleware(request: Request, call_next):
         return await call_next(request)
     except Exception as e:
         # 미들웨어 예외가 ASGI 소켓을 닫아 nginx 502로 이어지는 것을 방지
-        import traceback
-        logger.LoggerFactory.logbot.error(f"[middleware] {request.url.path} 처리 중 예외: {e}\n{traceback.format_exc()}")
+        log_request_exception(path, e)
         if not request.session.get("admin_logged_in", False):
             return _login_redirect(request)
         from fastapi.responses import Response

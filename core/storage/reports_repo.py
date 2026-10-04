@@ -21,6 +21,7 @@ from sqlalchemy.dialects.sqlite import insert
 
 from core.database import models
 from core.utils import logger
+from core.utils.fallback import note_fallback
 
 DETAIL_TABLES = {
     "traffic": models.detail_traffic_table,
@@ -206,8 +207,8 @@ def _community_capture_for(rec: CrawledDetail, derived: dict):
     else:
         try:
             _cap.remove_retry_id(rec.id)
-        except Exception:
-            pass
+        except Exception as exc:
+            note_fallback("reports_repo.remove_capture_retry", exc)
         return result
 
 
@@ -253,14 +254,14 @@ def _save_one(engine, rec: CrawledDetail) -> dict | None:
     except Exception:
         try:
             _cap.mark_personal_save(capture_result.event_id, False)
-        except Exception:
-            pass
+        except Exception as exc:
+            note_fallback("reports_repo.mark_personal_save_failed", exc)
         raise
     try:
         _cap.mark_personal_save(capture_result.event_id, True)
         _cap.remove_retry_id(rec.id)
-    except Exception:
-        pass
+    except Exception as exc:
+        note_fallback("reports_repo.mark_personal_save_ok", exc)
     return change
 
 
