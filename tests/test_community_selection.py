@@ -14,6 +14,7 @@ from sqlalchemy import create_engine
 
 import settings.settings as app_settings
 from core.database import database, models
+from services import collection_policy  # EO R-06: 수집 대상 선정은 여기로 옮겼다(database 는 같은 이름을 다시 내보냄)
 from core.utils import logger
 
 VECTORS = Path(__file__).resolve().parents[1] / "contracts" / "community-ingest" / "vectors" / "list_refetch.json"
@@ -49,10 +50,10 @@ class ListRefetchVectorTest(unittest.TestCase):
         self.assertEqual(_should(flipped), False)
 
     def test_null_labels_never_compared_directly(self):
-        self.assertFalse(database._labels_differ(None, None))
-        self.assertTrue(database._labels_differ(None, "답변완료"))
-        self.assertTrue(database._labels_differ("답변완료", None))
-        self.assertFalse(database._labels_differ("답변완료", "답변완료"))
+        self.assertFalse(collection_policy._labels_differ(None, None))
+        self.assertTrue(collection_policy._labels_differ(None, "답변완료"))
+        self.assertTrue(collection_policy._labels_differ("답변완료", None))
+        self.assertFalse(collection_policy._labels_differ("답변완료", "답변완료"))
 
 
 class SelectionIntegrationTest(unittest.TestCase):
@@ -106,11 +107,11 @@ class SelectionIntegrationTest(unittest.TestCase):
                         "c6": None, "c7": "답변완료", "c8": "진행"}
         self._permanent = {"c3": "답변완료", "c4": "답변완료"}
         self._retry = {"c5"}
-        p1 = mock.patch.object(database, "_community_detail_status_labels",
+        p1 = mock.patch.object(collection_policy, "_community_detail_status_labels",
                                lambda: dict(self._status))
-        p2 = mock.patch.object(database, "_community_rebuild_permanent_labels",
+        p2 = mock.patch.object(collection_policy, "_community_rebuild_permanent_labels",
                                lambda: dict(self._permanent))
-        p3 = mock.patch.object(database, "_community_capture_retry_ids",
+        p3 = mock.patch.object(collection_policy, "_community_capture_retry_ids",
                                lambda: set(self._retry))
         p1.start(); p2.start(); p3.start()
         self.addCleanup(p1.stop); self.addCleanup(p2.stop); self.addCleanup(p3.stop)

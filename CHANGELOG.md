@@ -19,6 +19,7 @@
 - EO-3 R-08 커뮤니티 계정 업무 순서를 서비스로: 로그아웃(주인 확인 → 게이트 무효화 → 자료 삭제 → 연결 해제)·자료 채택·세션 초기화·동의·철회·업로드 연결 전환·공유 자료 삭제 요청과 중앙 호출 오류 변환을 `services/community_account_ops.py` 로 옮기고 라우터는 입력·권한·응답만 맡는다(동작 변화 없음). 호출 순서 기록 시험(주인 불명·불일치, 삭제 거절, 중앙 응답 유실, 철회 전 업로드 중단)을 더했다.
 - EO-3 R-09 인증 서비스 분리: 1,132줄 `community_auth_service.py` 에서 설정 정규화(`community_auth_config.py`), 오류 타입(`community_auth_errors.py`), 토큰 공급(`community_token_provider.py`, 같은 저장소 락), poll 스레드 감독(`community_auth_workers.py`)을 떼고 서비스는 facade 로 이름을 다시 내보낸다(827줄, 동작 변화 없음). 대기 단계 이름(`WAITING_PHASES`)과 상태 전이 설명을 두었다. 시험: 이름 호환, worker 감독(retiring 소유·한 join 예산·종료 뒤 시작 거부), 토큰 공급 위임, 코드 교환 중 취소 경합(교환 1회·받은 세션 로그아웃).
 - EO-4 R-12 DB 업로드·복원 절차 하나로: 웹 `/backup/upload` 와 API `/api/v1/settings/db/upload` 가 같은 임시 저장 도우미(`web/db_upload.py`)와 HTTP 와 무관한 `db_backup.restore_uploaded_db` 를 쓴다(응답 필드·상태 코드 유지). 정정: 올린 DB 의 형식·무결성 검사가 만든 `-wal`·`-shm` 부속 파일이 임시 폴더에 남던 것. 시험: 서버·모바일·알 수 없는 종류·미래 버전·손상·SQLite 아님을 두 경로에 올려 같은 응답과 임시 파일 0개, 쓰기 실패 때도 정리.
+- EO-4 R-06 database.py 분리: 관리자·API 키 CRUD(`core/database/accounts_repo.py`), 병합 표 읽기·검색(`core/database/report_reads.py`), 상세 수집 대상 선정과 community sidecar(`services/collection_policy.py`)를 떼고 `database` 모듈은 같은 이름을 다시 내보낸다(1,215 → 약 900줄). `upgrade_schema` 안에 주석으로 있던 꺼 둔 이전 DB 업데이트 호출은 `core/database/disabled_upgrade.py` 에 번호를 붙여 보관했다(실행 코드 없음, `backfill_synced_at` 등 함수는 그대로). 옮긴 함수와 `upgrade_schema` 는 AST 로 원본과 같은지 확인했다. 문서 정정: overview 의 SCHEMA_VERSION 4 → 5.
 
 ## 2026-10-05 (2026-10-04 기술일지 결함 74건·SB 권고 3건 수리, dev 반영)
 

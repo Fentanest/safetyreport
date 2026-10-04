@@ -1,12 +1,9 @@
-import settings.settings as settings
 import pandas as pd
-from sqlalchemy import select, func, exists, update, text, inspect, bindparam, or_
+from sqlalchemy import select, func, update, text, inspect, bindparam, or_
 from sqlalchemy.dialects.sqlite import insert
 from core.utils import logger
 from core.utils.fallback import note_fallback
-from services import report_policy
 import os
-import threading
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import re
@@ -269,14 +266,12 @@ def upgrade_schema(engine, *, maintenance: bool = True, backup_dir: str | None =
     크롤링 서브프로세스는 maintenance=False 로 가볍게 부른다(S-22).
 
     이번 릴리스(초기화 크롤링 `source-rebuild-2026-09-26.1`)는 **이전 DB 업데이트 로직을 끈다**: 열 추가(ALTER), 번호 붙은 마이그레이션,
-    감시목록 열 이관, entry_value 재분류, synced_at 백필, 상태 정규화, 업그레이드 전 백업은 아래에 주석으로 남겼다.
+    감시목록 열 이관, entry_value 재분류, synced_at 백필, 상태 정규화, 업그레이드 전 백업은 core/database/disabled_upgrade.py 에 보관했다.
     이 버전보다 낮은 DB 는 여기서 고치지 않고 LegacyDatabase 로 멈춘다 — 서버 시작은 reset_legacy_database() 로 백업 뒤 비우고
     초기화 크롤링이 다시 채운다. 복원(가져오기)은 거절한다. backup_dir 은 호출 호환용으로만 받는다."""
     _refuse_newer_schema(engine)
     _refuse_legacy_schema(engine)
-    # [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스]
-    # if backup_dir:
-    #     backup_before_upgrade(engine, backup_dir)
+    # 이전 DB 업데이트(업그레이드 전 백업)는 비활성 — core/database/disabled_upgrade.py ①
     inspector = inspect(engine)
     with engine.connect() as connection:
         try:
@@ -290,32 +285,8 @@ def upgrade_schema(engine, *, maintenance: bool = True, backup_dir: str | None =
             if table.name not in existing_tables:
                 logger.LoggerFactory.logbot.info(f"테이블 '{table.name}' 생성 중...")
                 table.create(connection)
-                # [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 옛 merge 표의 감시목록 열 → 감시목록 표 이관
-                # if table.name == 'mysafety_watchlist':
-                #     if settings.table_merge_traffic in existing_tables and settings.table_merge_other in existing_tables:
-                #         try:
-                #             migrate_query = text(f"""
-                #                 INSERT OR IGNORE INTO mysafety_watchlist (신고번호)
-                #                 SELECT 신고번호 FROM {settings.table_merge_traffic} WHERE 감시목록 = 'Y'
-                #                 UNION
-                #                 SELECT 신고번호 FROM {settings.table_merge_other} WHERE 감시목록 = 'Y'
-                #             """)
-                #             connection.execute(migrate_query)
-                #             logger.LoggerFactory.logbot.info("기존 감시목록 데이터를 완벽하게 이관했습니다.")
-                #         except Exception as e:
-                #             logger.LoggerFactory.logbot.error(f"감시목록 데이터 이관 중 오류 발생: {e}")
-            # [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 있는 표에 빠진 열 추가
-            # else:
-            #     existing_columns = [col['name'] for col in inspector.get_columns(table.name)]
-            #     for column in table.columns:
-            #         if column.name not in existing_columns:
-            #             logger.LoggerFactory.logbot.warning(f"'{table.name}' 테이블에 '{column.name}' 컬럼을 추가합니다.")
-            #             column_type = column.type.compile(engine.dialect)
-            #             alter_query = text(f'ALTER TABLE {table.name} ADD COLUMN {column.name} {column_type}')
-            #             try:
-            #                 connection.execute(alter_query)
-            #             except Exception as e:
-            #                 logger.LoggerFactory.logbot.error(f"스키마 업그레이드 오류: {e}")
+                # 옛 merge 표 감시목록 열 이관(비활성) — core/database/disabled_upgrade.py ②
+            # 있는 표에 빠진 열 추가(비활성) — core/database/disabled_upgrade.py ③
         for statement in _index_statements():
             connection.execute(text(statement))
         if not existing_tables:
@@ -323,18 +294,10 @@ def upgrade_schema(engine, *, maintenance: bool = True, backup_dir: str | None =
             connection.execute(text(f"PRAGMA user_version = {SCHEMA_VERSION}"))
         connection.commit()
 
-    # [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스]
-    # _apply_versioned_migrations(engine)
+    # 번호 붙은 마이그레이션(비활성) — core/database/disabled_upgrade.py ④
     if not maintenance:
         return
-    # [이전 DB 업데이트 비활성 — 2026-09-26 초기화 크롤링 릴리스] 옛 형식 자료 정리(재분류·synced_at 백필·상태 정규화)
-    # migrate_by_entry_value(engine)
-    # backfill_synced_at(engine)
-    # normalized_rows = _normalize_processing_layers(engine)
-    # if normalized_rows:
-    #     merge_final(engine)
-    # else:
-    #     _refresh_duplicate_groups(engine)
+    # 옛 형식 자료 정리(재분류·synced_at 백필·상태 정규화, 비활성) — core/database/disabled_upgrade.py ⑤
     _refresh_duplicate_groups(engine)
 
 
@@ -738,177 +701,6 @@ def _apply_versioned_migrations(engine):
             conn.execute(text(f"PRAGMA user_version = {version}"))
         logger.LoggerFactory.logbot.info(f"[schema] DB 스키마 버전 {version} 적용")
 
-def _get_title_ids_for_scan(conn, *, message: str):
-    logger.LoggerFactory.logbot.info(message)
-    query = select(title_table.c.ID)
-    return pd.read_sql_query(query, conn)
-
-def _get_new_and_incomplete_ids(conn):
-    logger.LoggerFactory.logbot.info("신규, 미종결 신고 건 스캔 시작")
-    query_new = select(title_table.c.ID).where(
-        ~exists().where(title_table.c.ID == detail_traffic_table.c.ID)
-    ).where(
-        ~exists().where(title_table.c.ID == detail_parking_table.c.ID)
-    ).where(
-        ~exists().where(title_table.c.ID == detail_other_table.c.ID)
-    )
-
-    incomplete_queries = [
-        # 종결여부 NULL(모름)도 미종결로 본다. `!= 'Y'` 만 쓰면 NULL 행이 영영 빠진다(S-19).
-        select(t.c.ID).where(func.coalesce(t.c.종결여부, '') != 'Y')
-        for t in (detail_traffic_table, detail_parking_table, detail_other_table)
-    ]
-
-    df_new = pd.read_sql_query(query_new, conn)
-    df_incomplete = pd.concat(
-        [pd.read_sql_query(q, conn) for q in incomplete_queries],
-        ignore_index=True,
-    )
-
-    merged = pd.concat([
-        df_new, df_incomplete,
-    ]).drop_duplicates()
-    return merged
-
-def _labels_differ(left, right) -> bool:
-    """목록 라벨 비교. None 을 != 로 직접 비교하지 않는다(계약 list-refetch-v1)."""
-    if left is None or right is None:
-        return (left is None) != (right is None)
-    return str(left) != str(right)
-
-
-def should_refetch_list_item(*, in_personal_detail: bool, list_label,
-                             detail_status_label, closed, supplement_open,
-                             in_capture_retry: bool = False,
-                             rebuild_failed_permanent: bool = False,
-                             failed_list_label=None) -> bool:
-    """contracts/community-ingest/vectors/list_refetch.json 규칙 그대로.
-
-    closed/supplement_open 은 detail 표 원본(사용자 override 무시 — 호출자가
-    detail 표에서 읽어 넘긴다). 처리상태 canonical 은 비교하지 않는다.
-    """
-    if not in_personal_detail:
-        return True
-    if (closed or "") != "Y":
-        return True
-    if (supplement_open or "") == "Y":
-        return True
-    if in_capture_retry:
-        return True
-    if detail_status_label is None:
-        if rebuild_failed_permanent and not _labels_differ(list_label, failed_list_label):
-            return False
-        return True
-    return _labels_differ(list_label, detail_status_label)
-
-
-def _community_detail_status_labels() -> dict:
-    """community.db detail_status {report_id: c_now_label}. 실패하면 빈 dict."""
-    try:
-        from services.community_store import CommunityStore
-        store = CommunityStore.open()
-        dataset_id = store.local_dataset_id()
-        rows = store.connect().execute(
-            "SELECT source_report_id, c_now_label FROM detail_status WHERE local_dataset_id=?",
-            (dataset_id,)).fetchall()
-        return {row["source_report_id"]: row["c_now_label"] for row in rows}
-    except Exception as exc:
-        note_fallback("database.community_detail_status_labels", exc)
-        return {}
-
-
-def _community_rebuild_permanent_labels() -> dict:
-    """마지막 rebuild 의 failed_permanent {report_id: last_list_label}. 실패하면 빈 dict."""
-    try:
-        from services.community_store import CommunityStore
-        store = CommunityStore.open()
-        rows = store.connect().execute(
-            "SELECT i.source_report_id AS rid, i.last_list_label AS label, j.updated_at AS updated"
-            " FROM rebuild_items i JOIN rebuild_jobs j ON j.run_id=i.run_id"
-            " WHERE i.state='failed_permanent' ORDER BY j.updated_at DESC").fetchall()
-        labels = {}
-        for row in rows:
-            labels.setdefault(row["rid"], row["label"])
-        return labels
-    except Exception as exc:
-        note_fallback("database.community_rebuild_permanent_labels", exc)
-        return {}
-
-
-def _community_capture_retry_ids() -> set:
-    """T4 community_capture.capture_retry_ids(). 없으면 빈 집합(파일 직접 읽기 금지)."""
-    try:
-        from services import community_capture as capture
-        fn = getattr(capture, "capture_retry_ids", None)
-        if fn is None:
-            return set()
-        return set(fn() or set())
-    except Exception as exc:
-        note_fallback("database.community_capture_retry_ids", exc)
-        return set()
-
-
-def _list_refetch_extra_ids(conn) -> set:
-    """list_refetch 벡터로 다시 읽을 ID. detail 표 원본만 본다(override 무시)."""
-    title_rows = conn.execute(select(title_table.c.ID, title_table.c.상태)).fetchall()
-    if not title_rows:
-        return set()
-    detail_site: dict = {}
-    for table in (detail_traffic_table, detail_parking_table, detail_other_table):
-        for row in conn.execute(
-                select(table.c.ID, table.c.종결여부, table.c.보완_미응답)).fetchall():
-            detail_site.setdefault(str(row[0]), (row[1], row[2]))
-    status_labels = _community_detail_status_labels()
-    permanent_labels = _community_rebuild_permanent_labels()
-    retry_ids = _community_capture_retry_ids()
-    extra = set()
-    for report_id, list_label in title_rows:
-        key = str(report_id)
-        in_detail = key in detail_site
-        closed, supplement = detail_site.get(key, (None, None))
-        if should_refetch_list_item(
-                in_personal_detail=in_detail, list_label=list_label,
-                detail_status_label=status_labels.get(key),
-                closed=closed, supplement_open=supplement,
-                in_capture_retry=(key in retry_ids),
-                rebuild_failed_permanent=(key in permanent_labels),
-                failed_list_label=permanent_labels.get(key)):
-            extra.add(report_id)
-    return extra
-
-
-def get_pending_detail_ids(engine, force=False):
-    with engine.connect() as conn:
-        if force:
-            df = _get_title_ids_for_scan(conn, message="전체 신고 건을 다시 스캔합니다.")
-        else:
-            detail_rows = sum(
-                conn.execute(select(func.count()).select_from(t)).scalar()
-                for t in (detail_traffic_table, detail_parking_table, detail_other_table)
-            )
-            if detail_rows == 0:  # 주정차 표도 센다(S-19)
-                df = _get_title_ids_for_scan(conn, message="detail 테이블 비어 있어 전체 스캔 시작")
-            else:
-                df = _get_new_and_incomplete_ids(conn)
-                try:
-                    # 목록 상태 변경 재조회(벡터 list-refetch-v1) — 기존 후보와 합집합.
-                    extra = _list_refetch_extra_ids(conn)
-                    if extra:
-                        df = pd.concat([df, pd.DataFrame({"ID": list(extra)})],
-                                       ignore_index=True).drop_duplicates()
-                except Exception as exc:
-                    logger.LoggerFactory.logbot.warning(f"목록 재조회 선정 생략: {exc}")
-        
-        if df.empty:
-            return []
-
-        df_sorted = df.sort_values(by='ID', ascending=True)
-        detaillist = df_sorted['ID'].tolist()
-        logger.LoggerFactory.logbot.debug("스캔대상 ID 리스트화 완료")
-        logger.LoggerFactory.logbot.info(f"스캔대상 ID 총 {len(detaillist)}건")
-        return detaillist
-
-
 def title_to_sql(dataframes, engine, conn=None):
     if not dataframes:
         return []
@@ -1026,135 +818,6 @@ def merge_final(engine, conn=None, *, track_duplicate_changes: bool = False):
         logger.LoggerFactory.logbot.info("최종 데이터 병합 완료 (Traffic/Parking/Other 분리)")
     return _refresh_duplicate_groups(engine, track_changes=track_duplicate_changes)
 
-def load_results(engine, conn=None):
-    """전체 카테고리 합본 (레거시 호환). 새 코드는 load_results_by_category 사용 권장."""
-    cats = load_results_by_category(engine)
-    parts = [df for df in cats.values() if not df.empty]
-    return pd.concat(parts) if parts else pd.DataFrame()
-
-
-def load_results_by_category(engine):
-    """카테고리별 분리 결과. 엑셀/구글시트 시트별 저장용.
-    반환: {"교통위반": df_t, "주정차위반": df_p, "기타위반": df_o}"""
-    with engine.connect() as conn:
-        conn.exec_driver_sql('BEGIN')  # 세 분류를 한 스냅샷에서 읽는다(기술일지 A1-07)
-        df_watch = pd.read_sql_query(select(watchlist_table.c.신고번호), conn)
-        watch_ids = set(df_watch['신고번호'].tolist())
-
-        result = {}
-        for label, t in [("교통위반", merge_traffic_table),
-                         ("주정차위반", merge_parking_table),
-                         ("기타위반", merge_other_table)]:
-            df = pd.DataFrame(pd.read_sql_query(select(t), conn))
-            if not df.empty:
-                df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
-                if settings.exclude_withdraw:
-                    df = df[report_policy.status_series(df) != report_policy.WITHDRAWN_STATUS]
-            result[label] = df
-        return result
-
-def get_merged_records_by_report_numbers(engine, report_numbers):
-    """신고번호(SPP-…)로 병합 표 행을 읽는다. 별점 작업은 신고번호로 움직인다."""
-    if not report_numbers:
-        return []
-    res = []
-    with engine.connect() as conn:
-        for t in [merge_traffic_table, merge_parking_table, merge_other_table]:
-            result = conn.execute(select(t).where(t.c["신고번호"].in_(list(report_numbers))))
-            col_names = result.keys()
-            res.extend(dict(zip(col_names, row)) for row in result.fetchall())
-    return res
-
-
-def get_merged_records_by_ids(engine, id_list):
-    if not id_list:
-        return []
-    res = []
-    with engine.connect() as conn:
-        for t in [merge_traffic_table, merge_parking_table, merge_other_table]:
-            query = select(t).where(t.c.ID.in_(id_list))
-            result = conn.execute(query)
-            rows = result.fetchall()
-            if rows:
-                col_names = result.keys()
-                res.extend([dict(zip(col_names, row)) for row in rows])
-    return res
-
-def search_by_car_number(engine, car_number: str):
-    res = []
-    with engine.connect() as conn:
-        for t in [merge_traffic_table, merge_parking_table, merge_other_table]:
-            query = select(t).where(t.c.차량번호.like(f"%{car_number}%"))
-            result = conn.execute(query)
-            rows = result.fetchall()
-            if rows:
-                col_names = result.keys()
-                res.extend([dict(zip(col_names, row)) for row in rows])
-    return res
-
-def search_by_report_number(engine, report_number: str):
-    res = []
-    with engine.connect() as conn:
-        for t in [merge_traffic_table, merge_parking_table, merge_other_table]:
-            query = select(t).where(t.c.신고번호.like(f"%{report_number}%"))
-            result = conn.execute(query)
-            rows = result.fetchall()
-            if rows:
-                col_names = result.keys()
-                res.extend([dict(zip(col_names, row)) for row in rows])
-    return res
-
-# ── 관리자 계정 CRUD ─────────────────────────────────────────────────────────
-
-def has_admin_user(engine) -> bool:
-    with engine.connect() as conn:
-        count = conn.execute(select(func.count()).select_from(admin_users_table)).scalar()
-        return count > 0
-
-
-def get_admin_user(engine, username: str):
-    with engine.connect() as conn:
-        result = conn.execute(
-            select(admin_users_table).where(admin_users_table.c.username == username)
-        ).first()
-        return dict(result._mapping) if result else None
-
-
-def create_admin_user(engine, username: str, password: str):
-    from core.utils.security import hash_password
-    salt, pwd_hash = hash_password(password)
-    with engine.begin() as conn:
-        conn.execute(admin_users_table.insert().values(
-            username=username, password_hash=pwd_hash, salt=salt
-        ))
-
-
-_first_admin_lock = threading.Lock()
-
-
-def create_first_admin_user(engine, username: str, password: str) -> bool:
-    """최초 설정: 관리자가 없을 때만 만든다. 확인과 삽입을 한 잠금·한 트랜잭션에서 해 동시 요청이 관리자를 둘 만들지 못한다
-    (기술일지 A1-08). 이미 있으면 False."""
-    from core.utils.security import hash_password
-    salt, pwd_hash = hash_password(password)
-    with _first_admin_lock, engine.begin() as conn:
-        if conn.execute(select(func.count()).select_from(admin_users_table)).scalar():
-            return False
-        conn.execute(admin_users_table.insert().values(username=username, password_hash=pwd_hash, salt=salt))
-    return True
-
-
-def update_admin_user(engine, old_username: str, new_username: str, new_password: str):
-    from core.utils.security import hash_password
-    salt, pwd_hash = hash_password(new_password)
-    with engine.begin() as conn:
-        conn.execute(
-            update(admin_users_table)
-            .where(admin_users_table.c.username == old_username)
-            .values(username=new_username, password_hash=pwd_hash, salt=salt)
-        )
-
-
 def sync_rating_status(engine, report_id, status_str="참여 완료", *, score=None, cause=None):
     """별점 제출·확인 결과를 목록(title)에 기록하고 그 신고의 화면용 표를 다시 만든다(S-25, 결정 D-2).
     report_id 는 신고번호. score/cause 가 주어질 때만 별점·별점사유를 바꾼다(모바일 updateReportRatingByNumber 와 같음)."""
@@ -1178,38 +841,25 @@ def sync_rating_status(engine, report_id, status_str="참여 완료", *, score=N
             community_capture.add_retry_id(str(source_id), "rating_confirmed_refetch")
 
 
-# ── API Key CRUD ──────────────────────────────────────────────────────────────
-
-def create_api_key(engine, name: str) -> str:
-    import uuid
-    key = "sk-" + uuid.uuid4().hex
-    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with engine.begin() as conn:
-        conn.execute(api_keys_table.insert().values(key=key, name=name, created_at=created_at))
-    return key
-
-
-def get_all_api_keys(engine) -> list:
-    with engine.connect() as conn:
-        result = conn.execute(select(api_keys_table).order_by(api_keys_table.c.created_at.desc()))
-        return [dict(row._mapping) for row in result]
+# ── 분리한 모듈(EO R-06): 예전 이름으로 쓰는 호출자를 위해 다시 내보낸다 ──────────────────────────
+from .accounts_repo import (  # noqa: E402,F401
+    create_admin_user, create_api_key, create_first_admin_user, delete_api_key, get_admin_user, get_all_api_keys,
+    get_api_key_name, has_admin_user, update_admin_user, validate_api_key,
+)
+from .report_reads import (  # noqa: E402,F401
+    get_merged_records_by_ids, get_merged_records_by_report_numbers, load_results, load_results_by_category,
+    search_by_car_number, search_by_report_number,
+)
 
 
-def delete_api_key(engine, key: str):
-    with engine.begin() as conn:
-        conn.execute(api_keys_table.delete().where(api_keys_table.c.key == key))
+def get_pending_detail_ids(engine, force=False):
+    """상세 수집 대상 ID(services.collection_policy). services 를 늦게 불러 순환 import 를 피한다."""
+    from services import collection_policy
+
+    return collection_policy.get_pending_detail_ids(engine, force)
 
 
-def validate_api_key(engine, key: str) -> bool:
-    with engine.connect() as conn:
-        result = conn.execute(
-            select(api_keys_table).where(api_keys_table.c.key == key)
-        ).first()
-        return result is not None
+def should_refetch_list_item(**kwargs) -> bool:
+    from services import collection_policy
 
-def get_api_key_name(engine, key: str) -> str:
-    with engine.connect() as conn:
-        result = conn.execute(
-            select(api_keys_table.c.name).where(api_keys_table.c.key == key)
-        ).first()
-        return result[0] if result else "알 수 없는 기기"
+    return collection_policy.should_refetch_list_item(**kwargs)
