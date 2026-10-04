@@ -9,6 +9,7 @@ from starlette.background import BackgroundTask
 
 from core.utils.templating import templates
 from services import db_backup
+from web.db_upload import refused_response, staged_db_upload
 
 
 router = APIRouter()
@@ -49,59 +50,15 @@ def _safe_unlink(path: str):
 
 @router.post("/backup/upload")
 async def upload_db(file: UploadFile = File(...)):
-    """DB 파일 업로드 → 서버/모바일 자동 감지 후 복원."""
-    if not file.filename or not file.filename.lower().endswith(".db"):
-        raise HTTPException(status_code=400, detail=".db 파일만 업로드 가능합니다.")
-
-    # 임시 파일에 저장
-    tmp_path = await _save_upload_to_tmp(file)
+    """DB 파일 업로드 → 서버/모바일 자동 감지 후 복원(services.db_backup.restore_uploaded_db)."""
     from core.storage.exchange import RestoreRefused
-    try:
-        return await run_in_threadpool(_restore_uploaded, tmp_path)
-    except RestoreRefused as exc:
-        return JSONResponse({"status": "error", "code": exc.code, "detail": str(exc), "message": str(exc)}, status_code=409)
-    finally:
-        _safe_unlink(tmp_path)
 
-
-def _restore_uploaded(tmp_path: str):
-    kind = db_backup.inspect_upload(tmp_path)
-    if kind == "server":
-        backup, count = db_backup.restore_from_server_db(tmp_path)
-        return JSONResponse({
-            "status": "ok",
-            "kind": "server",
-            "imported": count,
-            "backup": os.path.basename(backup) if backup else "",
-            "message": f"서버 형식 DB로 복원 완료. ({count}건)",
-        })
-    elif kind == "mobile":
-        backup, count = db_backup.restore_from_mobile_db(tmp_path)
-        return JSONResponse({
-            "status": "ok",
-            "kind": "mobile",
-            "imported": count,
-            "backup": os.path.basename(backup) if backup else "",
-            "message": f"모바일 DB → 서버 형식 변환 복원 완료. ({count}건)",
-        })
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail="알 수 없는 DB 형식 — 서버(mysafety*) 또는 모바일(reports+sync_meta) DB만 허용됩니다.",
-        )
-
-
-async def _save_upload_to_tmp(file: UploadFile) -> str:
-    import tempfile
-    fd, tmp_path = tempfile.mkstemp(suffix=".db", prefix="safetyreport_upload_")
-    try:
-        with os.fdopen(fd, "wb") as out:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                await run_in_threadpool(out.write, chunk)  # 디스크 쓰기는 이벤트 루프 밖에서(기술일지 B-02)
-    except Exception:
-        _safe_unlink(tmp_path)
-        raise
-    return tmp_path
+    async with staged_db_upload(file) as tmp_path:
+        try:
+            result = await run_in_threadpool(db_backup.restore_uploaded_db, tmp_path)
+        except RestoreRefused as exc:
+            return refused_response(exc)
+    message = (f"서버 형식 DB로 복원 완료. ({result.imported}건)" if result.kind == "server"
+               else f"모바일 DB → 서버 형식 변환 복원 완료. ({result.imported}건)")
+    return JSONResponse({"status": "ok", "kind": result.kind, "imported": result.imported,
+                         "backup": result.backup_name, "message": message})

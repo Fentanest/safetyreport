@@ -189,6 +189,10 @@
 - 서버 시작 시 `database.upgrade_schema()`가 실행되며, 기존 DB에 새 컬럼이 생긴 경우 단순 `ALTER TABLE`만 하지 않고 필요한 후속 마이그레이션까지 같이 처리한다.
   - 2026-05-06 이후에는 `mysafetydetail_*`.`synced_at` 공백을 `답변일` 우선, 없으면 `신고일` 기준으로 자동 백필하고 `mysafetymerge_*`를 다시 만든다.
   - `/backup/upload`로 서버 형식 DB를 덮어쓴 경우에도 같은 업그레이드/백필을 즉시 수행하므로, 앱 재시작 전까지 구스키마가 남아 있지 않게 한다.
+  - 업로드 절차(EO R-12, 2026-10-05): 웹 `/backup/upload` 와 API `/api/v1/settings/db/upload` 는 같은 임시 저장(`web/db_upload.staged_db_upload` — .db 이름 확인,
+    1MiB 단위로 이벤트 루프 밖에서 쓰기, 끝나면 임시 파일과 `-wal`·`-shm`·`-journal` 부속 파일까지 삭제)과 HTTP 와 무관한 복원
+    `services.db_backup.restore_uploaded_db`(형식·무결성·종류 판별 → 서버/모바일 복원, 결과 kind·imported·backup)을 쓴다. 거절은 둘 다 409 같은 본문,
+    성공 응답은 웹만 `message` 를 더한다. 이전에는 형식 검사가 만든 `-wal`·`-shm` 이 임시 폴더에 남았다.
   - 같은 흐름에서 payload exact 중복군도 재생성되어 merge 결과와 대표건 집계층을 함께 갱신한다.
 - 신고 위치는 안전신문고 상세의 `C_A_W`(위도)·`C_A_E`(경도)에서 읽고, 완료된 보완 주소·좌표가 있으면 그 값으로 갱신한다.
   - `services/geocode_service.py`는 기존 `위도`·`경도`·`지오코딩상태` 열에 맞춘 순수 변환만 한다. 카카오 REST 주소 변환·백필 작업은 없다.

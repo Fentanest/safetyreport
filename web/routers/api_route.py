@@ -1,5 +1,4 @@
 import os
-import tempfile
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, Query
 from starlette.concurrency import run_in_threadpool
@@ -690,49 +689,17 @@ def download_database(_: str = Depends(_require_api_key_flex)):
 
 @router.post("/settings/db/upload")
 async def upload_database(file: UploadFile = File(...), _: str = Depends(_require_api_key_flex)):
+    """서버/모바일 DB 복원(services.db_backup.restore_uploaded_db). 임시 저장·정리는 web.db_upload 와 웹 경로가 같다."""
+    from core.storage.exchange import RestoreRefused
     from services import db_backup
+    from web.db_upload import refused_response, staged_db_upload
 
-    if not file.filename or not file.filename.lower().endswith(".db"):
-        raise HTTPException(status_code=400, detail=".db 파일만 업로드 가능합니다.")
-
-    fd, tmp_path = tempfile.mkstemp(suffix=".db", prefix="safetyreport_upload_")
-    try:
-        # 디스크 쓰기와 형식·무결성 검사(PRAGMA integrity_check)는 이벤트 루프 밖에서 한다 — 큰 DB 를 올리는 동안
-        # 다른 HTTP·WS 처리가 멈추지 않게(기술일지 B-02).
-        with os.fdopen(fd, "wb") as out:
-            while True:
-                chunk = await file.read(1024 * 1024)
-                if not chunk:
-                    break
-                await run_in_threadpool(out.write, chunk)
-
-        from core.storage.exchange import RestoreRefused
+    async with staged_db_upload(file) as tmp_path:
         try:
-            kind = await run_in_threadpool(db_backup.inspect_upload, tmp_path)
-            if kind == "server":
-                backup, count = await run_in_threadpool(db_backup.restore_from_server_db, tmp_path)
-            elif kind == "mobile":
-                backup, count = await run_in_threadpool(db_backup.restore_from_mobile_db, tmp_path)
+            result = await run_in_threadpool(db_backup.restore_uploaded_db, tmp_path)
         except RestoreRefused as exc:
-            from fastapi.responses import JSONResponse
-            return JSONResponse({"status": "error", "code": exc.code, "detail": str(exc), "message": str(exc)}, status_code=409)
-        if kind not in ("server", "mobile"):
-            raise HTTPException(
-                status_code=400,
-                detail="알 수 없는 DB 형식 — 서버(mysafety*) 또는 모바일(reports+sync_meta) DB만 허용됩니다.",
-            )
-
-        return {
-            "status": "ok",
-            "kind": kind,
-            "imported": count,
-            "backup": os.path.basename(backup) if backup else "",
-        }
-    finally:
-        try:
-            os.remove(tmp_path)
-        except Exception:
-            pass
+            return refused_response(exc)
+    return {"status": "ok", "kind": result.kind, "imported": result.imported, "backup": result.backup_name}
 
 
 @router.post("/settings")

@@ -68,7 +68,6 @@ SILENT_ALLOWED = {
     "start.py::_rebuild_list_labels": ("parse", 1),
     "start.py::_rebuild_register_list": ("parse", 1),
     "web/routers/api_route.py::download_database._cleanup": ("cleanup", 1),
-    "web/routers/api_route.py::upload_database": ("cleanup", 1),
     "web/routers/backup_route.py::_safe_unlink": ("cleanup", 1),
     "web/routers/crawl.py::start_crawl": ("explicit", 1),
 }
@@ -174,11 +173,12 @@ class FallbackSitesKeepValuesTest(unittest.TestCase):
         self.assertTrue(any(action in line for line in captured.output), captured.output)
 
     def test_community_label_lookups(self):
-        from core.database import database
+        from services import collection_policy
         with mock.patch("services.community_store.CommunityStore.open", side_effect=OSError("db")):
-            self._assert_logged("database.community_detail_status_labels", database._community_detail_status_labels, {})
-            self._assert_logged("database.community_rebuild_permanent_labels",
-                                database._community_rebuild_permanent_labels, {})
+            self._assert_logged("collection_policy.community_detail_status_labels",
+                                collection_policy._community_detail_status_labels, {})
+            self._assert_logged("collection_policy.community_rebuild_permanent_labels",
+                                collection_policy._community_rebuild_permanent_labels, {})
 
     def test_decrypt_failure_still_returns_empty(self):
         from core.utils import security

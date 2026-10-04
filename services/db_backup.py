@@ -10,6 +10,7 @@ import os
 import re
 import sqlite3
 import tempfile
+from dataclasses import dataclass
 from typing import Literal, Tuple
 
 import settings.settings as settings
@@ -106,6 +107,31 @@ def inspect_upload(db_path: str) -> DbKind:
     if kind == 'unknown':
         raise UnknownDatabaseKindRefused('지원하지 않는 DB 종류입니다. 서버 또는 모바일 백업을 선택하세요.')
     return kind
+
+
+@dataclass(frozen=True)
+class UploadRestoreResult:
+    kind: DbKind
+    imported: int
+    backup_name: str
+
+
+def restore_uploaded_db(uploaded_path: str) -> UploadRestoreResult:
+    """올린 DB 파일을 판별(서버·모바일)하고 복원한다(EO R-12: 웹·API 가 같은 절차를 쓴다, HTTP 와 무관).
+
+    형식이 틀리거나 손상·알 수 없는 종류·이전/미래 버전·복원 불가 상태면 RestoreRefused 계열을 그대로 던진다.
+    임시 파일은 호출자가 지운다.
+    """
+    from core.storage.exchange import UnknownDatabaseKindRefused
+
+    kind = inspect_upload(uploaded_path)
+    if kind == "server":
+        backup, count = restore_from_server_db(uploaded_path)
+    elif kind == "mobile":
+        backup, count = restore_from_mobile_db(uploaded_path)
+    else:  # inspect_upload 가 이미 거절한다 — 판별 규칙이 늘어도 조용히 넘어가지 않게
+        raise UnknownDatabaseKindRefused('지원하지 않는 DB 종류입니다. 서버 또는 모바일 백업을 선택하세요.')
+    return UploadRestoreResult(kind, count, os.path.basename(backup) if backup else "")
 
 
 def restore_from_server_db(uploaded_path: str) -> Tuple[str, int]:
