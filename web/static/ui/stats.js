@@ -1057,6 +1057,9 @@
         if (index !== -1) $.fn.dataTable.ext.search.splice(index, 1);
         $('#statsTabsContent table').each(function () {
             if ($.fn.dataTable.isDataTable(this)) $(this).DataTable().off('.srStats').destroy();
+            // The loaded DataTables build leaves info.dt handlers on a retained
+            // table after destroy(). They retain the old mount's data/context.
+            $(this).off('.dt .DT');
         });
         if (mapInstance && mapInstance.map) mapInstance.map.remove();
         if (window.srEarlyMap === mapInstance) window.srEarlyMap = null;

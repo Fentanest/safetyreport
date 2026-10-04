@@ -50,6 +50,7 @@ _active_run: dict | None = None  # {"run_id","trigger","finished":Event,"result"
 _wake_event = threading.Event()
 _bg_thread: threading.Thread | None = None
 _bg_stop = threading.Event()
+_bg_lock = threading.RLock()
 _last_requests = {}
 _last_data_version: int | None = None
 _next_due: datetime | None = None  # 재시도 실행기가 깨어날 시각(가장 이른 next_retry_at·cooldown)
@@ -893,6 +894,11 @@ def wake() -> None:
 
 
 def start_background(data_dir=None) -> None:
+    with _bg_lock:
+        _start_background_locked(data_dir)
+
+
+def _start_background_locked(data_dir=None) -> None:
     """수집·게이트가 community.db 를 바꾸면(data_version) 실시간 업로드, 가장 이른 재시도 시각이 되면 복구 업로드.
     행마다 타이머를 두지 않고 1초 주기 확인 하나로 처리한다."""
     global _bg_thread, _next_due
@@ -945,14 +951,22 @@ def start_background(data_dir=None) -> None:
     _bg_thread.start()
 
 
-def stop_background(timeout: float = 5.0) -> None:
+def stop_background(timeout: float = 5.0) -> bool:
     global _bg_thread
-    _bg_stop.set()
-    _wake_event.set()
-    thread = _bg_thread
-    if thread is not None and thread is not threading.current_thread():
-        thread.join(timeout)
-    _bg_thread = None
+    with _bg_lock:
+        _bg_stop.set()
+        _wake_event.set()
+        thread = _bg_thread
+        if thread is None:
+            return True
+        if thread is threading.current_thread():
+            return False
+        thread.join(max(0, timeout))
+        if thread.is_alive():
+            return False
+        if _bg_thread is thread:
+            _bg_thread = None
+        return True
 
 
 # ── 상태(지도 패널) ──────────────────────────────────────────────────────────

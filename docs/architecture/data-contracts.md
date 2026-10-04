@@ -8,9 +8,9 @@
 - 목록의 여러 카테고리, 통계·지도 원천과 중복 projection은 같은 연결의 명시 read transaction에서 읽는다. 외부 WAL commit 뒤에도 해당 응답은 하나의 snapshot을 유지한다.
 - 취하 제외 조건은 NULL 처리상태를 포함한다. 날짜 종료값은 그 날짜 전체, 분 단위 시각 종료값은 해당 분 전체를 포함한다. 저장한 원문 날짜/NULL/빈 문자열을 변환하지 않는다.
 - JSON 객체 mutation은 최대 1MiB를 읽고 malformed/non-object/잘못된 필드 타입은 400, 초과 크기는 413이다. API 키·protocol·게이트 확인이 앞선다. session 관리자 mutation에는 CSRF 토큰 및 Origin/Fetch-Site 검증을 적용한다. URL-encoded token fallback은 최대 64KiB이며 읽은 body를 후속 form parser에 재생한다.
-- 파일 API는 logs/results의 명시 root만 허용한다. ZIP은 완성한 임시 파일로 제공하며 entry 이름은 `logs/상대경로`, `results/상대경로`다. 선택 파일을 읽지 못하면 일부 파일만 들어간 성공 ZIP을 만들지 않는다. POSIX에서는 검증한 fd와 O_NOFOLLOW/dirfd로 경로 교체를 방어한다. Windows의 동등한 핸들 보호는 별도 환경 검증이 필요하다.
+- 파일 API는 logs/results의 명시 root만 허용한다. ZIP은 완성한 임시 파일로 제공하며 entry 이름은 `logs/상대경로`, `results/상대경로`다. 선택 파일을 읽지 못하면 일부 파일만 들어간 성공 ZIP을 만들지 않는다. POSIX에서는 검증한 fd와 O_NOFOLLOW/dirfd로 경로 교체를 방어한다. Windows는 `windows_file_handle`에서 CreateFileW로 연 같은 핸들의 final path·reparse·hardlink를 검사하고 그 핸들로 읽거나 삭제한다. 실제 Win32 ABI/filesystem 동등성은 Windows runner 결과가 필요하다.
 - `crawl_runs/*.json`(실행·return code), `rating_operations/*.json`(제출/확인 결과), `export_runs/*.json`, `notification_runs/*.json`은 서버 로컬 작업 기록이다. 교환 DB의 테이블·컬럼·schema version에 추가하지 않는다. 별점 unknown/submitting 기록은 다음 실행에서 조회로 확인하며 자동 재POST하지 않는다.
-- `/api/v1/crawl/status`의 `last_attempt`와 `crawl_finished.data`의 `outcome`/`run_id`는 추가형 정보다. 기존 필드·완료 마커 소비 경로는 유지한다. 기존 모바일이 새 outcome을 해석하지 않는 경우까지 서버 수정만으로 해결됐다고 하지 않는다.
+- `/api/v1/crawl/status`의 `last_attempt`와 `crawl_finished.data`의 `outcome`/`run_id`는 추가형 정보다. 기존 필드·완료 마커 소비 경로는 유지한다. Android `CrawlOutcome`은 failed/cancelled/unknown/partial을 구분하며 outcome 없는 구버전의 기본 의미를 유지한다. terminal replay와 native cursor의 상세는 아래 WS 절을 따른다.
 
 ### 코드 대조 정정
 
@@ -19,6 +19,8 @@
 | 원천 읽기 실패를 빈 목록으로 간주해도 됨 | duplicate/query/stats 필수 read에서 오류를 전파 | 정상 empty와 자료 손실을 유발하는 read failure를 분리 |
 | inode signature/probe 교체만으로 pool도 새 DB를 읽음 | `report_cache.cached`가 engine별 inode를 관찰하고 idle pool dispose 후 계산 | checked-out read는 자신의 기존 snapshot을 완료; cache generation 재검증 별도 |
 | 별점 timeout은 다음 실행에서 재제출 가능 | `rating_operation_state`와 `star_rating_service`의 조회 확인 경계 | 실제 원격 결과가 미확정이면 자동 재제출하지 않음 |
+| WS 종료 알림은 현재 연결에만 전달되며 모든 client send를 함께 기다림 | `ws_event_store` terminal256·`ws_manager` 연결별 writer/queue/deadline·optional after replay | 교환 DB와 별도 private sidecar; native history/cursor 원자 저장. terminal 순서 lock의 지연 한계는 별도 |
+| 파일 임시는 response finally만으로 강제 종료까지 정리됨 | `download_artifacts` private PID 디렉터리·startup dead-PID recovery | 살아 있는 PID·불명확한 소유 파일·link/junction을 정리하지 않음 |
 
 ## 현행 self-host 통신 계약
 
@@ -511,6 +513,14 @@ Flutter Report 모델 필드(fromJson 매핑) 및 모바일 상세 구조는 `sa
 
 <!-- legacy CLAUDE.md 439-468 -->
 ## WebSocket 이벤트 (`/ws/events`)
+
+완료 이벤트의 복구 계약은 추가형이다. 기존 `type`/`timestamp`/`data`와 인증·protocol3·gate 종료 코드를 유지한다.
+- `crawl_finished`만 `datapath/ws_terminal_events.db`에 먼저 기록한다. `run_id`로 중복 기록을 막고 최근 256개를 보존한다. 교환 DB의 테이블·컬럼을 바꾸지 않는 서버 전용 sidecar다.
+- `?after=<event_id>`는 저장한 번호 뒤의 종료 이벤트를 재전송한다. 생략한 기존 클라이언트는 과거 이벤트를 받지 않는다. `connected.data`에 `latest_event_id`, `replay_gap`, `cursor_reset`, `last_attempt`를 추가한다. 보존 범위 밖이면 gap을 알리고, 미래 커서는 reset 후 남은 이벤트를 보낸다.
+- 클라이언트별 writer 하나, 대기 32개/4MiB, send 5초/close 1초. 느리거나 초과한 연결은 1013으로 종료한다. thread bridge 대기도 32개로 제한하며, terminal 기록은 연결·대기 슬롯 유무보다 먼저 이루어진다. SQLite 저장 실패는 성공으로 처리하지 않는다.
+- 종료 알림과 별도로 실제 변경 자료는 기존 `/crawl/results`의 기기별 cursor 계약을 따른다. 모든 이벤트가 이 종료 journal에 들어간다고 가정하지 않는다.
+- 모바일 `WsService`는 설정 scope별 커서를 유지하고 알림 이력과 커서를 **하나의 SharedPreferences commit**에 저장한다. failed/cancelled/unknown은 성공 문구를 쓰지 않는다. gap은 현황 확인을 알리며, 저장 실패는 재연결한다. 구 모바일도 기존 payload를 계속 받는다.
+
 
 WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 

@@ -107,6 +107,10 @@ async def lifespan(app: FastAPI):
 
     from services.ws_manager import ws_manager as _ws_manager
     _ws_manager.set_main_loop(asyncio.get_event_loop())
+    from services.crawl_manager import crawl_manager as _managed_crawl
+    _managed_crawl.resume_managed()
+    from services import download_artifacts
+    await run_in_threadpool(download_artifacts.recover)
     # 이전 버전 DB 는 옮기지 않는다(2026-09-26 초기화 크롤링 릴리스): data/backups/legacy_v*.db 로 통째로 백업한 뒤
     # 신고 자료를 비우고(관리자·API 키·감시목록·지오코딩 캐시만 남김) 초기화 크롤링 안내로 다시 채운다. 새 설치는 해당 없음.
     def _rotate_community_dataset():
@@ -170,36 +174,54 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         # ── shutdown ─────────────────────────────────────────────────────────────
+        shutdown_deadline = time.monotonic() + 60
+        def allowance(cap=5):
+            return min(cap, max(0, shutdown_deadline - time.monotonic()))
+        async def stop_worker(name, callback):
+            try:
+                if not await run_in_threadpool(callback, timeout=allowance()):
+                    logger.LoggerFactory.logbot.warning(f'[{name}] 종료 요청 후 작업자가 아직 실행 중입니다.')
+            except Exception as exc:
+                logger.LoggerFactory.logbot.warning(f'[{name}] 종료 실패: {type(exc).__name__}')
+        try:
+            await _ws_manager.close_all(1001, 'Server shutdown')
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f'[WS] 종료 실패: {type(exc).__name__}')
+        try:
+            if not await run_in_threadpool(_managed_crawl.shutdown, timeout=allowance(15)):
+                logger.LoggerFactory.logbot.warning('[crawl] 종료 제한 시간 후 child 또는 준비 작업이 아직 실행 중입니다.')
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f'[crawl] 종료 실패: {type(exc).__name__}')
         try:
             from services import community_rebuild
-            stopped = await run_in_threadpool(community_rebuild.stop_background)
+            stopped = await run_in_threadpool(community_rebuild.stop_background, timeout=allowance())
             if not stopped:
                 logger.LoggerFactory.logbot.warning('[rebuild] 종료 제한 시간 후 작업자가 아직 실행 중입니다.')
         except Exception as exc:
             logger.LoggerFactory.logbot.warning(f'[rebuild] 종료 실패: {type(exc).__name__}')
         try:
             from services import community_uploader
-            community_uploader.stop_background()
+            await stop_worker('uploader', community_uploader.stop_background)
         except Exception:
             pass
         try:
             from services import community_auth_service
-            community_auth_service.shutdown()
+            await stop_worker('auth', community_auth_service.shutdown)
         except Exception:
             pass
         try:
             from core.crawler import direct_login
-            direct_login.stop_keepalive()
+            await stop_worker('direct_login', direct_login.stop_keepalive)
         except Exception:
             pass
         try:
-            sunwi_service.stop_background_refresh()
+            await stop_worker('sunwi', sunwi_service.stop_background_refresh)
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"sunwi background refresh 종료 중 오류: {e}")
         if bot_application:
             try:
                 import bot
-                await bot.stop_managed(bot_application)
+                await bot.stop_managed(bot_application, timeout=allowance(10))
             except Exception as exc:
                 logger.LoggerFactory.logbot.warning(f'[bot] 종료 실패: {type(exc).__name__}')
             finally:
@@ -212,13 +234,13 @@ async def lifespan(app: FastAPI):
             logger.LoggerFactory.logbot.error(f"스케줄러 종료 중 오류: {e}")
         try:
             from services import rating_service
-            if not await run_in_threadpool(rating_service.stop):
+            if not await run_in_threadpool(rating_service.stop, timeout=allowance()):
                 logger.LoggerFactory.logbot.warning('[rating] 종료 제한 시간 후 작업자가 아직 실행 중입니다.')
         except Exception as exc:
             logger.LoggerFactory.logbot.warning(f'[rating] 종료 실패: {type(exc).__name__}')
         try:
             from services import media_proxy_service
-            if not await run_in_threadpool(media_proxy_service.stop):
+            if not await run_in_threadpool(media_proxy_service.stop, timeout=allowance()):
                 logger.LoggerFactory.logbot.warning('[media] 종료 제한 시간 후 다운로드 작업자가 아직 실행 중입니다.')
         except Exception as exc:
             logger.LoggerFactory.logbot.warning(f'[media] 종료 실패: {type(exc).__name__}')
@@ -581,11 +603,17 @@ _UVICORN_LOG_CONFIG = {
 def start_server():
     # Use app object for frozen binary (no reload), but use "main:app" string for dev mode (with reload)
     try:
+        from core.utils.runtime_mode import is_fixture_mode
+        fixture = is_fixture_mode()
+        port = int(os.environ.get('SAFETYREPORT_FIXTURE_PORT', '18773')) if fixture else 6819
+        if not 1024 <= port <= 65535 or (fixture and port in (6819, 9222)):
+            raise ValueError('invalid fixture port')
+        host = '127.0.0.1' if fixture else '0.0.0.0'
         if is_frozen:
-            uvicorn.run(app, host="0.0.0.0", port=6819, log_config=_UVICORN_LOG_CONFIG,
+            uvicorn.run(app, host=host, port=port, log_config=_UVICORN_LOG_CONFIG,
                         ws_ping_interval=None, ws_ping_timeout=None)
         else:
-            uvicorn.run("main:app", host="0.0.0.0", port=6819, reload=True, log_config=_UVICORN_LOG_CONFIG,
+            uvicorn.run("main:app", host=host, port=port, reload=not fixture, log_config=_UVICORN_LOG_CONFIG,
                         ws_ping_interval=None, ws_ping_timeout=None)
     except Exception as e:
         logger.LoggerFactory.get_logger().error(f"서버 시작 오류: {e}")
@@ -604,7 +632,8 @@ if __name__ == "__main__":
         print(f"업데이트 확인 중 오류: {_ue}")
 
     try:
-        if not os.path.exists('/.dockerenv'):
+        from core.utils.runtime_mode import is_fixture_mode
+        if not is_fixture_mode() and not os.path.exists('/.dockerenv'):
             threading.Thread(target=open_browser, daemon=True).start()
         else:
             print("\n\n" + "="*60)

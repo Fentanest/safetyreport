@@ -1,6 +1,7 @@
 import json
 import subprocess
 import threading
+import time
 import sys
 import os
 from contextlib import contextmanager
@@ -42,6 +43,7 @@ class CrawlManager:
                 cls._instance._retry_delay = cls.RETRY_FIRST_SECONDS
                 cls._instance._request_worker_active = False  # 시작 요청 합치기(R6-04)
                 cls._instance._request_again = False
+                cls._instance._shutting_down = False
         return cls._instance
 
     def restore_generation(self) -> int:
@@ -83,6 +85,8 @@ class CrawlManager:
 
     def reserve_rating(self, generation):
         with self._state_lock:
+            if getattr(self, '_shutting_down', False):
+                raise RuntimeError('서버가 종료 중입니다.')
             if self._restore_hold or generation != self._restore_generation:
                 raise CrawlBlockedByRestore("DB 복원 후 다시 시도하세요.")
             if self._rating_token is not None or self._preparing or self._post_upload_active or (
@@ -108,6 +112,8 @@ class CrawlManager:
         prepare: 시작을 예약한 뒤 Popen 전에 실행. 예약 표시가 다른 시작·복원을 막고,
         긴 업로드 동안에는 상태 잠금을 풀어 조회 요청이 계속 응답하게 한다(R4-02)."""
         with self._state_lock:
+            if getattr(self, '_shutting_down', False):
+                return False
             if self._rating_token is not None or self._preparing or self._post_upload_active or self._process_busy_locked():
                 return False
             if self._restore_hold:
@@ -134,6 +140,8 @@ class CrawlManager:
                 from services import community_rebuild
                 community_rebuild.bind_attempt(rebuild_id, run_id)
             with open(log_file, 'a', encoding='utf-8', errors='replace') as log_output, self._state_lock:
+                if getattr(self, '_shutting_down', False):
+                    raise RuntimeError('서버가 종료 중입니다.')
                 if rebuild_id:
                     with community_rebuild._store().transaction() as tx:
                         community_rebuild.assert_current_attempt(tx, rebuild_id, run_id)
@@ -165,7 +173,24 @@ class CrawlManager:
     STOP_WAIT_SECONDS = 10.0
     KILL_WAIT_SECONDS = 5.0
 
-    def stop_crawl(self) -> bool:
+    def resume_managed(self):
+        with self._state_lock:
+            self._shutting_down = False
+
+    def shutdown(self, timeout=None):
+        """접수를 닫고 타이머와 소유한 child를 종료한다. 대기 번호는 보존한다."""
+        with self._state_lock:
+            self._shutting_down = True
+            self._request_again = False
+            timer, self._retry_timer = self._retry_timer, None
+        if timer is not None:
+            timer.cancel()
+        self.stop_crawl(timeout=timeout)
+        with self._state_lock:
+            proc = self._active_process
+            return not self._preparing and (proc is None or proc.poll() is not None)
+
+    def stop_crawl(self, *, timeout=None) -> bool:
         """크롤링 강제 종료. 종료 신호를 보낸 뒤 **실제로 끝난 것을 확인한 다음에만** 참조를 지운다(감사 R2-01) —
         그 전까지 is_crawling·hold_for_restore 는 실행 중으로 보고 복원을 막는다. 끝나지 않으면 kill, 그래도 살아 있으면 참조 유지."""
         with self._state_lock:
@@ -173,12 +198,15 @@ class CrawlManager:
             if proc is None or proc.poll() is not None:
                 return False
             proc.terminate()
+        deadline = time.monotonic() + max(0, timeout) if timeout is not None else None
+        def remaining(cap):
+            return cap if deadline is None else min(cap, max(0, deadline - time.monotonic()))
         try:
-            proc.wait(timeout=self.STOP_WAIT_SECONDS)
+            proc.wait(timeout=remaining(self.STOP_WAIT_SECONDS))
         except subprocess.TimeoutExpired:
             proc.kill()
             try:
-                proc.wait(timeout=self.KILL_WAIT_SECONDS)
+                proc.wait(timeout=remaining(self.KILL_WAIT_SECONDS))
             except subprocess.TimeoutExpired:
                 return True
         if isinstance(getattr(proc, '_safetyreport_run_id', None), str):
@@ -370,7 +398,7 @@ class CrawlManager:
 
     def _schedule_retry(self) -> None:
         with self._state_lock:
-            if self._retry_timer is not None:
+            if getattr(self, '_shutting_down', False) or self._retry_timer is not None:
                 return
             delay = self._retry_delay
             self._retry_delay = min(delay * 2, self.RETRY_MAX_SECONDS)

@@ -15,6 +15,7 @@ TOP5_CSV_FILENAME = "sunwi_category_top5_latest.csv"
 _cache_lock = threading.Lock()
 _stop_event = threading.Event()
 _worker_thread = None
+_worker_lock = threading.Lock()
 _cache = {
     "available": False,
     "period": None,
@@ -72,7 +73,7 @@ def get_results_dir() -> str:
 
 
 def refresh_data() -> dict:
-    result = sunwi_fetcher.collect_statistics(logger_fn=_log_adapter)
+    result = sunwi_fetcher.collect_statistics(logger_fn=_log_adapter, stop_event=_stop_event)
     sunwi_fetcher.save_all_rows_csv(result["all_rows"], get_all_csv_path())
     sunwi_fetcher.save_top5_csv(result["top5_rows"], get_top5_csv_path())
 
@@ -145,6 +146,8 @@ def _worker_loop():
     while not _stop_event.is_set():
         try:
             refresh_data()
+        except InterruptedError:
+            break
         except Exception as exc:
             with _cache_lock:
                 _cache["error"] = str(exc)
@@ -157,21 +160,31 @@ def _worker_loop():
 
 def start_background_refresh():
     global _worker_thread
-
-    if _worker_thread and _worker_thread.is_alive():
-        return
-    from core.utils.runtime_mode import skip_in_fixture
-    if skip_in_fixture("sunwi background refresh"):
-        return
-
-    _stop_event.clear()
-    _worker_thread = threading.Thread(
-        target=_worker_loop,
-        name="sunwi-refresh",
-        daemon=True,
-    )
-    _worker_thread.start()
+    with _worker_lock:
+        if _worker_thread and _worker_thread.is_alive():
+            return
+        from core.utils.runtime_mode import skip_in_fixture
+        if skip_in_fixture("sunwi background refresh"):
+            return
+        _stop_event.clear()
+        _worker_thread = threading.Thread(
+            target=_worker_loop, name="sunwi-refresh", daemon=True)
+        _worker_thread.start()
 
 
-def stop_background_refresh():
-    _stop_event.set()
+def stop_background_refresh(timeout=5):
+    global _worker_thread
+    with _worker_lock:
+        _stop_event.set()
+        worker = _worker_thread
+        if worker is None:
+            return True
+        if worker is threading.current_thread():
+            return False
+        worker.join(timeout=max(0, timeout))
+        if worker.is_alive():
+            _log_warning('[sunwi] 종료 요청 후에도 수집 스레드가 살아 있습니다.')
+            return False
+        if _worker_thread is worker:
+            _worker_thread = None
+        return True

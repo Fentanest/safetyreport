@@ -251,6 +251,7 @@ def request_with_retry(session, method, url, *,
 
 _keepalive_thread: Optional[threading.Thread] = None
 _keepalive_stop = threading.Event()
+_keepalive_lock = threading.RLock()
 
 
 def _keepalive_loop(interval_seconds: int = 55 * 60):
@@ -271,6 +272,11 @@ def _keepalive_loop(interval_seconds: int = 55 * 60):
 
 
 def start_keepalive(interval_seconds: int = 55 * 60) -> bool:
+    with _keepalive_lock:
+        return _start_keepalive_locked(interval_seconds)
+
+
+def _start_keepalive_locked(interval_seconds: int = 55 * 60) -> bool:
     """백그라운드 갱신 스레드 시작. 이미 실행 중이면 False."""
     global _keepalive_thread
     if _keepalive_thread and _keepalive_thread.is_alive():
@@ -296,5 +302,18 @@ def start_keepalive(interval_seconds: int = 55 * 60) -> bool:
     return True
 
 
-def stop_keepalive():
-    _keepalive_stop.set()
+def stop_keepalive(timeout=5):
+    global _keepalive_thread
+    with _keepalive_lock:
+        _keepalive_stop.set()
+        worker = _keepalive_thread
+        if worker is None:
+            return True
+        if worker is threading.current_thread():
+            return False
+        worker.join(max(0, timeout))
+        if worker.is_alive():
+            return False
+        if _keepalive_thread is worker:
+            _keepalive_thread = None
+        return True

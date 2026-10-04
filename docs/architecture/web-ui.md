@@ -123,3 +123,7 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 설정 화면의 경찰기관명 정규화 토글은 제거했다. 기관명 표시와 통계 묶음은 기관코드 registry의 현행명·통계 키를 항상 사용하며, 확인되지 않은 코드는 원문 이름을 유지한다.
 
 웹 신고 목록은 조회 결과에서 registry 표시명을 계산한 다음 기관 검색을 적용한다. `/api/v1`의 신고 원문 `처리기관`·`처리기관코드`는 DB 교환 계약을 위해 그대로 내려가며, 모바일 Client가 수신 뒤 화면 표시명을 계산한다.
+
+## 통계 재마운트의 이벤트 소유권
+
+`SrStats.dispose()`는 보존되는 통계 table에서 DataTables의 남은 `.dt`/`.DT` handler도 해제한다. 현행 브라우저 빌드의 `destroy()` 뒤 `info.dt`가 이전 drawCallback과 전체 mount context를 붙잡는 현상을 heap retainer로 확인했다. 새 mount가 필요한 handler를 다시 등록한다. 지도 viewport refresh의 `pagehide` handler는 map unload 때 해제한다. document handler 수뿐 아니라 table handler·이전 mount context도 반복 검사한다.

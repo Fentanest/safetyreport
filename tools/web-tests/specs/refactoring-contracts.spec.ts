@@ -216,7 +216,9 @@ test('statistics twenty remounts keep table filters and document handlers bounde
     const w = window as any, $ = w.jQuery;
     const count = () => ({ filters: $.fn.dataTable.ext.search.length, tables: $.fn.dataTable.tables().length,
       handlers: Object.values($._data(document, 'events') || {}).flat().filter((handler: any) => handler.namespace === 'srStats').length,
-      scripts: document.querySelectorAll('script[src*="/ui/stats.js"]').length });
+      scripts: document.querySelectorAll('script[src*="/ui/stats.js"]').length,
+      tableHandlers: $('#statsTabsContent table').toArray().reduce((sum: number, table: any) =>
+        sum + Object.values($._data(table, 'events') || {}).flat().length, 0) });
     const before = count();
     for (let iteration = 0; iteration < 20; iteration++) w.SrStats.mount();
     const after = count(); w.SrStats.dispose();

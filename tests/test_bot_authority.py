@@ -58,3 +58,17 @@ class BotAuthorityTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError): await bot.start_managed()
         application.initialize.assert_awaited_once()
         application.shutdown.assert_awaited_once()
+
+
+class ManagedBotShutdownTests(unittest.IsolatedAsyncioTestCase):
+    async def test_updater_failure_does_not_skip_application_stop_and_shutdown(self):
+        application = mock.Mock()
+        application.updater.running = True
+        application.running = True
+        application.updater.stop = mock.AsyncMock(side_effect=RuntimeError('synthetic stop failure'))
+        application.stop = mock.AsyncMock()
+        application.shutdown = mock.AsyncMock()
+        with self.assertRaisesRegex(RuntimeError, 'synthetic stop failure'):
+            await bot.stop_managed(application, timeout=1)
+        application.stop.assert_awaited_once()
+        application.shutdown.assert_awaited_once()

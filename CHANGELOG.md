@@ -8,6 +8,17 @@
 
 ---
 
+## 2026-10-04 (dev 리팩터링 후속 구현·검증 완료, 로컬 미배포)
+
+- 이전 보류 범위 P17b를 서버·모바일 함께 구현했다. 연결별 한 writer·32개/4MiB 큐·send5초/close1초와 overload1013, 서버 private terminal journal256·optional after replay/gap/reset을 추가했다. Android는 failed/cancelled/unknown을 구분하고 알림 history와 cursor를 한 commit에 저장한다. 실패 commit이 메모리만 먼저 변경하는 경우 history/cursor/trim을 복구한 뒤 reconnect하며 정상/실패/rollback 실패 회귀3개를 추가했다. 기존 protocol3·API/WS 필드·DB 교환 스키마는 유지했다.
+- Windows 읽기/삭제는 final path·reparse·hardlink 검증한 같은 핸들을 사용하도록 구현했다. 다운로드는 private process 임시 디렉터리를 쓰고 죽은 PID 소유 파일만 다음 시작에서 회수한다. 실제 Linux 강제 종료/회수와 fake Win32 protocol을 검사했으며 실제 Windows host는 blocked다.
+- Sunwi 지역6회/90초·전역1800초 예산, 취소 backoff·Session close와 실제 생존을 반환하는 stop을 보강했다. media prefetch32·완료/오류256·weak URL locks를 적용했다. crawl은 shutdown 접수/Popen fence와 자기 child 종료를 추가했고, uploader/direct-login/auth의 살아 있는/퇴장 중인 worker 참조 유지·중복 시작 방지, bot phase별 cleanup·main 공유 join 예산을 구현했다.
+- 실제 heap에서 통계 remount의 DataTables info handler와 지도 pagehide listener 누수를 찾아 disposer를 보강했다. 20/60 refresh 뒤 이전 mount closure 각각2개로 안정됐다. cold 절대 heap10% 실험은 V8 code 증가를 포함해 failed로 기록하고 retained-object 수명 결과와 구분했다.
+- 최종 Python676개 중671 passed/기존5 skipped(146.878초). Chromium/Firefox/WebKit 일반369·동명기관42·보완기능15 =426건 passed. 마지막 remount12건은 중복 확인으로 합산하지 않았다. 실패 절차/보고를 그대로 보존하고 assertion을 완화하지 않았다.
+- 실제 모바일 Dart/서버 restore의 양방향 교환 컬럼 왕복 diff0, Android debug unit12(신규5 포함)·APK build, 전용 Android35 emulator native WS 실패/취소/unknown·offline replay·cursor3·중복0을 확인했다. Linux x64 PyInstaller Unicode 경로 및 최종 Docker amd64에서 인증/목록/통계/WS 계약을 확인했다. 실제 Windows/macOS/ARM·물리 기기·Flutter 전체 계정 UI·외부 제출은 별도 경계로 남겼다.
+- 실제 10k paired Chromium에서 통계 final-ready median2550→1920ms, 목록14986→8563ms, filterdraw CPU 개선과 JSON/선택 SHA 동일을 확인했다. 24행에서도 10% 초과 회귀가 없었다. actual SQL100k에서1/20/500 대상 all-field parity를 확인했다. 제품 Jinja22 HTTP/24 template cache 실험에서 E21 미재현으로 cache0을 유지했다.
+- 실제 Gemini 독립 DB/수명/예산/모바일/종료·엄격 browser 검수를 받았고 잘못된 SUCCESS·전체 hardwall60초 주장은 기각했다. [검수 결과](docs/reviews/2026-10-04-dev-refactoring-implementation.md), 128행 기능 증거 CSV와 환경표를 갱신했다. 원래 사용자 파일·운영 자료·HEAD 이력을 보존하며 전달 계획 ZIP만 삭제한 상태를 유지했다. 자기 fixture/Docker/AVD만 정리했고 운영 작업·push/태그/릴리즈는 하지 않았다.
+
 ## 2026-10-04 (dev 리팩터링 순차 구현, 배포 없음)
 
 - P02a: 중복 재생성의 필수 원천 읽기 실패를 정상 빈 목록과 분리했다. 세 merge 표·entry_value·raw_content 중 하나라도 읽지 못하면 기존 그룹/멤버와 사용자 판단을 유지한다. 정상적으로 읽은 빈 원천은 기존처럼 파생 그룹을 비운다.

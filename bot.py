@@ -214,12 +214,24 @@ async def start_managed():
     return application
 
 
-async def stop_managed(application):
+async def stop_managed(application, timeout=10):
+    import asyncio
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max(0, timeout)
+    failures = []
+    callbacks = []
     if application.updater and application.updater.running:
-        await application.updater.stop()
+        callbacks.append(application.updater.stop)
     if application.running:
-        await application.stop()
-    await application.shutdown()
+        callbacks.append(application.stop)
+    callbacks.append(application.shutdown)
+    for callback in callbacks:
+        try:
+            await asyncio.wait_for(callback(), timeout=max(0, deadline - loop.time()))
+        except Exception as exc:
+            failures.append(exc)
+    if failures:
+        raise failures[0]
 
 
 def main() -> None:

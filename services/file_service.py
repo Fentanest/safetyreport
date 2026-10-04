@@ -85,7 +85,9 @@ def _open_file(path: str, root: str):
         except BaseException:
             os.close(fd)
             raise
-    # Windows의 reparse/rename 경합은 해당 runner에서 별도로 검증한다.
+    if os.name == 'nt':
+        from core.utils.windows_file_handle import read_file
+        return read_file(path, root)
     handle = open(path, "rb")
     try:
         info = os.fstat(handle.fileno())
@@ -134,6 +136,9 @@ def _unlink_file(path):
                 os.unlink(parts[-1], dir_fd=directory)
             finally:
                 os.close(directory)
+        elif os.name == 'nt':
+            from core.utils.windows_file_handle import delete_file
+            delete_file(path, root)
         else:
             _under_root(path, root)
             os.remove(path)
@@ -206,7 +211,8 @@ def _build_zip(paths, *, api: bool):
             raise ValueError("duplicate archive filename")
         names.add(name)
         selected.append((path, name))
-    fd, archive_path = tempfile.mkstemp(prefix="safetyreport_archive_", suffix=".zip")
+    from services.download_artifacts import create
+    fd, archive_path = create(prefix="safetyreport_archive_", suffix=".zip")
     try:
         with os.fdopen(fd, "w+b") as output, zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
             for path, name in selected:
@@ -383,7 +389,8 @@ def resolve_api_file(path: str):
 def snapshot_live_log_if_needed(path: str):
     """검증한 fd를 읽어 응답 전용 스냅샷을 만든다(이름은 호출자 호환용)."""
     abs_path = ensure_browser_file(path)
-    fd, temporary = tempfile.mkstemp(prefix='safetyreport_download_')
+    from services.download_artifacts import create
+    fd, temporary = create(prefix='safetyreport_download_')
     try:
         with os.fdopen(fd, 'wb') as output, open_browser_file(abs_path) as source:
             info = os.fstat(source.fileno())

@@ -101,5 +101,10 @@ loopback fake 중앙 인증/동의를 사용한다. 정상 관리자 로그인·
 1. fixture 로 기동, `/health` 200, `/login` 과 세션 인증, AJAX 401.
 2. CSS/JS/logo/favicon HTTP 200·MIME, 콘솔·실패 요청 수집.
 3. 목록·필터·통계·상세 모달·CSV·차단 메시지(크롤링/별점).
-4. 공백·한글이 들어간 설치 경로에서 source/frozen 런처(미검증).
+4. 공백·한글이 들어간 설치 경로에서 source/frozen 런처. 실제 Linux 검증과 다른 OS 상태는 환경표를 따른다.
 5. 재기동 후 테마 설정·fixture 데이터 유지, 모바일 API/WS 연결.
+
+
+fixture 실행파일의 `main.start_server`는 loopback과 `SAFETYREPORT_FIXTURE_PORT`(기본18773)를 사용하고 reload·자동 브라우저 시작을 끈다. 운영 기본값은 유지한다. source 회귀는 `completion-regression.config.ts`, 동일명 기관 합성 자료가 필요한 검사는 `completion-collision.config.ts`, 외부 링크 interception·상세 보완·감시 추가/삭제는 `completion-boundaries.config.ts`, table handler 정리 검사는 `completion-remount.config.ts`로 분리한다. 이들은 각각 전용 데이터/포트를 사용하며 같은 fixture 종류를 섞지 않는다.
+
+실제 Windows 파일 경계 검사 runner는 `python scripts/dev/verify_windows_file_boundary.py`다. 임시 Unicode 디렉터리의 Win32 같은 핸들 읽기/삭제·hardlink/junction·held rename을 검증한다. Linux에서 실행하면 blocked/exit2이며, Linux fake protocol tests를 실제 Windows 통과로 간주하지 않는다.

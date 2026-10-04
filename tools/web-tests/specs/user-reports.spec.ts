@@ -1,6 +1,7 @@
 import {test, expect, Page} from '@playwright/test';
 import * as path from 'path';
 import * as fs from 'fs';
+import { fixtureDataDir } from '../playwright.config';
 
 const root=path.resolve(__dirname,'../../..');
 async function login(page:Page) {
@@ -142,14 +143,18 @@ test('law distribution drilldown matches the exact stored combination',async({pa
   const expected=Number((await item.locator('.sr-hbar-value').textContent())!.match(/[\d,]+/)![0].replace(/,/g,''));
   await expect(item.locator('a')).toHaveAttribute('href',/lawExact=true/);
   await Promise.all([page.waitForURL('**/data/traffic?**'),item.locator('a').click()]);
-  await expect(page.locator('.dataTables_wrapper')).toHaveCount(1);
-  expect(await page.locator('table.dataTable tbody tr').count()).toBe(expected);
+  await expect(page.locator('#trafficTable')).toHaveAttribute('aria-busy', 'false');
+  expect(await page.evaluate(()=>window.jQuery('#trafficTable').DataTable().rows({search:'applied'}).count())).toBe(expected);
   await stats(page,'?excludePolice=true');
-  await expect(page.locator('#statsTypeList a')).toHaveCount(0);
+  // This fixture includes one council-handled traffic report (90000005).
+  // Excluding police keeps its law rather than emptying the distribution.
+  await expect(page.locator('#statsTypeList a')).toHaveCount(1);
+  await expect(page.locator('#statsTypeList a')).toHaveText('도로교통법 제15조');
+  await expect(page.locator('#statsTypeList .sr-hbar-value')).toContainText('1건');
 });
 
 test('additive client page/map APIs preserve full totals and old clients are refused',async({request})=>{
-  const key=fs.readFileSync(path.join(root,'.agent-runs/v3-user-reports/browser-fixture/fixture-api-key.txt'),'utf8').trim();
+  const key=fs.readFileSync(path.join(fixtureDataDir, 'fixture-api-key.txt'),'utf8').trim();
   const headers={'X-API-Key':key,'X-SafetyReport-Client':'mobile','X-SafetyReport-Version':'2.0.0+31','X-SafetyReport-Protocol':'3'};
   const full=await (await request.get('/api/v1/reports/traffic?dedupe=canonical',{headers})).json();
   const page=await request.get('/api/v1/reports/traffic/page?limit=1&dedupe=canonical',{headers});

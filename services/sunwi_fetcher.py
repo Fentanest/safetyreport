@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import csv
 import time
+import threading
+from dataclasses import dataclass
 from collections import defaultdict
 from datetime import datetime
 
@@ -279,31 +281,49 @@ def build_session():
     })
     return session
 
-def fetch_stats(session, sido_code, sigungu_code, target_yyyymm=None, logger_fn=None, max_attempts=6, *, timeout=90):
+@dataclass
+class RequestBudget:
+    deadline: float
+    attempts_left: int = 6
+
+
+def fetch_stats(session, sido_code, sigungu_code, target_yyyymm=None, logger_fn=None,
+                max_attempts=6, *, timeout=90, budget=None, stop_event=None):
     params = build_common_params(target_yyyymm)
     params["API_CTRD_CODE"] = sido_code
     params["API_SIGNGU_CODE"] = sigungu_code
-
-    last_error = None
     logger_fn = logger_fn or print
-
-    deadline = time.monotonic() + timeout
-    for attempt in range(max_attempts):
-        if time.monotonic() >= deadline:
+    budget = budget or RequestBudget(time.monotonic() + timeout, max_attempts)
+    stop_event = stop_event or threading.Event()
+    last_error = None
+    for attempt in range(min(max_attempts, budget.attempts_left)):
+        if stop_event.is_set():
+            raise InterruptedError('Sunwi collection cancelled')
+        remaining = budget.deadline - time.monotonic()
+        if remaining <= 0:
             break
+        budget.attempts_left -= 1
         try:
-            resp = session.get(BASE_URL, params=params, timeout=(10, 30))
+            # The socket phases share the remaining allowance. Adapter retries are zero.
+            resp = session.get(BASE_URL, params=params,
+                               timeout=(min(10, remaining / 2), min(30, remaining / 2)))
             resp.raise_for_status()
             data = resp.json()
+            if stop_event.is_set():
+                raise InterruptedError('Sunwi collection cancelled')
+            if time.monotonic() >= budget.deadline:
+                raise TimeoutError('Sunwi statistics request deadline exceeded')
             return data.get("result", [])
-        except Exception as e:
-            last_error = e
+        except InterruptedError:
+            raise
+        except Exception as exc:
+            last_error = exc
             wait_sec = min(2 + attempt, 10)
-            logger_fn(f"  [재시도 {attempt + 1}/{max_attempts}] {sido_code}-{sigungu_code} 실패: {e} / {wait_sec}초 대기")
-            if attempt + 1 < max_attempts and time.monotonic() + wait_sec < deadline:
-                time.sleep(wait_sec)
-
-    raise last_error or TimeoutError('Sunwi statistics request deadline exceeded')
+            logger_fn(f"  [재시도 {attempt + 1}/{max_attempts}] {sido_code}-{sigungu_code} 실패: {exc}")
+            if budget.attempts_left and time.monotonic() + wait_sec < budget.deadline:
+                if stop_event.wait(wait_sec):
+                    raise InterruptedError('Sunwi collection cancelled')
+    raise last_error or TimeoutError('Sunwi statistics request budget exhausted')
 
 def normalize_item_name(item):
     for key in ["NM", "NAME", "SUB_NM", "TITLE", "CD_NM"]:
@@ -390,11 +410,23 @@ def build_top5_rows(category_ranking):
     return top5_csv_rows, top5_by_category
 
 
-def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1):
+def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1, *,
+                       region_timeout=90, total_timeout=1800, stop_event=None):
+    stop_event = stop_event or threading.Event()
+    deadline = time.monotonic() + total_timeout
+    budgets = {}
+    session = build_session()
+    try:
+        return _collect_statistics(session, target_yyyymm, logger_fn, retry_failed_passes,
+                                   region_timeout, deadline, budgets, stop_event)
+    finally:
+        session.close()
+
+
+def _collect_statistics(session, target_yyyymm, logger_fn, retry_failed_passes,
+                        region_timeout, deadline, budgets, stop_event):
     target_yyyymm = target_yyyymm or get_target_yyyymm()
     logger_fn = logger_fn or print
-    session = build_session()
-
     category_ranking = defaultdict(list)
     all_rows = []
     failed = []
@@ -405,6 +437,10 @@ def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1
         sido_code = info["sido"]
 
         for sigungu_name, sigungu_code in info["sigungu"].items():
+            if stop_event.is_set():
+                raise InterruptedError('Sunwi collection cancelled')
+            budget = budgets.setdefault((sido_code, sigungu_code),
+                RequestBudget(min(deadline, time.monotonic() + region_timeout)))
             try:
                 result_items = fetch_stats(
                     session,
@@ -412,6 +448,8 @@ def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1
                     sigungu_code,
                     target_yyyymm=target_yyyymm,
                     logger_fn=logger_fn,
+                    budget=budget,
+                    stop_event=stop_event,
                 )
 
                 row_map = {}
@@ -438,6 +476,8 @@ def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1
                     })
 
                 logger_fn(f"[완료] {sido_name} {sigungu_name}")
+            except InterruptedError:
+                raise
             except Exception as e:
                 logger_fn(f"[에러] {sido_name} {sigungu_name}: {e}")
                 failed.append({
@@ -455,6 +495,9 @@ def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1
         retry_failed = []
 
         for item in failed:
+            if stop_event.is_set():
+                raise InterruptedError('Sunwi collection cancelled')
+            budget = budgets[(item["시도코드"], item["시군구코드"])]
             try:
                 result_items = fetch_stats(
                     session,
@@ -462,6 +505,8 @@ def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1
                     item["시군구코드"],
                     target_yyyymm=target_yyyymm,
                     logger_fn=logger_fn,
+                    budget=budget,
+                    stop_event=stop_event,
                 )
 
                 row_map = {}
@@ -488,6 +533,8 @@ def collect_statistics(target_yyyymm=None, logger_fn=None, retry_failed_passes=1
                     })
 
                 logger_fn(f"[재수집 완료] {item['시도']} {item['시군구']}")
+            except InterruptedError:
+                raise
             except Exception as e:
                 logger_fn(f"[재수집 실패] {item['시도']} {item['시군구']}: {e}")
                 retry_failed.append(item)

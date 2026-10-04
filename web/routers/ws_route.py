@@ -23,6 +23,7 @@ router = APIRouter()
 async def ws_events(
     websocket: WebSocket,
     api_key: str = Query(default=""),
+    after: int | None = Query(default=None, ge=0),
 ):
     # API Key 인증
     engine = get_engine()
@@ -39,10 +40,8 @@ async def ws_events(
     await ws_manager.connect(client_id, websocket, api_key=api_key, ip=ip, device_name=device_name)
 
     # 연결 확인 메시지
-    await websocket.send_json({
-        "type": "connected",
-        "data": {"client_id": client_id, "message": "WebSocket 연결 성공"}
-    })
+    if not await ws_manager.initialize(client_id, websocket, after):
+        return
 
     ping_interval = 30  # seconds
 
@@ -51,7 +50,8 @@ async def ws_events(
         while True:
             await asyncio.sleep(ping_interval)
             try:
-                await websocket.send_json({"type": "ping"})
+                if not await ws_manager.send(client_id, websocket, {"type": "ping"}):
+                    break
             except Exception:
                 break
 
@@ -67,4 +67,5 @@ async def ws_events(
         logger.debug(f"[WS] 클라이언트 오류 ({client_id}): {e}")
     finally:
         pinger_task.cancel()
-        ws_manager.disconnect(client_id)
+        await asyncio.gather(pinger_task, return_exceptions=True)
+        ws_manager.disconnect(client_id, websocket)

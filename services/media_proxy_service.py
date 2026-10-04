@@ -7,6 +7,7 @@ import os
 import threading
 import time
 import uuid
+import weakref
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -44,7 +45,9 @@ _adapter = HTTPAdapter(max_retries=_retry_strategy)
 _session.mount("https://", _adapter)
 _session.mount("http://", _adapter)
 
-_locks: dict[str, threading.Lock] = {}
+_locks = weakref.WeakValueDictionary()
+_MAX_PRIME_PENDING = 32
+_MAX_COMPLETED_STATUS = 256
 _locks_guard = threading.Lock()
 # URL 별 다운로드 진행 상태. tail-follow 리더가 "지금 어디까지 읽어도 되는지" 판단하는 근거.
 # 파일 크기(os.stat)가 아니라 이 카운터를 쓴다 — flush 이후에만 올리므로 미완성 버퍼를 읽지 않는다.
@@ -110,6 +113,13 @@ def _progress_set(url: str, **values) -> None:
             info = {"total": None, "downloaded": 0, "done": False, "error": None}
             _progress[url] = info
         info.update(values)
+        with _active_guard:
+            active = set(_active_paths)
+        completed = [key for key, state in _progress.items()
+                     if state.get('done') and _cache_path(key) not in active
+                     and _tmp_path(_cache_path(key)) not in active]
+        for key in completed[:-_MAX_COMPLETED_STATUS]:
+            _progress.pop(key, None)
 
 
 def _progress_get(url: str) -> dict | None:
@@ -366,7 +376,10 @@ def _finish_prime(url: str, future: Future[Path]) -> None:
             return
         _prime_futures.pop(url, None)
         if error:
+            _prime_errors.pop(url, None)
             _prime_errors[url] = error
+            while len(_prime_errors) > _MAX_COMPLETED_STATUS:
+                _prime_errors.pop(next(iter(_prime_errors)))
         else:
             _prime_errors.pop(url, None)
 
@@ -412,6 +425,8 @@ def prime_cache(url: str) -> dict[str, object]:
     with _prime_guard:
         future = _prime_futures.get(normalized)
         if future is None or future.done():
+            if len(_prime_futures) >= _MAX_PRIME_PENDING:
+                raise RuntimeError('media prefetch capacity exceeded; retry later')
             _prime_errors.pop(normalized, None)
             # 워커가 실제로 시작하기 전에 리더가 옛 진행 상태를 보고
             # 존재하지 않는 .tmp 를 열지 않도록 여기서 먼저 초기화한다.

@@ -722,8 +722,13 @@ function create(element, mapPoints, options) {
                 .catch(function(e){if(!disposed && current===sequence && e.name!=='AbortError') element.setAttribute('data-map-error',e.message);});
         }
         map.on('moveend',function(){clearTimeout(timer);timer=setTimeout(refresh,180);});
-        map.on('unload',function(){disposed=true;clearTimeout(timer);if(controller)controller.abort();if(tooltipMeasureElement)tooltipMeasureElement.remove();});
-        window.addEventListener('pagehide',function(){disposed=true;clearTimeout(timer);if(controller)controller.abort();});
+        function stopViewportRefresh(){disposed=true;clearTimeout(timer);if(controller)controller.abort();}
+        map.on('unload',function(){
+            stopViewportRefresh();
+            window.removeEventListener('pagehide',stopViewportRefresh);
+            if(tooltipMeasureElement)tooltipMeasureElement.remove();
+        });
+        window.addEventListener('pagehide',stopViewportRefresh);
     }
 
     return {

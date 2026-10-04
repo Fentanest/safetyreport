@@ -134,3 +134,23 @@ python scripts/debug/extractor.py 59216726 40871819  # 내부 ID 다중
 - 예전의 API vs Selenium HTML 비교(`_legacy_raw.html`, `_diff.txt`)는 레거시 크롤러 제거와 함께 없앴다.
 
 ---
+
+## 요청 예산과 종료 소유권
+
+Sunwi adapter retry는 0이다. 지역별 6회/90초 `RequestBudget`을 최초 수집과 실패 지역 재수집이 공유하고, 한 수집의 전역 기본 예산은 1800초다. connect/read timeout은 남은 시간을 나누어 제한한다. 취소 가능한 backoff와 Session finally close를 사용하며, 성공 지역의 전체 분류·건수와 실패 지역 목록을 유지한다. Requests의 DNS 및 slow-drip 응답은 socket timeout만으로 엄격한 wall deadline을 보장하지 못한다. stop은 5초 join 후 실제 생존을 반환하고 살아 있는 worker reference를 유지하여 중복 시작을 막는다.
+
+관리 crawl은 shutdown 접수 fence를 먼저 닫고 자기 retry timer와 child만 정리한다. 준비 중인 작업이 뒤늦게 Popen을 실행하지 못하게 접수 경계를 다시 확인한다. 대기 큐는 보존한다. 다운로드 임시는 데이터 루트의 private process 디렉터리에 만들고, 다음 시작에서 죽은 PID의 정규 소유 파일만 회수한다. 살아 있는 프로세스·link/junction·다른 파일은 정리하지 않는다.
+
+미디어의 URL lock은 대기자가 강한 참조를 보유하는 동안만 공유한다. prefetch는 32개로 제한하고 오류/완료 상태는 256개 및 활성 reader 보호 범위로 제한한다. 이전 generation과 열린 reader의 pin 계약은 유지한다.
+
+Uploader와 direct-login keepalive의 stop은 실제 worker가 끝났는지 반환한다. 대기 예산 뒤에도 살아 있으면 참조를 유지하고 start가 새 worker로 교체하지 못하게 lock으로 보호한다. Community auth는 취소해 활성 목록에서 빠진 poll도 retiring 목록에서 추적하고, shutdown 때 활성/retiring 전체가 하나의 deadline을 공유한다. shutdown 후 새 poll 접수는 거절한다.
+
+main lifespan은 WS/crawl 정리 단계의 실패가 나머지 worker 정리를 건너뛰지 않게 각각 처리한다. thread join에는 총 60초 공유 대기 예산을 배분한다(기본 worker5초, child15초, bot10초 상한). 이 값은 SQLite checkpoint·DNS·협력하지 않는 취소까지 포함한 프로세스 전체 hard wall이 아니다. bot은 updater/application/shutdown phase가 공유 deadline을 쓰며 한 phase가 실패해도 다른 cleanup을 시도한 뒤 실패를 알린다.
+
+### 코드 대조 정정 — 종료와 임시 소유권
+
+| 이전 설명 | 현행 코드 | 경계 |
+|---|---|---|
+| stop 요청 뒤 worker 참조를 비우면 종료 완료 | uploader/direct-login/Sunwi 실제 is_alive 검사·참조 유지, auth retiring 추적 | stop 반환 False는 아직 살아 있는 소유 작업이 있다는 뜻 |
+| worker마다 같은 join 시간이면 총 종료도 그 시간 | auth 공유 deadline·main 전체 join 예산 | OS/transport가 협력하지 않는 작업의 강제 완료를 주장하지 않음 |
+| 다운로드 finally가 process death까지 보장 | private PID artifact와 다음 startup 회수 | 정규 소유 파일·죽은 PID만 대상으로 제한 |

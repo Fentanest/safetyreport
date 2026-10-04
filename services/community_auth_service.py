@@ -293,6 +293,7 @@ class CommunityAuthService:
         self.poll_interval_override = poll_interval_override
         self.retry_base_seconds = retry_base_seconds
         self._workers: dict[str, tuple[threading.Thread, threading.Event]] = {}
+        self._retiring_workers = []
         self._workers_lock = threading.Lock()
         self._start_lock = threading.Lock()
         self._shutdown = threading.Event()
@@ -516,6 +517,8 @@ class CommunityAuthService:
         if self._shutdown.is_set():
             return
         with self._workers_lock:
+            if self._shutdown.is_set():
+                return
             existing = self._workers.get(request_id)
             if existing and existing[0].is_alive():
                 return
@@ -530,6 +533,9 @@ class CommunityAuthService:
             return
         with self._workers_lock:
             entry = self._workers.pop(request_id, None)
+            self._retiring_workers = [item for item in self._retiring_workers if item[0].is_alive()]
+            if entry and entry[0].is_alive():
+                self._retiring_workers.append(entry)
         if entry:
             entry[1].set()
             if join and entry[0] is not threading.current_thread():
@@ -968,16 +974,20 @@ class CommunityAuthService:
             return
         self._start_worker(p["request_id"])
 
-    def shutdown(self, timeout: float = 5.0) -> None:
+    def shutdown(self, timeout: float = 5.0) -> bool:
         self._shutdown.set()
+        deadline = time.monotonic() + max(0, timeout)
         with self._workers_lock:
-            entries = list(self._workers.values())
-            self._workers.clear()
+            entries = list(self._workers.values()) + list(self._retiring_workers)
         for _, stop in entries:
             stop.set()
         for thread, _ in entries:
             if thread is not threading.current_thread():
-                thread.join(timeout=timeout)
+                thread.join(timeout=max(0, deadline - time.monotonic()))
+        with self._workers_lock:
+            self._workers = {key: entry for key, entry in self._workers.items() if entry[0].is_alive()}
+            self._retiring_workers = [entry for entry in self._retiring_workers if entry[0].is_alive()]
+        return not any(thread.is_alive() for thread, _ in entries)
 
 
 _KAKAO_ID_RE = re.compile(r"^[0-9]{1,20}$")
@@ -1048,9 +1058,8 @@ def resume_on_startup() -> None:
     get_service().resume()
 
 
-def shutdown() -> None:
-    if _default is not None:
-        _default.shutdown()
+def shutdown(timeout=5) -> bool:
+    return _default.shutdown(timeout) if _default is not None else True
 
 
 def get_access_token(*, rejected: str | None = None) -> str:

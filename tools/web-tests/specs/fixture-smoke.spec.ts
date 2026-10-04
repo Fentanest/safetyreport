@@ -45,7 +45,9 @@ test('dashboard, list, stats render with fixture data', async ({ page }, testInf
 
 test('fixture mode blocks crawl start instead of spawning crawler', async ({ page }) => {
   await login(page);
-  const res = await page.request.post('/crawl/enqueue-selected', { data: { report_numbers: ['SPP-2604-9000006'] } });
+  const csrf = await page.locator('meta[name=csrf-token]').getAttribute('content');
+  expect(csrf).toBeTruthy();
+  const res = await page.request.post('/crawl/enqueue-selected', { headers: { 'X-CSRF-Token': csrf! }, data: { report_numbers: ['SPP-2604-9000006'] } });
   const body = await res.json();
   expect(body.status).toBe('error');
   expect(body.message).toContain('fixture');

@@ -134,3 +134,42 @@ class MediaLifetimeTests(unittest.TestCase):
 
             response.iter_content.side_effect = content
             self.assertEqual(media.ensure_cached(URL).read_bytes(), b'abcd')
+
+
+class MediaCapacityTests(unittest.TestCase):
+    def test_waiters_share_lock_and_unused_url_locks_are_released(self):
+        import gc
+        import weakref
+        with mock.patch.object(media, '_locks', weakref.WeakValueDictionary()):
+            held = media._get_lock(URL)
+            self.assertIs(held, media._get_lock(URL))
+            for index in range(1000):
+                media._get_lock(URL + str(index))
+            gc.collect()
+            self.assertEqual(len(media._locks), 1)
+            del held
+            self.assertEqual(len(media._locks), 0)
+
+    def test_prefetch_capacity_rejects_without_scheduling_more_work(self):
+        active = {str(i): Future() for i in range(media._MAX_PRIME_PENDING)}
+        with mock.patch.object(media, '_prime_futures', active), \
+             mock.patch.object(media, '_prime_executor') as executor, \
+             mock.patch.object(media, 'get_cache_status', return_value={'ready': False, 'status': 'missing'}), \
+             mock.patch.object(media, '_progress_reset') as reset:
+            media._stop.clear()
+            with self.assertRaisesRegex(RuntimeError, 'capacity exceeded'):
+                media.prime_cache(URL)
+            executor.submit.assert_not_called()
+            reset.assert_not_called()
+
+    def test_status_trim_preserves_live_readers(self):
+        with tempfile.TemporaryDirectory() as directory, \
+             mock.patch.object(media.settings, 'datapath', directory), \
+             mock.patch.object(media, '_progress', {}), \
+             mock.patch.object(media, '_active_paths', {}) as active, \
+             mock.patch.object(media, '_MAX_COMPLETED_STATUS', 2):
+            active[media._cache_path(URL)] = 1
+            for key in [URL, URL+'1', URL+'2', URL+'3']:
+                media._progress_set(key, done=True, downloaded=3)
+            self.assertIn(URL, media._progress)
+            self.assertEqual(set(media._progress), {URL, URL+'2', URL+'3'})
