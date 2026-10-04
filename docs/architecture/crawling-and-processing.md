@@ -154,3 +154,16 @@ main lifespan은 WS/crawl 정리 단계의 실패가 나머지 worker 정리를 
 | stop 요청 뒤 worker 참조를 비우면 종료 완료 | uploader/direct-login/Sunwi 실제 is_alive 검사·참조 유지, auth retiring 추적 | stop 반환 False는 아직 살아 있는 소유 작업이 있다는 뜻 |
 | worker마다 같은 join 시간이면 총 종료도 그 시간 | auth 공유 deadline·main 전체 join 예산 | OS/transport가 협력하지 않는 작업의 강제 완료를 주장하지 않음 |
 | 다운로드 finally가 process death까지 보장 | private PID artifact와 다음 startup 회수 | 정규 소유 파일·죽은 PID만 대상으로 제한 |
+
+## 2026-10-04 기술일지 반영
+- 직접 로그인 토큰(`data/auth_token.json`)에는 로그인한 아이디(`username`)를 함께 저장한다. 지금 설정 아이디와 다르거나 기록이 없는 토큰은 무효이고,
+  설정에서 아이디·비밀번호를 바꾸면 토큰을 지운다. 로그인을 기다리는 동안 아이디가 바뀌면 저장하지 않는다(A2-01). 모바일 `StandaloneAuthService` 도
+  `standaloneTokenUsername` 으로 같은 규칙을 쓰고, 백그라운드 재로그인은 저장 직전에 디스크의 아이디를 다시 확인한다.
+- 만족도 점수 조회: `result` 키가 있고 값이 null/빈 객체일 때만 '미참여 확정'. 객체가 아니거나 `result` 가 없거나 `error` 가 있으면 확인 실패로 보고
+  저장된 별점·사유를 지우지 않는다(`satisfaction_fetcher._classify_score_payload`, 모바일 `classifyScorePayload` — 같은 벡터 시험, A2-06).
+- Sunwi 지역 통계: `result` 가 목록이 아니면 정상 0건이 아니라 실패로 재시도한 뒤 실패 지역으로 남긴다. 명시적인 빈 목록만 0건(A2-08, 모바일 같음).
+- 사진 촬영 시각 백필은 읽을 때의 첨부 값과 저장 때 값이 같을 때만 쓴다(복원·재크롤링으로 첨부가 바뀌면 버림, A2-02).
+- 대기 큐 자동 크롤은 수동 크롤과 같이 감시 스레드를 자식 프로세스보다 먼저 준비한다(A2-04).
+- Selenium 세션을 만든 뒤 창 최대화·UA 확인에서 예외가 나면 그 자리에서 `quit()` 한다. UA 확인 실패는 로그인 진행을 막지 않는다(A2-09).
+- 커뮤니티 업로드 실행 중 연결·동의 문맥이 바뀌면 남은 배치를 되돌리고 실행을 끝낸다(`context_changed`, A2-03).
+- 구글 시트 내보내기는 0건 분류도 머리글만 보내 이전 행을 비운다(A2-07).

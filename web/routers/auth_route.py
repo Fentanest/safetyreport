@@ -37,7 +37,7 @@ def do_setup(
     if password != password_confirm:
         return templates.TemplateResponse(request, "setup.html", {"error": "비밀번호가 일치하지 않습니다."})
 
-    database.create_admin_user(engine, username.strip(), password)
+    database.create_first_admin_user(engine, username.strip(), password)  # 동시에 다른 요청이 먼저 만들었으면 그대로 둔다
     return RedirectResponse("/login", status_code=303)
 
 

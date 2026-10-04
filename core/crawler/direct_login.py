@@ -147,11 +147,19 @@ def _login_once(username: str, password: str) -> dict:
 
 
 def login_and_cache() -> dict:
-    """로그인 후 토큰 정보를 디스크에 저장."""
-    if not settings.username or not settings.password:
+    """로그인 후 토큰 정보를 디스크에 저장.
+
+    토큰에는 로그인한 아이디를 함께 적는다. 로그인을 기다리는 동안 설정의 아이디가 바뀌었으면 저장하지 않는다 —
+    이전 계정 토큰이 새 계정 설정 아래에서 쓰이지 않게 한다(기술일지 A2-01, 모바일 StandaloneAuthService 와 같은 규칙)."""
+    username, password = settings.username, settings.password
+    if not username or not password:
         raise RuntimeError("settings.username / settings.password 가 비어 있습니다.")
-    info = _login_once(settings.username, settings.password)
-    save_token(info)
+    info = _login_once(username, password)
+    info["username"] = username
+    with _token_lock:
+        if settings.username != username:
+            raise RuntimeError("로그인하는 동안 안전신문고 계정 설정이 바뀌었습니다. 다시 시도합니다.")
+        save_token(info)
     if logger.LoggerFactory.logbot:
         logger.LoggerFactory.logbot.info(
             f"[direct_login] 로그인 성공. 토큰 만료 시각: "
@@ -160,11 +168,25 @@ def login_and_cache() -> dict:
     return info
 
 
+_token_lock = threading.RLock()
+
+
 def save_token(info: dict) -> None:
+    from core.utils.atomic_file import write_bytes
+
     path = _TOKEN_FILE()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(info, f, ensure_ascii=False)
+    with _token_lock:
+        write_bytes(path, json.dumps(info, ensure_ascii=False).encode("utf-8"))
+
+
+def invalidate_token() -> None:
+    """저장된 토큰을 지운다. 안전신문고 아이디·비밀번호를 바꾸면 부른다(기술일지 A2-01)."""
+    with _token_lock:
+        try:
+            os.remove(_TOKEN_FILE())
+        except FileNotFoundError:
+            pass
 
 
 def load_token() -> Optional[dict]:
@@ -179,12 +201,19 @@ def load_token() -> Optional[dict]:
 
 
 def is_token_valid(info: Optional[dict] = None, margin_seconds: int = 300) -> bool:
-    """토큰이 존재하고, 만료 5분 마진 내에 들어가지 않았는지."""
+    """토큰이 존재하고, 지금 설정한 아이디로 받은 것이며, 만료 5분 마진 내에 들어가지 않았는지.
+
+    아이디가 없거나 다른 토큰(이전 계정·아이디 기록 전의 옛 캐시)은 무효다 — 한 번 다시 로그인한다."""
     if info is None:
         info = load_token()
     if not info or not info.get("access_token"):
         return False
-    return datetime.now().timestamp() < info["expires_at"] - margin_seconds
+    if not settings.username or info.get("username") != settings.username:
+        return False
+    try:
+        return datetime.now().timestamp() < float(info["expires_at"]) - margin_seconds
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def get_valid_token(force_refresh: bool = False) -> dict:

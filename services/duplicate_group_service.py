@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 import hashlib
 import re
 from datetime import datetime
@@ -312,8 +313,10 @@ def refresh_duplicate_groups(engine, *, track_changes: bool = False) -> dict[str
                 status = preserved_status or default_status
                 apply_globally = 1 if status == "confirmed_duplicate" else 0
 
-                field_fingerprints = [_field_fingerprint(record) for record in records]
-                majority_field_fingerprint = max(set(field_fingerprints), key=field_fingerprints.count)
+                # 빈도를 한 번만 센다(예전 list.count 반복은 최악 O(m²), 기술일지 B-10). 동률이면 먼저 나온 값 —
+                # 모바일 bounded_duplicate_rebuild 의 ORDER BY frequency DESC, first_ordinal 과 같다(예전 set 순서는 실행마다 달랐다).
+                fingerprint_counts = Counter(_field_fingerprint(record) for record in records)
+                majority_field_fingerprint = max(fingerprint_counts, key=fingerprint_counts.__getitem__)
 
                 group_records.append({
                     "group_id": group_id,
@@ -576,7 +579,12 @@ def update_duplicate_group(
         )
         updates = {"updated_at": _now_ms()}
         normalized_status = _normalize_duplicate_status(duplicate_status, default=current_status)
-        normalized_mode = _normalize_representative_mode(representative_mode, existing_status=current_group.get("status"))
+        # 요청에 모드가 없으면(메모만 수정 등) 지금 모드를 그대로 둔다. 예전에는 빈 값이 'auto' 로 정규화되어
+        # 수동 대표건이 자동 선정으로 바뀌었다(기술일지 A1-05).
+        normalized_mode = (
+            _normalize_representative_mode(representative_mode, existing_status=current_group.get("status"))
+            if _text(representative_mode) else current_mode
+        )
         updates["status"] = normalized_status or current_status
         updates["representative_mode"] = normalized_mode or current_mode
 
@@ -665,12 +673,25 @@ def bulk_update_duplicate_status(
         return int(result.rowcount or 0)
 
 
-def build_projection_map(conn) -> tuple[dict[str, dict], dict[str, dict]]:
-    groups = conn.execute(
-        select(models.duplicate_group_table).where(
-            models.duplicate_group_table.c.status == "confirmed_duplicate"
-        )
-    ).fetchall()
+def build_projection_map(conn, report_ids=None) -> tuple[dict[str, dict], dict[str, dict]]:
+    """확정 중복군의 (그룹, 멤버) 사전. report_ids 를 주면 그 신고가 속한 그룹만 읽는다 — 그 그룹의 멤버 항목은
+    전체를 읽었을 때와 같다(페이지 조회가 매 페이지 전체 메타를 만들지 않게, 기술일지 B-04)."""
+    group_query = select(models.duplicate_group_table).where(
+        models.duplicate_group_table.c.status == "confirmed_duplicate"
+    )
+    if report_ids is not None:
+        ids = [str(i) for i in report_ids]
+        if not ids:
+            return {}, {}
+        related: set[str] = set()
+        member = models.duplicate_member_table
+        for start in range(0, len(ids), 500):
+            related.update(r[0] for r in conn.execute(
+                select(member.c.group_id).where(member.c.report_id.in_(ids[start:start + 500])).distinct()))
+        if not related:
+            return {}, {}
+        group_query = group_query.where(models.duplicate_group_table.c.group_id.in_(sorted(related)))
+    groups = conn.execute(group_query).fetchall()
     if not groups:
         return {}, {}
 

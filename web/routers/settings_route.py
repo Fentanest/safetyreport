@@ -91,6 +91,7 @@ def save_settings(
     if match:
         sheet_key = match.group(1)
 
+    previous_login = (app_settings._instance.username, app_settings._instance.password)
     app_settings._instance.update_config('LOGIN', 'username', username)
     app_settings._instance.update_config('LOGIN', 'password', password)
 
@@ -123,6 +124,11 @@ def save_settings(
     app_settings._instance.update_config('SETTINGS', 'trusted_proxies', trusted_proxies.strip())
 
     app_settings._instance.save()
+
+    if (app_settings._instance.username, app_settings._instance.password) != previous_login:
+        # 안전신문고 계정이 바뀌면 이전 계정 토큰을 지운다 — 다음 크롤링은 새 계정으로 로그인한다(기술일지 A2-01)
+        from core.crawler import direct_login
+        direct_login.invalidate_token()
 
     try:
         from core.utils import scheduler

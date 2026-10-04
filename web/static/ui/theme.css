@@ -125,7 +125,8 @@ table.dataTable tbody tr { background-color: var(--sr-surface); }
 /* 카드 머리의 강조 아이콘(원색 머리 배경 대신) */
 .card-header .sr-accent-icon { color: var(--sr-primary); }
 /* 긴 설정 폼: 저장 버튼이 화면 아래에 붙어 따라온다 */
-.sr-sticky-save { position: sticky; bottom: 0.75rem; z-index: 5; }
+/* 고정 저장 버튼 둘레에 바탕색 띠를 둬 뒤로 지나가는 항목이 버튼 가장자리에 반쯤 걸쳐 보이지 않게 한다(기술일지 F-07) */
+.sr-sticky-save { position: sticky; bottom: 0.75rem; z-index: 5; box-shadow: 0 0 0 0.75rem var(--sr-bg), var(--sr-shadow) !important; }
 
 /* 업데이트 뒤 한 번 훑기 작업 진행 — 화면 아래 한 줄 박스(로그 한 줄처럼) */
 .sr-job-bar {

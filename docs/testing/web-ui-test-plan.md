@@ -45,3 +45,10 @@ OS·브라우저·폰트·viewport·DPR·시간·locale·fixture·애니메이�
 
 ## 7. 보고
 각 체크: expected / actual / base SHA / branch / fixture / OS / browser / command / artifact / passed|failed|blocked|not-run.
+
+## 8. 전용 설정 메모 (2026-10-05)
+- 게이트를 통과한 화면 시험은 `user_report_fixture.py`(프로세스 안 가짜 중앙) 설정으로 돌린다: `completion-regression.config.ts`(전체 회귀, month-fixes 제외),
+  `month-fixes.config.ts`(동명 기관 자료), `techlog.config.ts`(2026-10-04 기술일지 화면 수리 회귀 `specs/techlog-ui.spec.ts`, 포트 18761).
+  기본 `playwright.config.ts` 는 로컬 통합 스택 키가 없으면 게이트에 막힌 fixture 로 뜬다.
+- 일부 기존 시험은 저장소의 `.agent-runs/` 아래 파일을 입력·출력으로 쓴다(`v3-user-reports/browser-fixture/{legacy,future}.db`, `refactoring-implementation/` 다운로드 위치).
+  새 worktree 에서는 그 폴더를 먼저 준비한다.

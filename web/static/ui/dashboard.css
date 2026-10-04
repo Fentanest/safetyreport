@@ -218,9 +218,22 @@
 /* Opus 통합: 마지막 크롤링 시각, 카드 키보드 포커스 */
 .dashboard-last-sync { color: var(--sr-text-muted); font-size: 0.9rem; }
 .dashboard-last-sync strong { color: var(--sr-text); font-variant-numeric: tabular-nums; }
-.dashboard-card[role="link"]:focus-visible { outline: 3px solid var(--sr-focus); outline-offset: 2px; }
+/* --sr-focus 는 box-shadow 값이라 outline 에 넣으면 선언 전체가 무효였다(기술일지 C10) */
+.dashboard-card[role="link"]:focus-visible { outline: none; box-shadow: var(--sr-focus); }
 /* 감시목록·최근 답변 표: 좁은 화면에서는 찌그러뜨리지 않고 가로 스크롤(.table-responsive) */
 .table-responsive > .table-custom { min-width: 760px; }
+/* 고정 배치에서는 신고번호 칸(13%)이 번호보다 좁아 옆 칸 위로 겹쳤다 — 좁은 화면은 내용 폭으로 배치(기술일지 F-05) */
+@media (max-width: 991.98px) {
+    .table-responsive > .sr-dash-table { table-layout: auto !important; }
+    .sr-dash-table th, .sr-dash-table td { white-space: nowrap; }
+}
+.dashboard-card-note { margin-top: 0.15rem; font-size: 0.78rem; color: var(--sr-text-muted); }
+.sr-ratio-legend { color: var(--sr-text-muted); row-gap: 0.25rem !important; }
+.sr-ratio-legend li { display: inline-flex; align-items: center; gap: 0.35rem; }
+.sr-ratio-swatch { display: inline-block; width: 0.75rem; height: 0.75rem; border-radius: 3px; flex: 0 0 auto; box-shadow: inset 0 0 0 1px var(--sr-text-muted); }
+@media (prefers-reduced-motion: reduce) {
+    .sr-ratio-bar .progress-bar { animation: none !important; transition: none !important; }
+}
 @media (max-width: 575px) {
     .dashboard-grid { gap: 0.75rem; }
     .dashboard-card { padding: 0.9rem 0.5rem; }

@@ -96,15 +96,20 @@ async def authorize(websocket: WebSocket, *, allow_session: bool = True, allow_a
 
 
 class GateWatch:
-    """긴 WS 루프 안에서 interval 초마다 게이트를 다시 본다. 잃으면 lost() 가 True."""
+    """긴 WS 루프 안에서 interval 초마다 게이트를 다시 본다. 잃으면 lost() 가 True.
 
-    def __init__(self, interval: float = 5.0):
+    websocket 을 주면 인증(관리자 세션 또는 API 키)도 다시 확인한다 — 연결 중에 API 키를 삭제하면 끊긴다(기술일지 A1-02)."""
+
+    def __init__(self, interval: float = 5.0, websocket: WebSocket | None = None):
         self.interval = interval
         self._next = time.monotonic() + interval
+        self._websocket = websocket
 
     async def lost(self) -> bool:
         now = time.monotonic()
         if now < self._next:
             return False
         self._next = now + self.interval
+        if self._websocket is not None and not await run_in_threadpool(authenticated, self._websocket):
+            return True
         return not await gate_ok()

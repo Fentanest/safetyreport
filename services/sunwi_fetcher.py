@@ -313,7 +313,12 @@ def fetch_stats(session, sido_code, sigungu_code, target_yyyymm=None, logger_fn=
                 raise InterruptedError('Sunwi collection cancelled')
             if time.monotonic() >= budget.deadline:
                 raise TimeoutError('Sunwi statistics request deadline exceeded')
-            return data.get("result", [])
+            result = data.get("result") if isinstance(data, dict) else None
+            if not isinstance(result, list):
+                # result 가 없거나 목록이 아니면 정상 0건이 아니다 — 재시도 뒤 실패 지역으로 남긴다(기술일지 A2-08).
+                # 명시적인 빈 목록([])만 0건으로 받는다.
+                raise ValueError("Sunwi 응답에 result 목록이 없습니다")
+            return result
         except InterruptedError:
             raise
         except Exception as exc:

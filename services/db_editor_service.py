@@ -91,6 +91,17 @@ def get_edit_state(engine, category: str, record_id: str) -> dict:
     return {"overrides": overrides, "site_values": {c: site.get(c) for c in overrides}}
 
 
+class InvalidEditorValue(ValueError):
+    """편집 필드 값이 문자열·숫자·null 이 아니다 — API 는 400 으로 답한다(기술일지 A1-10, data-contracts '잘못된 필드 타입은 400')."""
+
+
+def _check_editor_values(provided: dict) -> None:
+    bad = [field for field, value in provided.items()
+           if value is not None and (isinstance(value, bool) or not isinstance(value, (str, int, float)))]
+    if bad:
+        raise InvalidEditorValue("문자열·숫자·null 만 저장할 수 있습니다: " + ", ".join(sorted(bad)))
+
+
 def update_record(engine, category: str, record_id: str, values: dict) -> bool:
     """편집값은 사용자 수정값 표(mysafety_report_override)에 저장한다(결정 D-1, 저장 계층 재설계 R2).
     사이트 원본(detail)은 건드리지 않아 재크롤링이 편집을 되돌리지 않는다(S-1). 보낸 필드만 반영한다(S-2).
@@ -102,6 +113,7 @@ def update_record(engine, category: str, record_id: str, values: dict) -> bool:
         return False
     _merge_tbl, detail_tbl = tables
     provided = {field: values[field] for field in _DETAIL_FIELDS if field in values}
+    _check_editor_values(provided)
 
     with engine.begin() as conn:
         site = conn.execute(select(detail_tbl).where(detail_tbl.c.ID == record_id)).mappings().first()

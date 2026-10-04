@@ -24,28 +24,28 @@
                 </div>
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">차량번호</label>
+                <label class="form-label fw-bold" for="searchCar">차량번호</label>
                 <input type="text" class="form-control" id="searchCar" placeholder="예: 12가3456">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">신고번호</label>
+                <label class="form-label fw-bold" for="searchReport">신고번호</label>
                 <input type="text" class="form-control" id="searchReport">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">ID</label>
+                <label class="form-label fw-bold" for="searchId">ID</label>
                 <input type="text" class="form-control" id="searchId">
             </div>
             <!-- 공통 항목은 main 통계표의 기관→담당자→과태료→처분→별점 순서 -->
             <div class="col-12">
-                <label class="form-label fw-bold">처리기관</label>
+                <label class="form-label fw-bold" for="searchAgency">처리기관</label>
                 <input type="text" class="form-control" id="searchAgency">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">담당자</label>
+                <label class="form-label fw-bold" for="searchPerson">담당자</label>
                 <input type="text" class="form-control" id="searchPerson">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">범칙금/과태료</label>
+                <label class="form-label fw-bold" for="searchFine">범칙금/과태료</label>
                 <input type="text" class="form-control" id="searchFine">
             </div>
             <div class="col-12">
@@ -68,32 +68,32 @@
             </div>
             <hr class="my-3">
             <div class="col-12">
-                <label class="form-label fw-bold">신고명</label>
+                <label class="form-label fw-bold" for="searchReportName">신고명</label>
                 <input type="text" class="form-control" id="searchReportName">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">위반법규명</label>
+                <label class="form-label fw-bold" for="searchLaw">위반법규명</label>
                 <input type="text" class="form-control" id="searchLaw">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">위반장소</label>
+                <label class="form-label fw-bold" for="searchLocation">위반장소</label>
                 <input type="text" class="form-control" id="searchLocation">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">신고내용</label>
+                <label class="form-label fw-bold" for="searchReportContent">신고내용</label>
                 <input type="text" class="form-control" id="searchReportContent">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">처리내용</label>
+                <label class="form-label fw-bold" for="searchProcessContent">처리내용</label>
                 <input type="text" class="form-control" id="searchProcessContent">
             </div>
 
             <div class="col-12">
-                <label class="form-label fw-bold">보완횟수</label>
+                <label class="form-label fw-bold" for="searchSupplementCount">보완횟수</label>
                 <input type="text" class="form-control" id="searchSupplementCount" placeholder="예: 1, 2">
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">만족도 조사 여부</label>
+                <label class="form-label fw-bold" for="searchPollStatus">만족도 조사 여부</label>
                 <select class="form-select" id="searchPollStatus">
                     <option value="">전체</option>
                     <option value="참여 완료">참여 완료</option>
@@ -101,7 +101,7 @@
                 </select>
             </div>
             <div class="col-12">
-                <label class="form-label fw-bold">별점사유</label>
+                <label class="form-label fw-bold" for="searchRatingCause">별점사유</label>
                 <input type="text" class="form-control" id="searchRatingCause">
             </div>
             <div class="col-12">
@@ -119,25 +119,25 @@
             <div class="col-12">
                 <label class="form-label fw-bold text-primary">신고일 범위</label>
                 <div class="input-group input-group-sm">
-                    <input type="date" class="form-control" id="searchReportDateStart">
+                    <input type="date" class="form-control" id="searchReportDateStart" aria-label="신고일 시작">
                     <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" id="searchReportDateEnd">
+                    <input type="date" class="form-control" id="searchReportDateEnd" aria-label="신고일 끝">
                 </div>
             </div>
             <div class="col-12">
                 <label class="form-label fw-bold text-success">발생일 범위</label>
                 <div class="input-group input-group-sm">
-                    <input type="date" class="form-control" id="searchOccurDateStart">
+                    <input type="date" class="form-control" id="searchOccurDateStart" aria-label="발생일 시작">
                     <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" id="searchOccurDateEnd">
+                    <input type="date" class="form-control" id="searchOccurDateEnd" aria-label="발생일 끝">
                 </div>
             </div>
             <div class="col-12">
                 <label class="form-label fw-bold text-warning">답변일 범위</label>
                 <div class="input-group input-group-sm">
-                    <input type="date" class="form-control" id="searchResponseDateStart">
+                    <input type="date" class="form-control" id="searchResponseDateStart" aria-label="답변일 시작">
                     <span class="input-group-text">~</span>
-                    <input type="date" class="form-control" id="searchResponseDateEnd">
+                    <input type="date" class="form-control" id="searchResponseDateEnd" aria-label="답변일 끝">
                 </div>
             </div>
             <div class="col-12">
@@ -180,12 +180,12 @@
         <table id="{{ table_id }}" class="table table-striped table-bordered table-fixed nowrap">
             <thead>
                 <tr>
-                    <th class="text-center" style="width: 13px;"><input type="checkbox" id="selectAll"></th>
+                    <th class="text-center" style="width: 13px;"><input type="checkbox" id="selectAll" aria-label="이 페이지 신고 모두 선택"></th>
                     <th style="width: 53.05px;">ID</th>
-                    <th style="width: 40.89px;">상태</th>
+                    <th style="width: 56px;" data-csv-title="상태" title="안전신문고가 준 원래 상태 값. 검색·통계는 '처리상태'를 씁니다.">원본 상태</th>
                     <th style="width: 120.61px;">신고번호</th>
                     <th style="width: 225.19px;">신고명</th>
-                    <th style="width: 135px;">신고일</th>
+                    <th style="width: 118px;">신고일</th>
                     <th style="width: 80px;">처리상태</th>
                     <th style="width: 89.45px;">차량번호</th>
                     {% if table_id == "duplicateTable" %}
@@ -196,7 +196,7 @@
                     <th style="width: 29.45px;">벌점</th>
                     <th style="width: 270.64px;">처리기관</th>
                     <th style="width: 44.17px;">담당자</th>
-                    <th style="width: 135px;">답변일</th>
+                    <th style="width: 118px;">답변일</th>
                     <th style="width: 48px;">보완</th>
                     <th style="width: 85px;">발생일자</th>
                     <th style="width: 75px;">발생시각</th>
@@ -221,7 +221,7 @@
 </div>
 
 <!-- 데이터 도구 하단 툴바 -->
-<div class="sr-list-toolbar mt-3">
+<div class="sr-list-toolbar sr-list-toolbar-bottom mt-3">
     <div class="primary-actions">
         <button type="button" class="btn btn-primary btn-sm shadow-sm btn-enqueue-crawl"><i class="fas fa-play me-1"></i> 선택건 크롤링</button>
         <button type="button" class="btn btn-warning btn-sm shadow-sm btn-add-watchlist"><i class="fas fa-eye me-1"></i> 감시목록 추가</button>
@@ -489,14 +489,15 @@ $(document).ready(function() {
         return `<span class="ellipsis-cell" style="max-width:${maxWidth}px;display:block" title="${v}">${v}</span>`;
     }
 
-    function renderAttach(d, type, btnLabel, btnClass) {
+    // kind: 'photo'(첨부사진) | 'file'(첨부파일). 예전에는 버튼 문구로 유형을 정해 첨부파일도 사진·'장'으로 보였다(기술일지 C13).
+    function renderAttach(d, type, btnLabel, btnClass, kind) {
         const text = normalizeCellText(d);
         if (type !== 'display') return text;
         if (!text) return '';
         if (text === '6개월 초과') return '만료';
         const links = splitMultilineLinks(text);
-        const unit = btnLabel === '일괄확인' ? '장' : '개';
-        var dataType = btnLabel === '일괄확인' ? 'photo' : 'file';
+        const dataType = kind === 'file' ? 'file' : 'photo';
+        const unit = dataType === 'photo' ? '장' : '개';
         return `${links.length}${unit} <button class="btn btn-sm ${btnClass} py-0 px-1 view-all-btn" data-links="${encodeLinksPayload(links)}" data-type="${dataType}">${btnLabel}</button>`;
     }
 
@@ -514,7 +515,7 @@ $(document).ready(function() {
     // ── 컬럼 정의 ──────────────────────────────────────────────────
     const columns = [
         { data: '신고번호', orderable: false, searchable: false, className: 'text-center',
-          render: (d) => `<input type="checkbox" class="row-checkbox" value="${esc(d)}">` },
+          render: (d) => `<input type="checkbox" class="row-checkbox" value="${esc(d)}" aria-label="신고 ${esc(d)} 선택">` },
         { data: 'ID', className: 'text-center',
           render: (d, t, r) => t === 'display'
               ? `<a href="https://www.safetyreport.go.kr/#mypage/mysafereport/${esc(d)}" target="_blank">${esc(d)}</a>`
@@ -526,7 +527,7 @@ $(document).ready(function() {
               : (d || '') },
         { data: '신고명',
           render: (d, t) => t === 'display' ? renderEllipsis(d, t, 225) : (d || '') },
-        { data: '신고일' },
+        { data: '신고일', render: (d, t) => t === 'display' ? esc(window.srDisplayDateTime(normalizeCellText(d))) : d },
         { data: '처리상태', className: 'text-center',
           render: (d, t) => t === 'display' ? renderBadge(d) : (d || '') },
         { data: '차량번호', className: 'text-center' },
@@ -541,7 +542,7 @@ $(document).ready(function() {
         { data: '벌점' },
         { data: '처리기관' },
         { data: '담당자' },
-        { data: '답변일' },
+        { data: '답변일', render: (d, t) => t === 'display' ? esc(window.srDisplayDateTime(normalizeCellText(d))) : d },
         { data: '보완횟수', className: 'text-center',
           render: (d, t) => {
               const n = parseInt(d, 10);
@@ -562,9 +563,9 @@ $(document).ready(function() {
           render: (d, t) => t === 'display' ? renderEllipsis(d, t, 182) : (d || '') },
         { data: '지도',       render: renderMap },
         { data: '첨부사진',
-          render: (d, t) => renderAttach(d, t, '일괄확인', 'btn-outline-secondary') },
+          render: (d, t) => renderAttach(d, t, '일괄확인', 'btn-outline-secondary', 'photo') },
         { data: '첨부파일',
-          render: (d, t) => renderAttach(d, t, '일괄확인', 'btn-outline-primary') },
+          render: (d, t) => renderAttach(d, t, '일괄확인', 'btn-outline-primary', 'file') },
         { data: '만족도조사여부' },
         { data: '별점', className: 'text-center',
           render: (d, t) => {
@@ -694,12 +695,21 @@ $(document).ready(function() {
         $('#selectAll').prop('checked', pageTotal > 0 && pageChecked === pageTotal);
     }
 
-    $(window).on('resize', function () { pinEmptyState(table); });
+    // 아래 작업 바는 표가 한 화면보다 길 때만 보인다. 짧은 목록에서 같은 버튼 묶음이 두 번 나와 화면을 차지했다(기술일지 O-08)
+    function syncBottomToolbar() {
+        var bottom = document.querySelector('.sr-list-toolbar-bottom');
+        var wrapper = document.querySelector('#{{ table_id }}_wrapper');
+        if (!bottom || !wrapper) return;
+        bottom.classList.toggle('is-redundant', wrapper.getBoundingClientRect().height < window.innerHeight * 0.9);
+    }
+    $(window).on('resize', function () { pinEmptyState(table); syncBottomToolbar(); });
 
     table.on('draw', function () {
         syncScroll();
         applyRowHighlights();
+        syncBottomToolbar();
     });
+    syncBottomToolbar();
 
     // 개별 체크박스 토글
     $('#{{ table_id }} tbody').on('change', '.row-checkbox', function () {
@@ -962,7 +972,8 @@ $(document).ready(function() {
         let headers = [];
         table.columns().every(function() {
             if (this.index() !== 0) { 
-                let title = $(this.header()).text().trim();
+                // 화면 머리말을 바꿔도 CSV 열 이름은 그대로 둔다(data-csv-title, 기술일지 O-05)
+                let title = ($(this.header()).attr('data-csv-title') || $(this.header()).text()).trim();
                 if (title === "첨부사진" || title === "첨부파일") {
                     let maxCount = maxLinksLength[title];
                     if (maxCount === 0) {

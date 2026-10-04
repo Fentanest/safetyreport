@@ -13,10 +13,17 @@
                 <a href="/stats#statsSunwi" class="ms-2 small" title="전국 안전신고 현황은 통계 화면 아래로 옮겼습니다"><i class="fas fa-map-marked-alt me-1"></i>전국 안전신고 현황</a></span>
         </div>
 
+        {% if load_error %}
+        <div class="alert alert-danger" role="alert">
+            <i class="fas fa-exclamation-triangle me-1"></i> 신고 집계를 불러오지 못했습니다. 숫자는 표시하지 않습니다.
+            잠시 뒤 새로고침하고, 계속되면 <a href="/file-browser" class="alert-link">파일 브라우저</a>의 로그를 확인해 주세요.
+        </div>
+        {% else %}
         <div class="dashboard-grid stat-cards-grid">
             <div class="dashboard-card status-card-total" onclick="window.location.href='/data/all'">
                 <div class="dashboard-card-title">총 신고</div>
                 <div class="dashboard-card-value">{{ total }}</div>
+                {% if exclude_withdraw and withdrawRawCount > 0 %}<div class="dashboard-card-note">취하 {{ withdrawRawCount }}건 포함</div>{% endif %}
             </div>
             <div class="dashboard-card status-card-supplement" onclick="window.location.href='/data/all?status=보완요청'">
                 <div class="dashboard-card-title">보완 요청</div>
@@ -57,31 +64,37 @@
 
         <div class="row mb-4">
             <div class="col-12">
-                <h6 class="fw-bold mb-2 mt-4" style="color: var(--sr-text-muted)"><i class="fas fa-sliders-h me-1"></i> 안전신문고 처리상태 비율</h6>
-                <div class="progress shadow-sm mb-3" style="height: 35px; border-radius: var(--sr-radius); font-size: 1.05em; font-weight: bold; background-color: var(--sr-surface-3);">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-accept); width: 0%; transition: width 1.5s ease" data-width="{{ accept_pct }}%">
-                        {{ accept_pct }}%
-                    </div>
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-partial); color: #ffffff; width: 0%; transition: width 1.5s ease" data-width="{{ partial_pct }}%">
-                        {{ partial_pct }}%
-                    </div>
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-reject); width: 0%; transition: width 1.5s ease" data-width="{{ reject_pct }}%">
-                        {{ reject_pct }}%
-                    </div>
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-processing); width: 0%; transition: width 1.5s ease" data-width="{{ processing_pct }}%">
-                        {{ processing_pct }}%
-                    </div>
-                    {% if supplementCount > 0 %}
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-supplement); color: #ffffff; width: 0%; transition: width 1.5s ease" data-width="{{ supplement_pct }}%">
-                        {{ supplement_pct }}%
-                    </div>
-                    {% endif %}
-                    {% if not exclude_withdraw and withdrawCount > 0 %}
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-withdraw); color: #ffffff; width: 0%; transition: width 1.5s ease" data-width="{{ withdraw_pct }}%">
-                        {{ withdraw_pct }}%
-                    </div>
-                    {% endif %}
+                {# 막대 분모 = 표시한 구간의 합(모바일 대시보드 원 그래프와 같은 기준). 세부 결과 없는 '답변완료'와 그 밖의 상태는
+                   막대에 넣지 않고 아래에 건수를 밝힌다(기술일지 O-01). API 의 *_pct 필드는 바꾸지 않는다. #}
+                {% set bar_withdraw = withdrawCount if not exclude_withdraw else 0 %}
+                {% set bar_segments = [
+                    ('수용', acceptCount, 'var(--sr-status-accept)', '#ffffff'),
+                    ('일부수용', partialCount, 'var(--sr-status-partial)', '#ffffff'),
+                    ('불수용/기타', rejectCount, 'var(--sr-status-reject)', '#ffffff'),
+                    ('처리 중', processingCount, 'var(--sr-status-processing)', '#ffffff'),
+                    ('보완 요청', supplementCount, 'var(--sr-status-supplement)', 'var(--sr-on-status-supplement)'),
+                    ('취하', bar_withdraw, 'var(--sr-status-withdraw)', '#ffffff'),
+                ] %}
+                {% set bar_total = acceptCount + partialCount + rejectCount + processingCount + supplementCount + bar_withdraw %}
+                {% set completed_unknown = completedCount - acceptCount - partialCount - rejectCount %}
+                {% set other_status = total - supplementCount - processingCount - completedCount - withdrawRawCount %}
+                <div class="d-flex flex-wrap align-items-baseline justify-content-between gap-2 mt-4 mb-2">
+                    <h6 class="fw-bold mb-0" style="color: var(--sr-text-muted)"><i class="fas fa-sliders-h me-1"></i> 안전신문고 처리상태 비율</h6>
+                    <span class="small" style="color: var(--sr-text-muted)">막대 기준 {{ bar_total }}건{% if completed_unknown > 0 %} · 세부 결과 없는 답변완료 {{ completed_unknown }}건 제외{% endif %}{% if other_status > 0 %} · 그 밖의 상태 {{ other_status }}건 제외{% endif %}{% if exclude_withdraw and withdrawRawCount > 0 %} · 취하 {{ withdrawRawCount }}건 제외{% endif %}</span>
                 </div>
+                <div class="progress shadow-sm mb-2 sr-ratio-bar" style="height: 35px; border-radius: var(--sr-radius); font-size: 1.05em; font-weight: bold; background-color: var(--sr-surface-3);">
+                    {% for label, count, color, fg in bar_segments if count > 0 and bar_total > 0 %}
+                    {% set pct = (count * 100.0 / bar_total) | round(1) %}
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-label="{{ label }} {{ count }}건 {{ pct }}%" title="{{ label }} {{ count }}건 ({{ pct }}%)" style="background-color: {{ color }}; color: {{ fg }}; width: 0%; transition: width 1.5s ease" data-width="{{ pct }}%">
+                        {% if pct >= 15 %}<span class="sr-ratio-bar-text">{{ pct }}%</span>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                <ul class="sr-ratio-legend list-unstyled d-flex flex-wrap gap-3 small mb-3" aria-label="처리상태 비율 범례">
+                    {% for label, count, color, fg in bar_segments if count > 0 and bar_total > 0 %}
+                    <li><span class="sr-ratio-swatch" style="background-color: {{ color }};" aria-hidden="true"></span>{{ label }} {{ count }}건 ({{ (count * 100.0 / bar_total) | round(1) }}%)</li>
+                    {% endfor %}
+                </ul>
             </div>
         </div>
 
@@ -115,22 +128,27 @@
         <div class="row mb-4">
             <div class="col-12">
                 <h6 class="fw-bold mb-2 mt-4" style="color: var(--sr-text-muted)"><i class="fas fa-balance-scale me-1"></i> 교통위반 실제 처분율</h6>
-                <div class="progress shadow-sm mb-3" style="height: 35px; border-radius: var(--sr-radius); font-size: 1.05em; font-weight: bold; background-color: var(--sr-surface-3);">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-fine); width: 0%; transition: width 1.5s ease" data-width="{{ tfine_pct }}%">
-                        {{ tfine_pct }}%
+                {% set t_segments = [
+                    ('과태료 부과', tFineCount, tfine_pct, 'var(--sr-status-fine)', '#ffffff'),
+                    ('경고장/범칙금', tPenaltyCount, tpenalty_pct, 'var(--sr-status-withdraw)', '#ffffff'),
+                    ('불수용/기타', tRejectCount, treject_pct, 'var(--sr-status-reject)', '#ffffff'),
+                    ('과태료 미확인', tUnconfirmedCount, tunconfirmed_pct, 'var(--sr-border)', 'var(--sr-text-muted)'),
+                ] %}
+                <div class="progress shadow-sm mb-2 sr-ratio-bar" style="height: 35px; border-radius: var(--sr-radius); font-size: 1.05em; font-weight: bold; background-color: var(--sr-surface-3);">
+                    {% for label, count, pct, color, fg in t_segments if count > 0 %}
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" aria-label="{{ label }} {{ count }}건 {{ pct }}%" title="{{ label }} {{ count }}건 ({{ pct }}%)" style="background-color: {{ color }}; color: {{ fg }}; width: 0%; transition: width 1.5s ease" data-width="{{ pct }}%">
+                        {% if pct >= 15 %}<span class="sr-ratio-bar-text">{{ pct }}%</span>{% endif %}
                     </div>
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-withdraw); width: 0%; transition: width 1.5s ease" data-width="{{ tpenalty_pct }}%">
-                        {{ tpenalty_pct }}%
-                    </div>
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-status-reject); width: 0%; transition: width 1.5s ease" data-width="{{ treject_pct }}%">
-                        {{ treject_pct }}%
-                    </div>
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="background-color: var(--sr-border); color: var(--sr-text-muted); width: 0%; transition: width 1.5s ease" data-width="{{ tunconfirmed_pct }}%">
-                        {{ tunconfirmed_pct }}%
-                    </div>
+                    {% endfor %}
                 </div>
+                <ul class="sr-ratio-legend list-unstyled d-flex flex-wrap gap-3 small mb-3" aria-label="교통위반 처분율 범례">
+                    {% for label, count, pct, color, fg in t_segments if count > 0 %}
+                    <li><span class="sr-ratio-swatch" style="background-color: {{ color }};" aria-hidden="true"></span>{{ label }} {{ count }}건 ({{ pct }}%)</li>
+                    {% endfor %}
+                </ul>
             </div>
         </div>
+        {% endif %}
     </div>
 
 </div>
@@ -138,10 +156,10 @@
 <div class="row mt-4 dashboard-grid" style="grid-template-columns: minmax(0, 1fr); margin-bottom: 0;">
     <div class="col-12 w-100">
         <div class="table-card h-100 w-100 mb-4">
-            <div class="table-card-header">Watchlist (감시 목록)</div>
+            <div class="table-card-header">감시 목록</div>
             <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table table-hover table-sm text-center mb-0 align-middle table-custom" style="font-size: 0.9rem; table-layout: fixed; width: 100%;">
+                    <table class="table table-hover table-sm text-center mb-0 align-middle table-custom sr-dash-table" style="font-size: 0.9rem; table-layout: fixed; width: 100%;">
                         <thead>
                             <tr>
                                 <th style="width: 13%;">신고번호</th>
@@ -199,7 +217,7 @@
             <div class="table-card-header">최근 3일 내 답변 완료된 건</div>
             <div class="card-body p-0">
                 <div class="table-responsive">
-                    <table class="table table-hover table-sm text-center mb-0 align-middle table-custom" style="font-size: 0.9rem; table-layout: fixed; width: 100%;">
+                    <table class="table table-hover table-sm text-center mb-0 align-middle table-custom sr-dash-table" style="font-size: 0.9rem; table-layout: fixed; width: 100%;">
                         <thead>
                             <tr>
                                 <th style="width: 13%;">신고번호</th>

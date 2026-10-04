@@ -42,7 +42,7 @@ async def websocket_rating_logs(websocket: WebSocket):
     if not await ws_auth.authorize(websocket):  # 관리자 세션 또는 API 키 + 커뮤니티 게이트
         return
     await websocket.accept()
-    watch = ws_auth.GateWatch()
+    watch = ws_auth.GateWatch(websocket=websocket)
     log_file = os.path.join(app_settings.datapath, 'logs', 'current_rating.log')
     
     from web.log_stream import stream_log

@@ -17,7 +17,8 @@ class SearchFormOrderTest(unittest.TestCase):
         Environment().parse(source)
         self.assertIn(form_marker, source)
         form = source.split(form_marker, 1)[1].split("</form>", 1)[0]
-        labels = re.findall(r'<label class="form-label[^"]*">(.*?)</label>', form, re.DOTALL)
+        # 라벨에 for= 등 다른 속성이 붙어도 순서를 읽는다(기술일지 F-06 라벨 연결)
+        labels = re.findall(r'<label class="form-label[^"]*"[^>]*>(.*?)</label>', form, re.DOTALL)
         return form, [unescape(re.sub(r"<[^>]*>", "", label)).strip() for label in labels]
 
     def test_report_list_follows_requested_order(self):

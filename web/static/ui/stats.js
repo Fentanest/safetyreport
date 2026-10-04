@@ -500,28 +500,51 @@
     // 합계 행. 열을 숨기면 td 순서가 바뀌므로 DataTables API 로 열 번호를 지정해 읽고 쓴다(D-STAT-7).
     var COUNT_KEYS = ['fines', 'warn', 'rejects', 'dispositionUnknown', 'noPenalty', 'unclassified'];
     function makeDrawCallback(cfg) {
+        // 행 숫자는 표를 처음 그릴 때 한 번만 셀 속성에서 읽고, 합계는 검색 모집단이 바뀔 때만 다시 더한다.
+        // 페이지 이동·정렬·열 표시 변경에서는 직전 합계를 그대로 쓴다(기술일지 B-07, 계획 P16a typed rows).
+        var typedRows = null, lastKey = null, last = null;
+        function readRows(api) {
+            function attr(rowIdx, col, name) { return $(api.cell(rowIdx, col).node()).attr(name); }
+            typedRows = [];
+            api.rows().indexes().each(function (r) {
+                var row = {
+                    total: parseInt(attr(r, cfg.total, 'data-order'), 10) || 0,
+                    fine: parseInt(attr(r, cfg.fine, 'data-order'), 10) || 0,
+                    fineCount: parseInt(attr(r, cfg.fine, 'data-count'), 10) || 0,
+                    est: parseInt(attr(r, cfg.est, 'data-order'), 10) || 0,
+                    estCount: parseInt(attr(r, cfg.est, 'data-count'), 10) || 0,
+                    avgD: parseFloat(attr(r, cfg.avg, 'data-order')),
+                    avgN: parseInt(attr(r, cfg.avg, 'data-count'), 10) || 0,
+                    rAvg: parseFloat(attr(r, cfg.rating, 'data-order')),
+                    rCount: parseInt(attr(r, cfg.rating, 'data-count'), 10) || 0
+                };
+                COUNT_KEYS.forEach(function (k) { row[k] = parseInt(attr(r, cfg[k], 'data-order'), 10) || 0; });
+                typedRows[r] = row;
+            });
+        }
         return function () {
             var api = this.api();
-            var sums = { total: 0, fine: 0, fineCount: 0, est: 0, estCount: 0 };
-            COUNT_KEYS.forEach(function (k) { sums[k] = 0; });
-            var wDays = 0, wBase = 0, wRating = 0, wRatingBase = 0;
-            function attr(rowIdx, col, name) { return $(api.cell(rowIdx, col).node()).attr(name); }
-
-            api.rows({ search: 'applied' }).indexes().each(function (r) {
-                sums.total += parseInt(attr(r, cfg.total, 'data-order'), 10) || 0;
-                sums.fine += parseInt(attr(r, cfg.fine, 'data-order'), 10) || 0;
-                sums.fineCount += parseInt(attr(r, cfg.fine, 'data-count'), 10) || 0;
-                sums.est += parseInt(attr(r, cfg.est, 'data-order'), 10) || 0;
-                sums.estCount += parseInt(attr(r, cfg.est, 'data-count'), 10) || 0;
-                COUNT_KEYS.forEach(function (k) { sums[k] += parseInt(attr(r, cfg[k], 'data-order'), 10) || 0; });
-                // 평균 처리기간 합계 = 행 평균 × 행의 유효 표본 수(완료 신고)로 가중(기관 평균의 단순 평균이 아님)
-                var avgD = parseFloat(attr(r, cfg.avg, 'data-order'));
-                var avgN = parseInt(attr(r, cfg.avg, 'data-count'), 10) || 0;
-                if (!isNaN(avgD) && avgD >= 0 && avgN > 0) { wDays += avgD * avgN; wBase += avgN; }
-                var rAvg = parseFloat(attr(r, cfg.rating, 'data-order'));
-                var rCount = parseInt(attr(r, cfg.rating, 'data-count'), 10) || 0;
-                if (!isNaN(rAvg) && rAvg >= 0 && rCount > 0) { wRating += rAvg * rCount; wRatingBase += rCount; }
-            });
+            if (!typedRows) readRows(api);
+            var applied = api.rows({ search: 'applied' }).indexes();
+            var key = String(searchTerm || '') + '\u0000' + applied.length;
+            if (key !== lastKey) {
+                var sums = { total: 0, fine: 0, fineCount: 0, est: 0, estCount: 0 };
+                COUNT_KEYS.forEach(function (k) { sums[k] = 0; });
+                var wDays = 0, wBase = 0, wRating = 0, wRatingBase = 0;
+                applied.each(function (r) {
+                    var row = typedRows[r];
+                    if (!row) return;
+                    sums.total += row.total; sums.fine += row.fine; sums.fineCount += row.fineCount;
+                    sums.est += row.est; sums.estCount += row.estCount;
+                    COUNT_KEYS.forEach(function (k) { sums[k] += row[k]; });
+                    // 평균 처리기간 합계 = 행 평균 × 행의 유효 표본 수(완료 신고)로 가중(기관 평균의 단순 평균이 아님)
+                    if (!isNaN(row.avgD) && row.avgD >= 0 && row.avgN > 0) { wDays += row.avgD * row.avgN; wBase += row.avgN; }
+                    if (!isNaN(row.rAvg) && row.rAvg >= 0 && row.rCount > 0) { wRating += row.rAvg * row.rCount; wRatingBase += row.rCount; }
+                });
+                last = { sums: sums, wDays: wDays, wBase: wBase, wRating: wRating, wRatingBase: wRatingBase };
+                lastKey = key;
+            }
+            var sums = last.sums, wDays = last.wDays, wBase = last.wBase, wRating = last.wRating, wRatingBase = last.wRatingBase;
 
             function foot(col) { return $(api.column(col).footer()); }
             foot(cfg.total).html('<b>' + num(sums.total) + '</b>건');
@@ -687,9 +710,18 @@
         renderColumnControls(meta);
     }
     $('#statsColumnCheckboxes').on('change.srStats', '.stats-column-checkbox', function () {
-        columnVisibilityState[$(this).attr('data-column-key')] = $(this).is(':checked');
+        var key = $(this).attr('data-column-key');
+        var hadFocus = document.activeElement === this;
+        columnVisibilityState[key] = $(this).is(':checked');
         saveColumnVisibilityState();
         syncActiveTableColumns();
+        // 목록을 다시 그려도 방금 바꾼 열 체크박스로 포커스를 돌린다 — 키보드로 이어서 고를 수 있게(기술일지 C09)
+        if (hadFocus) {
+            var again = $('#statsColumnCheckboxes .stats-column-checkbox').filter(function () {
+                return $(this).attr('data-column-key') === key;
+            }).get(0);
+            if (again) again.focus();
+        }
     });
     $('#statsColumnsSelectAll').on('click.srStats', function () {
         var api = getActiveTableApi();

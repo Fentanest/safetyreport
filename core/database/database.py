@@ -4,6 +4,7 @@ from sqlalchemy import select, func, exists, update, text, inspect, bindparam, o
 from sqlalchemy.dialects.sqlite import insert
 from core.utils import logger
 import os
+import threading
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 import re
@@ -1029,6 +1030,7 @@ def load_results_by_category(engine):
     """카테고리별 분리 결과. 엑셀/구글시트 시트별 저장용.
     반환: {"교통위반": df_t, "주정차위반": df_p, "기타위반": df_o}"""
     with engine.connect() as conn:
+        conn.exec_driver_sql('BEGIN')  # 세 분류를 한 스냅샷에서 읽는다(기술일지 A1-07)
         df_watch = pd.read_sql_query(select(watchlist_table.c.신고번호), conn)
         watch_ids = set(df_watch['신고번호'].tolist())
 
@@ -1118,6 +1120,21 @@ def create_admin_user(engine, username: str, password: str):
         conn.execute(admin_users_table.insert().values(
             username=username, password_hash=pwd_hash, salt=salt
         ))
+
+
+_first_admin_lock = threading.Lock()
+
+
+def create_first_admin_user(engine, username: str, password: str) -> bool:
+    """최초 설정: 관리자가 없을 때만 만든다. 확인과 삽입을 한 잠금·한 트랜잭션에서 해 동시 요청이 관리자를 둘 만들지 못한다
+    (기술일지 A1-08). 이미 있으면 False."""
+    from core.utils.security import hash_password
+    salt, pwd_hash = hash_password(password)
+    with _first_admin_lock, engine.begin() as conn:
+        if conn.execute(select(func.count()).select_from(admin_users_table)).scalar():
+            return False
+        conn.execute(admin_users_table.insert().values(username=username, password_hash=pwd_hash, salt=salt))
+    return True
 
 
 def update_admin_user(engine, old_username: str, new_username: str, new_password: str):

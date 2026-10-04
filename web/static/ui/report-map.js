@@ -709,7 +709,31 @@ function create(element, mapPoints, options) {
         map.fitBounds(bounds, { padding: [36, 36], maxZoom: 14 });
     }
     if (options.viewportURL) {
-        var sequence=0, controller=null, timer=null, disposed=false;
+        var sequence=0, controller=null, timer=null, disposed=false, notice=null;
+        // 이동·확대 뒤 갱신이 실패하면 지도 위에 알리고 다시 시도할 수 있게 한다. 예전에는 속성에만 남아
+        // 이전 마커가 현재 범위 결과처럼 보였다(기술일지 C06).
+        function showRefreshError(message) {
+            if (!notice) {
+                notice = document.createElement('div');
+                notice.className = 'sr-map-refresh-error';
+                notice.setAttribute('role', 'status');
+                var text = document.createElement('span');
+                var retry = document.createElement('button');
+                retry.type = 'button';
+                retry.className = 'btn btn-sm btn-light';
+                retry.textContent = '다시 시도';
+                retry.addEventListener('click', function (e) { e.stopPropagation(); refresh(); });
+                L.DomEvent.disableClickPropagation(notice);
+                notice.appendChild(text); notice.appendChild(retry);
+                element.appendChild(notice);
+            }
+            notice.firstChild.textContent = '이 범위의 지도를 갱신하지 못했습니다(' + message + '). 이전 결과를 표시 중입니다.';
+            notice.hidden = false;
+        }
+        function clearRefreshError() {
+            element.removeAttribute('data-map-error');
+            if (notice) notice.hidden = true;
+        }
         function refresh() {
             var current=++sequence;
             if(controller) controller.abort();
@@ -718,8 +742,8 @@ function create(element, mapPoints, options) {
             url.searchParams.set('bounds',[Math.max(-90,b.getSouth()),Math.max(-180,b.getWest()),Math.min(90,b.getNorth()),Math.min(180,b.getEast())].join(','));
             url.searchParams.set('zoom',map.getZoom());
             fetch(url,{headers:{Accept:'application/json'},signal:controller.signal}).then(function(r){if(!r.ok)throw Error('HTTP '+r.status);return r.json();})
-                .then(function(p){if(!disposed && current===sequence) drawPoints(p.points || []);})
-                .catch(function(e){if(!disposed && current===sequence && e.name!=='AbortError') element.setAttribute('data-map-error',e.message);});
+                .then(function(p){if(!disposed && current===sequence){ clearRefreshError(); drawPoints(p.points || []);}})
+                .catch(function(e){if(!disposed && current===sequence && e.name!=='AbortError'){ element.setAttribute('data-map-error',e.message); showRefreshError(e.message);}});
         }
         map.on('moveend',function(){clearTimeout(timer);timer=setTimeout(refresh,180);});
         function stopViewportRefresh(){disposed=true;clearTimeout(timer);if(controller)controller.abort();}
@@ -727,6 +751,7 @@ function create(element, mapPoints, options) {
             stopViewportRefresh();
             window.removeEventListener('pagehide',stopViewportRefresh);
             if(tooltipMeasureElement)tooltipMeasureElement.remove();
+            if(notice)notice.remove();
         });
         window.addEventListener('pagehide',stopViewportRefresh);
     }

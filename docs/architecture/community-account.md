@@ -18,6 +18,7 @@
 - 중앙 페이지는 이 서버에 접속하지 않는다. 사용자별 Redirect URL 등록이 필요 없다(`127.0.0.1:6819`·NAS IP·프록시 뒤 모두 같은 방식).
 - 코드 교환 실패는 다시 교환하지 않는다(새 요청). poll 응답이 유실되면 같은 `delivery_key` 로 다시 poll 한다.
 - `complete` 가 네트워크 오류면 같은 토큰으로 몇 번 재시도하고(코드 재교환 없음), 끝내 실패해도 로컬 연결은 유지하고 `last_error=complete_failed` 로 알린다(중앙 페이지만 "완료" 표시를 못 함).
+  429 의 `Retry-After` 는 최소 대기 시간으로 지키고(자체 백오프 상한으로 줄이지 않음), 기다리면 연결 요청 만료를 넘길 때는 그만둔다(2026-10-04, D2-07).
 - 확정 전에 취소하면 후보 세션을 `logout?scope=local` 로 끝내고 버린다. 기존 연결은 그대로.
 - 다른 세션으로 교체되면 이전 세션도 `scope=local` 로 끝낸다(best-effort, 교체 저장 뒤). 브리프는 "다른 사용자일 때"였지만, 같은 사용자라도 버려진 세션이 남지 않게 `session_id` 가 다르면 끝낸다.
 
@@ -116,7 +117,8 @@
 - `community_auth_service.is_upload_allowed()` = 켜짐 + 설정됨 + 연결됨 + `[COMMUNITY] upload_enabled`. **업로드마다 확인한다.**
 - `community_auth_service.get_access_token()`: 만료 60초 안이면 락 안에서 한 번만 refresh(`grant_type=refresh_token`), 새 access+refresh 를 함께 원자 저장.
   락을 잡은 뒤 다시 읽으므로 동시 호출자(다른 프로세스 포함)는 이미 갱신된 값을 쓴다.
-  400 `refresh_token_not_found|refresh_token_already_used|session_not_found|session_expired|invalid_grant|user_not_found|user_banned` → `reauth_required`(토큰 삭제, 표시 이름만 유지).
+  400 `refresh_token_not_found|refresh_token_already_used|session_not_found|session_expired|invalid_grant|user_not_found|user_banned` → `reauth_required`(토큰 삭제, 표시 이름·카카오 회원번호 유지).
+  회원번호를 남겨야 자료 주인이 다른 계정인 서버에서 로그아웃해도 그 계정의 신고 자료를 지우지 않는다(2026-10-04, D2-02, 모바일과 같음).
   네트워크/5xx/429 → 세션 유지, `auth_unavailable` 예외.
 - `disconnect()`(카카오 로그아웃·세션 초기화가 부름): poll 중지, 대기 요청 취소, 로컬 세션 삭제(항상), 서버에는 `logout?scope=local`(access 가 만료됐으면 refresh 후, refresh 도 실패하면 생략).
   GoTrue 의 scope 기본값은 global 이므로 늘 `scope=local`. 이 함수 자체는 신고 데이터를 건드리지 않는다 — 지우는 것은 라우트 `/logout` 이다.

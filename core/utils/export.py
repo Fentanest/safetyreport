@@ -232,8 +232,8 @@ def save_to_google_sheet(data, photo_cols):
                 if entry is None:
                     continue
                 frame, photos = entry if isinstance(entry, tuple) else (entry, [])
-                if frame is not None and not frame.empty:
-                    payloads[name] = _df_to_sheet_data(frame, photos)
+                if frame is not None and len(frame.columns):
+                    payloads[name] = _df_to_sheet_data(frame, photos)  # 0건이면 머리글 한 줄(시트를 비운다)
         else:
             payloads = {'data': _df_to_sheet_data(data, photo_cols)}
         from core.utils.sheet_export import publish

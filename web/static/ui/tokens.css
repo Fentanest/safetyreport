@@ -34,6 +34,8 @@
     --sr-status-reject: #dc2626;
     --sr-status-processing: #2563eb;
     --sr-status-supplement: #fd7e14;
+    /* 주황 채움 위 글자. 흰 글자는 2.6:1 로 읽기 어렵다 — 어두운 글자 약 6.5:1(기술일지 C11). 두 테마 공통 */
+    --sr-on-status-supplement: #1b1f24;
     --sr-status-withdraw: #8b95a7;
     --sr-status-fine: #db2777;
     /* 2026-09-28 통계 처분 분포: 경고/범칙금(모바일 serverTrafficPenaltyColor 계열), 처분 미확인·미분류(모바일 serverUnconfirmedColor 계열) */

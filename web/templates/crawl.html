@@ -144,10 +144,49 @@
         });
 
 
-        $('#crawlForm').on('submit', function (e) {
+        // 실행 상태 표시를 서버 상태와 맞춘다. 정상 종료돼도 '실행 중'·시작 버튼 비활성이 남던 문제(기술일지 C03).
+        let statusTimer = null;
+        function setRunning(running) {
+            $('#statusIndicator').toggleClass('active', running).toggleClass('inactive', !running).text(running ? '실행 중' : '대기 중');
+            $('#btnStart').prop('disabled', running);
+            $('#btnKill').prop('disabled', !running);
+        }
+        function pollStatus() {
+            clearTimeout(statusTimer);
+            if (disposed) return;
+            fetch('/crawl/status', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function (data) {
+                    setRunning(!!data.running);
+                    if (data.running) statusTimer = setTimeout(pollStatus, 5000);
+                })
+                .catch(function () { statusTimer = setTimeout(pollStatus, 15000); });
+        }
+        if ($('#statusIndicator').hasClass('active')) statusTimer = setTimeout(pollStatus, 5000);
+        window.addEventListener('pagehide', function () { clearTimeout(statusTimer); });
+
+        async function confirmStart(form) {
+            if (form.querySelector('input[name="crawl_mode"]:checked')?.value === 'reset') {
+                // DB 초기화는 일반 크롤과 다른 확인을 받는다(기술일지 C02)
+                return window.srConfirm({
+                    title: 'DB 초기화 크롤링',
+                    message: '저장된 신고 원본·목록을 모두 지우고 처음부터 다시 수집합니다. 되돌릴 수 없습니다.\n먼저 [데이터 백업/복원] 화면에서 DB 백업을 내려받아 두세요.',
+                    items: [
+                        { label: '지워지는 것', text: '신고 원본·목록·병합 자료, 마지막 동기화 시각' },
+                        { label: '남는 것', text: '내가 고친 값, 중복 판단, 감시 목록, 지오코딩 캐시, 자료 주인 표시, 설정·관리자·API 키' }
+                    ],
+                    confirmLabel: 'DB 초기화하고 시작',
+                    danger: true,
+                    requireText: 'DB 초기화'
+                });
+            }
+            return confirm("크롤링을 시작하시겠습니까?\n\n직접 로그인이 막히면 크롬 창이 열려 대신 로그인할 수 있습니다. 그때는 진행 중인 창을 건드리지 마세요.");
+        }
+
+        $('#crawlForm').on('submit', async function (e) {
             e.preventDefault();
 
-            if (!confirm("크롤링을 시작하시겠습니까?\n\n직접 로그인이 막히면 크롬 창이 열려 대신 로그인할 수 있습니다. 그때는 진행 중인 창을 건드리지 마세요.")) {
+            if (!(await confirmStart(this))) {
                 return;
             }
 
@@ -157,9 +196,9 @@
             $.post('/crawl/start', formData, function (response) {
                 alert(response.message);
                 if (response.status === 'success') {
-                    $('#statusIndicator').removeClass('inactive').addClass('active').text('실행 중');
+                    setRunning(true);
                     logConsole.textContent = ""; // Clear console
-                    $('#btnKill').prop('disabled', false);
+                    statusTimer = setTimeout(pollStatus, 5000);
                 } else {
                     $('#btnStart').prop('disabled', false);
                 }
@@ -174,12 +213,9 @@
             if (confirm("정말로 강제 중지 하시겠습니까?\n진행 중이던 데이터는 즉시 날아가며 병합 및 엑셀에 반영되지 않습니다!")) {
                 $.post('/crawl/kill', function (response) {
                     alert(response.message);
-                    if (response.status === 'success') {
-                        $('#statusIndicator').removeClass('active').addClass('inactive').text('대기 중');
-                        $('#btnStart').prop('disabled', false);
-                        $('#btnKill').prop('disabled', true);
-                    }
-                });
+                    if (response.status === 'success') setRunning(false);
+                    else pollStatus();  // 이미 끝난 작업이면 실제 상태로 되돌린다
+                }).fail(function () { pollStatus(); });
             }
         });
 

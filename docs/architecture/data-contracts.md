@@ -165,6 +165,8 @@ by_law (법규별, 같은 필드 + law)
 - **2026-09-26 감사 보강(SOL-02·03·04, 모바일 레포와 함께 변경)**:
   - 모르는 열: 변환 대상 표에 계약(`storage-contract.json`)에 없는 열이 있고 그 열에 NULL 아닌 값('' 포함)이 하나라도 있으면
     교체 전에 거부한다(서버 `exchange.UnknownColumns` → 409 문장, 모바일 `UnknownColumnsException`). 값이 모두 NULL 인 열은 잃는 값이 없어 통과.
+  - 모르는 분류: 모바일 `reports.category` 가 `traffic|parking|other` 가 아니면(NULL·빈 값 포함) 기타로 바꾸지 않고, 해당 ID·값을 밝혀
+    `DB_INVALID` 로 거부한다(서버 `exchange._refuse_unknown_categories`, 2026-10-04 기술일지 A1-03). 서버는 분류를 표 이름으로만 표현한다.
     서버가 아는 모바일 열 목록은 `exchange.known_mobile_columns()` 이고 테스트가 계약과 같은지 검사한다.
   - entry_value: 서버 `mysafety_entry_value` 행 없음 ↔ 모바일 `reports.entry_value` NULL, 행의 값(빈 문자열 포함) ↔ 같은 값.
     앱에 열이 있으면 앱 값이 원천(빈 문자열도 덮어씀), 열이 없는 구앱이면 서버 값 유지.
@@ -280,6 +282,7 @@ by_law (법규별, 같은 필드 + law)
   표·열 추가를 포함해 **무엇이든 바꾸기 전에** `data/backups/before_schema_v<옛 버전>_<시각>.db` 로 SQLite backup API 복사(WAL 포함). 이 접두어 파일은 최근 5개만 남긴다.
 - 그 뒤 단계별 마이그레이션(v1~)은 단계마다 트랜잭션 — 실패하면 그 단계는 되돌아가고 버전도 오르지 않는다. 코드보다 새 버전 DB 는 거부.
 - 복원 경로(`core/storage/exchange.restore`)의 임시 사본 업그레이드는 백업하지 않는다(복원 자체가 교체 전 `data_before_restore_*.db` 를 남김).
+  같은 초에 복원이 겹치면 `data_before_restore_<시각>_2.db` 처럼 이름을 배타적으로 확보해 앞 백업을 덮지 않는다(2026-10-04, A1-04).
 - 되돌리기: 서버를 멈추고 `data/data.db`(와 `-wal`/`-shm`)를 백업 파일로 바꾼 뒤 **이전 버전 서버**로 띄운다(새 서버로 띄우면 다시 올린다).
 
 ## 2026-09-25 업데이트 뒤 한 번 훑기 작업 (서버)
@@ -640,3 +643,11 @@ GET /api/v1/vehicle/{vehicle_number}
 - `search_by_vehicle(engine, vehicle_number)` — 현재 구현은 `report_query_service.py`, `data_service.py`는 호환 재노출만 담당
 
 ---
+
+## 2026-10-04 기술일지 반영 (계약 변화 없음, 동작 정정)
+- `POST /api/v1/editor/{category}/{record_id}`: 필드 값은 문자열·숫자·null 만 받는다. 객체·배열·불리언이면 400(예전에는 SQLite 바인딩 오류로 500, A1-10).
+- `crawl_changes.json`(WS `crawl_changes`·크롬 확장 완료 목록용 "마지막 크롤링 1회분")은 완료 처리에서 한 번 읽고 비운다. 다음 실행이 후처리 전에 실패해도
+  이전 목록을 다시 보내지 않는다(A2-05). 모바일 `/api/v1/crawl/results` 의 기기별 변경 기록(change_log)은 영향 없음.
+- 모바일 `/api/v1/stats`(기관 통계)는 웹 통계 화면과 같은 파생값 준비(`_prepare_metrics`)를 거친다. 응답 필드·값은 같다(B-08).
+- 모바일 DB 복원의 `entry_value` 반영은 묶음 삭제·삽입으로 바꿨다. 의미(앱 값이 원천, NULL 은 행 없음, 빈 문자열 유지)는 같다(B-09).
+- `POST /devices/api-keys/delete`: 키를 지운 뒤 그 키로 열린 `/ws/events` 연결을 4001 로 닫는다(A1-02).

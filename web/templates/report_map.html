@@ -264,62 +264,20 @@
             </div>
             <div class="modal-body">
                 <div class="d-flex flex-wrap gap-2 mb-3">
-                    <span class="map-chip">주소 그룹 <b>{{ missing_map_meta.group_count or 0 }}곳</b></span>
-                    <span class="map-chip">신고건 <b>{{ missing_map_meta.report_count or 0 }}건</b></span>
+                    <span class="map-chip">주소 그룹 <b id="missingGroupCount">{{ missing_map_meta.group_count or 0 }}곳</b></span>
+                    <span class="map-chip">신고건 <b id="missingReportCount">{{ missing_map_meta.report_count or 0 }}건</b></span>
                 </div>
-                {% if missing_map_groups %}
-                <div class="accordion" id="missingAddressAccordion">
-                    {% for group in missing_map_groups %}
-                    <div class="accordion-item">
-                        <h2 class="accordion-header" id="missingHeading{{ loop.index }}">
-                            <button class="accordion-button {% if not loop.first %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#missingCollapse{{ loop.index }}" aria-expanded="{{ 'true' if loop.first else 'false' }}" aria-controls="missingCollapse{{ loop.index }}">
-                                <div class="me-3">
-                                    <div class="fw-semibold">{{ group.address or group.normalized_address or '주소 정보 없음' }}</div>
-                                    <div class="small text-muted">{{ group.region or '행정구역 미상' }}</div>
-                                </div>
-                                <span class="sr-badge sr-badge-default ms-auto">{{ group.report_count or 0 }}건</span>
-                            </button>
-                        </h2>
-                        <div id="missingCollapse{{ loop.index }}" class="accordion-collapse collapse {% if loop.first %}show{% endif %}" aria-labelledby="missingHeading{{ loop.index }}" data-bs-parent="#missingAddressAccordion">
-                            <div class="accordion-body">
-                                <div class="d-flex flex-column gap-2">
-                                    {% for report in group.reports %}
-                                    <div class="missing-report-card">
-                                        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
-                                            <div>
-                                                <div class="fw-semibold">{{ report.신고명 or '신고명 없음' }}</div>
-                                                <div class="small text-muted">{{ report.신고번호 or '' }}</div>
-                                            </div>
-                                            <div class="d-flex flex-wrap gap-2 justify-content-end">
-                                                {% if report.처리상태 %}
-                                                <span class="sr-badge sr-badge-processing">{{ report.처리상태 }}</span>
-                                                {% endif %}
-                                                {% if report.category %}
-                                                <span class="badge text-bg-primary-subtle border text-primary-emphasis">{{ report.category }}</span>
-                                                {% endif %}
-                                            </div>
-                                        </div>
-                                        <div class="missing-report-meta">
-                                            {% if report.신고일 %}<span><i class="fas fa-calendar-plus"></i>{{ report.신고일 }}</span>{% endif %}
-                                            {% if report.답변일 %}<span><i class="fas fa-calendar-check"></i>{{ report.답변일 }}</span>{% endif %}
-                                            {% if report.처리기관 %}<span><i class="fas fa-building"></i>{{ report.처리기관 }}</span>{% endif %}
-                                            {% if report.담당자 %}<span><i class="fas fa-user"></i>{{ report.담당자 }}</span>{% endif %}
-                                            {% if report.범칙금_과태료 %}<span><i class="fas fa-scale-balanced"></i>{{ report.범칙금_과태료 }}</span>{% endif %}
-                                        </div>
-                                    </div>
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        </div>
+                {# 목록은 모달을 처음 열 때 /stats/map/missing 으로 받는다(기술일지 B-03). 그룹 카드는 펼칠 때 만든다. #}
+                <div id="missingAddressList" data-count="{{ missing_map_meta.report_count or 0 }}" aria-live="polite">
+                    {% if missing_map_meta.report_count %}
+                    <div class="text-muted small py-3" data-role="placeholder">목록을 불러오려면 잠시 기다려 주세요…</div>
+                    {% else %}
+                    <div class="map-empty py-4">
+                        <div class="fw-bold mb-2">현재 조건에서 미변환 주소가 없습니다.</div>
+                        <div>좌표가 비어 있는 신고가 생기면 이 목록에서 바로 확인할 수 있습니다.</div>
                     </div>
-                    {% endfor %}
+                    {% endif %}
                 </div>
-                {% else %}
-                <div class="map-empty py-4">
-                    <div class="fw-bold mb-2">현재 조건에서 미변환 주소가 없습니다.</div>
-                    <div>좌표가 비어 있는 신고가 생기면 이 목록에서 바로 확인할 수 있습니다.</div>
-                </div>
-                {% endif %}
             </div>
         </div>
     </div>
@@ -330,6 +288,117 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script src="/static/ui/report-map.js?v={{ request.state.app_version }}"></script>
+<script>
+    (function () {
+        var modal = document.getElementById('missingAddressModal');
+        var list = document.getElementById('missingAddressList');
+        if (!modal || !list || !parseInt(list.getAttribute('data-count') || '0', 10)) return;
+        var state = 'idle';
+        function el(tag, cls, text) {
+            var node = document.createElement(tag);
+            if (cls) node.className = cls;
+            if (text !== undefined && text !== null) node.textContent = text;
+            return node;
+        }
+        function reportCard(report) {
+            var card = el('div', 'missing-report-card');
+            var top = el('div', 'd-flex flex-wrap justify-content-between align-items-start gap-2 mb-2');
+            var names = el('div');
+            names.appendChild(el('div', 'fw-semibold', report['신고명'] || '신고명 없음'));
+            names.appendChild(el('div', 'small text-muted', report['신고번호'] || ''));
+            var badges = el('div', 'd-flex flex-wrap gap-2 justify-content-end');
+            if (report['처리상태']) badges.appendChild(el('span', 'sr-badge sr-badge-processing', report['처리상태']));
+            if (report.category) badges.appendChild(el('span', 'badge text-bg-primary-subtle border text-primary-emphasis', report.category));
+            top.appendChild(names); top.appendChild(badges); card.appendChild(top);
+            var meta = el('div', 'missing-report-meta');
+            [['신고일', 'fa-calendar-plus'], ['답변일', 'fa-calendar-check'], ['처리기관', 'fa-building'],
+             ['담당자', 'fa-user'], ['범칙금_과태료', 'fa-scale-balanced']].forEach(function (pair) {
+                if (!report[pair[0]]) return;
+                var span = el('span');
+                span.appendChild(el('i', 'fas ' + pair[1]));
+                var value = report[pair[0]];
+                if ((pair[0] === '신고일' || pair[0] === '답변일') && window.srDisplayDateTime) value = window.srDisplayDateTime(value);
+                span.appendChild(document.createTextNode(value));
+                meta.appendChild(span);
+            });
+            card.appendChild(meta);
+            return card;
+        }
+        function render(payload) {
+            var groups = (payload && payload.groups) || [];
+            var info = (payload && payload.meta) || {};
+            var groupCount = document.getElementById('missingGroupCount');
+            var reportCount = document.getElementById('missingReportCount');
+            if (groupCount) groupCount.textContent = (info.group_count || 0) + '곳';
+            if (reportCount) reportCount.textContent = (info.report_count || 0) + '건';
+            list.textContent = '';
+            if (!groups.length) {
+                var empty = el('div', 'map-empty py-4');
+                empty.appendChild(el('div', 'fw-bold mb-2', '현재 조건에서 미변환 주소가 없습니다.'));
+                list.appendChild(empty);
+                return;
+            }
+            var accordion = el('div', 'accordion');
+            accordion.id = 'missingAddressAccordion';
+            groups.forEach(function (group, index) {
+                var n = index + 1;
+                var item = el('div', 'accordion-item');
+                var header = el('h2', 'accordion-header');
+                header.id = 'missingHeading' + n;
+                var button = el('button', 'accordion-button' + (n === 1 ? '' : ' collapsed'));
+                button.type = 'button';
+                button.setAttribute('data-bs-toggle', 'collapse');
+                button.setAttribute('data-bs-target', '#missingCollapse' + n);
+                button.setAttribute('aria-expanded', n === 1 ? 'true' : 'false');
+                button.setAttribute('aria-controls', 'missingCollapse' + n);
+                var label = el('div', 'me-3');
+                label.appendChild(el('div', 'fw-semibold', group.address || group.normalized_address || '주소 정보 없음'));
+                label.appendChild(el('div', 'small text-muted', group.region || '행정구역 미상'));
+                button.appendChild(label);
+                button.appendChild(el('span', 'sr-badge sr-badge-default ms-auto', (group.report_count || 0) + '건'));
+                header.appendChild(button);
+                var collapse = el('div', 'accordion-collapse collapse' + (n === 1 ? ' show' : ''));
+                collapse.id = 'missingCollapse' + n;
+                collapse.setAttribute('aria-labelledby', header.id);
+                collapse.setAttribute('data-bs-parent', '#missingAddressAccordion');
+                var body = el('div', 'accordion-body');
+                var stack = el('div', 'd-flex flex-column gap-2');
+                body.appendChild(stack); collapse.appendChild(body);
+                function fill() {
+                    if (stack.childNodes.length) return;
+                    (group.reports || []).forEach(function (report) { stack.appendChild(reportCard(report)); });
+                }
+                if (n === 1) fill();
+                collapse.addEventListener('show.bs.collapse', fill);
+                item.appendChild(header); item.appendChild(collapse);
+                accordion.appendChild(item);
+            });
+            list.appendChild(accordion);
+        }
+        function load() {
+            if (state === 'loading' || state === 'done') return;
+            state = 'loading';
+            list.textContent = '';
+            list.appendChild(el('div', 'text-muted small py-3', '목록을 불러오는 중…'));
+            fetch('/stats/map/missing' + window.location.search, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+                .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+                .then(function (payload) { state = 'done'; render(payload); })
+                .catch(function (e) {
+                    state = 'failed';
+                    list.textContent = '';
+                    var box = el('div', 'alert alert-warning d-flex flex-wrap align-items-center gap-2 mb-0');
+                    box.setAttribute('role', 'alert');
+                    box.appendChild(el('span', null, '목록을 불러오지 못했습니다(' + e.message + ').'));
+                    var retry = el('button', 'btn btn-sm btn-outline-secondary', '다시 시도');
+                    retry.type = 'button';
+                    retry.addEventListener('click', load);
+                    box.appendChild(retry);
+                    list.appendChild(box);
+                });
+        }
+        modal.addEventListener('show.bs.modal', load);
+    })();
+</script>
 <script>
     (function () {
         var sharePanel = document.getElementById('communitySharePanel');
@@ -428,10 +497,18 @@
             }
 
             function refreshStatus() {
+                // HTTP 오류·형식 오류를 빈 자료로 그리면 '수집 사본 없음'으로 보여 기존 상태를 지웠다 —
+                // 실패하면 마지막 정상 표시를 두고 실패만 알린다(기술일지 C05)
                 return fetch('/community/upload/status', { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
-                    .then(function (r) { return r.json().catch(function () { return {}; }); })
-                    .then(function (body) { renderStatus((body && body.data) || {}); })
-                    .catch(function () { setState('상태를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.'); });
+                    .then(function (r) {
+                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                        return r.json();
+                    })
+                    .then(function (body) {
+                        if (!body || typeof body.data !== 'object' || body.data === null) throw new Error('응답 형식');
+                        renderStatus(body.data);
+                    })
+                    .catch(function (e) { setState('공유 상태를 불러오지 못했습니다(' + e.message + '). 잠시 후 새로고침해 주세요.'); });
             }
 
             function postJson(path, body) {

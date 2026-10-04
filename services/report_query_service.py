@@ -123,8 +123,8 @@ def get_report_page(engine, category, *, offset=0, limit=200, mode='canonical'):
         df = pd.read_sql_query(query.order_by(None).order_by(table.c.ID).offset(offset).limit(limit), conn)
         watch_ids = _get_watch_ids(conn)
         if mode == 'canonical' and not df.empty:
-            _, members = duplicate_group_service.build_projection_map(conn)
             page_ids = set(df['ID'].astype(str))
+            _, members = duplicate_group_service.build_projection_map(conn, page_ids)
             group_ids = {members[rid]['group_id'] for rid in page_ids if rid in members}
             related = {rid for rid, meta in members.items() if meta['group_id'] in group_ids}
             watched_groups = set()

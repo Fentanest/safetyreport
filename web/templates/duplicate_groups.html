@@ -130,23 +130,23 @@
                 <form method="post" action="/duplicates/manage/{{ group.group_id }}/update">
                     <div class="row g-3 mb-3">
                         <div class="col-md-3">
-                            <label class="form-label fw-bold">중복 상태</label>
-                            <select class="form-select" name="duplicate_status">
+                            <label class="form-label fw-bold" for="fld_duplicate_status_{{ loop.index }}">중복 상태</label>
+                            <select id="fld_duplicate_status_{{ loop.index }}" class="form-select" name="duplicate_status">
                                 <option value="confirmed_duplicate" {% if group.status == 'confirmed_duplicate' %}selected{% endif %}>중복 확정</option>
                                 <option value="review_required" {% if group.status == 'review_required' %}selected{% endif %}>검토 필요</option>
                                 <option value="not_duplicate" {% if group.status == 'not_duplicate' %}selected{% endif %}>중복 아님</option>
                             </select>
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label fw-bold">대표건 선정</label>
-                            <select class="form-select" name="representative_mode">
+                            <label class="form-label fw-bold" for="fld_representative_mode_{{ loop.index }}">대표건 선정</label>
+                            <select id="fld_representative_mode_{{ loop.index }}" class="form-select" name="representative_mode">
                                 <option value="auto" {% if group.representative_mode != 'manual' %}selected{% endif %}>자동 선정</option>
                                 <option value="manual" {% if group.representative_mode == 'manual' %}selected{% endif %}>수동 고정</option>
                             </select>
                         </div>
                         <div class="col-md-3">
-                            <label class="form-label fw-bold">비고</label>
-                            <input type="text" class="form-control" name="note" value="{{ group.note or '' }}">
+                            <label class="form-label fw-bold" for="fld_note_{{ loop.index }}">비고</label>
+                            <input id="fld_note_{{ loop.index }}" type="text" class="form-control" name="note" value="{{ group.note or '' }}">
                         </div>
                     </div>
 

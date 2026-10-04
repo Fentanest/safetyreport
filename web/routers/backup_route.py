@@ -100,7 +100,7 @@ async def _save_upload_to_tmp(file: UploadFile) -> str:
                 chunk = await file.read(1024 * 1024)
                 if not chunk:
                     break
-                out.write(chunk)
+                await run_in_threadpool(out.write, chunk)  # 디스크 쓰기는 이벤트 루프 밖에서(기술일지 B-02)
     except Exception:
         _safe_unlink(tmp_path)
         raise

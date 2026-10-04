@@ -92,6 +92,17 @@ def _key(fn, path, args, kwargs):
             json.dumps([args, kwargs], sort_keys=True, ensure_ascii=False), _generation)
 
 
+class _Flight:
+    """같은 키를 계산 중인 요청 하나. 끝나면 결과를 담아 이미 기다리던 요청끼리 나눈다(기술일지 B-06).
+    결과가 커서 영구 캐시에 남기지 않을 때도, 대기 요청이 같은 계산을 차례로 반복하지 않는다."""
+    __slots__ = ('event', 'ready', 'value')
+
+    def __init__(self):
+        self.event = threading.Event()
+        self.ready = False
+        self.value = None
+
+
 def cached(fn):
     @functools.wraps(fn)
     def run(engine, *args, **kwargs):
@@ -120,27 +131,31 @@ def cached(fn):
                     flight = _flights.get(key)
                     owner = flight is None
                     if owner:
-                        flight = _flights[key] = threading.Event()
+                        flight = _flights[key] = _Flight()
             if flight is None:
                 return copy.deepcopy(cached_value)
             if not owner:
-                flight.wait()
-                continue
+                flight.event.wait()
+                if flight.ready:
+                    return copy.deepcopy(flight.value)
+                continue  # 계산 실패·도중 무효화 — 다시 확인한다
             try:
                 result = fn(engine, *args, **kwargs)
                 owned = copy.deepcopy(result)
                 weight = _weight(owned)
                 with _lock:
                     # clear/restore/external writes during computation cannot publish an old result.
-                    if _key(fn, path, args, kwargs) == key and weight <= _byte_limit:
-                        _entries[key] = owned
-                        _sizes[key] = weight
-                        while len(_entries) > _limit or sum(_sizes.values()) > _byte_limit:
-                            previous, _ = _entries.popitem(last=False)
-                            _sizes.pop(previous, None)
+                    if _key(fn, path, args, kwargs) == key:
+                        flight.value, flight.ready = owned, True
+                        if weight <= _byte_limit:
+                            _entries[key] = owned
+                            _sizes[key] = weight
+                            while len(_entries) > _limit or sum(_sizes.values()) > _byte_limit:
+                                previous, _ = _entries.popitem(last=False)
+                                _sizes.pop(previous, None)
                 return result
             finally:
                 with _lock:
                     _flights.pop(key, None)
-                    flight.set()
+                    flight.event.set()
     return run

@@ -52,7 +52,8 @@
         <button type="button" class="btn btn-outline-primary d-none" id="rbResumeBtn">이어서 진행</button>
         <button type="button" class="btn btn-outline-secondary d-none" id="rbPauseBtn">일시 중지</button>
         <button type="button" class="btn btn-outline-warning d-none" id="rbAcceptBtn">읽지 못한 신고를 빼고 완료</button>
-        <a class="btn btn-outline-secondary ms-auto" href="/" id="rbLaterLink">다른 페이지 둘러보기</a>
+        <button type="button" class="btn btn-outline-secondary ms-auto" id="rbRefreshBtn">상태 다시 확인</button>
+        <a class="btn btn-outline-secondary" href="/" id="rbLaterLink">다른 페이지 둘러보기</a>
     </div>
 </main>
 <script>
@@ -118,9 +119,19 @@
         clearTimeout(timer);
         if (['preparing_backup', 'running', 'validating', 'committing'].indexOf(st) >= 0) timer = setTimeout(load, 3000);
     }
+    var failures = 0;
+    document.getElementById('rbRefreshBtn').addEventListener('click', function () { failures = 0; clearTimeout(timer); load(); });
     function load() {
-        return request('GET', '').then(function (res) { render(res.data); }).catch(function (e) {
-            if (e.message !== 'login') alertBox('상태를 불러오지 못했습니다: ' + e.message, 'danger');
+        return request('GET', '').then(function (res) { failures = 0; render(res.data); }).catch(function (e) {
+            if (e.message === 'login' || disposed) return;
+            // 진행 중에 한 번 실패해도 자동 확인을 멈추지 않는다 — 간격을 늘려 다시 확인한다(기술일지 C04)
+            failures += 1;
+            var delay = Math.min(30000, 3000 * Math.pow(2, Math.min(failures, 4)));
+            alertBox('상태를 불러오지 못했습니다: ' + e.message + ' — ' + Math.round(delay / 1000) + '초 뒤 다시 확인합니다.', 'danger');
+            clearTimeout(timer);
+            if (!last || ['preparing_backup', 'running', 'validating', 'committing'].indexOf(last.state) >= 0 || !last.state) {
+                timer = setTimeout(load, delay);
+            }
         });
     }
     function act(path, body, btn, confirmText) {

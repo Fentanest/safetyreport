@@ -266,3 +266,10 @@
     .map-tooltip-row { grid-template-columns: 60px minmax(72px, 1fr) 72px; }
     .map-popup-card { min-width: 210px; max-width: 276px; }
 }
+
+/* 지도 이동 뒤 갱신 실패 안내(기술일지 C06) */
+.sr-map-refresh-error { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); z-index: 1000;
+    display: flex; align-items: center; gap: 0.5rem; max-width: calc(100% - 24px); padding: 0.4rem 0.6rem;
+    border-radius: var(--sr-radius-sm); background: var(--sr-surface); color: var(--sr-text);
+    border: 1px solid var(--sr-status-reject); box-shadow: var(--sr-shadow); font-size: 0.85rem; }
+.sr-map-refresh-error[hidden] { display: none; }

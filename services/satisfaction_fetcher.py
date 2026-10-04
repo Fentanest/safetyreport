@@ -55,6 +55,23 @@ def _extract_cause_from_page_html(html_text: str) -> str:
     return ""
 
 
+def _classify_score_payload(data):
+    """점수 API 응답 분류(모바일 StandaloneApiService.fetchSatisfactionScore 와 같은 규칙, 기술일지 A2-06).
+
+    ("empty", None)    : result 키가 있고 값이 null/빈 객체 — 만족도 미참여 확정
+    ("result", dict)   : 점수 자료
+    ("unknown", None)  : 객체가 아님, result 키 없음, error 가 null 이 아님, result 가 객체가 아님 — 확인 실패(기존 값 유지)
+    """
+    if not isinstance(data, dict) or "result" not in data or data.get("error") is not None:
+        return "unknown", None
+    result = data["result"]
+    if result is None or (isinstance(result, dict) and not result):
+        return "empty", None
+    if not isinstance(result, dict):
+        return "unknown", None
+    return "result", result
+
+
 def fetch_score_via_api(session_or_driver, spp_no: str) -> SatisfactionLookupResult:
     """만족도조사 점수+사유 조회.
 
@@ -76,12 +93,14 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> SatisfactionLookupRes
             )
             if r.status_code != 200:
                 return SatisfactionLookupResult(None, "", False)
-            data = r.json()
-            if not data or "result" not in data or not data["result"]:
+            kind, result = _classify_score_payload(r.json())
+            if kind == "unknown":
+                return SatisfactionLookupResult(None, "", False)
+            if kind == "empty":
                 return SatisfactionLookupResult(None, "", True)
-            score_raw = data["result"].get("STSFDG_SCORE", 0)
+            score_raw = result.get("STSFDG_SCORE", 0)
             score = int(score_raw) if score_raw else 0
-            cause = (data["result"].get("STSFDG_CAUSE") or "").strip()
+            cause = (result.get("STSFDG_CAUSE") or "").strip()
             if score > 0 and not cause:
                 page_url = _PAGE_URL.format(spp=spp_no, phone=phone)
                 page_res = direct_login.request_with_retry(
@@ -109,17 +128,18 @@ def fetch_score_via_api(session_or_driver, spp_no: str) -> SatisfactionLookupRes
     for attempt in range(1, max_attempts + 1):
         try:
             data = session_or_driver.execute_async_script(script, spp_no, phone)
-            if not data or "error" in data or "result" not in data or not data["result"]:
-                last_error = data.get("error") if isinstance(data, dict) else "empty result"
+            kind, result = _classify_score_payload(data)
+            if kind == "empty":
+                return SatisfactionLookupResult(None, "", True)
+            if kind == "unknown":
+                last_error = data.get("error") if isinstance(data, dict) and data.get("error") is not None else "unexpected payload"
                 if attempt < max_attempts:
                     time.sleep(get_retry_interval())
                     continue
-                if isinstance(data, dict) and "error" in data:
-                    return SatisfactionLookupResult(None, "", False)
-                return SatisfactionLookupResult(None, "", True)
-            score_raw = data["result"].get("STSFDG_SCORE", 0)
+                return SatisfactionLookupResult(None, "", False)
+            score_raw = result.get("STSFDG_SCORE", 0)
             score = int(score_raw) if score_raw else 0
-            cause = (data["result"].get("STSFDG_CAUSE") or "").strip()
+            cause = (result.get("STSFDG_CAUSE") or "").strip()
             if score > 0 and not cause:
                 _, cause = fetch_score_via_selenium_page(session_or_driver, spp_no)
             return SatisfactionLookupResult(score if score > 0 else None, cause, True)

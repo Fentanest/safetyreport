@@ -31,6 +31,9 @@
 
 - 캐시: 화면 이동은 10분(`CACHE_TTL`). 새 작업(크롤 시작·큐·별점·업로드·초기화·자정)은 `require_fresh(60)` — 60초 안의 확인이 없으면 동기 재검증, 실패하면 시작하지 않음.
 - 무효화: 로그인 확정·로그아웃(카카오 로그아웃·세션 초기화)·자료 주인 전환·설정 저장·동의 저장/철회·삭제 요청·status 401. 네트워크 장애 때는 유효 기간 안의 성공 캐시만 유지.
+- 캐시 주인·세대(2026-10-04, 기술일지 D2-01): 받은 status 에는 그 status 를 받은 `user_id` 를 함께 둔다. 지금 세션 계정과 다르면(로그인 확정 직후 complete 재시도 중 등) 무효로 본다.
+  무효화마다 세대 번호를 올리고, 조회를 시작한 세대·계정이 그대로일 때만 status·자료 주인 판정·writer 저장·context 활성화를 적용한다 — 늦게 온 이전 계정 응답은 버린다(모바일 로그인 세대 검사와 같은 목적).
+- `require_fresh` 는 재검증이 실패해 탐색 캐시를 쓴 경우에도 60초 안의 확인이 없으면 진입 불가(`status_stale`). 모바일 `CommunityGate.requireFresh` 도 같다(2026-10-04, D2-03).
 - 온라인 동안 60초 주기 `community-gate-poll` job(T4 `register_community_jobs`)이 원격 철회를 반영(상한 온라인 60초, 오프라인 10분).
 - HTTP 요청의 확인(`check_for_request`)은 장애 때 요청마다 막히지 않게 15초에 한 번만 재시도한다.
 
@@ -51,6 +54,7 @@
 - `/media/*`: 예전에는 인증 없이 열려 있었다 → 관리자 세션 또는 API 키(헤더·`api_key` 쿼리) + 게이트.
 - WS(`core/utils/ws_auth.py`): `/ws/events`(API 키), `/crawl/ws/logs`·`/rating/ws/rating_logs`(관리자 세션 쿠키 읽기 전용 또는 API 키).
   인증 실패 4001, 게이트 미충족 4403(accept 뒤 close). 게이트를 잃으면 이벤트 WS 는 `ws_manager.close_all(4403)`, 로그 WS 는 5초마다 재확인.
+  기기 화면에서 API 키를 지우면 그 키로 열린 이벤트 WS 를 4001 로 닫고(`ws_manager.revoke_api_key`), 로그 WS 는 5초 재확인 때 인증도 다시 보고 닫는다(2026-10-04, A1-02).
   **모바일 `crawl_screen.dart` 의 `/crawl/ws/logs` 연결은 `?api_key=` 를 붙여야 한다**(이전에는 인증 없이 열렸음).
 - allowlist(정확한 method+path, 각자 기존 인증·CSRF·manager 권한 유지): `main._GATE_ALLOW`. 라우트 전수 테스트가 나머지 전부 403 인지 확인.
 - 크롤 시작(웹 `/crawl/start`·`/crawl/enqueue-selected`, API `/api/v1/crawl/start`·`/crawl/enqueue`): 게이트 60초 재검증 실패 403,
@@ -61,19 +65,20 @@
   [필수] 2. 신고내용 공유 동의(`components/community_consent_card.html` — 문서 전문, 기본 해제 체크박스, 서버 성공 응답 뒤에만 완료).
   둘 다 끝나면 `next`(같은 서버 상대경로만, `safe_next`)로 이동. `config_invalid` 면 고급 설정이 열린 복구 화면.
 - `/onboarding/rebuild`: 1회 초기화 안내·확인. 이전 형식 개인 DB는 서버 시작 때 백업 후 신고 자료를 비우며, 새로 수집해야 한다. 남는 항목과 백업 경로는 [data-contracts.md](data-contracts.md)의 "2026-09-27 이전 버전 DB 처리"를 따른다. 필요·진행 중이면 모든 화면 위에 배너(`base.html`).
-- 설정 화면 "5. 신고내용 공유 동의": 상태·동의 문서·철회(→ 필수 설정 화면)·공유 자료 삭제 요청(`contributions-delete`, 확인 입력)·업로드 연결 전환.
+- 설정 화면 "5. 신고내용 공유 동의": 상태·동의 문서·철회(→ 필수 설정 화면)·업로드 연결 전환. 공유 자료 삭제 요청 버튼·라우트는 보류(2026-09-27 결정, 주석 처리).
+- 되돌릴 수 없는 조작(카카오 로그아웃·다른 계정 자료 지우기·동의 철회)은 공통 확인 창 `web/static/ui/sr-confirm.js`(`window.srConfirm`)로 지워지는 것·남는 것을 보여 준다(2026-10-04, F-09).
 
 ## 로컬 API
 | 경로 | 인증 | 설명 |
 |---|---|---|
 | `GET /settings/community/gate` | 관리자 세션 | 게이트 요약(토큰·사용자 UUID·연결 비밀 없음) |
-| `GET /settings/community/policy` | 관리자 세션 | 중앙 `policy` 로 받은 정책 버전·해시·동의문 원문(본문 해시 확인). 카카오 연결 전이면 409 `not_connected` — 화면은 "카카오 인증을 마치면 동의 문서를 불러옵니다" |
+| `GET /settings/community/policy` | 관리자 세션 | 중앙 `policy` 로 받은 정책 버전·해시·동의문 원문(본문 해시 확인). 카카오 연결 전이면 409 `not_connected`. 화면은 계정 카드가 연결됨을 알린 뒤에만 부른다(2026-10-04, F-03) |
 | `POST /settings/community/consent` | 세션 + CSRF | `{"accepted":true,"policy_version","consent_text_sha256"}` — 화면이 보여 준 본문의 버전·해시 그대로 → 중앙 `consent`(via `safetyreport_server`). 그 사이 중앙 정책이 바뀌었으면 409 `policy_mismatch` |
 | `POST /settings/community/consent-revoke` | 세션 + CSRF | `{"confirm":true}` → 현재 grant 철회(업로드 먼저 중단) |
 | `POST /settings/community/writer` | 세션 + CSRF | `{"takeover":true}` → 이 서버로 업로드 연결 전환 |
-| `POST /settings/community/contributions-delete` | 세션 + CSRF | `{"confirm":"DELETE_MY_SHARED_REPORTS"}` |
+| ~~`POST /settings/community/contributions-delete`~~ | — | **보류**: 라우트·버튼 주석 처리(2026-09-27 결정). 되살릴 때 `{"confirm":"DELETE_MY_SHARED_REPORTS"}` |
 | `POST /settings/community/logout` | 세션 + CSRF | `{"confirm":"DELETE_MY_REPORTS"}` → 카카오 로그아웃. 신고 자료를 지운 뒤 로그아웃(주인이 다른 계정으로 **확인된** 경우만 남김). 크롤링·지도 변환 중이면 409, 아무것도 지우지 않고 로그인 유지. 결과 `reports_wiped` |
-| `POST /settings/community/reset-session` | 세션 + CSRF | 세션 파일을 읽을 수 없을 때(`store_unreadable`)만: 옆으로 옮기고 다시 로그인(자료 유지 — 다음 계정이 주인과 다르면 8 이 막음) |
+| `POST /settings/community/reset-session` | 세션 + CSRF | 세션 파일을 읽을 수 없을 때(`store_unreadable`)만: 옆으로 옮기고 다시 로그인(자료 유지 — 다음 계정이 주인과 다르면 8 이 막음). 키 파일 자체가 망가졌으면 키·세션·writer 파일을 함께 `*.unreadable-<시각>` 으로 보관하고 새 키로 시작한다. 세션이 없어도 키가 망가졌으면 `store_unreadable` 로 보인다(2026-10-04, D2-04) |
 | `POST /settings/community/db-owner/adopt` | 세션 + CSRF | `db_owner_mismatch` 일 때만 `{"confirm":"DELETE_OTHER_ACCOUNT_REPORTS"}` → 자료를 비우고 지금 계정을 주인으로 적음 |
 | `GET /api/v1/community/gate` | API 키 | 서버 게이트 요약(모바일 Client 표시·fingerprint 비교) |
 
@@ -90,3 +95,9 @@ fixture 모드는 `127.0.0.1` 스택에만 연결한다(계정 API·`/user` 확�
 게이트가 `claim_for_this_device()` 를 세우고, 다음 writer 확인 한 번에서 `superseded` 연결·`writer_conflict` 를 takeover 로 등록한다.
 재시작·60초 주기 확인만으로는 세우지 않는다. `suspended` 는 가져오지 않는다. 모바일 `CommunityGate._claimRequested`(로그인 단계가 브라우저·교환·계정 확인에서 연결로 바뀔 때, 온보딩 동의 저장 때)와 같은 규칙.
 설정 화면의 '이 기기로 업로드 전환' 버튼은 그대로 둔다.
+
+## 코드 대조 정정 (2026-10-04 기술일지)
+| 문서에 있던 내용 | 코드 | 정정 |
+|---|---|---|
+| 공유 자료 삭제 API 를 현행처럼 표기 | `contributions-delete` 라우트·버튼 주석 처리 | 보류로 표기(D2-09) |
+| reset-session 은 세션 파일만 옮김 | 키가 망가진 경우 복구되지 않았음 | 키·writer 함께 보관하도록 코드 수정 후 문서 갱신(D2-04) |

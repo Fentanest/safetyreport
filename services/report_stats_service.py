@@ -292,13 +292,20 @@ def _build_stats_query(table_obj, filters=None, column_names=None):
         if column not in table_obj.c:
             continue
         value = func.substr(table_obj.c[column], 1, width)
+        # 앞자리 비교(substr)는 의미 그대로 두고, 같은 범위를 원래 열 비교로 한 번 더 건다 — 원래 열의 인덱스
+        # (ix_merge_*_answer 등)로 범위를 좁힌 뒤 substr 로 정확히 거른다(기술일지 B-05). 결과 행은 같다.
         if filters.get(prefix + 'Start'):
             query = query.where(value >= filters[prefix + 'Start'])
+            if width == 10 and len(str(filters[prefix + 'Start'])) == 10:
+                query = query.where(table_obj.c[column] >= filters[prefix + 'Start'])
         if filters.get(prefix + 'End'):
             query = query.where(value <= filters[prefix + 'End'], func.length(value) == width)
+            if width == 10 and len(str(filters[prefix + 'End'])) == 10:
+                query = query.where(table_obj.c[column] < str(filters[prefix + 'End']) + "\U0010ffff")
 
     if filters.get("excludePolice") and "처리기관" in table_obj.c:
-        query = query.where(~table_obj.c["처리기관"].contains("경찰"))
+        # 처리기관이 비어 있는(NULL) 신고는 경찰이 아니다 — 목록 필터와 같게 남긴다(기술일지 A1-06)
+        query = query.where(~func.coalesce(table_obj.c["처리기관"], "").contains("경찰"))
     if filters.get("onlyPolice") and "처리기관" in table_obj.c:
         query = query.where(table_obj.c["처리기관"].contains("경찰"))
 
@@ -386,11 +393,15 @@ def get_last_sync_label(engine) -> str:
     모바일도 같은 키/형식으로 기록하므로 서버↔모바일 DB import 시 round-trip 으로 보존된다.
     """
     with engine.connect() as conn:
-        row = conn.execute(
-            select(database.sync_meta_table.c.value).where(
-                database.sync_meta_table.c.key == "last_sync"
-            )
-        ).fetchone()
+        return _last_sync_label(conn)
+
+
+def _last_sync_label(conn) -> str:
+    row = conn.execute(
+        select(database.sync_meta_table.c.value).where(
+            database.sync_meta_table.c.key == "last_sync"
+        )
+    ).fetchone()
     if row and row[0]:
         return datetime.fromisoformat(row[0]).strftime("%Y-%m-%d %H:%M:%S")
     return "기록 없음"
@@ -412,8 +423,6 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
     t_unconfirmed_count = 0
     recent_answers = []
     watchlist_items = []
-
-    last_crawl_time = get_last_sync_label(engine)
 
     today = datetime.now().date()
     three_days_ago = today - timedelta(days=3)
@@ -439,6 +448,10 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
 
     combined_frames = []
     with engine.connect() as conn:
+        # 세 분류 집계·최근 답변·감시목록·마지막 동기화를 한 읽기 스냅샷에서 읽는다. 사이에 신고가 분류를 옮겨도
+        # 두 번 세거나 빠뜨리지 않는다(기술일지 A1-07, _load_stats_frames 와 같은 방식).
+        conn.exec_driver_sql('BEGIN')
+        last_crawl_time = _last_sync_label(conn)
         for table_obj in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
             # Full-population SQL aggregation; no report bodies in the count path.
             query = select(table_obj.c['처리상태'], table_obj.c['범칙금_과태료'], func.count().label('_weight')).group_by(
@@ -625,10 +638,14 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
         # 처분 분류(처분 대상 아님)와 추정 과태료 규칙이 신고 메뉴(entry_value)를 쓴다.
         entry_map = dict(zip(df_entry["ID"].astype(str), df_entry["entry_value"].fillna("").astype(str)))
         combined_df["entry_value"] = combined_df["ID"].astype(str).map(entry_map).fillna("")
-    if not combined_df.empty and "category" in combined_df.columns:
+    # 대표건 투영이 모든 행을 뺐어도(예: 비대표건만 걸리는 연도) 투영 결과로 바꾼다. 예전에는 빈 결과일 때 투영 전
+    # 프레임을 그대로 돌려 제외해야 할 비대표건이 통계에 들어갔다(기술일지 A1-01).
+    if "category" in combined_df.columns:
         df_t = combined_df[combined_df["category"] == "traffic"].copy()
         df_p = combined_df[combined_df["category"] == "parking"].copy()
         df_o = combined_df[combined_df["category"] == "other"].copy()
+    else:
+        df_t, df_p, df_o = (frame.iloc[0:0].copy() for frame in (df_t, df_p, df_o))
     return available_years, df_t, df_p, df_o
 
 
@@ -759,6 +776,9 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
 
 def get_agency_stats(engine, filters=None, mode: str = "canonical"):
     available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
+    # 웹 get_stats_page 와 같이 날짜·처분·금액 파생값을 한 번만 계산한다(모바일 /api/v1/stats, 기술일지 B-08).
+    # 결과는 같다(test_stats_page_matches_separate_calls).
+    df_t, df_p, df_o = map(_prepare_metrics, (df_t, df_p, df_o))
     return _compute_agency_stats(available_years, df_t, df_p, df_o, filters, mode)
 
 
@@ -1482,6 +1502,18 @@ def _aggregate_map_points(frame, *, max_points=None, zoom=7):
         if clustered: point['cluster'] = True
         points.append(point)
     return points
+
+
+def get_report_map_missing_summary(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical",
+                                   filters: dict | None = None) -> dict:
+    """지도 첫 화면용: 좌표 없는 신고의 주소 그룹 수·신고 수만. 목록(본문 열 포함)은 모달을 열 때
+    /stats/map/missing 으로 받는다(기술일지 B-03). 판정은 get_report_map_missing_groups 와 같다."""
+    category, _available_years, combined_df = _load_map_records_frame(
+        engine, year=year, category=category, mode=mode, column_names=_MAP_COLUMNS, filters=filters)
+    if combined_df.empty:
+        return {"group_count": 0, "report_count": 0}
+    missing = combined_df[(combined_df["주소키"].str.strip() != "") & ~combined_df["유효좌표"]]
+    return {"group_count": int(missing["주소키"].nunique(dropna=False)), "report_count": int(len(missing))}
 
 
 def get_report_map_missing_groups(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None):
