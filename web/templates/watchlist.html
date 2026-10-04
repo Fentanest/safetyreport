@@ -67,21 +67,7 @@
                         <td>{{ r.처리기관 }}</td>
                         <td>{{ r.담당자 }}</td>
                         <td>
-                            {% if r.처리상태 == '수용' %}
-                                <span class="sr-badge sr-badge-accept">{{ r.처리상태 }}</span>
-                            {% elif r.처리상태 in ['불수용', '기타'] %}
-                                <span class="sr-badge sr-badge-reject">{{ r.처리상태 }}</span>
-                            {% elif r.처리상태 == '취하' %}
-                                <span class="sr-badge sr-badge-withdraw">{{ r.처리상태 }}</span>
-                            {% elif r.처리상태 == '일부수용' %}
-                                <span class="sr-badge sr-badge-partial">{{ r.처리상태 }}</span>
-                            {% elif r.처리상태 in ['처리중', '진행', '진행중', '검토중'] %}
-                                <span class="sr-badge sr-badge-processing">{{ r.처리상태 }}</span>
-                            {% elif r.처리상태 == '보완요청' %}
-                                <span class="sr-badge sr-badge-supplement">{{ r.처리상태 }}</span>
-                            {% else %}
-                                <span class="sr-badge sr-badge-default">{{ r.처리상태 }}</span>
-                            {% endif %}
+                            <span class="sr-badge sr-badge-{{ r.처리상태|status_badge }}">{{ r.처리상태 }}</span>
                         </td>
                         <td style="color: var(--sr-status-fine); font-weight: bold;">{{ r.범칙금_과태료 }}</td>
                     </tr>

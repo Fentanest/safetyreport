@@ -9,6 +9,7 @@ from sqlalchemy.exc import OperationalError
 
 from core.database import database
 from core.utils.fallback import note_fallback
+from services import report_policy
 import settings.settings as app_settings
 from services import duplicate_group_service
 from services.report_query_service import _safe_read
@@ -117,7 +118,7 @@ def _prepare_metrics(frame):
         end = pd.to_datetime(frame['답변일'].astype(str).str.slice(0, 10), errors='coerce', format='%Y-%m-%d')
         start = pd.to_datetime(frame['신고일'].astype(str).str.slice(0, 10), errors='coerce', format='%Y-%m-%d')
         days = (end - start).dt.days
-        frame['_metric_days'] = days.where((days >= 0) & frame['_metric_status'].isin(_OVERVIEW_COMPLETED_STATUSES))
+        frame['_metric_days'] = days.where((days >= 0) & frame['_metric_status'].isin(report_policy.COMPLETED_STATUSES))
     except (KeyError, TypeError, ValueError):
         frame['_metric_days'] = float('nan')
     for name, mask in _stats_row_disposition_masks(frame).items():
@@ -366,7 +367,7 @@ def _ensure_id_column(df: pd.DataFrame) -> pd.DataFrame:
 def _exclude_withdraw_rows(df: pd.DataFrame) -> pd.DataFrame:
     if not app_settings.exclude_withdraw or df.empty or "처리상태" not in df.columns:
         return df
-    return df[df["처리상태"].fillna("").astype(str) != "취하"].copy()
+    return df[report_policy.status_series(df) != report_policy.WITHDRAWN_STATUS].copy()
 
 
 def _load_available_years(conn):
@@ -434,7 +435,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
         return df[column].fillna("").astype(str)
 
     def _status_series(df):
-        return _text_series(df, "처리상태")
+        return report_policy.status_series(df)
 
     def _response_dates(df):
         if "답변일" not in df.columns:
@@ -466,7 +467,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
             recent_query = select(table_obj).where(table_obj.c['답변일'] >= str(three_days_ago),
                 table_obj.c['답변일'] < str(today + timedelta(days=1)))
             if app_settings.exclude_withdraw:
-                recent_query = recent_query.where(table_obj.c['처리상태'] != '취하')
+                recent_query = recent_query.where(report_policy.sql_not_withdrawn(table_obj.c['처리상태']))
             recent_query = _canonical_query(table_obj, recent_query, mode).order_by(
                 table_obj.c.synced_at.desc(), table_obj.c['답변일'].desc(), table_obj.c['신고번호'].desc()).limit(200)
             for row in conn.execute(recent_query):
@@ -502,22 +503,18 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
         weights = combined_df['_weight']
         total += int(weights.sum())
         accept_count += int(weights[status_series == "수용"].sum())
-        reject_count += int(weights[status_series.isin(["불수용", "기타"])].sum())
+        reject_count += int(weights[status_series.isin(report_policy.REJECT_STATUSES)].sum())
         partial_count += int(weights[status_series == "일부수용"].sum())
-        processing_count += int(weights[status_series.isin(["처리중", "진행", "진행중", "검토중"])].sum())
-        supplement_count += int(weights[status_series == "보완요청"].sum())
-        completed_count += int(weights[status_series.isin(["수용", "불수용", "일부수용", "기타", "답변완료"])].sum())
-        withdraw_count += int(weights[status_series == "취하"].sum())
+        processing_count += int(weights[status_series.isin(report_policy.PROCESSING_STATUSES)].sum())
+        supplement_count += int(weights[status_series == report_policy.SUPPLEMENT_STATUS].sum())
+        completed_count += int(weights[status_series.isin(report_policy.COMPLETED_STATUSES)].sum())
+        withdraw_count += int(weights[status_series == report_policy.WITHDRAWN_STATUS].sum())
 
-        traffic_df = combined_df[combined_df["category"].fillna("").astype(str) == "traffic"] if "category" in combined_df.columns else pd.DataFrame()
-        if not traffic_df.empty:
-            fine_series = _text_series(traffic_df, "범칙금_과태료")
-            traffic_status = _status_series(traffic_df)
-            tw = traffic_df['_weight']
-            t_fine_count += int(tw[fine_series.str.contains("과태료", na=False)].sum())
-            t_penalty_count += int(tw[fine_series.str.contains("경고|범칙금", na=False)].sum())
-            t_reject_count += int(tw[traffic_status.isin(["불수용", "기타"])].sum())
-            t_unconfirmed_count += int(tw[(fine_series == "미확인") & (~traffic_status.isin(["불수용", "기타"]))].sum())
+        traffic = report_policy.traffic_dashboard_masks(combined_df)
+        t_fine_count += int(weights[traffic["fine"]].sum())
+        t_penalty_count += int(weights[traffic["penalty"]].sum())
+        t_reject_count += int(weights[traffic["reject"]].sum())
+        t_unconfirmed_count += int(weights[traffic["unconfirmed"]].sum())
 
     recent_answers.sort(
         key=_recent_answer_sort_key,
@@ -658,7 +655,7 @@ def _calc_avg_days_with_count(group_df):
     if '_metric_days' in group_df:
         days = group_df['_metric_days'].dropna()
         return (_round_half_up(float(days.mean()), 1) if len(days) > 0 else None), int(len(days))
-    group_df = group_df[_stats_status_series(group_df).isin(_OVERVIEW_COMPLETED_STATUSES)]
+    group_df = group_df[_stats_status_series(group_df).isin(report_policy.COMPLETED_STATUSES)]
     try:
         # 2026-09-24 사용자 결정: 처리일 = 답변일(날짜) − 신고일(날짜). 신고 시각은 버린다(12/30 23:40 → 1/2 = 3일).
         # 모바일 overview `_parse_overview_date` 와 같은 정의.
@@ -722,7 +719,7 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
         df["category"] = category
     # 2026-09-28 사용자 결정: 기관·담당자·법규 표는 답변이 완료된 신고만(처리중·보완요청·이송·취하는 넣지 않는다).
     # 처리중은 답변이 없어 처리기관·담당자도 없는 게 정상이다(실제 DB 처리중 83건 전부 기관 없음). 모바일 buildStatsCategory 와 같은 규칙.
-    completed = _stats_status_series(df).isin(_OVERVIEW_COMPLETED_STATUSES)
+    completed = _stats_status_series(df).isin(report_policy.COMPLETED_STATUSES)
     df = df[completed].copy()
     df_agency = df[df["처리기관"] != ""]
     df_person = df_agency[~df_agency["담당자"].isin(_UNASSIGNED_PERSON_VALUES)]
@@ -884,10 +881,6 @@ def _compute_agency_stats(available_years, df_t, df_p, df_o, filters=None, mode:
     })
 
 
-_OVERVIEW_COMPLETED_STATUSES = {"수용", "불수용", "일부수용", "기타", "답변완료"}
-_OVERVIEW_PROCESSING_STATUSES = {"처리중", "진행", "진행중", "검토중"}
-
-
 def _parse_overview_date(value):
     text = _text_or_empty(value)
     if len(text) < 10:
@@ -901,7 +894,7 @@ def _parse_overview_date(value):
 def _summarize_overview_frame(df: pd.DataFrame) -> dict:
     """통계 요약 카드/월별 추이용 집계. 모바일 Standalone `LocalDbService.computeStatsOverview` 와 같은 정의."""
     total = int(len(df))
-    statuses = df["처리상태"].fillna("").astype(str).str.strip() if "처리상태" in df.columns else pd.Series(dtype=str)
+    statuses = report_policy.status_series(df) if "처리상태" in df.columns else pd.Series(dtype=str)
     report_dates = [_parse_overview_date(v) for v in (df["신고일"] if "신고일" in df.columns else [])]
     answer_dates = [_parse_overview_date(v) for v in (df["답변일"] if "답변일" in df.columns else [])]
     if len(report_dates) < total:
@@ -913,7 +906,7 @@ def _summarize_overview_frame(df: pd.DataFrame) -> dict:
     reversed_count = 0
     reported_by_month: dict[str, int] = {}
     answered_by_month: dict[str, int] = {}
-    completed_flags = [status in _OVERVIEW_COMPLETED_STATUSES for status in statuses]
+    completed_flags = [status in report_policy.COMPLETED_STATUSES for status in statuses]
     if len(completed_flags) < total:
         completed_flags += [False] * (total - len(completed_flags))
     for reported, answered, is_completed in zip(report_dates, answer_dates, completed_flags):
@@ -947,13 +940,13 @@ def _summarize_overview_frame(df: pd.DataFrame) -> dict:
 
     return {
         "total": total,
-        "completed": _count(lambda s: s in _OVERVIEW_COMPLETED_STATUSES),
+        "completed": _count(lambda s: s in report_policy.COMPLETED_STATUSES),
         "accept": _count(lambda s: s == "수용"),
         "partial": _count(lambda s: s == "일부수용"),
-        "reject": _count(lambda s: s in {"불수용", "기타"}),
-        "supplement": _count(lambda s: s == "보완요청"),
-        "processing": _count(lambda s: s in _OVERVIEW_PROCESSING_STATUSES),
-        "withdraw": _count(lambda s: s == "취하"),
+        "reject": _count(lambda s: s in report_policy.REJECT_STATUSES),
+        "supplement": _count(lambda s: s == report_policy.SUPPLEMENT_STATUS),
+        "processing": _count(lambda s: s in report_policy.PROCESSING_STATUSES),
+        "withdraw": _count(lambda s: s == report_policy.WITHDRAWN_STATUS),
         "avg_days": _round_half_up(sum(day_samples) / len(day_samples), 1) if day_samples else None,
         "avg_days_count": len(day_samples),
         "reversed_date_count": reversed_count,
@@ -968,8 +961,8 @@ def _summarize_overview_frame(df: pd.DataFrame) -> dict:
         "result_distribution": {
             "accept": _count(lambda s: s == "수용"),
             "partial": _count(lambda s: s == "일부수용"),
-            "reject": _count(lambda s: s in {"불수용", "기타"}),
-            "unknown": _count(lambda s: s == "답변완료"),
+            "reject": _count(lambda s: s in report_policy.REJECT_STATUSES),
+            "unknown": _count(lambda s: s == report_policy.ANSWERED_UNKNOWN_STATUS),
         },
     }
 
@@ -984,13 +977,8 @@ def _overview_disposition(df: pd.DataFrame) -> dict[str, int]:
     if df.empty:
         return {**{key: 0 for key in keys}, "overlap": 0}
     counts = _stats_row_disposition_counts(df)
-    fine_series = df.get("범칙금_과태료", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str)
-    status_series = _stats_status_series(df)
-    decided = int((
-        fine_series.str.contains("과태료", na=False)
-        | fine_series.str.contains("경고|범칙금", na=False)
-        | status_series.isin(["불수용", "기타"])
-    ).sum())
+    masks = report_policy.dashboard_disposition_masks(df)
+    decided = int((masks["fines"] | masks["warnings"] | masks["rejects"]).sum())
     result = {key: int(counts.get(key, 0)) for key in keys}
     result["overlap"] = result["fines"] + result["warnings"] + result["rejects"] - decided
     return result
@@ -1081,20 +1069,8 @@ def _ratio_item(label: str, count: int, total: int) -> dict:
 
 
 def _disposition_counts(group_df: pd.DataFrame) -> dict[str, int]:
-    fine_series = group_df.get("범칙금_과태료", pd.Series(dtype="object")).fillna("").astype(str)
-    status_series = group_df.get("처리상태", pd.Series(dtype="object")).fillna("").astype(str)
-
-    fine_mask = fine_series.str.contains("과태료", na=False)
-    warning_mask = fine_series.str.contains("경고|범칙금", na=False)
-    reject_mask = status_series.isin(["불수용", "기타"])
-    unconfirmed_mask = ~(fine_mask | warning_mask | reject_mask)
-
-    return {
-        "fines": int(fine_mask.sum()),
-        "warnings": int(warning_mask.sum()),
-        "rejects": int(reject_mask.sum()),
-        "unconfirmed": int(unconfirmed_mask.sum()),
-    }
+    """기관 상세 4분류(report_policy.dashboard_disposition). 처리중을 '미확인'에 둔다 — 통계표 8분류와 의도적으로 다름."""
+    return {name: int(mask.sum()) for name, mask in report_policy.dashboard_disposition_masks(group_df).items()}
 
 
 _UNASSIGNED_PERSON_VALUES = {"", "미지정"}
@@ -1103,14 +1079,14 @@ _UNASSIGNED_PERSON_VALUES = {"", "미지정"}
 def _stats_status_series(group_df: pd.DataFrame) -> pd.Series:
     if '_metric_status' in group_df:
         return group_df['_metric_status']
-    return group_df.get("처리상태", pd.Series(dtype="object", index=group_df.index)).fillna("").astype(str).str.strip()
+    return report_policy.status_series(group_df)
 
 
 def _stats_row_disposition_counts(group_df: pd.DataFrame) -> dict[str, int]:
     """통계표(기관/담당자/법규) 행 처분 분류. S-10: 처리중은 '미분류'에 섞지 않고 `in_progress` 로 뺀다.
 
     처리중 = 완료(수용·일부수용·불수용·기타·답변완료)도 취하도 아닌 상태(처리중·진행·검토중·보완요청·이송·빈 값 등).
-    모바일 Standalone `_AgencyAgg` 와 같은 정의. 대시보드용 `_disposition_counts` 는 바꾸지 않는다.
+    모바일 Standalone `_AgencyAgg` 와 같은 정의(report_policy.table_disposition, contracts/report-policy-vectors.json).
     """
     if '_metric_disposition_fines' in group_df:
         return {name: int(group_df['_metric_disposition_' + name].sum()) for name in (
@@ -1120,60 +1096,8 @@ def _stats_row_disposition_counts(group_df: pd.DataFrame) -> dict[str, int]:
 
 
 def _stats_row_disposition_masks(group_df):
-    fine_series = group_df.get("범칙금_과태료", pd.Series(dtype="object", index=group_df.index)).fillna("").astype(str)
-    raw_status = group_df.get('처리상태', pd.Series(dtype='object', index=group_df.index)).fillna('').astype(str)
-    status_series = _stats_status_series(group_df)
-    decided = (
-        fine_series.str.contains("과태료", na=False)
-        | fine_series.str.contains("경고|범칙금", na=False)
-        | status_series.isin(["불수용", "기타"])
-    )
-    in_progress = ~decided & ~status_series.isin(_OVERVIEW_COMPLETED_STATUSES) & (status_series != "취하")
-    unconfirmed = ~decided & ~in_progress
-    # 2026-09-24 (b) 열 분리 — `unconfirmed` 는 그대로 두고(모바일 API 호환) 하위 분류를 추가한다.
-    #   disposition_unknown: 과태료 대상 신고인데 파서가 처분을 못 읽은 건(`범칙금_과태료` == '미확인')
-    #   no_penalty: 과태료 대상이 아닌 유형(시설물 등)의 완료 신고
-    #   unclassified: 나머지(과태료 대상 유형인데 처분 문구 없는 완료, 취하 등)
-    eligible = _penalty_eligible_mask(group_df)
-    # 과태료 미확인(2026-09-28 이름 변경, 필드명은 그대로): 처분 칸이 '미확인'이거나, 이미 저장된 주정차·버스전용차로·쓰레기 메뉴의
-    # 일부수용 + 처분 없음(파서가 예전엔 비워 뒀다 — 지금은 '미확인'을 넣는다).
-    disposition_unknown = unconfirmed & (
-        (fine_series.str.strip() == "미확인")
-        | ((status_series == "일부수용") & (fine_series.str.strip() == "") & _partial_unknown_menu_mask(group_df))
-    )
-    no_penalty = unconfirmed & ~disposition_unknown & ~eligible & status_series.isin(_OVERVIEW_COMPLETED_STATUSES)
-    return {'fines': fine_series.str.contains('과태료', na=False),
-            'warnings': fine_series.str.contains('경고|범칙금', na=False),
-            'rejects': raw_status.isin(['불수용', '기타']),
-            'in_progress': in_progress, 'unconfirmed': unconfirmed,
-            'disposition_unknown': disposition_unknown, 'no_penalty': no_penalty,
-            'unclassified': unconfirmed & ~disposition_unknown & ~no_penalty}
-
-
-def _partial_unknown_menu_mask(group_df: pd.DataFrame) -> pd.Series:
-    """주정차·버스전용차로·쓰레기 메뉴(파서 `_PARTIAL_UNKNOWN_MENUS` 와 같은 메뉴, 주정차 분류 포함)."""
-    index = group_df.index
-    category = group_df.get("category", pd.Series("", index=index, dtype="object")).fillna("").astype(str)
-    entry = group_df.get("entry_value", pd.Series("", index=index, dtype="object")).fillna("").astype(str)
-    return (
-        (category == "parking")
-        | entry.str.contains("불법주정차신고", regex=False)
-        | entry.str.contains("버스전용차로 위반", regex=False)
-        | entry.str.contains("쓰레기, 폐기물", regex=False)
-    )
-
-
-def _penalty_eligible_mask(group_df: pd.DataFrame) -> pd.Series:
-    """과태료가 붙을 수 있는 유형: 교통위반, 불법주정차, 쓰레기·폐기물 메뉴. 그 밖(시설물 등)은 처분 대상 아님."""
-    index = group_df.index
-    category = group_df.get("category", pd.Series("", index=index, dtype="object")).fillna("").astype(str)
-    entry = group_df.get("entry_value", pd.Series("", index=index, dtype="object")).fillna("").astype(str)
-    return (
-        category.isin(["traffic", "parking"])
-        | entry.str.contains("자동차·교통위반", regex=False)
-        | entry.str.contains("불법주정차신고", regex=False)
-        | entry.str.contains("쓰레기, 폐기물", regex=False)
-    )
+    """통계표 8분류(report_policy.table_disposition). 미리 계산한 `_metric_status` 가 있으면 그것을 쓴다."""
+    return report_policy.table_disposition_masks(group_df, status=_stats_status_series(group_df))
 
 
 def _estimated_fine_totals(group_df: pd.DataFrame) -> dict[str, int]:
@@ -1201,8 +1125,8 @@ def _estimated_fine_totals(group_df: pd.DataFrame) -> dict[str, int]:
 
 
 def _build_status_breakdown(group_df: pd.DataFrame) -> list[dict]:
-    status_series = group_df.get("처리상태", pd.Series(dtype="object")).fillna("").astype(str)
-    processing_mask = status_series.isin(["", "진행", "진행중", "검토중", "처리중"])
+    status_series = report_policy.breakdown_status_series(group_df)
+    processing_mask = status_series == report_policy.PROCESSING_LABEL
     ordered = [
         _ratio_item("수용", int((status_series == "수용").sum()), len(group_df)),
         _ratio_item("일부수용", int((status_series == "일부수용").sum()), len(group_df)),
@@ -1211,7 +1135,7 @@ def _build_status_breakdown(group_df: pd.DataFrame) -> list[dict]:
         _ratio_item("답변완료", int((status_series == "답변완료").sum()), len(group_df)),
         _ratio_item("보완요청", int((status_series == "보완요청").sum()), len(group_df)),
         _ratio_item("처리중", int(processing_mask.sum()), len(group_df)),
-        _ratio_item("취하", int((status_series == "취하").sum()), len(group_df)),
+        _ratio_item("취하", int((status_series == report_policy.WITHDRAWN_STATUS).sum()), len(group_df)),
         _ratio_item("이송", int((status_series == "이송").sum()), len(group_df)),
     ]
     return [item for item in ordered if item["count"] > 0]
@@ -1353,7 +1277,7 @@ def _load_map_records_frame(
         combined_df["category"] = normalized_category if normalized_category != "all" else "other"
 
     if completed_only:
-        combined_df = combined_df[_stats_status_series(combined_df).isin(_OVERVIEW_COMPLETED_STATUSES)].copy()
+        combined_df = combined_df[_stats_status_series(combined_df).isin(report_policy.COMPLETED_STATUSES)].copy()
     if target_agency_key:
         combined_df = combined_df[combined_df["_agency_key"] == target_agency_key].copy()
     elif target_agency and "처리기관" in combined_df.columns:
@@ -1464,22 +1388,20 @@ def _aggregate_map_points(frame, *, max_points=None, zoom=7):
     coordinate_agg = 'mean' if clustered else 'first'
     base = grouped.agg(lat=('위도',coordinate_agg), lng=('경도',coordinate_agg), total=('ID','size'),
                        address=('위반장소','first'), region=('행정구역','first'))
-    statuses = frame['처리상태'].fillna('').astype(str)
-    fine = frame['범칙금_과태료'].fillna('').astype(str)
-    fine_mask = fine.str.contains('과태료', regex=False)
-    warning = fine.str.contains('경고|범칙금')
-    reject = statuses.isin(['불수용','기타'])
+    disposition = report_policy.dashboard_disposition_masks(frame)
+    fine_mask, warning, reject = disposition['fines'], disposition['warnings'], disposition['rejects']
+    frame['_status_label'] = report_policy.breakdown_status_series(frame)
     frame['_fine'] = fine_mask.astype(int)
     frame['_warning'] = warning.astype(int)
     frame['_reject'] = reject.astype(int)
     frame['_unknown'] = (~(fine_mask | warning | reject)).astype(int)
     dispositions = grouped[['_fine','_warning','_reject','_unknown']].sum()
-    status_counts = frame.groupby(['_group','처리상태'], dropna=False).size()
+    status_counts = frame.groupby(['_group','_status_label'], dropna=False).size()
     category_counts = frame.groupby(['_group','category']).size()
     agency_counts = frame.groupby(['_group','_agency_key','처리기관'], dropna=False).size() if '_agency_key' in frame else None
     status_by = {}
     for (gid, status), count in status_counts.items():
-        label = '처리중' if pd.isna(status) or status in ('','진행','진행중','검토중') else str(status)
+        label = str(status)
         bucket = status_by.setdefault(gid, {})
         bucket[label] = bucket.get(label, 0) + int(count)
     categories_by = {}

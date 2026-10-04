@@ -4,6 +4,7 @@ from sqlalchemy import select, func, exists, update, text, inspect, bindparam, o
 from sqlalchemy.dialects.sqlite import insert
 from core.utils import logger
 from core.utils.fallback import note_fallback
+from services import report_policy
 import os
 import threading
 from datetime import datetime
@@ -1048,7 +1049,7 @@ def load_results_by_category(engine):
             if not df.empty:
                 df['감시목록'] = df['신고번호'].apply(lambda x: 'Y' if x in watch_ids else 'N')
                 if settings.exclude_withdraw:
-                    df = df[df['처리상태'] != '취하']
+                    df = df[report_policy.status_series(df) != report_policy.WITHDRAWN_STATUS]
             result[label] = df
         return result
 

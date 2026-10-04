@@ -1,0 +1,1276 @@
+{
+ "description": "신고 상태·처분 정책(EO R-01). 서버 services/report_policy.py·web/static/ui/report-policy.js 와 모바일 lib/services/report_policy.dart 가 같은 입력으로 같은 결과를 내는지 확인한다(두 레포 바이트 동일). 정책 이름과 의도적 차이는 report_policy.py 머리말, docs/design/statistics-spec.md.",
+ "sets": {
+  "completed": [
+   "수용",
+   "불수용",
+   "일부수용",
+   "기타",
+   "답변완료"
+  ],
+  "processing": [
+   "처리중",
+   "진행",
+   "진행중",
+   "검토중"
+  ],
+  "reject": [
+   "불수용",
+   "기타"
+  ],
+  "withdrawn": "취하",
+  "processing_label": "처리중",
+  "fine_unknown": "미확인"
+ },
+ "trim_chars": " \t\n\u000b\f\r\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff",
+ "status_cases": [
+  {
+   "status": null,
+   "display": "",
+   "breakdown": "처리중",
+   "badge": "default",
+   "completed": false,
+   "processing": false,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "",
+   "display": "",
+   "breakdown": "처리중",
+   "badge": "default",
+   "completed": false,
+   "processing": false,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": " ",
+   "display": "",
+   "breakdown": "처리중",
+   "badge": "default",
+   "completed": false,
+   "processing": false,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "수용",
+   "display": "수용",
+   "breakdown": "수용",
+   "badge": "accept",
+   "completed": true,
+   "processing": false,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": " 수용 ",
+   "display": "수용",
+   "breakdown": "수용",
+   "badge": "accept",
+   "completed": true,
+   "processing": false,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "일부수용",
+   "display": "일부수용",
+   "breakdown": "일부수용",
+   "badge": "partial",
+   "completed": true,
+   "processing": false,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "불수용",
+   "display": "불수용",
+   "breakdown": "불수용",
+   "badge": "reject",
+   "completed": true,
+   "processing": false,
+   "reject": true,
+   "withdrawn": false
+  },
+  {
+   "status": "\u3000불수용",
+   "display": "불수용",
+   "breakdown": "불수용",
+   "badge": "reject",
+   "completed": true,
+   "processing": false,
+   "reject": true,
+   "withdrawn": false
+  },
+  {
+   "status": "기타",
+   "display": "기타",
+   "breakdown": "기타",
+   "badge": "reject",
+   "completed": true,
+   "processing": false,
+   "reject": true,
+   "withdrawn": false
+  },
+  {
+   "status": "답변완료",
+   "display": "답변완료",
+   "breakdown": "답변완료",
+   "badge": "default",
+   "completed": true,
+   "processing": false,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "처리중",
+   "display": "처리중",
+   "breakdown": "처리중",
+   "badge": "processing",
+   "completed": false,
+   "processing": true,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "진행",
+   "display": "처리중",
+   "breakdown": "처리중",
+   "badge": "processing",
+   "completed": false,
+   "processing": true,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "진행중 ",
+   "display": "처리중",
+   "breakdown": "처리중",
+   "badge": "processing",
+   "completed": false,
+   "processing": true,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "검토중",
+   "display": "처리중",
+   "breakdown": "처리중",
+   "badge": "processing",
+   "completed": false,
+   "processing": true,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "보완요청",
+   "display": "보완요청",
+   "breakdown": "보완요청",
+   "badge": "supplement",
+   "completed": false,
+   "processing": false,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "이송",
+   "display": "이송",
+   "breakdown": "이송",
+   "badge": "default",
+   "completed": false,
+   "processing": false,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "취하",
+   "display": "취하",
+   "breakdown": "취하",
+   "badge": "withdraw",
+   "completed": false,
+   "processing": false,
+   "reject": false,
+   "withdrawn": true
+  },
+  {
+   "status": " 취하",
+   "display": "취하",
+   "breakdown": "취하",
+   "badge": "withdraw",
+   "completed": false,
+   "processing": false,
+   "reject": false,
+   "withdrawn": true
+  },
+  {
+   "status": "답변 대기",
+   "display": "답변 대기",
+   "breakdown": "답변 대기",
+   "badge": "default",
+   "completed": false,
+   "processing": false,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "수용\u00a0",
+   "display": "수용",
+   "breakdown": "수용",
+   "badge": "accept",
+   "completed": true,
+   "processing": false,
+   "reject": false,
+   "withdrawn": false
+  },
+  {
+   "status": "\ufeff기타",
+   "display": "기타",
+   "breakdown": "기타",
+   "badge": "reject",
+   "completed": true,
+   "processing": false,
+   "reject": true,
+   "withdrawn": false
+  }
+ ],
+ "disposition_cases": [
+  {
+   "row": {
+    "처리상태": "수용",
+    "범칙금_과태료": "과태료 40,000원",
+    "category": "traffic",
+    "entry_value": "자동차·교통위반-신호위반"
+   },
+   "table": {
+    "fines": true,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": false,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": true,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": false
+   },
+   "traffic_dashboard": {
+    "fine": true,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "수용",
+    "범칙금_과태료": "과태료 및 범칙금 60,000원",
+    "category": "traffic",
+    "entry_value": "자동차·교통위반-중앙선"
+   },
+   "table": {
+    "fines": true,
+    "warnings": true,
+    "rejects": false,
+    "unconfirmed": false,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": true,
+    "warnings": true,
+    "rejects": false,
+    "unconfirmed": false
+   },
+   "traffic_dashboard": {
+    "fine": true,
+    "penalty": true,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "수용",
+    "범칙금_과태료": "경고",
+    "category": "traffic",
+    "entry_value": "자동차·교통위반-신호위반"
+   },
+   "table": {
+    "fines": false,
+    "warnings": true,
+    "rejects": false,
+    "unconfirmed": false,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": true,
+    "rejects": false,
+    "unconfirmed": false
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": true,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "일부수용",
+    "범칙금_과태료": "범칙금 30,000원",
+    "category": "traffic",
+    "entry_value": ""
+   },
+   "table": {
+    "fines": false,
+    "warnings": true,
+    "rejects": false,
+    "unconfirmed": false,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": true,
+    "rejects": false,
+    "unconfirmed": false
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": true,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "불수용",
+    "범칙금_과태료": "",
+    "category": "traffic",
+    "entry_value": "자동차·교통위반-신호위반"
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": true,
+    "unconfirmed": false,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": true,
+    "unconfirmed": false
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": true,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": " 기타 ",
+    "범칙금_과태료": null,
+    "category": "other",
+    "entry_value": "안전-시설물"
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": true,
+    "unconfirmed": false,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": true,
+    "unconfirmed": false
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": false,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "불수용",
+    "범칙금_과태료": "과태료 40,000원",
+    "category": "parking",
+    "entry_value": "불법주정차신고"
+   },
+   "table": {
+    "fines": true,
+    "warnings": false,
+    "rejects": true,
+    "unconfirmed": false,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": true,
+    "warnings": false,
+    "rejects": true,
+    "unconfirmed": false
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": true
+  },
+  {
+   "row": {
+    "처리상태": "수용",
+    "범칙금_과태료": "미확인",
+    "category": "traffic",
+    "entry_value": "자동차·교통위반-신호위반"
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true,
+    "in_progress": false,
+    "disposition_unknown": true,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": true
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "수용",
+    "범칙금_과태료": " 미확인 ",
+    "category": "parking",
+    "entry_value": ""
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true,
+    "in_progress": false,
+    "disposition_unknown": true,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": true
+  },
+  {
+   "row": {
+    "처리상태": "불수용",
+    "범칙금_과태료": "미확인",
+    "category": "traffic",
+    "entry_value": ""
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": true,
+    "unconfirmed": false,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": true,
+    "unconfirmed": false
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": true,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "일부수용",
+    "범칙금_과태료": "",
+    "category": "parking",
+    "entry_value": ""
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true,
+    "in_progress": false,
+    "disposition_unknown": true,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": true
+  },
+  {
+   "row": {
+    "처리상태": "일부수용",
+    "범칙금_과태료": "",
+    "category": "other",
+    "entry_value": "생활불편-버스전용차로 위반"
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true,
+    "in_progress": false,
+    "disposition_unknown": true,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": false,
+   "partial_unknown_menu": true
+  },
+  {
+   "row": {
+    "처리상태": "일부수용",
+    "범칙금_과태료": null,
+    "category": "other",
+    "entry_value": "생활불편-쓰레기, 폐기물"
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true,
+    "in_progress": false,
+    "disposition_unknown": true,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": true
+  },
+  {
+   "row": {
+    "처리상태": "일부수용",
+    "범칙금_과태료": "",
+    "category": "traffic",
+    "entry_value": "자동차·교통위반-신호위반"
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": true
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "수용",
+    "범칙금_과태료": "",
+    "category": "other",
+    "entry_value": "안전-시설물"
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": true,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": false,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "답변완료",
+    "범칙금_과태료": "",
+    "category": "other",
+    "entry_value": "생활불편-쓰레기, 폐기물"
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": true
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": true
+  },
+  {
+   "row": {
+    "처리상태": "수용",
+    "범칙금_과태료": "",
+    "category": "traffic",
+    "entry_value": ""
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": true
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "취하",
+    "범칙금_과태료": "",
+    "category": "traffic",
+    "entry_value": ""
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": true
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "취하",
+    "범칙금_과태료": "",
+    "category": "other",
+    "entry_value": "안전-시설물"
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": true
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": false,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "처리중",
+    "범칙금_과태료": "",
+    "category": "traffic",
+    "entry_value": ""
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": false,
+    "in_progress": true,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "보완요청",
+    "범칙금_과태료": "",
+    "category": "other",
+    "entry_value": ""
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": false,
+    "in_progress": true,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": false,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "이송",
+    "범칙금_과태료": null,
+    "category": "parking",
+    "entry_value": ""
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": false,
+    "in_progress": true,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": true
+  },
+  {
+   "row": {
+    "처리상태": null,
+    "범칙금_과태료": null,
+    "category": "traffic",
+    "entry_value": null
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": false,
+    "in_progress": true,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": true
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "진행",
+    "범칙금_과태료": "과태료",
+    "category": "traffic",
+    "entry_value": ""
+   },
+   "table": {
+    "fines": true,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": false,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": true,
+    "warnings": false,
+    "rejects": false,
+    "unconfirmed": false
+   },
+   "traffic_dashboard": {
+    "fine": true,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "\u3000불수용",
+    "범칙금_과태료": "",
+    "category": " traffic ",
+    "entry_value": ""
+   },
+   "table": {
+    "fines": false,
+    "warnings": false,
+    "rejects": true,
+    "unconfirmed": false,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": false,
+    "rejects": true,
+    "unconfirmed": false
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": true,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  },
+  {
+   "row": {
+    "처리상태": "수용",
+    "범칙금_과태료": "경고 처분",
+    "category": "other",
+    "entry_value": "자동차·교통위반-기타"
+   },
+   "table": {
+    "fines": false,
+    "warnings": true,
+    "rejects": false,
+    "unconfirmed": false,
+    "in_progress": false,
+    "disposition_unknown": false,
+    "no_penalty": false,
+    "unclassified": false
+   },
+   "dashboard": {
+    "fines": false,
+    "warnings": true,
+    "rejects": false,
+    "unconfirmed": false
+   },
+   "traffic_dashboard": {
+    "fine": false,
+    "penalty": false,
+    "reject": false,
+    "unconfirmed": false
+   },
+   "penalty_eligible": true,
+   "partial_unknown_menu": false
+  }
+ ],
+ "filter_rows": [
+  {
+   "처리상태": "수용",
+   "범칙금_과태료": "과태료 40,000원"
+  },
+  {
+   "처리상태": " 진행 ",
+   "범칙금_과태료": ""
+  },
+  {
+   "처리상태": "검토중",
+   "범칙금_과태료": null
+  },
+  {
+   "처리상태": "기타",
+   "범칙금_과태료": "미확인"
+  },
+  {
+   "처리상태": "불수용",
+   "범칙금_과태료": ""
+  },
+  {
+   "처리상태": "답변완료",
+   "범칙금_과태료": "미확인"
+  },
+  {
+   "처리상태": "보완요청",
+   "범칙금_과태료": "경고"
+  },
+  {
+   "처리상태": null,
+   "범칙금_과태료": " 미확인"
+  },
+  {
+   "처리상태": "일부수용",
+   "범칙금_과태료": "범칙금 30,000원"
+  },
+  {
+   "처리상태": "취하",
+   "범칙금_과태료": ""
+  }
+ ],
+ "filter_cases": [
+  {
+   "kind": "status",
+   "name": "처리중",
+   "matches": [
+    false,
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "kind": "status",
+   "name": "완료",
+   "matches": [
+    true,
+    false,
+    false,
+    true,
+    true,
+    true,
+    false,
+    false,
+    true,
+    false
+   ]
+  },
+  {
+   "kind": "status",
+   "name": "불수용",
+   "matches": [
+    false,
+    false,
+    false,
+    true,
+    true,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "kind": "status",
+   "name": "수용",
+   "matches": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "kind": "status",
+   "name": "보완요청",
+   "matches": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "kind": "status",
+   "name": "취하",
+   "matches": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true
+   ]
+  },
+  {
+   "kind": "status",
+   "name": " 일부수용 ",
+   "matches": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    false
+   ]
+  },
+  {
+   "kind": "fine",
+   "name": "과태료",
+   "matches": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+   ]
+  },
+  {
+   "kind": "fine",
+   "name": "경고",
+   "matches": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    false,
+    true,
+    false
+   ]
+  },
+  {
+   "kind": "fine",
+   "name": "미확인",
+   "matches": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    true,
+    false,
+    true,
+    false,
+    false
+   ]
+  }
+ ]
+}

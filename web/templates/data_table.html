@@ -307,11 +307,7 @@ $(document).ready(function() {
     }
 
     function canonicalStatus(value) {
-        const status = String(value == null ? '' : value).trim();
-        if (status === '진행' || status === '진행중' || status === '검토중' || status === '처리중') {
-            return '처리중';
-        }
-        return status;
+        return window.SrReportPolicy.displayStatus(value);
     }
 
     function summarizeSelections(options, values) {
@@ -472,13 +468,7 @@ $(document).ready(function() {
 
     function renderBadge(d) {
         const v = normalizeCellText(d);
-        let cls = 'sr-badge-default';
-        if (v === '수용') cls = 'sr-badge-accept';
-        else if (v === '일부수용') cls = 'sr-badge-partial';
-        else if (v === '불수용' || v === '기타') cls = 'sr-badge-reject';
-        else if (v === '처리중' || v === '진행' || v === '진행중' || v === '검토중') cls = 'sr-badge-processing';
-        else if (v === '보완요청') cls = 'sr-badge-supplement';
-        else if (v === '취하') cls = 'sr-badge-withdraw';
+        const cls = 'sr-badge-' + window.SrReportPolicy.badgeKey(v);
         return `<span class="sr-badge ${cls}">${esc(v)}</span>`;
     }
 

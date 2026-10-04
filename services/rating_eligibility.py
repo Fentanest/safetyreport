@@ -5,14 +5,14 @@
 """
 from __future__ import annotations
 
-_PROCESSING_STATUSES = frozenset({"진행", "진행중", "검토중", "처리중"})
+from services import report_policy
+
 BLOCKED_STATUSES = frozenset({"취하", "답변 대기", "처리중"})
 
 
 def canonical_status(status) -> str:
-    """진행/진행중/검토중/처리중 → 처리중, 나머지는 앞뒤 공백만 뗀 값."""
-    trimmed = str(status or "").strip()
-    return "처리중" if trimmed in _PROCESSING_STATUSES else trimmed
+    """진행/진행중/검토중/처리중 → 처리중, 나머지는 앞뒤 공백만 뗀 값(report_policy.display_status)."""
+    return report_policy.display_status(status)
 
 
 def ineligible_reason(poll_status, status) -> str | None:

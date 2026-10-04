@@ -182,17 +182,18 @@
                                 <td>{{ item.처리기관 }}</td>
                                 <td>{{ item.담당자 }}</td>
                                 <td>
-                                    {% if item.결과 == '수용' %}
+                                    {% set badge = item.결과|status_badge %}
+                                    {% if badge == 'accept' %}
                                     <span class="badge" style="background-color: var(--sr-status-accept);">{{ item.결과 }}</span>
-                                    {% elif item.결과 in ['불수용', '기타'] %}
+                                    {% elif badge == 'reject' %}
                                     <span class="badge" style="background-color: var(--sr-status-reject);">{{ item.결과 }}</span>
-                                    {% elif item.결과 == '취하' %}
+                                    {% elif badge == 'withdraw' %}
                                     <span class="badge" style="background-color: var(--sr-status-withdraw);">{{ item.결과 }}</span>
-                                    {% elif item.결과 == '일부수용' %}
+                                    {% elif badge == 'partial' %}
                                     <span class="badge" style="background-color: var(--sr-status-partial); color: #ffffff;">{{ item.결과 }}</span>
-                                    {% elif item.결과 in ['처리중', '진행', '진행중', '검토중'] %}
+                                    {% elif badge == 'processing' %}
                                     <span class="badge" style="background-color: var(--sr-status-processing);">{{ item.결과 }}</span>
-                                    {% elif item.결과 == '보완요청' %}
+                                    {% elif badge == 'supplement' %}
                                     <span class="badge" style="background-color: var(--sr-status-supplement); color: #ffffff;">{{ item.결과 }}</span>
                                     {% else %}
                                     <span class="badge" style="background-color: var(--sr-surface-3); color: var(--sr-text); border: 1px solid var(--sr-border);">{{ item.결과 }}</span>
@@ -240,17 +241,18 @@
                                 <td>{{ item.처리기관 }}</td>
                                 <td>{{ item.담당자 }}</td>
                                 <td>
-                                    {% if item.결과 == '수용' %}
+                                    {% set badge = item.결과|status_badge %}
+                                    {% if badge == 'accept' %}
                                     <span class="badge" style="background-color: var(--sr-status-accept);">{{ item.결과 }}</span>
-                                    {% elif item.결과 in ['불수용', '기타'] %}
+                                    {% elif badge == 'reject' %}
                                     <span class="badge" style="background-color: var(--sr-status-reject);">{{ item.결과 }}</span>
-                                    {% elif item.결과 == '취하' %}
+                                    {% elif badge == 'withdraw' %}
                                     <span class="badge" style="background-color: var(--sr-status-withdraw);">{{ item.결과 }}</span>
-                                    {% elif item.결과 == '일부수용' %}
+                                    {% elif badge == 'partial' %}
                                     <span class="badge" style="background-color: var(--sr-status-partial); color: #ffffff;">{{ item.결과 }}</span>
-                                    {% elif item.결과 in ['처리중', '진행', '진행중', '검토중'] %}
+                                    {% elif badge == 'processing' %}
                                     <span class="badge" style="background-color: var(--sr-status-processing);">{{ item.결과 }}</span>
-                                    {% elif item.결과 == '보완요청' %}
+                                    {% elif badge == 'supplement' %}
                                     <span class="badge" style="background-color: var(--sr-status-supplement); color: #ffffff;">{{ item.결과 }}</span>
                                     {% else %}
                                     <span class="badge" style="background-color: var(--sr-surface-3); color: var(--sr-text); border: 1px solid var(--sr-border);">{{ item.결과 }}</span>

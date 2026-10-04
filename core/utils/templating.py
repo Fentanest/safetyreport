@@ -12,4 +12,8 @@ _env = jinja2.Environment(
     autoescape=True,
     cache_size=0,
 )
+# 상태 배지 색 이름(EO R-01: services/report_policy.badge_key 하나로 판정)
+from services.report_policy import badge_key as _status_badge  # noqa: E402
+
+_env.filters["status_badge"] = _status_badge
 templates = Jinja2Templates(env=_env)

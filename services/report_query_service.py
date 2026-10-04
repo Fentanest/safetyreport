@@ -4,7 +4,7 @@ from sqlalchemy.exc import OperationalError
 
 from core.database import database
 import settings.settings as app_settings
-from services import duplicate_group_service, rating_eligibility
+from services import duplicate_group_service, rating_eligibility, report_policy
 
 
 def _safe_read(conn, table):
@@ -37,7 +37,7 @@ def _apply_record_defaults(df, *, watch_ids: set, category: str = "", exact_valu
 
 def _filter_withdraw(df):
     if app_settings.exclude_withdraw and not df.empty and "처리상태" in df.columns:
-        return df[df["처리상태"].fillna("").astype(str) != "취하"]
+        return df[report_policy.status_series(df) != report_policy.WITHDRAWN_STATUS]
     return df
 
 
@@ -56,35 +56,20 @@ def _project_records(engine, records, *, mode="raw"):
 def _build_records_query(table_obj, filters=None):
     query = select(table_obj).order_by(desc(table_obj.c["신고번호"]))
     if app_settings.exclude_withdraw and "처리상태" in table_obj.c:
-        query = query.where((table_obj.c["처리상태"] != "취하") | table_obj.c["처리상태"].is_(None))
+        query = query.where(report_policy.sql_not_withdrawn(table_obj.c["처리상태"]))
 
     if not filters:
         return query
 
     status = filters.get("status")
     if status and "처리상태" in table_obj.c:
-        if status == "처리중":
-            query = query.where(table_obj.c["처리상태"].in_(["처리중", "진행", "진행중", "검토중"]))
-        elif status == "완료":
-            query = query.where(func.trim(table_obj.c["처리상태"]).in_(["수용", "불수용", "일부수용", "기타", "답변완료"]))
-        elif status == "불수용":
-            query = query.where(table_obj.c["처리상태"].in_(["불수용", "기타"]))
-        else:
-            query = query.where(table_obj.c["처리상태"] == status)
+        query = query.where(report_policy.sql_list_status_filter(table_obj.c["처리상태"], status))
 
     fine = filters.get("fine")
     if fine and "범칙금_과태료" in table_obj.c and "처리상태" in table_obj.c:
-        if fine == "과태료":
-            query = query.where(table_obj.c["범칙금_과태료"].contains("과태료"))
-        elif fine == "경고":
-            query = query.where(
-                table_obj.c["범칙금_과태료"].contains("경고")
-                | table_obj.c["범칙금_과태료"].contains("범칙금")
-            )
-        elif fine == "미확인":
-            query = query.where(table_obj.c["범칙금_과태료"] == "미확인").where(
-                ~table_obj.c["처리상태"].in_(["불수용", "기타"])
-            )
+        clause = report_policy.sql_list_fine_filter(table_obj.c["범칙금_과태료"], table_obj.c["처리상태"], fine)
+        if clause is not None:
+            query = query.where(clause)
 
     person = filters.get("person")
     if person and "담당자" in table_obj.c:
@@ -309,7 +294,7 @@ def get_duplicate_records(engine, mode: str = "raw"):
         df_all = df_all[df_all["차량번호"].str.strip() != ""]
 
         total_counts = df_all["차량번호"].value_counts().to_dict()
-        valid_counts = df_all[df_all["처리상태"] != "취하"]["차량번호"].value_counts().to_dict()
+        valid_counts = df_all[report_policy.status_series(df_all) != report_policy.WITHDRAWN_STATUS]["차량번호"].value_counts().to_dict()
         counts = df_all["차량번호"].value_counts()
         duplicates = counts[counts > 1].index.tolist()
         df_dups = df_all[df_all["차량번호"].isin(duplicates)].copy()
@@ -323,7 +308,7 @@ def get_duplicate_records(engine, mode: str = "raw"):
         df_dups = df_dups.drop(columns=["최근신고번호"])
 
         if app_settings.exclude_withdraw:
-            df_dups = df_dups[df_dups["처리상태"] != "취하"]
+            df_dups = df_dups[report_policy.status_series(df_dups) != report_policy.WITHDRAWN_STATUS]
             if not df_dups.empty:
                 remaining_counts = df_dups["차량번호"].value_counts()
                 single_after_filter = remaining_counts[remaining_counts <= 1].index.tolist()
@@ -371,7 +356,8 @@ def get_unrated_records(engine):
             # 보수적인 SQL prefilter 뒤 동일한 순수 판정으로 공백/NULL까지 확인한다.
             query = select(table_obj).where(
                 func.coalesce(table_obj.c['만족도조사여부'], '').not_in(['참여 완료', '참여 불가']),
-                func.coalesce(table_obj.c['처리상태'], '').not_in(['취하', '답변 대기', '처리중', '진행', '진행중', '검토중']))
+                report_policy.sql_norm(table_obj.c['처리상태']).not_in(
+                    [report_policy.WITHDRAWN_STATUS, '답변 대기', *report_policy.PROCESSING_ORDER]))
             df = pd.read_sql_query(query, conn)
             if df.empty:
                 continue
