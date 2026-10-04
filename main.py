@@ -1,28 +1,7 @@
-import asyncio
-from contextlib import asynccontextmanager
-from starlette.concurrency import run_in_threadpool
-from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
-from core.utils.fallback import log_request_exception, note_fallback
-import uvicorn
-import webbrowser
-import threading
-import time
-import os
-import signal
-
-from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route, devices_route
-from web.routers import auth_route, api_route, ws_route, db_editor_route, backup_route, maintenance_route
-from web.routers import duplicate_route, media_route, community_route, community_onboarding_route
-from web.routers import community_upload_route, community_rebuild_route
-import subprocess
 import sys
 
-from core.utils.path_utils import resource_path, is_frozen
-from services import sunwi_service
-
+# PyInstaller 단일 실행파일의 하위 모드(--mode crawl/bot/notify/save_excel)는 웹 서버 모듈을 불러오기 전에 나눈다
+# (EO R-04: 크롤·알림 하위 프로세스가 라우터·서비스 전체를 불러오지 않게).
 # Handle different execution modes for PyInstaller single-binary bundle
 if __name__ == "__main__":
     if "--mode" in sys.argv:
@@ -51,6 +30,30 @@ if __name__ == "__main__":
             save_script.main() # I should wrap save.py main logic in main()
             sys.exit(0)
 
+import asyncio
+from contextlib import asynccontextmanager
+from starlette.concurrency import run_in_threadpool
+from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
+from core.utils.fallback import log_request_exception, note_fallback
+import uvicorn
+import webbrowser
+import threading
+import time
+import os
+import signal
+
+from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route, devices_route
+from web.routers import auth_route, api_route, ws_route, db_editor_route, backup_route, maintenance_route
+from web.routers import duplicate_route, media_route, community_route, community_onboarding_route
+from web.routers import community_upload_route, community_rebuild_route
+import subprocess
+
+from core.utils.path_utils import resource_path, is_frozen
+from services import sunwi_service
+
 bot_application = None
 
 from core.utils.templating import templates, template_path
@@ -59,24 +62,25 @@ static_path = resource_path("web/static")
 
 import settings.settings as settings
 from core.utils import logger
-logger.LoggerFactory.create_logger()
 
-# Initialize required directories using settings' datapath
-os.makedirs(settings.datapath, exist_ok=True)
-os.makedirs(os.path.join(settings.datapath, 'auth'), exist_ok=True)
-os.makedirs(os.path.join(settings.datapath, 'logs'), exist_ok=True)
-os.makedirs(os.path.join(settings.datapath, 'results'), exist_ok=True)
+
+def _init_runtime() -> None:
+    """서버 프로세스 준비(EO R-04: import 가 아니라 앱을 만들 때 한 번): 코어 로거와 데이터 하위 폴더."""
+    if logger.LoggerFactory.logbot is None:
+        logger.LoggerFactory.create_logger()
+    for sub in ("", "auth", "logs", "results"):
+        os.makedirs(os.path.join(settings.datapath, sub), exist_ok=True)
 
 # DB Init
 from sqlalchemy import text
 from core.database import database
 from core.database.engine import get_engine
 from core.utils import scheduler
-engine = get_engine()
+
 
 def _checkpoint_wal():
     try:
-        with engine.connect() as conn:
+        with get_engine().connect() as conn:
             conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
     except Exception as e:
         logger.LoggerFactory.logbot.error(f"WAL 체크포인트 실패: {e}")
@@ -119,6 +123,7 @@ async def lifespan(app: FastAPI):
         from services.community_store import CommunityStore
         CommunityStore.open().rotate_dataset("legacy_reset")
 
+    engine = get_engine()
     database.reset_legacy_database(engine, os.path.join(settings.datapath, "backups"), before_reset=_rotate_community_dataset)
     database.upgrade_schema(engine, backup_dir=os.path.join(settings.datapath, "backups"))
     from core.utils.runtime_mode import skip_in_fixture
@@ -247,56 +252,6 @@ async def lifespan(app: FastAPI):
             logger.LoggerFactory.logbot.warning(f'[media] 종료 실패: {type(exc).__name__}')
         _checkpoint_wal()
 
-app = FastAPI(title="나만의 안전신문고", lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=static_path), name="static")
-
-# Reverse proxy support: trust X-Forwarded-For / X-Forwarded-Proto from configured IPs
-if settings.trusted_proxies:
-    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-    _trusted_list = [ip.strip() for ip in settings.trusted_proxies.split(',') if ip.strip()]
-    if _trusted_list:
-        app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=_trusted_list)
-
-def _signal_handler(signum, frame):
-    logger.LoggerFactory.logbot.info(f"종료 신호({signum}) 수신 - WAL 정리 후 종료합니다.")
-    _checkpoint_wal()
-    # sys.exit()는 asyncio 루프 내에서 CancelledError를 일으키므로
-    # 기본 핸들러로 복원한 뒤 다시 시그널을 보내 uvicorn이 안전하게 종료하게 한다.
-    signal.signal(signum, signal.SIG_DFL)
-    os.kill(os.getpid(), signum)
-
-# SIGINT (Ctrl+C): Windows & Linux 공통
-signal.signal(signal.SIGINT, _signal_handler)
-# SIGTERM: Linux/Docker 전용 (Windows에서는 지원 안 됨)
-if hasattr(signal, 'SIGTERM'):
-    signal.signal(signal.SIGTERM, _signal_handler)
-
-app.include_router(auth_route.router)
-app.include_router(dashboard.router)
-app.include_router(data.router)
-app.include_router(settings_route.router)
-app.include_router(crawl.router)
-app.include_router(stats.router)
-app.include_router(rating_route.router)
-app.include_router(watchlist_route.router)
-app.include_router(duplicate_route.router)
-app.include_router(media_route.router)
-app.include_router(file_browser_route.router)
-app.include_router(db_editor_route.router)
-app.include_router(devices_route.router)
-app.include_router(backup_route.router)
-app.include_router(maintenance_route.router)
-app.include_router(community_route.router)
-app.include_router(community_route.api_router)
-app.include_router(community_route.gate_api_router)
-app.include_router(community_onboarding_route.router)
-app.include_router(community_upload_route.router)
-app.include_router(community_upload_route.api_router)
-app.include_router(community_rebuild_route.router)
-app.include_router(community_rebuild_route.api_router)
-app.include_router(api_route.router)
-app.include_router(ws_route.router)
-
 try:
     with open(resource_path("VERSION"), "r", encoding="utf-8") as f:
         APP_VERSION = f.read().strip()
@@ -304,7 +259,6 @@ except Exception:
     APP_VERSION = "Unknown"
 
 
-@app.get("/version/latest")
 async def version_latest():
     from fastapi.responses import JSONResponse
     from core.utils.updater import get_latest_version_cached, _version_gt
@@ -321,12 +275,10 @@ async def version_latest():
         return JSONResponse({"status": "unknown"})
 
 
-@app.get("/health")
 async def health_check():
     from fastapi.responses import JSONResponse
     return JSONResponse({"status": "ok"})
 
-@app.middleware("http")
 async def inject_version_middleware(request: Request, call_next):
     from fastapi.responses import JSONResponse
     request.state.app_version = APP_VERSION
@@ -407,7 +359,7 @@ def _request_api_key_valid(request: Request) -> bool:
     if hasattr(request.state, 'api_key_valid'):
         return request.state.api_key_valid
     key = request.headers.get("x-api-key") or request.query_params.get("api_key") or ""
-    request.state.api_key_valid = bool(key) and bool(database.validate_api_key(engine, key))
+    request.state.api_key_valid = bool(key) and bool(database.validate_api_key(get_engine(), key))
     return request.state.api_key_valid
 
 
@@ -429,7 +381,6 @@ def _gate_blocked_response(request: Request, gate: dict):
                         status_code=403, headers={"Cache-Control": "no-store"})
 
 
-@app.middleware("http")
 async def community_gate_middleware(request: Request, call_next):
     from starlette.concurrency import run_in_threadpool
     path = request.url.path
@@ -468,7 +419,6 @@ async def community_gate_middleware(request: Request, call_next):
     return _gate_blocked_response(request, gate)
 
 
-@app.middleware('http')
 async def request_timings(request: Request, call_next):
     started = time.perf_counter()
     response = await call_next(request)
@@ -519,7 +469,6 @@ def _start_community_services() -> None:
 _PUBLIC_PATHS = {"/login", "/setup", "/logout", "/health"}
 _PUBLIC_PREFIXES = ("/static/", "/api/v1/", "/ws/", "/media/")
 
-@app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
     # 실제 WebSocket은 HTTP 미들웨어를 거치지 않는다. Upgrade 헤더는
@@ -545,13 +494,12 @@ async def auth_middleware(request: Request, call_next):
         from fastapi.responses import Response
         return Response(status_code=500)
 
-# SessionMiddleware는 마지막에 추가해야 가장 바깥에서(먼저) 실행됨
+# SessionMiddleware는 마지막에 추가해야 가장 바깥에서(먼저) 실행됨(create_app 참고)
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 from core.utils.security import get_or_create_session_key
-_session_key = get_or_create_session_key(settings.datapath)
 from core.utils import ws_auth as _ws_auth
-_ws_auth.configure(_session_key)  # 로그 WS 가 관리자 세션 쿠키를 같은 키로 읽는다
+
 
 class _WebSocketSafeSessionMiddleware:
     """WebSocket 연결에서 SessionMiddleware가 세션 쿠키를 덮어쓰는 것을 방지합니다.
@@ -566,12 +514,91 @@ class _WebSocketSafeSessionMiddleware:
         else:
             await self._session_mw(scope, receive, send)
 
-app.add_middleware(
-    _WebSocketSafeSessionMiddleware,
-    secret_key=_session_key,
-    session_cookie="safetyreport_session",
-    max_age=settings.session_max_age,
+
+def _signal_handler(signum, frame):
+    logger.LoggerFactory.logbot.info(f"종료 신호({signum}) 수신 - WAL 정리 후 종료합니다.")
+    _checkpoint_wal()
+    # sys.exit()는 asyncio 루프 내에서 CancelledError를 일으키므로
+    # 기본 핸들러로 복원한 뒤 다시 시그널을 보내 uvicorn이 안전하게 종료하게 한다.
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
+
+
+def _install_signal_handlers() -> None:
+    if threading.current_thread() is not threading.main_thread():
+        return  # signal.signal 은 주 스레드에서만 걸 수 있다(예전에도 import 하는 주 스레드에서 걸었다)
+    # SIGINT (Ctrl+C): Windows & Linux 공통
+    signal.signal(signal.SIGINT, _signal_handler)
+    # SIGTERM: Linux/Docker 전용 (Windows에서는 지원 안 됨)
+    if hasattr(signal, 'SIGTERM'):
+        signal.signal(signal.SIGTERM, _signal_handler)
+
+
+_ROUTERS = (
+    auth_route.router, dashboard.router, data.router, settings_route.router, crawl.router, stats.router,
+    rating_route.router, watchlist_route.router, duplicate_route.router, media_route.router, file_browser_route.router,
+    db_editor_route.router, devices_route.router, backup_route.router, maintenance_route.router,
+    community_route.router, community_route.api_router, community_route.gate_api_router,
+    community_onboarding_route.router, community_upload_route.router, community_upload_route.api_router,
+    community_rebuild_route.router, community_rebuild_route.api_router, api_route.router, ws_route.router,
 )
+
+
+def create_app() -> FastAPI:
+    """웹 앱 조립(EO R-04). 프로세스 준비(로거·폴더) → 앱·정적 파일 → 프록시 → HTTP 미들웨어(아래 순서) → 세션 → 라우터.
+
+    미들웨어는 나중에 넣은 것이 바깥이다: 세션 → 관리자 인증 → 시간 측정 → 커뮤니티 게이트 → 버전·CSRF → (프록시) → 라우트.
+    설정·DB 경로는 프로세스 전역(settings)이라 한 프로세스에 데이터 루트가 다른 앱을 둘 만들 수는 없다.
+    """
+    _init_runtime()
+    app = FastAPI(title="나만의 안전신문고", lifespan=lifespan)
+    app.mount("/static", StaticFiles(directory=static_path), name="static")
+
+    # Reverse proxy support: trust X-Forwarded-For / X-Forwarded-Proto from configured IPs
+    if settings.trusted_proxies:
+        from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+        trusted = [ip.strip() for ip in settings.trusted_proxies.split(',') if ip.strip()]
+        if trusted:
+            app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted)
+
+    _install_signal_handlers()
+    for router in _ROUTERS:
+        app.include_router(router)
+    app.add_api_route("/version/latest", version_latest, methods=["GET"])
+    app.add_api_route("/health", health_check, methods=["GET"])
+
+    for middleware in (inject_version_middleware, community_gate_middleware, request_timings, auth_middleware):
+        app.middleware("http")(middleware)
+    session_key = get_or_create_session_key(settings.datapath)
+    _ws_auth.configure(session_key)  # 로그 WS 가 관리자 세션 쿠키를 같은 키로 읽는다
+    app.add_middleware(
+        _WebSocketSafeSessionMiddleware,
+        secret_key=session_key,
+        session_cookie="safetyreport_session",
+        max_age=settings.session_max_age,
+    )
+    app.state.engine = get_engine()
+    return app
+
+
+_app: FastAPI | None = None
+_app_lock = threading.Lock()
+
+
+def get_app() -> FastAPI:
+    """이 프로세스의 웹 앱(처음 부를 때 만든다). `main:app`(uvicorn·Docker·fixture)·`main.app` 은 이것을 돌려준다."""
+    global _app
+    with _app_lock:
+        if _app is None:
+            _app = create_app()
+        return _app
+
+
+def __getattr__(name):
+    # PEP 562: `import main` 만으로는 앱·로그·폴더·시그널을 만들지 않는다(EO R-04). `main.app` 을 처음 읽을 때 만든다.
+    if name == "app":
+        return get_app()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 _UVICORN_LOG_CONFIG = {
@@ -612,7 +639,7 @@ def start_server():
             raise ValueError('invalid fixture port')
         host = '127.0.0.1' if fixture else '0.0.0.0'
         if is_frozen:
-            uvicorn.run(app, host=host, port=port, log_config=_UVICORN_LOG_CONFIG,
+            uvicorn.run(get_app(), host=host, port=port, log_config=_UVICORN_LOG_CONFIG,
                         ws_ping_interval=None, ws_ping_timeout=None)
         else:
             uvicorn.run("main:app", host=host, port=port, reload=not fixture, log_config=_UVICORN_LOG_CONFIG,

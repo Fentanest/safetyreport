@@ -520,6 +520,7 @@ class GateAppTests(GateTestBase):
 
         warnings.simplefilter("ignore", DeprecationWarning)
         import main
+        main.get_app()  # EO R-04: import 만으로는 앱(로거·폴더 준비)을 만들지 않는다
         from core.database import database
         from core.database.engine import get_engine
         from fastapi.testclient import TestClient

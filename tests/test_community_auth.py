@@ -894,7 +894,8 @@ class LocalApiTests(CommunityTestBase):
         import warnings
 
         warnings.simplefilter("ignore", DeprecationWarning)
-        import main  # noqa: F401 - 앱과 미들웨어 구성
+        import main
+        main.get_app()  # 앱과 미들웨어 구성(EO R-04: import 만으로는 만들지 않는다)
         from core.database import database
         from core.database.engine import get_engine
         from fastapi.testclient import TestClient

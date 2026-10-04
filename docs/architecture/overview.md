@@ -250,6 +250,14 @@
 `main.py`가 `--mode` 인자에 따라 Web Server / Bot / Crawler / Notifier로 분기.
 PyInstaller 단일 바이너리 배포 시 서브프로세스가 `sys.executable` 재호출.
 
+### 앱 조립 (EO R-04, 2026-10-05)
+- `main.py` 맨 앞에서 PyInstaller 하위 모드(`--mode crawl/bot/notify/save_excel`)를 나눈다 — 크롤·알림 하위 프로세스가 라우터·서비스 전체를 불러오지 않는다.
+- `create_app()` 이 프로세스 준비(`_init_runtime`: 코어 로거·data 하위 폴더) → 앱·정적 파일 → 신뢰 프록시 → 시그널 처리기 → 라우터 → HTTP 미들웨어 → 세션 미들웨어(세션 키·로그 WS 키) 순으로 조립하고 `app.state.engine` 을 둔다.
+  미들웨어 순서(바깥부터): 세션 → 관리자 인증 → 시간 측정 → 커뮤니티 게이트 → 버전·CSRF.
+- `main.app` 은 모듈 `__getattr__`(PEP 562)로 처음 읽을 때 한 번 만든다(`get_app()`). `uvicorn main:app`·Docker·fixture·시험은 그대로 쓰고, `import main` 만으로는 앱·로그·폴더·시그널이 생기지 않는다. frozen 실행은 `get_app()` 을 넘긴다.
+- 경계: 설정(`settings.settings`)과 DB 경로는 프로세스 전역이라 한 프로세스에 데이터 루트가 다른 앱 둘은 만들 수 없다. 라우터 9개는 여전히 모듈 전역으로 같은 프로세스 엔진(`get_engine()` 단일 객체)을 들고 있다.
+  설정 모듈은 import 때 data 폴더를 만든다(이번에 바꾸지 않음).
+
 ### 리소스 경로 (`path_utils.py`)
 - Frozen: `sys._MEIPASS` 또는 `os.path.dirname(sys.executable)` 기준
 - Dev: 프로젝트 루트 기준

@@ -21,6 +21,7 @@ class CompatibilityApp(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import main
+        main.get_app()  # EO R-04: import 만으로는 앱을 만들지 않는다
         from fastapi.testclient import TestClient
         from core.database import database
         from core.database.engine import get_engine
