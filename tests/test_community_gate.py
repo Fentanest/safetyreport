@@ -435,9 +435,9 @@ class GateServiceTests(GateTestBase):
         # 이 서버에서 카카오 로그인 확정·공유 동의를 마치면(_regate login/consent_saved) 업로드 연결을 이 서버로 가져온다.
         self.open_gate(USER_A)
         other = self._other_device_takes_writer(self.store.context()["connection_id"])
-        from web.routers import community_route
+        from services import community_account_ops
 
-        community_route._regate("consent_saved")
+        community_account_ops.regate("consent_saved")
         ctx = self.store.context()
         self.assertEqual(ctx["state"], "active")
         self.assertNotIn(ctx["connection_id"], (other,))

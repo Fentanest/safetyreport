@@ -43,14 +43,14 @@ class DeletionBlockTest(unittest.TestCase):
 
     def route_delete(self, central):
         """설정 화면 라우트를 실제 로컬 저장소로 실행한다(중앙 호출만 central 로 바꿈)."""
-        from web.routers import community_route as route
+        from services import community_account_ops as route  # EO R-08: 순서는 서비스에
 
         with mock.patch.object(cap, "_store", lambda data_dir=None: self.store), \
-             mock.patch.object(route, "_account_call", side_effect=lambda fn: central()), \
+             mock.patch.object(route, "account_call", side_effect=lambda fn: central()), \
              mock.patch.object(route.community_gate, "invalidate"), \
-             mock.patch.object(route, "_regate", return_value={}), \
+             mock.patch.object(route, "regate", return_value={}), \
              mock.patch.object(route.cas, "get_service"):
-            return route._contributions_delete()
+            return route.contributions_delete()
 
     def states(self):
         return sorted(r["s"] for r in self.store.connect().execute(
@@ -144,16 +144,16 @@ class DeletionBlockTest(unittest.TestCase):
 
     def test_writer_file_failure_after_central_success_does_not_block_local_confirmation(self):
         """Sol 4차 3: 중앙 성공 뒤 writer 파일 삭제가 실패해도 로컬 확정·적용은 끝나고, 응답이 그 상태를 알린다."""
-        from web.routers import community_route as route
+        from services import community_account_ops as route  # EO R-08: 순서는 서비스에
 
         cap.capture(dict(INPUT), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
         with mock.patch.object(cap, "_store", lambda data_dir=None: self.store), \
-             mock.patch.object(route, "_account_call", side_effect=lambda fn: {"deletion_id": "d4"}), \
+             mock.patch.object(route, "account_call", side_effect=lambda fn: {"deletion_id": "d4"}), \
              mock.patch.object(route.community_gate, "invalidate"), \
-             mock.patch.object(route, "_regate", return_value={}), \
+             mock.patch.object(route, "regate", return_value={}), \
              mock.patch.object(route.cas, "get_service") as svc:
             svc.return_value.store.save_writer.side_effect = OSError("fsync failed")
-            res = route._contributions_delete()
+            res = route.contributions_delete()
         svc.return_value.store.save_writer.assert_called_once_with(None)
         self.assertFalse(res["local_cleanup_pending"])
         self.assertTrue(res["writer_reset_pending"])

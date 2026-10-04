@@ -20,10 +20,9 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from core.utils import csrf
-from core.utils.fallback import note_fallback
 from services import community_auth_service as cas
+from services import community_account_ops as ops
 from services import community_gate
-from services.community_account_client import AccountApiError, CommunityAccountClient
 from services.community_auth_service import CommunityAuthError, hash_api_key
 from web.routers.api_route import _require_api_key
 
@@ -147,7 +146,7 @@ async def web_confirm(request: Request):
     async def run(body):
         _only(body, {"request_id"})
         dto = await run_in_threadpool(cas.get_service().confirm, _request_id(body, True))
-        gate = await run_in_threadpool(_regate, "login")
+        gate = await run_in_threadpool(ops.regate, "login")
         return _ok({"data": dto, "gate": gate})
     return await _web_action(request, run)
 
@@ -175,91 +174,44 @@ async def web_cancel(request: Request):
 #     return await _web_action(request, run)
 
 
-LOGOUT_CONFIRM = "DELETE_MY_REPORTS"
-ADOPT_CONFIRM = "DELETE_OTHER_ACCOUNT_REPORTS"
-
-
 def _refused(exc: Exception) -> JSONResponse:
     return JSONResponse({"detail": str(exc), "code": "busy"}, status_code=409, headers=_NO_STORE)
 
 
-def _logout_wipes(service) -> bool:
-    """로그아웃하면 이 서버의 신고 자료를 지우는가. 지금 로그인한 카카오 계정이 자료 주인과 **다르다고 확인된** 경우만 남긴다
-    (다른 계정의 자료이므로). 주인이 없거나 같거나 확인하지 못하면 지운다(로그아웃 = 자료 삭제, 사용자 결정)."""
-    from services import account_data
-
-    owner = account_data.db_owner()
-    kakao = service.session_kakao_id()
-    return not (owner and kakao and owner != kakao)
-
-
 @router.post("/logout")
 async def web_logout(request: Request):
-    """카카오 로그아웃: 신고 자료를 지운 뒤(관리자·API 키·감시목록·지오코딩 캐시는 남김) 이 서버의 카카오 로그인을 끝낸다.
-    화면은 먼저 "로그아웃하면 이 서버에 저장된 신고 내역이 모두 지워집니다"를 확인받는다(confirm)."""
+    """카카오 로그아웃(순서는 services/community_account_ops.logout). 화면은 먼저 "신고 내역이 모두 지워집니다"를 확인받는다."""
     async def run(body):
         _only(body, {"confirm"})
-        if body.get("confirm") != LOGOUT_CONFIRM:
+        if body.get("confirm") != ops.LOGOUT_CONFIRM:
             raise CommunityAuthError("invalid_settings", "확인 항목이 필요합니다.")
-        from core.storage.exchange import RestoreRefused
-        from services import account_data
-
-        service = cas.get_service()
         try:
-            wipe = await run_in_threadpool(_logout_wipes, service)
-        except Exception as exc:  # 주인 표시를 읽지 못함 — 남의 자료를 지우지 않게 로그아웃하지 않는다
-            logger.warning("[community] 로그아웃 전 자료 주인 확인 실패: %s", type(exc).__name__)
-            return _refused(RuntimeError("저장된 신고 내역을 확인하지 못해 로그아웃하지 않았습니다. 잠시 뒤 다시 시도하세요."))
-        community_gate.invalidate("logout")  # 업로드·새 작업을 먼저 멈춘다
-        wiped = None
-        if wipe:
-            try:
-                wiped = await run_in_threadpool(account_data.wipe_report_data, "kakao_logout")
-            except RestoreRefused as exc:  # 크롤링·지도 변환 중 — 아무것도 지우지 않고 로그인도 그대로
-                community_gate.invalidate("logout_refused")
-                return _refused(exc)
-        result = await run_in_threadpool(service.disconnect)
-        dto = await run_in_threadpool(service.status, can_manage=True)
-        return _ok({"data": dto, "result": dict(result, reports_wiped=bool(wiped)),
-                    "gate": await run_in_threadpool(community_gate.status_view)})
+            return _ok(await run_in_threadpool(ops.logout))
+        except ops.OperationRefused as exc:
+            return _refused(exc)
     return await _web_action(request, run)
 
 
 @router.post("/reset-session")
 async def web_reset_session(request: Request):
-    """세션 파일을 읽을 수 없을 때만: 옆으로 옮기고 다시 로그인하게 한다(자료는 그대로 — 다음 로그인 계정이 주인과 다르면 게이트가 막는다)."""
+    """세션 파일을 읽을 수 없을 때만 세션을 옆으로 옮긴다(services/community_account_ops.reset_session)."""
     async def run(body):
         _only(body, set())
-        service = cas.get_service()
-        if (await run_in_threadpool(service.status, can_manage=True))["state"] != "store_unreadable":
-            raise CommunityAuthError("invalid_state")
-        community_gate.invalidate("session_reset")
-        result = await run_in_threadpool(service.disconnect)
-        dto = await run_in_threadpool(service.status, can_manage=True)
-        return _ok({"data": dto, "result": result, "gate": await run_in_threadpool(community_gate.status_view)})
+        return _ok(await run_in_threadpool(ops.reset_session))
     return await _web_action(request, run)
 
 
 @router.post("/db-owner/adopt")
 async def web_db_owner_adopt(request: Request):
-    """이 서버의 신고 자료가 다른 카카오 계정 것일 때(게이트 db_owner_mismatch): 그 자료를 지우고 지금 계정으로 시작한다."""
+    """다른 카카오 계정의 신고 자료를 지우고 지금 계정으로 시작한다(services/community_account_ops.adopt_db_owner)."""
     async def run(body):
         _only(body, {"confirm"})
-        if body.get("confirm") != ADOPT_CONFIRM:
+        if body.get("confirm") != ops.ADOPT_CONFIRM:
             raise CommunityAuthError("invalid_settings", "확인 항목이 필요합니다.")
-        from core.storage.exchange import RestoreRefused
-        from services import account_data
-
-        if (await run_in_threadpool(community_gate.evaluate))["state"] != "db_owner_mismatch":
-            raise CommunityAuthError("invalid_state")
-        kakao = await run_in_threadpool(cas.get_service().current_kakao_id)
-        if not kakao:
-            raise CommunityAuthError("not_connected")
         try:
-            await run_in_threadpool(account_data.wipe_report_data, "db_owner_adopt", then_owner=kakao)
-        except RestoreRefused as exc:
+            return _ok(await run_in_threadpool(ops.adopt_db_owner))
+        except ops.OperationRefused as exc:
             return _refused(exc)
-        return _ok({"data": await run_in_threadpool(_regate, "db_owner_adopt")})
     return await _web_action(request, run)
 
 
@@ -270,53 +222,12 @@ async def web_settings(request: Request):
         cfg = await run_in_threadpool(cas.update_settings, body, known)
         service = cas.get_service()
         dto = await run_in_threadpool(service.status, can_manage=True)
-        gate = await run_in_threadpool(_regate, "settings_saved")
+        gate = await run_in_threadpool(ops.regate, "settings_saved")
         return _ok({"data": dto, "config": await run_in_threadpool(_config_view, cfg), "gate": gate})
     return await _web_action(request, run)
 
 
 # ── 필수 게이트: 동의·철회·업로드 연결·삭제 요청 ──────────────────────────────────
-
-_ACCOUNT_ERRORS = {
-    "kakao_required": (403, "카카오 계정 연결이 먼저 필요합니다."),
-    "policy_mismatch": (409, "동의 문서가 바뀌었습니다. 새로고침한 뒤 새 문서를 확인해 주세요."),
-    "contributor_suspended": (403, "이 계정의 공유가 중지되어 있습니다."),
-    "stale_grant": (409, "동의 상태가 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요."),
-    "not_found": (404, "대상을 찾을 수 없습니다."),
-    "writer_conflict": (409, "다른 기기가 이 공식 계정의 업로드를 맡고 있습니다."),
-    "rate_limited": (429, "요청이 너무 잦습니다. 잠시 뒤 다시 시도해 주세요."),
-    "auth_required": (401, "커뮤니티 로그인이 만료되었습니다. 다시 로그인해 주세요."),
-}
-
-
-# 사용자가 이 서버에서 직접 한 행동(카카오 로그인 확정·공유 동의). 업로드 연결이 다른 기기에 있으면 이 서버로 가져온다(2026-09-28).
-_CLAIM_REASONS = {"login", "consent_saved"}
-
-
-def _regate(reason: str) -> dict:
-    if reason in _CLAIM_REASONS:
-        community_gate.claim_for_this_device()
-    community_gate.invalidate(reason)
-    community_gate.refresh_now()
-    return community_gate.status_view()
-
-
-def _account_call(fn):
-    """커뮤니티 세션 토큰으로 community-account 를 부른다. 실패는 CommunityAuthError 로 바꾼다."""
-    service = cas.get_service()
-    cfg = service.config()
-    token = service.get_access_token()  # CommunityAuthError(not_connected/reauth_required/...)
-    try:
-        return fn(CommunityAccountClient(cfg.supabase_url, cfg.publishable_key), token)
-    except AccountApiError as exc:
-        status, message = _ACCOUNT_ERRORS.get(exc.code, (503 if exc.transient else 502, None))
-        err = CommunityAuthError("account_" + exc.code if exc.code not in _ACCOUNT_ERRORS else exc.code,
-                                 message or "커뮤니티 서버에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요.",
-                                 retry_after=exc.retry_after)
-        err.status = status
-        err.extra = exc.extra
-        raise err from None
-
 
 def _fail_account(exc: CommunityAuthError) -> JSONResponse:
     resp = _fail(exc)
@@ -328,86 +239,14 @@ def _fail_account(exc: CommunityAuthError) -> JSONResponse:
     return resp
 
 
-def _policy_view() -> dict:
-    """중앙의 지금 동의문(본문 해시를 확인한 것). 카카오 로그인 전이면 CommunityAuthError(not_connected 등)."""
-    p = _account_call(lambda c, t: c.policy(t))
-    return {"policy_version": p["version"], "consent_text_sha256": p["consent_text_sha256"], "text": p["consent_text"]}
-
-
 _POLICY_VERSION_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}\.[0-9]{1,3}$")
 _HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
-
-
-def _consent(policy_version: str, consent_text_sha256: str) -> dict:
-    # 화면이 보여 준 동의문의 (버전, 해시) 그대로 보낸다. 그 사이 중앙 정책이 바뀌었으면 중앙이 policy_mismatch 로 거절한다.
-    res = _account_call(lambda c, t: c.consent(t, policy_version, consent_text_sha256))
-    return {"result": {k: res.get(k) for k in ("policy_version", "granted_at", "created")}, "gate": _regate("consent_saved")}
-
-
-def _consent_revoke() -> dict:
-    grant_id = community_gate.current_grant_id()
-    if not grant_id:
-        community_gate.refresh_now()
-        grant_id = community_gate.current_grant_id()
-    if not grant_id:
-        raise CommunityAuthError("invalid_state", "철회할 동의가 없습니다.")
-    community_gate.invalidate("consent_revoked")  # 응답 전에 업로드부터 멈춘다
-    res = _account_call(lambda c, t: c.consent_revoke(t, grant_id))
-    return {"result": {"revoked": bool(res.get("revoked")), "already_revoked": bool(res.get("already_revoked"))},
-            "gate": _regate("consent_revoked")}
-
-
-def _takeover() -> dict:
-    community_gate.request_takeover()
-    return {"gate": community_gate.status_view()}
-
-
-def _contributions_delete() -> dict:
-    # 미구현 기능(공유한 자료 전체 삭제)의 내부 처리. 현재 이를 부르는 화면·HTTP 경로가 없다(아래 주석 처리한 라우트 참고).
-    from services import community_capture
-
-    # 1) 로컬 삭제 대기 표시를 먼저(community.db, 트랜잭션). 못 쓰면 중앙 삭제를 요청하지 않는다(Sol 2차 H-03a).
-    try:
-        local_id = community_capture.begin_deletion()
-    except Exception:
-        raise CommunityAuthError("invalid_state", "이 서버의 공유 저장소에 기록할 수 없어 삭제를 요청하지 않았습니다. 잠시 뒤 다시 시도해 주세요.") from None
-    community_gate.invalidate("deletion_requested")
-    try:
-        res = _account_call(lambda c, t: c.delete_contributions(t))
-    except CommunityAuthError as exc:
-        if 400 <= (exc.status or 500) < 500:
-            # 중앙이 확실히 거절(4xx·토큰 없음 등 — 삭제가 일어나지 않음): 이 prepared 표시만 지운다
-            try:
-                community_capture.cancel_deletion(local_id)
-            except Exception as cancel_exc:  # 지우지 못하면 업로드가 막힌 채 남는다(fail-closed)
-                note_fallback("community_route.cancel_deletion", cancel_exc)
-            raise
-        # 응답 불명(네트워크·타임아웃·5xx): 중앙이 이미 지웠을 수 있다 → 표시를 유지하고(업로드·reshare 차단) 다시 요청하게 한다.
-        # 삭제는 여러 번 요청해도 안전하다(Sol 3차 H-03d).
-        raise CommunityAuthError("deletion_unconfirmed", "삭제 요청 결과를 확인하지 못했습니다. 확인될 때까지 업로드를 멈췄습니다. "
-                                 "네트워크를 확인한 뒤 '공유한 자료 삭제 요청'을 다시 눌러 주세요.") from None
-    local_ok = True
-    try:  # 2) 중앙 성공 뒤에만 확정·적용(그 시점까지의 journal 전부 차단, 앞선 prepared 표시 포함). 실패해도 confirmed 표시가 막는다.
-        community_capture.confirm_deletion()
-    except Exception:
-        local_ok = False
-    # 3) 로컬 확정 뒤에 writer 파일을 지운다(Sol 4차 3 — 파일 오류가 확정을 가로막지 않게).
-    #    중앙이 연결을 모두 폐기했다 → 다음 확인 때 새로 등록. 못 지우면 폐기된 연결이라 중앙이 거절하므로 업로드는 나가지 않는다.
-    writer_ok = True
-    try:
-        cas.get_service().store.save_writer(None)
-    except Exception:
-        writer_ok = False
-        logger.warning("공유 자료 삭제 뒤 writer 연결 파일을 지우지 못함 — 다음 게이트 확인 때 다시 등록 필요")
-    return {"result": {k: res.get(k) for k in ("deletion_id", "deleted_facts", "revoked_connections", "deleted_at")},
-            "local_cleanup_pending": not local_ok, "writer_reset_pending": not writer_ok,
-            "gate": _regate("deletion_completed")}
 
 
 @router.get("/policy")
 async def web_policy(request: Request):
     try:
-        return _ok({"data": await run_in_threadpool(_policy_view)})
+        return _ok({"data": await run_in_threadpool(ops.policy_view)})
     except CommunityAuthError as exc:  # 카카오 연결 전·만료·중앙 오류 — 화면은 code 를 보고 안내한다
         return _fail_account(exc)
 
@@ -440,7 +279,7 @@ async def web_consent(request: Request):
                 or not isinstance(digest, str) or not _HEX64_RE.match(digest)):
             raise CommunityAuthError("invalid_settings", "확인 항목이 필요합니다.")
         try:
-            return _ok({"data": await run_in_threadpool(_consent, version, digest)})
+            return _ok({"data": await run_in_threadpool(ops.consent, version, digest)})
         except CommunityAuthError as exc:
             return _fail_account(exc)
     return await _web_action(request, run)
@@ -448,19 +287,19 @@ async def web_consent(request: Request):
 
 @router.post("/consent-revoke")
 async def web_consent_revoke(request: Request):
-    return await _gate_action(request, {"confirm"}, _consent_revoke, {"confirm": True})
+    return await _gate_action(request, {"confirm"}, ops.consent_revoke, {"confirm": True})
 
 
 @router.post("/writer")
 async def web_writer(request: Request):
-    return await _gate_action(request, {"takeover"}, _takeover, {"takeover": True})
+    return await _gate_action(request, {"takeover"}, ops.takeover, {"takeover": True})
 
 
 # 공유한 자료 전체 삭제(contributions-delete)는 아직 구현하지 않는 기능이다(2026-09-27 결정). 되살릴 때 이 주석을 해제한다.
-# 아래 _contributions_delete 는 로컬 삭제 표시(업로드 차단) 규칙 테스트가 쓰므로 남겨 두지만, 이 경로가 없으면 호출되지 않는다.
+# services/community_account_ops.contributions_delete 는 로컬 삭제 표시(업로드 차단) 규칙 테스트가 쓰므로 남겨 두지만, 이 경로가 없으면 호출되지 않는다.
 # @router.post("/contributions-delete")
 # async def web_contributions_delete(request: Request):
-#     return await _gate_action(request, {"confirm"}, _contributions_delete, {"confirm": "DELETE_MY_SHARED_REPORTS"})
+#     return await _gate_action(request, {"confirm"}, ops.contributions_delete, {"confirm": "DELETE_MY_SHARED_REPORTS"})
 
 
 # ── 모바일 Client (API 키) ─────────────────────────────────────────────────────
@@ -500,7 +339,7 @@ async def api_confirm(request: Request, api_key: str = Depends(_require_api_key)
     async def run(body):
         _only(body, {"request_id"})
         dto = await run_in_threadpool(cas.get_service().confirm, _request_id(body, True))
-        await run_in_threadpool(_regate, "login")
+        await run_in_threadpool(ops.regate, "login")
         return _ok({"data": dto})
     return await _api_action(request, api_key, run)
 

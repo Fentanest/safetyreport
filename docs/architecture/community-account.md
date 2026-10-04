@@ -35,6 +35,13 @@
 | `web/templates/settings.html` | "4. 커뮤니티 계정" 카드(메인 설정 폼 밖) |
 | `main.py` | 라우터 등록, lifespan: 시작 때 대기 요청 poll 재개, 종료 때 스레드 정지 |
 
+### 계정 업무 순서 (EO R-08, 2026-10-05)
+`web/routers/community_route.py` 는 입력·권한 확인과 응답 변환만 하고, 업무 순서는 `services/community_account_ops.py` 가 가진다.
+- `logout()`: 자료 주인 확인(못 하면 아무것도 안 함, 409) → 게이트 무효화 → 주인이 다른 계정으로 확인된 경우가 아니면 신고 자료 삭제(거절되면 로그인 유지, 409) → 카카오 연결 해제.
+- `adopt_db_owner()`: 게이트가 `db_owner_mismatch` 일 때만, 지금 카카오 회원번호로 자료를 지운 뒤 다시 확인.
+- `consent()`·`consent_revoke()`(중앙 호출 전에 게이트 무효화)·`takeover()`·`contributions_delete()`·`policy_view()`, 중앙 호출과 오류 변환 `account_call()`, 재확인 `regate()`.
+순서는 `tests/test_community_account_ops.py` 가 호출 기록으로 확인한다.
+
 ## 설정 `[COMMUNITY]` (config.ini)
 
 | 키 | 기본값 | 환경변수(우선) | 설명 |

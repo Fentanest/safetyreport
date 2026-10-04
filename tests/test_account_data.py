@@ -219,17 +219,17 @@ class ImportRefusalTests(_DbCase):
 
 class LogoutDecisionTests(unittest.TestCase):
     def test_logout_keeps_data_only_when_it_is_known_to_belong_to_another_account(self):
-        from web.routers import community_route
+        from services import community_account_ops
 
         service = mock.Mock()
         for owner, session, wipes in (("910001", "910001", True), (None, "910001", True), ("910001", None, True),
                                       ("910001", "910002", False)):
             service.session_kakao_id.return_value = session
             with mock.patch("services.account_data.db_owner", return_value=owner):
-                self.assertEqual(community_route._logout_wipes(service), wipes, (owner, session))
+                self.assertEqual(community_account_ops.logout_wipes(service), wipes, (owner, session))
         with mock.patch("services.account_data.db_owner", side_effect=sqlite3.OperationalError("x")):
             with self.assertRaises(sqlite3.OperationalError, msg="읽기 실패는 판단하지 않는다(라우트가 409)"):
-                community_route._logout_wipes(service)
+                community_account_ops.logout_wipes(service)
 
 
 if __name__ == "__main__":
