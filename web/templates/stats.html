@@ -460,8 +460,10 @@
 {% block extra_js %}
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="/static/ui/report-map-calc.js?v={{ request.state.app_version }}"></script>
 <script src="/static/ui/report-map.js?v={{ request.state.app_version }}"></script>
 <script src="/static/ui/sunwi-widget.js?v={{ request.state.app_version }}"></script>
 <script src="/static/ui/stats-loader.js?v={{ request.state.app_version }}"></script>
+<script src="/static/ui/stats-calc.js?v={{ request.state.app_version }}"></script>
 <script src="/static/ui/stats.js?v={{ request.state.app_version }}"></script>
 {% endblock %}

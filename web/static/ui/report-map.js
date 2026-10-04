@@ -12,36 +12,21 @@ function create(element, mapPoints, options) {
     if (!element || !Array.isArray(mapPoints) || mapPoints.length === 0 || typeof L === 'undefined') {
         return null;
     }
-
-    function markerSize(total) {
-        return Math.max(38, Math.min(84, 34 + Math.log(total + 1) * 11));
+    // 순수 계산(EO R-16: report-map-calc.js)
+    var Calc = window.SrReportMapCalc;
+    var markerSize = Calc.markerSize, clusterSize = Calc.clusterSize, formatPct = Calc.formatPct;
+    var getPointFineRate = Calc.pointFineRate, sumBreakdownCounts = Calc.sumBreakdownCounts, addPercent = Calc.addPercent;
+    var aggregateAgencies = Calc.aggregateAgencies, summarizeClusterRegions = Calc.summarizeClusterRegions;
+    function buildAddressListUrl(address) {
+        return Calc.addressListUrl(address, { category: selectedCategory, dedupeMode: dedupeMode, listParams: listParams });
     }
 
-    function clusterSize(total) {
-        return Math.max(46, Math.min(92, 40 + Math.log(total + 1) * 10));
-    }
-
-    function formatPct(value) {
-        var pct = Number(value || 0);
-        return Number.isFinite(pct) ? pct.toFixed(1) : '0.0';
-    }
 
     function getMarkerReportTotal(marker) {
         if (!marker) {
             return 0;
         }
         return Number(marker.reportTotal || (marker.options && marker.options.reportTotal) || 0);
-    }
-
-    function getPointFineRate(point) {
-        if (!point || !Array.isArray(point.disposition_breakdown)) {
-            return 0;
-        }
-        var fineItem = point.disposition_breakdown.find(function (item) {
-            return String(item && item.label || '').trim() === '과태료';
-        });
-        var pct = Number(fineItem && fineItem.pct || 0);
-        return Number.isFinite(pct) ? pct : 0;
     }
 
     // 과태료 비율 구간 색 = 앱 상태 토큰(60% 이상 수용색, 50% 이상 일부수용색, 그 밖 불수용색). 테마를 따라간다.
@@ -64,32 +49,6 @@ function create(element, mapPoints, options) {
             return markerTone('var(--sr-status-partial)');
         }
         return markerTone('var(--sr-status-reject)');
-    }
-
-    function buildAddressListUrl(address) {
-        var route = '/data/all';
-        if (selectedCategory === 'traffic') {
-            route = '/data/traffic';
-        } else if (selectedCategory === 'parking') {
-            route = '/data/parking';
-        } else if (selectedCategory === 'other') {
-            route = '/data/other';
-        }
-
-        var params = new URLSearchParams();
-        // 통계에서 넘어온 조건(법규·기관·담당자 등)을 목록에도 이어 준다(목록이 읽는 이름만).
-        Object.keys(listParams).forEach(function (key) {
-            if (listParams[key]) { params.set(key, listParams[key]); }
-        });
-        var normalizedAddress = String(address || '').trim();
-        if (normalizedAddress) {
-            params.set('location', normalizedAddress);
-        }
-        if (dedupeMode) {
-            params.set('dedupe', dedupeMode);
-        }
-        var queryString = params.toString();
-        return route + (queryString ? '?' + queryString : '');
     }
 
     function createTextElement(tagName, className, text) {
@@ -342,110 +301,6 @@ function create(element, mapPoints, options) {
         else root.appendChild(createTextElement('div','small','확대하면 이 영역의 주소별 신고를 볼 수 있습니다.'));
 
         return root;
-    }
-
-    function sumBreakdownCounts(points, fieldName, labelOrder) {
-        var counts = {};
-        points.forEach(function (point) {
-            (point[fieldName] || []).forEach(function (item) {
-                var key = String(item.label || '');
-                counts[key] = (counts[key] || 0) + Number(item.count || 0);
-            });
-        });
-        return labelOrder.map(function (label) {
-            var count = counts[label] || 0;
-            return {
-                label: label,
-                count: count
-            };
-        }).filter(function (item) { return item.count > 0; });
-    }
-
-    function addPercent(items, total) {
-        return items.map(function (item) {
-            return {
-                label: item.label,
-                count: item.count,
-                pct: total > 0 ? Number((item.count / total * 100).toFixed(1)) : 0
-            };
-        });
-    }
-
-    function aggregateAgencies(points, total) {
-        var counts = {};
-        points.forEach(function (point) {
-            (point.agency_breakdown || []).forEach(function (item) {
-                var key = String(item.name || '').trim();
-                if (!key) {
-                    return;
-                }
-                counts[key] = (counts[key] || 0) + Number(item.count || 0);
-            });
-        });
-        return Object.keys(counts).sort(function (a, b) {
-            if (counts[b] !== counts[a]) {
-                return counts[b] - counts[a];
-            }
-            return a.localeCompare(b, 'ko');
-        }).map(function (name) {
-            return {
-                name: name,
-                count: counts[name],
-                pct: total > 0 ? Number((counts[name] / total * 100).toFixed(1)) : 0
-            };
-        });
-    }
-
-    function summarizeClusterRegions(points) {
-        var regions = points.map(function (point) {
-            return String(point.region || '').trim();
-        }).filter(Boolean);
-        if (regions.length === 0) {
-            return {
-                title: '복수 행정구역',
-                addressLines: ['행정구역 정보 없음']
-            };
-        }
-
-        var tokenGroups = regions.map(function (region) {
-            return region.split(/\s+/).filter(Boolean);
-        });
-        var prefix = tokenGroups[0].slice();
-        tokenGroups.slice(1).forEach(function (tokens) {
-            var next = [];
-            for (var i = 0; i < Math.min(prefix.length, tokens.length); i += 1) {
-                if (prefix[i] !== tokens[i]) {
-                    break;
-                }
-                next.push(prefix[i]);
-            }
-            prefix = next;
-        });
-
-        var regionCounts = {};
-        points.forEach(function (point) {
-            var region = String(point.region || '').trim();
-            if (!region) {
-                return;
-            }
-            regionCounts[region] = (regionCounts[region] || 0) + Number(point.total || 0);
-        });
-        var majorRegions = Object.keys(regionCounts).sort(function (a, b) {
-            if (regionCounts[b] !== regionCounts[a]) {
-                return regionCounts[b] - regionCounts[a];
-            }
-            return a.localeCompare(b, 'ko');
-        });
-
-        var title = prefix.length >= 2 ? prefix.join(' ') : majorRegions[0];
-        var addressLines = ['주요 구역'].concat(majorRegions.slice(0, 4).map(function (region) {
-            return region + ' (' + regionCounts[region] + '건)';
-        }));
-
-        return {
-            title: title || '복수 행정구역',
-            addressLines: addressLines,
-        };
     }
 
     function buildClusterTooltip(points) {

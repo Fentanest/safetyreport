@@ -56,6 +56,18 @@ class PurityTest(unittest.TestCase):
         pd.testing.assert_frame_equal(frame, before)
 
 
+class BrowserCalcTest(unittest.TestCase):
+    def test_stats_and_map_pure_calculations(self):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node.js is unavailable")
+        result = subprocess.run([node, str(ROOT / "tests/js/stats_calc_check.js")], cwd=ROOT,
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 class LayerTest(unittest.TestCase):
     def test_lower_layers_do_not_import_response_assembly(self):
         assembly = {"services.stats.dashboard", "services.stats.agency", "services.stats.overview", "services.stats.map"}

@@ -6,6 +6,7 @@
    DOM 계약: docs/design/pilot-dom-contracts.md, 지표 정의: docs/design/statistics-spec.md §9. */
 (function ($) {
     'use strict';
+    var Calc = window.SrStatsCalc; // 순수 계산(EO R-16: stats-calc.js)
     function mount() {
     if (window.SrStats.dispose) window.SrStats.dispose();
     var disposed = false, removers = [], resizeObserver = null, scrollFrame = null, sunwiWidget = null;
@@ -39,68 +40,21 @@
     var WIDE_PANEL_MIN = 1240; // stats.css @container srdetail 과 같은 값
     var TYPE_TOP_N = 6;
 
-    // ── 공용 도우미 ──
-    function esc(value) {
-        return String(value == null ? '' : value)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-    }
-    function num(n) { return Number(n || 0).toLocaleString('ko-KR'); }
-    function won(n) { return num(n) + '원'; }
-    // 분모 0 은 계산 불가('—'), 실제 0 은 0.0%
-    function pct(n, d) { return d > 0 ? (Number(n || 0) / d * 100).toFixed(1) + '%' : '—'; }
+    // ── 공용 도우미(EO R-16: 순수 계산은 stats-calc.js — 함수 선언으로 두어 앞에서 불러도 된다) ──
+    var CTX = { year: YEAR, filters: FILTERS, dedupeMode: DATA.dedupeMode, search: window.location.search };
+    function esc(value) { return Calc.esc(value); }
+    function num(n) { return Calc.num(n); }
+    function won(n) { return Calc.won(n); }
+    function pct(n, d) { return Calc.pct(n, d); }
     function storageGet(store, key) { try { return store.getItem(key); } catch (e) { return null; } }
     function storageSet(store, key, value) { try { store.setItem(key, value); } catch (e) { /* 저장 불가여도 화면은 동작 */ } }
 
-    // 목록(/data)으로 넘길 공통 조건. 연도 → 답변일 범위(목록에 연도 필터가 없음). 서버 템플릿 drill_base 와 같은 규칙.
-    function listBaseParams() {
-        var p = new URLSearchParams();
-        p.set('dedupe', DATA.dedupeMode || 'canonical');
-        var ys = YEAR !== 'all' ? YEAR + '-01-01' : '';
-        var ye = YEAR !== 'all' ? YEAR + '-12-31' : '';
-        var rs = [ys, FILTERS.responseDateStart || ''].sort().pop();
-        var ends = [ye, FILTERS.responseDateEnd || ''].filter(Boolean).sort();
-        var re = ends.length ? ends[0] : '';
-        [['excludePolice', FILTERS.excludePolice ? 'true' : ''], ['onlyPolice', FILTERS.onlyPolice ? 'true' : ''], ['law', FILTERS.law], ['lawExact', FILTERS.law ? 'true' : ''], ['responseDateStart', rs], ['responseDateEnd', re],
-         ['reportName', FILTERS.reportName], ['location', FILTERS.location],
-         ['reportDateStart', FILTERS.reportDateStart], ['reportDateEnd', FILTERS.reportDateEnd],
-         ['occurDateStart', FILTERS.occurDateStart], ['occurDateEnd', FILTERS.occurDateEnd],
-         ['occurTimeStart', FILTERS.occurTimeStart], ['occurTimeEnd', FILTERS.occurTimeEnd]].forEach(function (kv) {
-            if (kv[1]) p.set(kv[0], kv[1]);
-        });
-        return p;
-    }
+    function listBaseParams() { return Calc.listBaseParams(CTX); }
     // 목록이 같은 조건을 재현할 수 있는가(경찰기관 제외/만, AND·OR 기관 검색은 목록 주소로 못 넘긴다)
     var agencyQuery = String(FILTERS.agency || '');
     var LIST_REPRODUCIBLE = true;
-    function kpiListUrl(cat, extra) {
-        var p = listBaseParams();
-        if (agencyQuery) {
-            p.set('agency', agencyQuery);
-            if (FILTERS.agencyExact) p.set('agencyExact', 'true');
-        }
-        Object.keys(extra || {}).forEach(function (k) { p.set(k, extra[k]); });
-        var qs = p.toString();
-        return '/data/' + cat + (qs ? '?' + qs : '');
-    }
-    // 지도(/stats/map, /stats/map/points)로 넘길 조건: 통계 공통 조건 이름 그대로
-    function mapParams(cat, target) {
-        var p = new URLSearchParams();
-        if (cat) p.set('category', cat);
-        if (YEAR !== 'all') p.set('year', YEAR);
-        Object.keys(FILTERS).forEach(function (k) {
-            var v = FILTERS[k];
-            if (k === 'year' || v === null || v === undefined || v === '' || v === false) return;
-            p.set(k, v === true ? 'true' : String(v));
-        });
-        var urlDedupe = new URLSearchParams(window.location.search).get('dedupe');
-        if (urlDedupe) p.set('dedupe', urlDedupe); // 통계가 고른 대표건 모드를 지도도 따른다
-        if (target && target.agency) p.set('targetAgency', target.agency);
-        if (target && target.agencyKey) p.set('targetAgencyKey', target.agencyKey);
-        if (target && target.person) p.set('targetPerson', target.person);
-        if (target) p.set('completedOnly', 'true'); // 상세 표의 모집단. 요약 지도는 전체 그대로.
-        return p;
-    }
+    function kpiListUrl(cat, extra) { return Calc.kpiListUrl(cat, extra, CTX); }
+    function mapParams(cat, target) { return Calc.mapParams(cat, target, CTX); }
 
     // ── 상태 ──
     var currentCat = window.srPendingStatsCat || storageGet(sessionStorage, 'stats_cat') || 'traffic';
@@ -131,11 +85,7 @@
         (rows.agency || []).forEach(function (r) { rowIndex[cat].agency[rowKey(r, false)] = r; });
         (rows.person || []).forEach(function (r) { rowIndex[cat].person[rowKey(r, true)] = r; });
     });
-    function rowKey(row, person) {
-        var key = row.agency_key || 'src:-:' + row.agency;
-        // Jinja tojson의 공백·비ASCII escape와 무관하게 같은 키로 정규화한다.
-        return JSON.stringify(person ? [key, row.person] : [key]);
-    }
+    function rowKey(row, person) { return Calc.rowKey(row, person); }
     $('#statsTabsContent tr.sr-drill').each(function () {
         $(this).attr('data-key', JSON.stringify(JSON.parse($(this).attr('data-key'))));
     });
@@ -498,7 +448,7 @@
         aria: { sortAscending: ': 오름차순 정렬', sortDescending: ': 내림차순 정렬' }
     };
     // 합계 행. 열을 숨기면 td 순서가 바뀌므로 DataTables API 로 열 번호를 지정해 읽고 쓴다(D-STAT-7).
-    var COUNT_KEYS = ['fines', 'warn', 'rejects', 'dispositionUnknown', 'noPenalty', 'unclassified'];
+    var COUNT_KEYS = Calc.COUNT_KEYS;
     function makeDrawCallback(cfg) {
         // 행 숫자는 표를 처음 그릴 때 한 번만 셀 속성에서 읽고, 합계는 검색 모집단이 바뀔 때만 다시 더한다.
         // 페이지 이동·정렬·열 표시 변경에서는 직전 합계를 그대로 쓴다(기술일지 B-07, 계획 P16a typed rows).
@@ -528,20 +478,9 @@
             var applied = api.rows({ search: 'applied' }).indexes();
             var key = String(searchTerm || '') + '\u0000' + applied.length;
             if (key !== lastKey) {
-                var sums = { total: 0, fine: 0, fineCount: 0, est: 0, estCount: 0 };
-                COUNT_KEYS.forEach(function (k) { sums[k] = 0; });
-                var wDays = 0, wBase = 0, wRating = 0, wRatingBase = 0;
-                applied.each(function (r) {
-                    var row = typedRows[r];
-                    if (!row) return;
-                    sums.total += row.total; sums.fine += row.fine; sums.fineCount += row.fineCount;
-                    sums.est += row.est; sums.estCount += row.estCount;
-                    COUNT_KEYS.forEach(function (k) { sums[k] += row[k]; });
-                    // 평균 처리기간 합계 = 행 평균 × 행의 유효 표본 수(완료 신고)로 가중(기관 평균의 단순 평균이 아님)
-                    if (!isNaN(row.avgD) && row.avgD >= 0 && row.avgN > 0) { wDays += row.avgD * row.avgN; wBase += row.avgN; }
-                    if (!isNaN(row.rAvg) && row.rAvg >= 0 && row.rCount > 0) { wRating += row.rAvg * row.rCount; wRatingBase += row.rCount; }
-                });
-                last = { sums: sums, wDays: wDays, wBase: wBase, wRating: wRating, wRatingBase: wRatingBase };
+                var rows = [];
+                applied.each(function (r) { rows.push(typedRows[r]); });
+                last = Calc.summarizeRows(rows);
                 lastKey = key;
             }
             var sums = last.sums, wDays = last.wDays, wBase = last.wBase, wRating = last.wRating, wRatingBase = last.wRatingBase;
@@ -934,24 +873,8 @@
 
     // ── 위반법규 선택(검색 가능한 목록, 값은 서버 available_laws 원문) ──
     var activeLaw = DATA.activeLaw || null;
-    function naturalCompare(a, b) {
-        var ax = [], bx = [];
-        a.replace(/(\d+)|(\D+)/g, function (_, n, s) { ax.push(n ? [+n, ''] : [Infinity, s]); });
-        b.replace(/(\d+)|(\D+)/g, function (_, n, s) { bx.push(n ? [+n, ''] : [Infinity, s]); });
-        for (var i = 0; i < Math.max(ax.length, bx.length); i++) {
-            if (!ax[i]) return -1;
-            if (!bx[i]) return 1;
-            var d = ax[i][0] !== bx[i][0] ? ax[i][0] - bx[i][0] : ax[i][1].localeCompare(bx[i][1], 'ko');
-            if (d !== 0) return d;
-        }
-        return 0;
-    }
-    function lawUrl(law) {
-        var p = new URLSearchParams(window.location.search);
-        if (law) p.set('law', law); else p.delete('law');
-        var qs = p.toString();
-        return '/stats' + (qs ? '?' + qs : '');
-    }
+    function naturalCompare(a, b) { return Calc.naturalCompare(a, b); }
+    function lawUrl(law) { return Calc.lawUrl(window.location.search, law); }
     function renderLawButtons(cat) {
         var $sb = $('#statsLawSidebar');
         $sb.empty();
@@ -1000,45 +923,17 @@
     });
 
     // ── CSV 내보내기: 검색·정렬이 적용된 현재 보기의 전체 행(모든 쪽). 확정/추정 금액은 별도 열 ──
-    function csvCell(value) {
-        if (value === null || value === undefined) return '';
-        if (typeof value === 'number') return String(value);
-        var text = String(value);
-        if (/^[=+\-@\t\r]/.test(text)) text = "'" + text; // 스프레드시트 수식 실행 방지
-        return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
-    }
-    function pctValue(n, d) { return d > 0 ? Number((Number(n || 0) / d * 100).toFixed(1)) : null; }
     $('#statsExportCsv').on('click.srStats', function () {
         var api = getActiveTableApi();
         if (!api) return;
         var person = isPersonType(currentType);
-        var header = ['처리기관'].concat(person ? ['담당자'] : []).concat([
-            '총 건수', '평균 답변 소요(일)', '답변 소요 표본 수', '확정 과태료(원)', '확정 과태료 건수', '금액 미확인 과태료 건수',
-            '추정 과태료(원)', '추정 과태료 건수'
-        ]);
-        DISP.forEach(function (item) { header.push(item.label + ' 건수', item.label + ' 비율(%)'); });
-        header.push('별점 평균', '평가 수', '기관 집계 키');
-        var lines = [header.map(csvCell).join(',')];
+        var rows = [];
         api.rows({ search: 'applied', order: 'applied' }).nodes().each(function (tr) {
             var row = rowFor(currentCat, currentType, $(tr).attr('data-key'));
-            if (!row) return;
-            var total = Number(row.total || 0);
-            var cells = [row.agency].concat(person ? [row.person] : []).concat([
-                total, row.avg_days == null ? null : Number(row.avg_days), row.avg_days_count == null ? null : Number(row.avg_days_count),
-                Number(row.total_fine_amount || 0), Math.max(0, Number(row.fines || 0) - Number(row.fine_amount_unknown || 0)),
-                Number(row.fine_amount_unknown || 0),
-                row.estimated_fine_amount == null ? null : Number(row.estimated_fine_amount),
-                row.estimated_fine_count == null ? null : Number(row.estimated_fine_count)
-            ]);
-            DISP.forEach(function (item) {
-                var n = row[item.key] == null ? null : Number(row[item.key]);
-                cells.push(n, n == null ? null : pctValue(n, total));
-            });
-            cells.push(row.avg_rating == null ? null : Number(row.avg_rating), Number(row.rating_count || 0), row.agency_key || 'src:-:' + row.agency);
-            lines.push(cells.map(csvCell).join(','));
+            if (row) rows.push(Calc.csvRow(row, person, DISP));
         });
         var name = ['통계', CAT_LABELS[currentCat], TYPE_LABELS[currentType], YEAR === 'all' ? '전체연도' : YEAR + '년'].join('_').replace(/\s+/g, '') + '.csv';
-        var blob = new Blob(['﻿' + lines.join('\r\n') + '\r\n'], { type: 'text/csv;charset=utf-8' });
+        var blob = new Blob([Calc.csvText(Calc.csvHeader(person, DISP), rows)], { type: 'text/csv;charset=utf-8' });
         var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
         a.href = url;

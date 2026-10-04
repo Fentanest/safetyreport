@@ -28,6 +28,7 @@
 - EO-6 R-13 설정 명령 서비스: 설정 라우터·API 설정 경로가 private `settings._instance` 의 섹션·키를 직접 다루던 것을 `services/settings_service.py`(웹 전체·API 부분 명령, 정규화·허용 필드 검증, 저장 → 계정 변경 시 토큰 무효화 → job 갱신, 화면 값, 구글 인증 파일)로 옮겼다(응답·저장 값 그대로). 시험: 폼 전체 키·정규화, API 허용 키·형 검증·모르는 키 무시, 부분 저장이 다른 값 보존, 계정이 바뀔 때만 토큰 무효화, job 실패에도 저장 유지, 인증 파일 검증.
 - EO-6 R-14 신고 목록 표 스크립트 분리: `data_table.html` 안의 약 1,000줄 인라인 스크립트를 JSON bootstrap(`#srDataTableBootstrap`) + `web/static/ui/data-table-cells.js`(순수 셀 렌더러) + `web/static/ui/data-table.js`(화면 컨트롤러)로 옮겼다(템플릿 1,244 → 243줄, DOM ID·전역 그대로). 시험: 셀 렌더러 node 시험, 목록·통계 드릴다운·기능 게이트 브라우저 시험(Chromium 38건).
 - EO-6 R-15 공통 셸 분리: `base.html`(980 → 216줄)의 상세 모달을 `components/report_detail_modal.html` 로, 인라인 스크립트를 `shell-polling.js`(작업 진행·버전·초기화 안내)·`app-shell.js`(사이드바·세션·새 창)·`report-detail.js`(상세 렌더러·미디어 제어)로 같은 순서에 옮기고, 상세 팝업의 인라인 style·cssText 를 `report-detail.css` 클래스로 바꿨다(전역 접점·모달 ID 그대로). 시험: 상세·작업 바·사이드바·테마·대시보드 등 브라우저 시험 Chromium 75건.
+- EO-6 R-16 통계·지도 순수 계산 분리: `stats.js` mount 안의 표시 형식·드릴다운 주소·합계 행 가중 평균·CSV·법규 정렬을 `stats-calc.js` 로, `report-map.js` create 안의 마커 크기·과태료 비율·주소 목록 주소·묶음 요약을 `report-map-calc.js` 로 옮겼다(화면 동작 그대로, 수명은 기존 `SrStats.dispose` 가 가짐). 시험: 두 모듈 node 시험(가중 평균·CSV·주소·지도 요약), 통계·지도 브라우저 시험 Chromium 90건(CSV·재마운트 20회·표 지연 초기화·늦은 지도 응답 포함). 분리 중 함수 선언을 변수로 바꿔 생긴 호출 순서 문제를 브라우저 시험이 잡아 커밋 전에 고쳤다. 경계: 차트·표·상세 컨트롤러 객체 분리는 하지 않음.
 
 ## 2026-10-05 (2026-10-04 기술일지 결함 74건·SB 권고 3건 수리, dev 반영)
 
