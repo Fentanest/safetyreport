@@ -102,6 +102,14 @@ class SqlCandidatesTest(unittest.TestCase):
 
 
 class BrowserFilterTest(unittest.TestCase):
+    def test_data_table_cell_renderers(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("Node.js is unavailable")
+        result = subprocess.run([node, str(ROOT / "tests/js/data_table_cells_check.js")], cwd=ROOT,
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_js_matches_vectors(self):
         node = shutil.which("node")
         if not node:

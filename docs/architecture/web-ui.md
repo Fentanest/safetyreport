@@ -99,6 +99,11 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 `agencyExact=True` 시 `df['처리기관'] == agency` 정확히 일치 필터 적용.
 통계 행 클릭 링크에는 `&agencyExact=true` 자동 포함. 직접 검색 시는 기본값 `false` (contains).
 
+### 신고 목록 표 스크립트 구성 (EO R-14, 2026-10-05)
+`data_table.html` 은 표 마크업과 JSON bootstrap(`#srDataTableBootstrap`: `records`·`tableId`)만 두고, 스크립트는 정적 파일로 옮겼다:
+`list-predicates.js`(행 검색 판정, R-02) → `data-table-cells.js`(셀 렌더러: 이스케이프·첨부 링크·배지·말줄임·지도, 순수 함수) →
+`data-table.js`(URL 초기 필터·다중 선택·DataTables 설정·선택/작업·첨부 모달·CSV·키보드, DOM ID·전역 `_tableData` 그대로). 상태 규칙은 `report-policy.js`.
+
 ### 웹 상세검색 문법 (data_table.html)
 - 상세검색 상단에 `&` = AND, `,` = OR 안내 문구 표시.
 - `차량번호`, `신고번호`, `ID`, `신고명`, `위반법규`, `담당자`, `위반장소`, `처리기관`, `범칙금_과태료`, `별점사유`, `신고내용`, `처리내용`은 DataTables `ext.search` 커스텀 필터에서 같은 문법으로 처리.
