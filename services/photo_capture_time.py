@@ -163,7 +163,13 @@ def fill_one(engine, record_id: str, photos, *, fetch=None) -> bool:
         return False
     detail = models.detail_parking_table
     with engine.begin() as conn:
-        conn.execute(update(detail).where(detail.c.ID == record_id, detail.c["사진_촬영수"].is_(None)).values(**collected))
+        # 읽은 첨부가 지금도 같을 때만 쓴다. 네트워크를 기다리는 동안 DB 복원·재크롤링으로 첨부가 바뀌었으면
+        # 다른 사진의 촬영 정보를 저장하게 되므로 버린다(기술일지 A2-02). 다음 훑기에서 새 첨부로 다시 시도한다.
+        result = conn.execute(update(detail).where(
+            detail.c.ID == record_id, detail.c["사진_촬영수"].is_(None), detail.c["첨부사진"] == photos,
+        ).values(**collected))
+        if not result.rowcount:
+            return False
         reports_repo.refresh_merge_rows(conn, [record_id])
     return True
 

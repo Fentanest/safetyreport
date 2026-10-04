@@ -1029,6 +1029,7 @@ def load_results_by_category(engine):
     """카테고리별 분리 결과. 엑셀/구글시트 시트별 저장용.
     반환: {"교통위반": df_t, "주정차위반": df_p, "기타위반": df_o}"""
     with engine.connect() as conn:
+        conn.exec_driver_sql('BEGIN')  # 세 분류를 한 스냅샷에서 읽는다(기술일지 A1-07)
         df_watch = pd.read_sql_query(select(watchlist_table.c.신고번호), conn)
         watch_ids = set(df_watch['신고번호'].tolist())
 

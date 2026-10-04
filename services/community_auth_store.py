@@ -211,6 +211,8 @@ class CommunitySessionStore:
                 with open(self.session_path, "rb") as fh:
                     blob = fh.read()
             except FileNotFoundError:
+                # 세션이 없어도 키 파일이 망가졌으면 다음 저장이 실패한다 — 지금 드러내 초기화로 복구하게 한다(기술일지 D2-04)
+                self._fernet(create=False)
                 return empty_state()
             fernet = self._fernet(create=False)
             if fernet is None:
@@ -254,15 +256,40 @@ class CommunitySessionStore:
             _fsync_dir(self.auth_dir)
 
     def reset_unreadable(self) -> str | None:
-        """읽을 수 없는 세션 파일을 옆으로 치우고(삭제하지 않음) 새로 시작할 수 있게 한다."""
+        """읽을 수 없는 세션·writer·키 파일을 옆으로 치우고(삭제하지 않음) 새로 시작할 수 있게 한다.
+
+        키 파일 자체가 망가졌으면 세션만 옮겨서는 다음 저장도 같은 키로 실패한다 — 키와 그 키로 암호화된
+        세션·writer 파일을 함께 보관 처리한다(기술일지 D2-04). 반환: 옮긴 세션 파일 경로(없으면 첫 번째로 옮긴 파일)."""
         with self.locked():
-            if not os.path.exists(self.session_path) or self.is_readable():
+            try:
+                self._fernet(create=False)
+                key_bad = False
+            except StoreUnreadable:
+                key_bad = True
+            session_bad = os.path.exists(self.session_path) and (key_bad or not self.is_readable())
+            writer_bad = os.path.exists(self.writer_path) and (key_bad or not self._writer_readable())
+            if not (key_bad or session_bad or writer_bad):
                 return None
-            target = f"{self.session_path}.unreadable-{time.strftime('%Y%m%d%H%M%S')}"
-            os.replace(self.session_path, target)
-            _chmod_600(target)
-            _log.warning("[community] 읽을 수 없는 커뮤니티 세션 파일을 %s 로 옮겼습니다.", os.path.basename(target))
-            return target
+            stamp = time.strftime('%Y%m%d%H%M%S')
+            moved: list[str] = []
+            for path, bad in ((self.session_path, session_bad), (self.writer_path, writer_bad), (self.key_path, key_bad)):
+                if not bad or not os.path.exists(path):
+                    continue
+                target = f"{path}.unreadable-{stamp}"
+                os.replace(path, target)
+                _chmod_600(target)
+                moved.append(target)
+                _log.warning("[community] 읽을 수 없는 커뮤니티 파일을 %s 로 옮겼습니다.", os.path.basename(target))
+            if moved:
+                _fsync_dir(self.auth_dir)
+            return moved[0] if moved else None
+
+    def _writer_readable(self) -> bool:
+        try:
+            self.load_writer()
+            return True
+        except StoreUnreadable:
+            return False
 
     # ── writer 연결 ───────────────────────────────────────────────────────
     def load_writer(self) -> dict | None:

@@ -87,6 +87,24 @@ class WsManager:
             self._connection_meta.pop(client_id, None)
         logger.info(f"[WS] 클라이언트 종료: {client_id} (남은 {len(self._connections)}개)")
 
+    async def revoke_api_key(self, api_key: str) -> int:
+        """삭제한 API 키로 인증한 연결을 모두 닫는다. 키를 지워도 열린 연결이 이벤트를 계속 받던 문제(기술일지 A1-02)."""
+        if not api_key:
+            return 0
+        with self._metadata_lock:
+            targets = [cid for cid, meta in self._connection_meta.items() if meta.get("api_key") == api_key]
+            self._api_clients.pop(api_key, None)
+            self._api_seen.pop(api_key, None)
+        closed = 0
+        for client_id in targets:
+            ws = self._connections.get(client_id)
+            if ws is not None:
+                await self._close(client_id, ws, 4001, "API key revoked")
+                closed += 1
+        if closed:
+            logger.info(f"[WS] 삭제된 API 키의 연결 {closed}개를 닫았습니다.")
+        return closed
+
     async def send(self, client_id, ws, message):
         """ping/connected와 이벤트도 한 socket writer를 공유한다."""
         if self._connections.get(client_id) is not ws:

@@ -126,6 +126,10 @@ class _Gate:
         self._last_attempt: float | None = None
         # 신고 자료 주인 확인(services/account_data.py): None=아직 확인 안 함, 'ok', 'mismatch', 'unknown'(카카오 번호 확인 실패)
         self._owner: str | None = None
+        # 무효화 세대와 캐시된 status 의 주인(user_id). 조회 도중 로그인·로그아웃·계정 교체가 끼면 늦게 온 응답을 버리고,
+        # 세션 계정과 다른 계정으로 받은 status 는 쓰지 않는다(기술일지 D2-01, 모바일 CommunityGate 로그인 세대 검사와 같은 목적).
+        self._generation = 0
+        self._status_user: str | None = None
 
     # -- 입력 --------------------------------------------------------------------------------------------
     @staticmethod
@@ -141,9 +145,11 @@ class _Gate:
     def evaluate(self) -> dict:
         service = cas.get_service()
         cfg = service.config()
-        session, _ = self._session_state(service)
+        session, current = self._session_state(service)
         with self._lock:
             status, verified_at, invalidated = self._status, self._verified_at, self._invalidated
+            if session == "valid" and (current or {}).get("user_id") != self._status_user:
+                invalidated = True  # 지금 세션과 다른 계정으로 받은 status — 다시 받아야 한다
         age = None if verified_at is None else max(0.0, self._clock() - verified_at)
         state, reasons = decide(config_state(cfg), session, status, age, invalidated)
         if state == "ok":
@@ -186,8 +192,11 @@ class _Gate:
         session, current = self._session_state(service)
         if config_state(cfg) != "ok" or session != "valid":
             with self._lock:
-                self._status = None
+                self._status, self._status_user = None, None
             return
+        user_id = current.get("user_id")
+        with self._lock:
+            generation = self._generation
         try:
             token = service.get_access_token()
         except cas.CommunityAuthError as exc:
@@ -206,13 +215,23 @@ class _Gate:
                 self._mark_invalid()
             return
         with self._lock:
+            if not self._still_current(service, generation, user_id):
+                return  # 기다리는 동안 무효화·계정 교체가 있었다 — 늦은 응답은 버린다
             self._status, self._verified_at, self._invalidated = status, self._clock(), False
+            self._status_user = user_id
         self._last_error = None
         state, _ = decide("ok", "valid", status, 0.0, False)
         if state == "ok":
-            owner = self._check_owner(service)
+            owner = self._check_owner(service, generation)
             if owner == "ok":  # 다른 계정의 자료가 남아 있으면 writer 연결도 만들지 않는다
-                self._ensure_writer(service, client, token, status, own, current)
+                self._ensure_writer(service, client, token, status, own, current, generation)
+
+    def _still_current(self, service, generation: int, user_id: str | None) -> bool:
+        """조회를 시작한 세대·세션 계정이 그대로인가(self._lock 을 잡은 채 부른다)."""
+        if self._generation != generation:
+            return False
+        session, current = self._session_state(service)
+        return session == "valid" and (current or {}).get("user_id") == user_id
 
     def check_for_request(self, retry_interval: float = 15.0) -> dict:
         """HTTP 요청용: 캐시 판정. 확인이 필요하면(cold start·무효화·만료) 중앙 status 를 받되,
@@ -240,7 +259,7 @@ class _Gate:
                     "reasons": ["status_stale"] + ([self._last_error] if self._last_error else [])}
         return result
 
-    def _check_owner(self, service) -> str:
+    def _check_owner(self, service, generation: int | None = None) -> str:
         """게이트 통과 뒤: 이 서버 DB 의 주인 카카오 회원번호를 확인(처음이면 적음). 네트워크로 번호를 못 받으면 'unknown'."""
         from services import account_data
 
@@ -253,6 +272,8 @@ class _Gate:
             _log.warning("[community] 자료 주인 확인 실패: %s", type(exc).__name__)
             owner = "unknown"
         with self._lock:
+            if generation is not None and generation != self._generation:
+                return "stale"  # 확인 도중 무효화됐다 — 판정을 남기지 않는다
             self._owner = owner
         return owner
 
@@ -260,6 +281,7 @@ class _Gate:
         with self._lock:
             self._invalidated = True
             self._owner = None
+            self._generation += 1
 
     def invalidate(self, reason: str) -> None:
         """로그인·로그아웃·계정 변경·동의 저장/철회·업로드 401/403 뒤. 다음 판정은 중앙 status 를 다시 받아야 통과한다."""
@@ -293,7 +315,7 @@ class _Gate:
         return writer if writer and writer.get("connection_id") and writer.get("connection_secret") else None
 
     def _ensure_writer(self, service, client: CommunityAccountClient, token: str, status: dict,
-                       writer: dict | None, current: dict) -> None:
+                       writer: dict | None, current: dict, generation: int | None = None) -> None:
         """현재 사용자·공식 계정으로 writer 연결을 확보하고 community.db context 를 활성화한다.
         게이트 통과(진입)와 별개다 — 여기서 막히면 화면은 쓰되 업로드만 멈춘다(writer 메모로 표시)."""
         dkey = dataset_key(official_username())
@@ -321,6 +343,8 @@ class _Gate:
                 writer = {"connection_id": res["connection_id"], "connection_secret": secret,
                           "writer_epoch": res["writer_epoch"], "dataset_key": dkey, "user_id": user_id}
                 last = 0
+            if not self._generation_is(generation):
+                return  # 연결 확보 도중 무효화됐다 — 이전 계정 문맥으로 저장·활성화하지 않는다
             service.store.save_writer(writer)
         except AccountApiError as exc:
             note = {"code": exc.code}
@@ -333,6 +357,8 @@ class _Gate:
 
         consent = status.get("consent") or {}
         store = CommunityStore.open()
+        if not self._generation_is(generation):
+            return
         store.set_context(contributor_fingerprint=account_fingerprint(user_id), connection_id=writer["connection_id"],
                           writer_epoch=int(writer["writer_epoch"]), dataset_key=dkey,
                           consent_grant_id=consent.get("grant_id"), policy_version=consent.get("policy_version"),
@@ -347,6 +373,12 @@ class _Gate:
                 community_uploader.refresh_server_completed()
             except Exception as exc:  # 실패해도 크롤 시작 전에 다시 확인한다(fail-closed 는 수집 쪽)
                 _log.info("[community] 완료 목록(manifest) 갱신을 미룹니다: %s", type(exc).__name__)
+
+    def _generation_is(self, generation: int | None) -> bool:
+        if generation is None:
+            return True
+        with self._lock:
+            return self._generation == generation
 
     def _set_writer_note(self, code: str, note: dict | None = None) -> None:
         self._writer_note = note or {"code": code}
@@ -428,6 +460,8 @@ class _Gate:
             self._claim_requested = False
             self._last_attempt = None
             self._owner = None
+            self._status_user = None
+            self._generation += 1
             self._listeners.clear()
 
 

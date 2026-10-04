@@ -9,6 +9,7 @@ WebSocket 이벤트 엔드포인트
 import asyncio
 import uuid
 import logging
+from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from core.database import database
 from core.database.engine import get_engine
@@ -38,11 +39,6 @@ async def ws_events(
     forwarded = websocket.headers.get("x-forwarded-for", "")
     ip = forwarded.split(",")[0].strip() if forwarded else (websocket.client.host if websocket.client else "")
     await ws_manager.connect(client_id, websocket, api_key=api_key, ip=ip, device_name=device_name)
-
-    # 연결 확인 메시지
-    if not await ws_manager.initialize(client_id, websocket, after):
-        return
-
     ping_interval = 30  # seconds
 
     async def _pinger():
@@ -55,9 +51,16 @@ async def ws_events(
             except Exception:
                 break
 
-    pinger_task = asyncio.create_task(_pinger())
-
+    pinger_task = None
     try:
+        # 등록 뒤의 모든 단계(첫 replay 포함)를 같은 finally 로 감싼다 — replay 예외에도 연결 목록에서 지운다(기술일지 A1-09)
+        # 인증과 등록 사이에 키가 삭제됐으면 revoke_api_key 가 이 연결을 못 봤다 — 등록 뒤 한 번 더 확인한다
+        if not await run_in_threadpool(database.validate_api_key, engine, api_key):
+            await ws_manager.revoke_api_key(api_key)
+            return
+        if not await ws_manager.initialize(client_id, websocket, after):
+            return
+        pinger_task = asyncio.create_task(_pinger())
         while True:
             # 클라이언트로부터 메시지 수신 (pong 등)
             _ = await websocket.receive_text()
@@ -66,6 +69,7 @@ async def ws_events(
     except Exception as e:
         logger.debug(f"[WS] 클라이언트 오류 ({client_id}): {e}")
     finally:
-        pinger_task.cancel()
-        await asyncio.gather(pinger_task, return_exceptions=True)
+        if pinger_task is not None:
+            pinger_task.cancel()
+            await asyncio.gather(pinger_task, return_exceptions=True)
         ws_manager.disconnect(client_id, websocket)

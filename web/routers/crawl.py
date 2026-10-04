@@ -122,7 +122,7 @@ async def websocket_logs(websocket: WebSocket):
     if not await ws_auth.authorize(websocket):  # 관리자 세션 또는 API 키 + 커뮤니티 게이트
         return
     await websocket.accept()
-    watch = ws_auth.GateWatch()
+    watch = ws_auth.GateWatch(websocket=websocket)
     log_file = os.path.join(settings.datapath, "logs", "current_crawl.log")
     from web.log_stream import stream_log
     await stream_log(websocket, log_file, watch, "로그 파일을 대기 중입니다...\n")

@@ -919,7 +919,7 @@ class CommunityAuthService:
                 session = self._client(cfg).refresh(refresh_token=cur["refresh_token"])
             except AuthError as exc:
                 if exc.reauth_required:
-                    st["reauth"] = {k: cur.get(k) for k in ("display_name", "connected_at", "has_email", "user_id")}
+                    st["reauth"] = {k: cur.get(k) for k in ("display_name", "connected_at", "has_email", "user_id", "kakao_id")}
                     st["current"] = None
                     st["last_error"] = {"code": "reauth_required", "at": _iso(self._now())}
                     self.store.save(st)

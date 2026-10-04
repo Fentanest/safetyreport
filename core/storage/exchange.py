@@ -155,6 +155,16 @@ def _refuse_unknown_columns(conn: sqlite3.Connection, tables: set[str]) -> None:
             + ", ".join(problems) + ". 서버를 최신 버전으로 업데이트한 뒤 다시 복원하세요.")
 
 
+def _refuse_unknown_categories(reports: list[dict]) -> None:
+    """category 는 traffic|parking|other 만 계약에 있다(contracts/storage-contract.json). 서버는 이 값을 표 이름으로만
+    표현하므로 다른 값(NULL·빈 값 포함)을 기타로 바꾸면 원래 값이 사라진다 — 교체 전에 ID 를 밝히고 멈춘다(PROJECT_RULES 3-1)."""
+    bad = [(r.get("ID"), r.get("category")) for r in reports if r.get("category") not in _DETAIL_BY_CATEGORY]
+    if bad:
+        shown = ", ".join(f"{rid}={value!r}" for rid, value in bad[:5]) + (f" 외 {len(bad) - 5}건" if len(bad) > 5 else "")
+        raise InvalidDatabaseRefused(
+            f"이 서버가 모르는 신고 분류(category)가 있어 복원하지 않았습니다(traffic·parking·other 만 지원): {shown}")
+
+
 def read_mobile_db(path: str) -> MobileSnapshot:
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
@@ -163,9 +173,11 @@ def read_mobile_db(path: str) -> MobileSnapshot:
         if "reports" not in tables:
             raise ValueError("모바일 DB 에 reports 표가 없습니다.")
         _refuse_unknown_columns(conn, tables)
+        reports = _read_table(conn, tables, "reports") or []
+        _refuse_unknown_categories(reports)
         return MobileSnapshot(
             report_columns={r[1] for r in conn.execute('PRAGMA table_info("reports")')},
-            reports=_read_table(conn, tables, "reports") or [],
+            reports=reports,
             raw=_read_table(conn, tables, "report_raw"),
             sync_meta=_read_table(conn, tables, "sync_meta") or [],
             geocode_cache=_read_table(conn, tables, "geocode_cache"),
@@ -256,8 +268,7 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
             title = {c: r.get(c) for c in title_cols}
             title["감시목록"] = "Y" if r.get("신고번호") in watch_set else "N"
             title_rows.append(title)
-            category = str(r.get("category") or "other").strip().lower()
-            detail_rows[category if category in detail_rows else "other"].append({c: r.get(c) for c in detail_cols})
+            detail_rows[r["category"]].append({c: r.get(c) for c in detail_cols})  # read_mobile_db 가 값을 검사했다
 
         for table in (models.merge_traffic_table, models.merge_parking_table, models.merge_other_table,
                       models.detail_traffic_table, models.detail_parking_table, models.detail_other_table,
@@ -381,8 +392,25 @@ def _backup_live(dst: str) -> str:
         return ""
     backup_dir = os.path.join(settings.datapath, "backups")
     os.makedirs(backup_dir, exist_ok=True)
-    backup_path = os.path.join(backup_dir, f"data_before_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
-    _copy_sqlite(dst, backup_path)
+    stem = os.path.join(backup_dir, f"data_before_restore_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    # 같은 초에 복원을 두 번 해도 앞 백업을 덮지 않게 이름을 배타적으로 확보한다(빈 파일은 SQLite 가 빈 DB 로 연다).
+    for n in range(1, 1000):
+        backup_path = f"{stem}.db" if n == 1 else f"{stem}_{n}.db"
+        try:
+            os.close(os.open(backup_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+            break
+        except FileExistsError:
+            continue
+    else:
+        raise RuntimeError("복원 전 백업 파일 이름을 정하지 못했습니다.")
+    try:
+        _copy_sqlite(dst, backup_path)
+    except BaseException:
+        try:
+            os.unlink(backup_path)
+        except FileNotFoundError:
+            pass
+        raise
     return backup_path
 
 
