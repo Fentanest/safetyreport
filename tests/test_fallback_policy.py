@@ -58,7 +58,7 @@ SILENT_ALLOWED = {
     "services/crawl_state_store.py::clear_crawl_changes": ("cleanup", 1),
     "services/file_service.py::delete_all_in_target": ("cleanup", 1),
     "services/media_proxy_service.py::cleanup_cache": ("cleanup", 1),
-    "services/parser.py::parse_json_details": ("parse", 1),
+    "services/parser.py::_c_now_value": ("parse", 1),
     "services/photo_capture_time.py::collect": ("retry", 1),
     "services/satisfaction_fetcher.py::fetch_score_via_selenium_page": ("optional", 1),
     "services/star_rating_service.py::_site_result": ("optional", 1),

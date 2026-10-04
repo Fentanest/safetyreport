@@ -23,6 +23,7 @@
 - EO-4 R-05 통계 서비스 분리: 1,383줄 `report_stats_service.py` 를 `services/stats/`(common·reads·metrics·dashboard·agency·overview·map)로 나누고 facade 가 예전 이름 63개를 그대로 내보낸다. 분리 전후 전체 JSON 128 조합 동일, 서버·모바일 통계 44 조합 값 차이 0. 정정: 통계표 계산(`_build_stats_tables`)과 기관 표시(`_apply_registry_agency_display`)가 입력 프레임을 바꿔 호출자가 복사해야 했던 것을 사본에서 처리하게 했다. 기록: docs/reviews/2026-10-05-eo-refactor.md.
 - EO-5 R-07 크롤 서브프로세스 실행 결과 명시: `start.py` 의 인자 dict 에 숨겨 넘기던 `_outcome` 을 `CrawlOptions`(실행 인자)·`CrawlResult`(목록·상세 완료, 저장·스트림 오류, 변경 목록)로 바꾸고, 160줄 `_run_crawling_process` 를 초기화 모드·목록 수집·큐 번호 해석·상세 저장으로, 후처리를 촬영 시각 재시도·병합과 완료 마커·내보내기·요약 알림으로 나눴다. crawl_run_state 에 남는 증거 키·종료 코드·last_sync·완료 마커 규칙은 그대로다. 시험: 전부 성공·목록 불완전·상세 중단(받은 1건 저장, stream_error 기록)의 종료 코드·영속 기록·last_sync·완료 마커.
 - EO-5 R-10 업로더 실행 상태·outbox 전이 모델링: `_drain` 이 인자 13개와 dict·클로저로 받던 상태를 `UploadRunContext` 로, 흩어진 outbox 행 상태 전이 SQL 을 `_Outbox` 메서드로 모았다(소유자 범위 전이 유지). 상태 조회·재공유·manifest 갱신은 `services/community_upload_status.py` 로 옮기고 예전 이름은 위임으로 남겼다. 동작 변화 없음(기존 업로더 시험 93건 그대로 통과). 시험: 소유자 범위 전이, 시도 되돌림·이분·인증 필요·차단·격리, 만료 in_flight 회수, 실행 결과 모양·기록, 진행 콜백 실패.
+- EO-5 R-11 상세 파서 단계 분해: 287줄 `parse_json_details` 를 본문·위치·첨부 추출, 선택 답변, 법규·처분·상태 판정, 보완 요약·목록 갱신 조립의 순수 함수로 나눴다(반환 dict 그대로). 분리 전 함수와 공용 벡터·변형 입력 1만 1,600건을 대조해 차이 0(예외가 나던 입력도 같은 예외). 시험: 입력 불변, 선택 답변(마지막 답변·기관코드 선행 0), 최종 상태 순서, 완료 보완의 위치·좌표, 처분 금액.
 
 ## 2026-10-05 (2026-10-04 기술일지 결함 74건·SB 권고 3건 수리, dev 반영)
 

@@ -81,179 +81,172 @@ def _official_coordinates(data: dict, prefix: str = "") -> tuple[float | None, f
     return lat, lng
 
 
-def parse_json_details(result_data):
-    # 1. Body Text Extraction & Regex Parsing
+def _extract_body(result_data) -> dict:
+    """1단계: 본문 정리와 본문에서 읽는 값(접수 메뉴·차량번호·발생일시·신고 내용)."""
     content_text = result_data.get("C_A_CONTENTS", "")
     if not content_text:
         content_text = result_data.get("C_A_BODY", "")
     content_text_clean = _normalize_raw_payload_text(content_text)
-    
+
     entry_match = re.search(r'본 신고는 안전신문고 (?:앱의|포털의) (.*?) 메뉴로 접수된 신고입니다', content_text_clean)
     entry_value = entry_match.group(1).strip() if entry_match else result_data.get("C_APP_GUBUN_NM", "")
-    
-    car_number = extract_car_number(content_text_clean)
 
     occurrence_date_match = re.search(r'발생일자[ \t]*:[ \t]*(\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2})', content_text_clean)
-    occurrence_date = re.sub(r'[.\-/]', '-', occurrence_date_match.group(1).strip()) if occurrence_date_match else ""
-
     occurrence_time_match = re.search(r'발생시각[ \t]*:[ \t]*(\d{2}:\d{2})', content_text_clean)
-    occurrence_time = occurrence_time_match.group(1).strip() if occurrence_time_match else ""
 
-    # Extract Violation Location from text or fallback to JSON fields
-    violation_location = ""
-    if result_data.get("RN_ADRES"):
-        violation_location = result_data.get("RN_ADRES")
-    elif result_data.get("C_A_ADD2"):
-        violation_location = result_data.get("C_A_ADD2")
-    else:
-        violation_location = str(result_data.get("C_A_ADDR_HEAD") or "") + " " + str(result_data.get("C_A_ADDR_TAIL") or "")
-    violation_location = violation_location.strip()
-    violation_latitude, violation_longitude = _official_coordinates(result_data)
-
-    # 신고자가 보완 제출 완료(SPLMNT_CMPTN_DT 설정)하고 2차 요청 없음(SPLMNT_CMPTN_YN != 'N') 시 갱신
-    if result_data.get('SPLMNT_CMPTN_DT') and result_data.get('SPLMNT_CMPTN_YN') != 'N':
-        if result_data.get('SPLMNT_VHRNO'):
-            car_number = re.sub(r'\s+', '', result_data['SPLMNT_VHRNO'])
-        raw_date = str(result_data.get('SPLMNT_DEVEL_DATE') or '')
-        if len(raw_date) == 8:
-            occurrence_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
-        raw_time = str(result_data.get('SPLMNT_DEVEL_TIME') or '')
-        if len(raw_time) >= 4:
-            occurrence_time = f"{raw_time[:2]}:{raw_time[2:4]}"
-        splmnt_loc = (result_data.get('SPLMNT_RN_ADRES') or result_data.get('SPLMNT_C_A_ADD2') or '').strip()
-        if splmnt_loc:
-            violation_location = splmnt_loc
-            # 보완 주소가 채택되면 같은 보완 응답의 좌표만 사용한다.
-            # 한쪽이 없거나 잘못된 좌표는 이전 위치와 섞지 않는다.
-            violation_latitude, violation_longitude = _official_coordinates(result_data, 'SPLMNT_')
-        else:
-            # 주소가 되풀이되지 않아도 보완 좌표만 갱신될 수 있다.
-            supplement_lat, supplement_lng = _official_coordinates(result_data, 'SPLMNT_')
-            if supplement_lat is not None:
-                violation_latitude, violation_longitude = supplement_lat, supplement_lng
-
-    c_now = result_data.get("C_NOW", 0)
-    try:
-        c_now = int(float(c_now))
-    except:
-        pass
-
-    answers = result_data.get("answers", []) or []
-    splmnt_dmnd_no = result_data.get("SPLMNT_DMND_NO") or 0
-    try:
-        splmnt_dmnd_no = int(splmnt_dmnd_no)
-    except (TypeError, ValueError):
-        splmnt_dmnd_no = 0
-    splmnt_open = (
-        splmnt_dmnd_no > 0
-        and result_data.get("SPLMNT_FNSH_YN") == "N"
-        and result_data.get("SPLMNT_CMPTN_YN") == "N"
-        and not answers
-        and c_now == 0
-    )
-
-    raw_status = _C_NOW_STATUS.get(c_now, str(c_now) if c_now > 0 else "진행")
-    
     report_content = ""
     if content_text_clean:
         parts = re.split(r'\*\s*차량번호', content_text_clean, 1)
         if parts:
             report_content = parts[0].strip()
-    
-    # 3. Agency Answers & Results Processing
-    processing_status = ""
-    processing_agency = ""
-    processing_agency_code = ""
-    person_in_charge = ""
-    response_date = ""
-    processing_content = ""
-    processing_finish = "N"
+    return {
+        "raw_content": content_text_clean,
+        "entry_value": entry_value,
+        "car_number": extract_car_number(content_text_clean),
+        "occurrence_date": re.sub(r'[.\-/]', '-', occurrence_date_match.group(1).strip()) if occurrence_date_match else "",
+        "occurrence_time": occurrence_time_match.group(1).strip() if occurrence_time_match else "",
+        "report_content": report_content,
+    }
 
-    if answers:
-        latest_ans = answers[-1]
-        processing_status = latest_ans.get("C_MANAGER_TYPE_NM") or ""
-        if not processing_status or processing_status in _NOT_FINAL_ANSWER_STATUSES:
-            processing_status = latest_ans.get("C_R_PROC_STAT_NM") or processing_status
 
-        if not processing_status or processing_status in _NOT_FINAL_ANSWER_STATUSES:
-            # If C_NOW indicates completion but agency left status as 진행
-            if raw_status in _CANONICAL_DONE_STATUSES:
-                processing_status = raw_status
-                
-        if processing_status in _CANONICAL_DONE_STATUSES:
-            processing_finish = "Y"
-        # 값이 null 인 키는 "없음"으로 본다(모바일 `??` 와 같게)
-        processing_agency = latest_ans.get("C_MANAGE_ORG_NAME") or latest_ans.get("C_MANAGER_TYPE_NM") or ""
-        # 기관코드 원문(TEXT): 같은 선택 답변의 C_MANAGE_ORG. 7자리 영숫자·선행 0 보존, 정수 변환 금지.
-        # 없으면 ""(저장 단계에서 NULL). 이름으로 찾은 후보를 여기에 쓰지 않는다.
-        processing_agency_code = str(latest_ans.get("C_MANAGE_ORG") or "").strip()
-        person_in_charge = latest_ans.get("C_MANAGE_MAN") or latest_ans.get("C_R_MOD_ID") or ""
-        response_date = latest_ans.get("C_DATE") or latest_ans.get("C_R_MOD_DATE") or ""
-        if response_date and len(response_date) >= 10:
-             response_date = response_date[:10]
-        processing_content = (latest_ans.get("C_MANAGE_CONTENTS") or latest_ans.get("C_R_BODY") or "")
-        # Strip HTML tags
-        processing_content = re.sub(r'<[^>]+>', '\n', processing_content).strip()
-        # 전각 숫자·쉼표·nbsp 정리(과태료 금액·미확인 판정이 흔들리지 않게 — 모바일과 같게)
-        processing_content = processing_content.replace("\xa0", " ").translate(_FULLWIDTH_TRANSLATION)
-        
-    violation_law = ""
-    if processing_content:
-        violation_law_match = re.search(
-            r'(?:「\s*([가-힣·\s]{1,40}?법)\s*」|(도로교통법))\s*제\s*(\d+\s*조(?:\s*의\s*\d+)?)(?:\s*(제?\s*\d{1,2}\s*항))?',
-            processing_content,
-        )
-        if violation_law_match:
-            law_name = re.sub(r'\s+', '', violation_law_match.group(1) or violation_law_match.group(2))
-            article = re.sub(r'\s+', '', violation_law_match.group(3))
-            paragraph = re.sub(r'\s+', '', violation_law_match.group(4) or '')
-            violation_law = f"{law_name} 제{article}{paragraph}"
+def _apply_completed_supplement(result_data, body: dict) -> dict:
+    """1단계(위치): 공식 위치·좌표, 그리고 완료된 보완 제출의 차량번호·발생일시·위치로 갱신한다.
+    신고자가 보완 제출 완료(SPLMNT_CMPTN_DT 설정)하고 2차 요청 없음(SPLMNT_CMPTN_YN != 'N') 시 갱신."""
+    if result_data.get("RN_ADRES"):
+        location = result_data.get("RN_ADRES")
+    elif result_data.get("C_A_ADD2"):
+        location = result_data.get("C_A_ADD2")
+    else:
+        location = str(result_data.get("C_A_ADDR_HEAD") or "") + " " + str(result_data.get("C_A_ADDR_TAIL") or "")
+    out = dict(body, violation_location=location.strip())
+    out["violation_latitude"], out["violation_longitude"] = _official_coordinates(result_data)
 
+    if result_data.get('SPLMNT_CMPTN_DT') and result_data.get('SPLMNT_CMPTN_YN') != 'N':
+        if result_data.get('SPLMNT_VHRNO'):
+            out["car_number"] = re.sub(r'\s+', '', result_data['SPLMNT_VHRNO'])
+        raw_date = str(result_data.get('SPLMNT_DEVEL_DATE') or '')
+        if len(raw_date) == 8:
+            out["occurrence_date"] = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:]}"
+        raw_time = str(result_data.get('SPLMNT_DEVEL_TIME') or '')
+        if len(raw_time) >= 4:
+            out["occurrence_time"] = f"{raw_time[:2]}:{raw_time[2:4]}"
+        splmnt_loc = (result_data.get('SPLMNT_RN_ADRES') or result_data.get('SPLMNT_C_A_ADD2') or '').strip()
+        if splmnt_loc:
+            out["violation_location"] = splmnt_loc
+            # 보완 주소가 채택되면 같은 보완 응답의 좌표만 사용한다.
+            # 한쪽이 없거나 잘못된 좌표는 이전 위치와 섞지 않는다.
+            out["violation_latitude"], out["violation_longitude"] = _official_coordinates(result_data, 'SPLMNT_')
+        else:
+            # 주소가 되풀이되지 않아도 보완 좌표만 갱신될 수 있다.
+            supplement_lat, supplement_lng = _official_coordinates(result_data, 'SPLMNT_')
+            if supplement_lat is not None:
+                out["violation_latitude"], out["violation_longitude"] = supplement_lat, supplement_lng
+    return out
+
+
+def _c_now_value(result_data):
+    """C_NOW 를 정수로. 바꿀 수 없으면 원래 값을 그대로 둔다(예전 동작 그대로)."""
+    c_now = result_data.get("C_NOW", 0)
+    try:
+        c_now = int(float(c_now))
+    except:  # noqa: E722 — 예전 동작(형식이 틀리면 원래 값을 그대로 둔다)
+        pass
+    return c_now
+
+
+def _supplement_request_no(result_data) -> int:
+    try:
+        return int(result_data.get("SPLMNT_DMND_NO") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _select_answer(answers: list, raw_status: str) -> dict:
+    """2단계: 마지막 답변 하나를 고른 답변 모델. 답변이 없으면 빈 값."""
+    selected = {"processing_status": "", "processing_agency": "", "processing_agency_code": "",
+                "person_in_charge": "", "response_date": "", "processing_content": "", "processing_finish": "N"}
+    if not answers:
+        return selected
+    latest_ans = answers[-1]
+    processing_status = latest_ans.get("C_MANAGER_TYPE_NM") or ""
+    if not processing_status or processing_status in _NOT_FINAL_ANSWER_STATUSES:
+        processing_status = latest_ans.get("C_R_PROC_STAT_NM") or processing_status
+    if not processing_status or processing_status in _NOT_FINAL_ANSWER_STATUSES:
+        # If C_NOW indicates completion but agency left status as 진행
+        if raw_status in _CANONICAL_DONE_STATUSES:
+            processing_status = raw_status
+    selected["processing_status"] = processing_status
+    if processing_status in _CANONICAL_DONE_STATUSES:
+        selected["processing_finish"] = "Y"
+    # 값이 null 인 키는 "없음"으로 본다(모바일 `??` 와 같게)
+    selected["processing_agency"] = latest_ans.get("C_MANAGE_ORG_NAME") or latest_ans.get("C_MANAGER_TYPE_NM") or ""
+    # 기관코드 원문(TEXT): 같은 선택 답변의 C_MANAGE_ORG. 7자리 영숫자·선행 0 보존, 정수 변환 금지.
+    # 없으면 ""(저장 단계에서 NULL). 이름으로 찾은 후보를 여기에 쓰지 않는다.
+    selected["processing_agency_code"] = str(latest_ans.get("C_MANAGE_ORG") or "").strip()
+    selected["person_in_charge"] = latest_ans.get("C_MANAGE_MAN") or latest_ans.get("C_R_MOD_ID") or ""
+    response_date = latest_ans.get("C_DATE") or latest_ans.get("C_R_MOD_DATE") or ""
+    if response_date and len(response_date) >= 10:
+        response_date = response_date[:10]
+    selected["response_date"] = response_date
+    processing_content = (latest_ans.get("C_MANAGE_CONTENTS") or latest_ans.get("C_R_BODY") or "")
+    # Strip HTML tags
+    processing_content = re.sub(r'<[^>]+>', '\n', processing_content).strip()
+    # 전각 숫자·쉼표·nbsp 정리(과태료 금액·미확인 판정이 흔들리지 않게 — 모바일과 같게)
+    selected["processing_content"] = processing_content.replace("\xa0", " ").translate(_FULLWIDTH_TRANSLATION)
+    return selected
+
+
+def _violation_law(processing_content: str) -> str:
+    """3단계: 답변 본문의 위반 법규(법 이름 + 조·항)."""
+    if not processing_content:
+        return ""
+    violation_law_match = re.search(
+        r'(?:「\s*([가-힣·\s]{1,40}?법)\s*」|(도로교통법))\s*제\s*(\d+\s*조(?:\s*의\s*\d+)?)(?:\s*(제?\s*\d{1,2}\s*항))?',
+        processing_content,
+    )
+    if not violation_law_match:
+        return ""
+    law_name = re.sub(r'\s+', '', violation_law_match.group(1) or violation_law_match.group(2))
+    article = re.sub(r'\s+', '', violation_law_match.group(3))
+    paragraph = re.sub(r'\s+', '', violation_law_match.group(4) or '')
+    return f"{law_name} 제{article}{paragraph}"
+
+
+def _penalty(entry_value: str, processing_status: str, processing_content: str) -> tuple[str, str]:
+    """3단계: 답변 본문의 범칙금·벌점·과태료. 없으면 과태료 메뉴의 수용은 '과태료'."""
     fine_entry = ""
-    if ("버스전용차로 위반" in entry_value or "쓰레기, 폐기물" in entry_value or "불법주정차신고" in entry_value) and processing_status == "수용":
+    if ("버스전용차로 위반" in entry_value or "쓰레기, 폐기물" in entry_value or "불법주정차신고" in entry_value) \
+            and processing_status == "수용":
         fine_entry = "과태료"
-
     penalty_matches = re.search(r'범칙금\s*([\d,.]+)\s*원[,\s]*벌점\s*(\d{0,4})\s*점', processing_content)
     fine_matches = re.search(r'과태료\s*([\d,.]+)\s*원', processing_content)
-
-    penalty_amount = ""
-    penalty_points = ""
-
     if penalty_matches:
-        penalty_amount = "범칙금: " + penalty_matches.group(1) + "원"
-        penalty_points = "벌점: " + penalty_matches.group(2) + "점"
-    elif fine_matches:
-        penalty_amount = "과태료: " + fine_matches.group(1) + "원"
-    else:
-        penalty_amount = fine_entry
+        return "범칙금: " + penalty_matches.group(1) + "원", "벌점: " + penalty_matches.group(2) + "점"
+    if fine_matches:
+        return "과태료: " + fine_matches.group(1) + "원", ""
+    return fine_entry, ""
 
-    processing_status, processing_finish, penalty_amount, penalty_points = \
-        _apply_penalty_corrections(processing_status, processing_finish,
-                                   penalty_amount, penalty_points, entry_value, processing_content)
 
-    # 4. Attachments Mapping
+def _attachments(result_data) -> dict:
+    """1단계(첨부): 지도 이미지·사진·그 밖의 첨부 링크."""
     map_image = ""
     if result_data.get("STTEMNT_IMAGE_URL"):
         map_image = str(result_data.get("STTEMNT_IMAGE_URL"))
         if map_image.startswith('/'):
             map_image = "https://www.safetyreport.go.kr" + map_image
-        
-    attached_photos = ""
-    attachment_files = ""
     files = result_data.get("ARR_C_FILES", result_data.get("files", []))
     img_links = []
     other_links = []
-    
     if files:
         for f in files:
             file_url = f.get("FILE_URL")
             if not file_url:
                 atch_id = f.get("ATCH_FILE_ID")
                 file_url = f"https://www.safetyreport.go.kr/fileDown/singo/{atch_id}" if atch_id else ""
-            if not file_url: continue
+            if not file_url:
+                continue
             if file_url.startswith('/'):
                 file_url = "https://www.safetyreport.go.kr" + file_url
-            
             # FILE_TY: 1 (img) / 3 (img) / 8 (img) / 2 (video) / 99 (other)
             file_ty = str(f.get("FILE_TY", ""))
             original_nm = (f.get("ORGINL_FILE_NM") or "").lower()
@@ -261,7 +254,6 @@ def parse_json_details(result_data):
                 ext = original_nm.split('.')[-1]
             else:
                 ext = (f.get("FILE_EXTSN") or f.get("EXT") or "").lower()
-                
             if "MAPIMG" in file_url:
                 # 지도 이미지 — STTEMNT_IMAGE_URL이 없을 때만 fallback으로 사용
                 if not map_image:
@@ -271,44 +263,39 @@ def parse_json_details(result_data):
                 img_links.append(file_url)
             else:
                 other_links.append(file_url)
+    if map_image and map_image in img_links:  # STTEMNT_IMAGE_URL이 ARR_C_FILES에도 포함된 경우 제거 (안전망)
+        img_links.remove(map_image)
+    return {"map_image": map_image, "attached_photos": "\n".join(img_links), "attachment_files": "\n".join(other_links)}
 
-    if map_image:
-        # STTEMNT_IMAGE_URL이 ARR_C_FILES에도 포함된 경우 제거 (안전망)
-        if map_image in img_links:
-            img_links.remove(map_image)
 
-    attached_photos = "\n".join(img_links)
-    attachment_files = "\n".join(other_links)
-
+def _final_status(processing_status: str, raw_status: str, supplement_open: bool) -> str:
+    """3단계: 표시 상태(canonical). 취하·이송은 진행 상태가 정하고, 답변이 끝난 상태가 아니면 진행 상태 → 보완요청 → 처리중."""
     processing_status = (processing_status or "").strip()
     if raw_status in ("취하", "이송"):
-        processing_status = raw_status
-    elif processing_status in _CANONICAL_DONE_STATUSES:
-        pass
-    elif processing_status not in _CANONICAL_DONE_STATUSES and raw_status in _CANONICAL_DONE_STATUSES:
-        processing_status = raw_status
-    elif splmnt_open:
-        processing_status = "보완요청"
-    else:
-        processing_status = "처리중"
+        return raw_status
+    if processing_status in _CANONICAL_DONE_STATUSES:
+        return processing_status
+    if raw_status in _CANONICAL_DONE_STATUSES:
+        return raw_status
+    if supplement_open:
+        return "보완요청"
+    return "처리중"
 
-    processing_finish = "Y" if processing_status in _CANONICAL_DONE_STATUSES else "N"
-    if processing_status == "취하":
-        penalty_amount = ""
-        penalty_points = ""
 
-    # JSON 만으로 마지막 round 요약 만들기. 다회차 이력 전체는 보존하지 않음.
+def _supplement(result_data, processing_status: str, supplement_request_no: int) -> dict:
+    """4단계: JSON 만으로 마지막 round 요약. 다회차 이력 전체는 보존하지 않음."""
     last_round = _build_last_supplement_round_from_json(result_data)
     if last_round and processing_status != "보완요청":
         last_round["is_open"] = "N"
-    supplement_summary = _build_supplement_summary(
-        [last_round] if last_round else []
-    )
+    summary = _build_supplement_summary([last_round] if last_round else [])
     if last_round:
         # 횟수는 SPLMNT_DMND_NO 가 더 정확 (직전 round 까지 누적된 라운드 번호).
-        supplement_summary["count"] = max(splmnt_dmnd_no, supplement_summary["count"])
+        summary["count"] = max(supplement_request_no, summary["count"])
+    return summary
 
-    # title 갱신용 필드 구성
+
+def _title_fields(result_data, raw_status: str) -> dict:
+    """4단계: 목록(title) 갱신용 필드."""
     c_now_int = result_data.get('C_NOW', 0)
     try:
         c_now_int = int(float(c_now_int))
@@ -339,34 +326,68 @@ def parse_json_details(result_data):
     if stsfdg > 0:
         # 상세 응답의 만족도 점수도 사이트 값이다(사용자 결정 2026-09-25). 사유는 만족도 조회로만 채운다.
         title_fields['별점'] = stsfdg
+    return title_fields
+
+
+def parse_json_details(result_data):
+    """안전신문고 상세 JSON → 저장용 dict(EO R-11: 순수 단계로 나눔, 반환 모양은 그대로).
+    1 본문·위치·첨부 추출 → 2 선택 답변 → 3 법규·처분·상태 판정 → 4 보완 요약·목록 갱신 조립.
+    모바일 standalone_parser.dart 와 같은 규칙(contracts/parser-vectors.json)."""
+    located = _apply_completed_supplement(result_data, _extract_body(result_data))
+
+    c_now = _c_now_value(result_data)
+    answers = result_data.get("answers", []) or []
+    supplement_request_no = _supplement_request_no(result_data)
+    supplement_open = (
+        supplement_request_no > 0
+        and result_data.get("SPLMNT_FNSH_YN") == "N"
+        and result_data.get("SPLMNT_CMPTN_YN") == "N"
+        and not answers
+        and c_now == 0
+    )
+    raw_status = _C_NOW_STATUS.get(c_now, str(c_now) if c_now > 0 else "진행")
+
+    answer = _select_answer(answers, raw_status)
+    processing_content = answer["processing_content"]
+    penalty_amount, penalty_points = _penalty(located["entry_value"], answer["processing_status"], processing_content)
+    processing_status, processing_finish, penalty_amount, penalty_points = \
+        _apply_penalty_corrections(answer["processing_status"], answer["processing_finish"],
+                                   penalty_amount, penalty_points, located["entry_value"], processing_content)
+    attachments = _attachments(result_data)
+
+    processing_status = _final_status(processing_status, raw_status, supplement_open)
+    processing_finish = "Y" if processing_status in _CANONICAL_DONE_STATUSES else "N"
+    if processing_status == "취하":
+        penalty_amount = ""
+        penalty_points = ""
 
     return {
-        "entry_value": entry_value,
-        "car_number": car_number,
-        "occurrence_date": occurrence_date,
-        "occurrence_time": occurrence_time,
-        "violation_location": violation_location,
-        "violation_latitude": violation_latitude,
-        "violation_longitude": violation_longitude,
+        "entry_value": located["entry_value"],
+        "car_number": located["car_number"],
+        "occurrence_date": located["occurrence_date"],
+        "occurrence_time": located["occurrence_time"],
+        "violation_location": located["violation_location"],
+        "violation_latitude": located["violation_latitude"],
+        "violation_longitude": located["violation_longitude"],
         "progress_status": raw_status,
         "processing_status": processing_status,
         "processing_finish": processing_finish,
-        "processing_agency": processing_agency,
-        "processing_agency_code": processing_agency_code,
-        "person_in_charge": person_in_charge,
-        "response_date": response_date,
+        "processing_agency": answer["processing_agency"],
+        "processing_agency_code": answer["processing_agency_code"],
+        "person_in_charge": answer["person_in_charge"],
+        "response_date": answer["response_date"],
         "processing_content": processing_content,
-        "violation_law": violation_law,
+        "violation_law": _violation_law(processing_content),
         "penalty_amount": penalty_amount,
         "penalty_points": penalty_points,
-        "report_content": report_content,
-        "attachment_files": attachment_files,
-        "attached_photos": attached_photos,
-        "map_image": map_image,
-        "raw_content": content_text_clean,
+        "report_content": located["report_content"],
+        "attachment_files": attachments["attachment_files"],
+        "attached_photos": attachments["attached_photos"],
+        "map_image": attachments["map_image"],
+        "raw_content": located["raw_content"],
         "raw_type": "report_body",
-        "title_fields": title_fields,
-        "supplement_summary": supplement_summary,
+        "title_fields": _title_fields(result_data, raw_status),
+        "supplement_summary": _supplement(result_data, processing_status, supplement_request_no),
     }
 
 

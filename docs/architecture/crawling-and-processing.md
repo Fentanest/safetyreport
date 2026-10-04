@@ -2,6 +2,12 @@
 
 다루는 것: start.py 파이프라인, 파서 규칙, 카테고리 분류, 첨부 URL, 별점 API, 감시목록, 디버그 extractor.
 
+## 상세 파서 단계 (EO R-11, 2026-10-05)
+`services/parser.py` `parse_json_details` 는 반환 dict 를 그대로 두고 순수 단계로 나눴다: `_extract_body`(본문·메뉴·차량번호·발생일시·신고 내용) →
+`_apply_completed_supplement`(공식 위치·좌표, 완료된 보완의 차량번호·일시·위치와 같은 보완 좌표) → `_attachments` → `_select_answer`(마지막 답변: 상태·기관·기관코드 원문·담당자·답변일·본문) →
+`_violation_law`·`_penalty`·`_apply_penalty_corrections`·`_final_status`(canonical 상태 순서) → `_supplement`·`_title_fields`. 입력 dict 를 바꾸지 않는다.
+분리 전후 결과는 공용 파서 벡터와 그 변형 1만 1,600건에서 같았다(예외가 나던 입력은 같은 예외). 모바일 standalone_parser.dart 와 같은 벡터를 쓴다.
+
 ## 실행 접수·실패·초기화 작업의 수명
 
 - 일반/선택/초기화 크롤은 완료 watcher를 먼저 준비하고 프로세스를 인계한다. 실행 실패도 watcher에 None을 전달해 대기를 풀며, 알림 실패가 이미 실행한 프로세스를 실패 접수로 바꾸지 않는다. 로그용 Popen 부모 fd는 닫는다.
