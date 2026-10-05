@@ -485,6 +485,7 @@ def _restore_exclusive(uploaded_path: str, kind: str, dst: str, snapshot: "Mobil
             engine = create_engine(f"sqlite:///{staged}")
             try:
                 database.upgrade_schema(engine)
+                database.repair_stale_merge(engine, raise_on_error=True)
                 with engine.connect() as conn:
                     count = conn.execute(select(func.count()).select_from(models.title_table)).scalar()
             finally:

@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from dateutil.relativedelta import relativedelta
-from sqlalchemy import case, delete, select, update
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.sqlite import insert
 
 from core.database import models
@@ -313,6 +313,37 @@ def _merge_select(detail):
 
 def _attachment_cutoff() -> str:
     return (datetime.now() - relativedelta(months=6)).strftime("%Y-%m-%d")
+
+
+def merge_drift(conn) -> dict:
+    """화면에 들어갈 title/detail ID와 기관코드를 집계 비교한다(개별 신고는 반환하지 않음)."""
+    drift = {}
+    override = models.report_override_table
+    for category, detail in DETAIL_TABLES.items():
+        merge = MERGE_TABLES[category]
+        source = models.title_table.join(detail, models.title_table.c.ID == detail.c.ID).outerjoin(
+            override, (override.c.ID == detail.c.ID) & (override.c.column_name == "처리기관코드")
+        )
+        # 명시적인 빈 값/NULL 수정도 원본보다 우선한다(refresh_merge_rows와 같은 규칙).
+        code = func.coalesce(case((override.c.ID.is_not(None), override.c.value),
+                                  else_=detail.c.처리기관코드), "")
+        merged_code = func.coalesce(merge.c.처리기관코드, "")
+        expected = conn.execute(select(
+            func.count().label("detail_rows"),
+            func.count().filter(code != "").label("detail_codes"),
+            func.count().filter(merge.c.ID.is_(None)).label("missing_ids"),
+            func.count().filter(code != merged_code).label("code_mismatches"),
+        ).select_from(source.outerjoin(merge, detail.c.ID == merge.c.ID))).mappings().one()
+        actual = conn.execute(select(
+            func.count().label("merge_rows"),
+            func.count().filter(merged_code != "").label("merge_codes"),
+        ).select_from(merge)).mappings().one()
+        counts = {**expected, **actual}
+        if (counts["detail_rows"] != counts["merge_rows"]
+                or counts["detail_codes"] != counts["merge_codes"]
+                or counts["missing_ids"] or counts["code_mismatches"]):
+            drift[category] = counts
+    return drift
 
 
 def refresh_merge_rows(conn, ids=None) -> None:

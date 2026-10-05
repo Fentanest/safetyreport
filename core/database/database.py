@@ -808,6 +808,25 @@ def detail_to_sql(dataframes_with_category, engine, conn=None):
     return result.changed
 
 
+def repair_stale_merge(engine, *, raise_on_error: bool = False) -> bool:
+    """기동/복원 시 오래된 화면용 표만 재생성. 기동 실패 로그에는 개인정보를 넣지 않는다."""
+    from core.storage import reports_repo
+
+    try:
+        with engine.connect() as conn:
+            drift = reports_repo.merge_drift(conn)
+        if not drift:
+            return False
+        merge_final(engine)
+        logger.LoggerFactory.logbot.info(f"[merge] ID/기관코드 불일치 재생성 완료: {drift}")
+        return True
+    except Exception as exc:
+        logger.LoggerFactory.logbot.warning(f"[merge] 화면용 표 검사/재생성 실패: {type(exc).__name__}")
+        if raise_on_error:
+            raise
+        return False
+
+
 def merge_final(engine, conn=None, *, track_duplicate_changes: bool = False):
     """화면용 표 전체 재생성. 1건 저장과 같은 규칙(reports_repo.refresh_merge_rows): 상세 + 수정값 + 감시목록 + 6개월 첨부 가림."""
     from core.storage import reports_repo

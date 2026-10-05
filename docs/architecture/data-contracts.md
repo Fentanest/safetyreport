@@ -240,6 +240,7 @@ by_law (법규별, 같은 필드 + law)
 
 - 크롤링 저장은 `core/storage/reports_repo.save_crawled`(기존 `database.detail_to_sql` 은 튜플 → `CrawledDetail` 어댑터). 신고 1건 = 트랜잭션 1개, 네트워크는 트랜잭션 전.
 - **merge(화면용 표) = title + detail(사이트 원본) + `mysafety_report_override`(사용자 수정값) + 감시목록(계산) + 6개월 지난 첨부 "6개월 초과"**. 전체(`merge_final`)와 1건(`refresh_merge_rows`)이 같은 규칙.
+- 서버 기동은 legacy 검사·스키마 준비 다음, 스케줄러·크롤 재시도 시작 전에 `repair_stale_merge`로 분류별 title/detail 공통 ID의 행 수·기관코드 건수와 merge를 비교한다. 누락 ID·동일 ID의 기관코드 차이도 검사하고, 기관코드 사용자 수정값(NULL/빈 값 포함)은 정상 원천으로 인정한다. 불일치 때만 기존 `merge_final`로 재생성하며 실패는 예외 종류만 경고하고 기동을 계속한다. 서버 DB 복원도 교체 전 staging DB에 같은 검사를 적용하되 실패 시 복원을 중단한다. 모바일 가져오기는 기존의 전체 `merge_final`을 유지한다.
   detail 은 사이트 원본만 담는다 — 편집기(`db_editor_service.update_record`)는 수정값 표에 쓰고 detail 을 건드리지 않는다.
 - 교환은 원본으로: 모바일 가져오기는 title+detail 을 읽고(merge 아님) 수정값은 표로 따로 옮긴다.
 - 변경 판정(synced_at·변경 알림): 상세 사이트 열 + category + entry_value + 본문, NULL 과 '' 는 같음. 지오코딩·사진 열은 제외(모바일 `_syncedAtTrackedKeys` 와 같음).

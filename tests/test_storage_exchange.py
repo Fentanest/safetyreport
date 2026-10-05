@@ -87,6 +87,18 @@ class ExchangeRestoreTests(unittest.TestCase):
         with get_engine().connect() as conn:
             return len(conn.execute(select(table)).fetchall())
 
+    def test_server_restore_repairs_stale_merge_in_staging(self):
+        with get_engine().begin() as conn:
+            conn.execute(models.detail_traffic_table.update().values(처리기관코드="fixture-code"))
+            conn.execute(models.merge_traffic_table.update().values(처리기관코드=""))
+        exchange._copy_sqlite(settings.db_path, str(self.upload))
+        original = self.upload.read_bytes()
+        exchange.restore(str(self.upload), "server")
+        with get_engine().connect() as conn:
+            codes = set(conn.execute(select(models.merge_traffic_table.c.처리기관코드)).scalars())
+        self.assertEqual(codes, {"fixture-code"})
+        self.assertEqual(self.upload.read_bytes(), original)
+
     def test_refused_while_crawling_and_live_db_untouched(self):
         _mobile_db(self.upload)
         before = self._count(models.title_table)

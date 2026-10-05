@@ -126,6 +126,7 @@ async def lifespan(app: FastAPI):
     engine = get_engine()
     database.reset_legacy_database(engine, os.path.join(settings.datapath, "backups"), before_reset=_rotate_community_dataset)
     database.upgrade_schema(engine, backup_dir=os.path.join(settings.datapath, "backups"))
+    database.repair_stale_merge(engine)
     from core.utils.runtime_mode import skip_in_fixture
     if not skip_in_fixture("startup photo capture backfill"):
         try:
