@@ -123,6 +123,24 @@ by_law (법규별, 같은 필드 + law)
 - (2026-09-28 추가) `/stats` 기관·담당자·법규 행은 답변 완료 신고만 집계한다. `in_progress`·`in_progress_pct` 필드는 남지만 0이다(의미 축소, 삭제 아님 — 구 앱 호환).
   `disposition_unknown` 은 저장값 '미확인' + 주정차·버스전용차로·쓰레기 메뉴의 일부수용·처분 빈값. 파서는 그 일부수용에 '미확인'을 저장한다(parser-vectors).
 
+## 2026-10-05 신고 지도 핀 기준(pin_basis)
+
+- 정본: `contracts/map-pin-basis-vectors.json`(서버·모바일 바이트 동일). 주소키 = `trim(주소정규화)`, 비면 `trim(위반장소)`.
+- `pin_basis=coords`(기본): 각 신고의 공식 위도·경도(기존 동작 그대로). `address`: 주소키가 있는 신고는
+  같은 주소키 신고들(현재 조회 모집단)의 유효 공식 좌표 중 가장 많이 나온 (위도,경도) 쌍에 찍는다.
+  동률이면 위도 작은 쌍, 다음 경도 작은 쌍. 자기 좌표가 없어도 같은 주소에 유효 좌표가 있으면 찍히고,
+  주소키가 빈 신고는 자기 좌표, 같은 주소에 유효 좌표가 하나도 없으면 좌표 없음. 표시용 계산이며
+  DB 의 위도·경도·지오코딩상태, DB 교환·백업·CSV·커뮤니티 업로드는 바꾸지 않는다. 외부 주소 변환 없음.
+- 서버 구현: `services/stats/map.py` 의 `apply_pin_basis(frame, basis)`(순수 함수, 입력 불변) 뒤
+  `get_report_map_stats`·`get_report_map_missing_summary`·`get_report_map_missing_groups` 가
+  `pin_basis` 키워드(기본 `"coords"`, `address` 외 모두 `coords` 로 정규화)를 받는다.
+  유효 좌표 판정 뒤 모든 단계(geocoded/missing 건수, bounds 거르기, 점/클러스터, 좌표 없는 요약·목록)는
+  effective 좌표 기준. `get_report_map_stats`·`get_report_map_missing_groups` 의 `meta` 에 `pin_basis` 추가(하위호환).
+  `@cached` 키는 kwargs 를 포함하므로 모드별 캐시가 분리된다.
+- 경로(모두 선택 쿼리 `pin_basis`, 없으면 coords — 기존 응답과 동일):
+  웹 `/stats/map`, `/stats/map/points`, `/stats/map/missing`;
+  API v1 `/api/v1/stats/map`, `/api/v1/stats/map/points`, `/api/v1/stats/map/missing`.
+
 ## 2026-09-24 사진 촬영 시각 컬럼 (주정차 과태료 추정용)
 
 - detail/merge 3개 테이블에 `사진_첫촬영`(TEXT `YYYY-MM-DD HH:MM:SS`), `사진_끝촬영`(TEXT), `사진_촬영수`(INTEGER) 추가. `upgrade_schema()` 가 자동 ALTER.

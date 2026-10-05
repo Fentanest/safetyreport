@@ -135,6 +135,16 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 클릭 시 Bootstrap 모달(`#attachModal`)에서 이미지/동영상 인라인 표시, 기타는 다운로드 버튼.
 `<img>` → 인라인 표시, `<video controls>` → 인라인 재생, 기타 → 다운로드 버튼만.
 
+## 2026-10-05 신고 지도 핀 기준 스위치
+
+- `/stats/map` 에 기존 분류 버튼 묶음(`#mapCategoryGroup`)과 같은 모양의 2버튼 묶음 `#mapPinBasisGroup`
+  ("핀 기준" 라벨, "위도·경도"(data-pin-basis=coords) / "주소"(data-pin-basis=address), `aria-pressed`).
+  누르면 기존 `updateQuery` 로 `pin_basis` 쿼리를 바꿔 다시 읽는다(coords 면 쿼리에서 뺌).
+- 지도 정보 칩에 현재 기준(위도·경도/주소) 표시. 주소 모드일 때 안내 문구:
+  "같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다."
+- viewport 갱신 URL·좌표 없는 신고 모달 fetch 는 `window.location.search` 를 그대로 붙이므로 따라온다.
+  테마 토큰·기존 CSS 만 쓰고 새 색 없음. `/stats` 의 작은 지도는 바꾸지 않는다(기본 coords).
+
 ## 2026-09-29 기관 표시 설정
 
 설정 화면의 경찰기관명 정규화 토글은 제거했다. 기관명 표시와 통계 묶음은 기관코드 registry의 현행명·통계 키를 항상 사용하며, 확인되지 않은 코드는 원문 이름을 유지한다.

@@ -91,6 +91,10 @@ point/meta fields. Meta `total_reports`, `geocoded_reports`, `missing_reports`,
 Spatial-cell points have `cluster:true`, weighted centroid lat/lng, total and exact
 status/disposition/agency/category counts; zoom into the cell instead of treating
 its centroid/label as an original address. Non-cell points retain original coordinates.
+`pin_basis=coords` (default, existing behavior) or `address` (same address-key reports share
+the most-reported official coordinate pair of that address; see `../map-pin-basis-vectors.json`)
+is accepted by `/api/v1/stats/map`, `/api/v1/stats/map/points`, `/api/v1/stats/map/missing`
+and the web `/stats/map`, `/stats/map/points`, `/stats/map/missing`; map `meta` gains `pin_basis`.
 
 Law drilldown uses `/data/{category}?law=<filter>&lawExact=true&dedupe=<mode>` so
 one law does not accidentally include longer/multiple-law combinations. Unsupported

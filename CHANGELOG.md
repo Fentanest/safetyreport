@@ -3,8 +3,27 @@
 작업, 버그 수정, 세션 기록용 문서.
 
 - 구조/운영 컨텍스트는 `docs/architecture/`에 유지(2026-09-24 이전에는 `CLAUDE.md`)
-- 리팩토링 작업지시 원문은 `REFACTOR.md`에 유지
+- 리팩터링 작업지시 원문은 `REFACTOR.md`에 유지
 - 2026-04-30에 `CLAUDE.md`의 작업 이력 섹션과 최근 세션 메모를 이 파일로 이관
+
+---
+
+## 2026-10-05 (신고 지도 핀 기준 스위치, feat/map-pin-basis — 서버분)
+
+- 정본: `docs/plans/2026-10-05-map-pin-basis.md` §1·§2, `contracts/map-pin-basis-vectors.json`(서버·모바일 바이트 동일). 모바일 §3 은 별도 작업.
+- `services/stats/map.py` 에 순수 함수 `apply_pin_basis(frame, basis)`·`normalize_pin_basis()` 추가.
+  `get_report_map_stats`·`get_report_map_missing_summary`·`get_report_map_missing_groups` 가 `pin_basis`
+  키워드(기본 `"coords"`, `address` 외 모두 `coords`)를 받아 effective 좌표로 집계하고, stats/missing 그룹
+  `meta` 에 `pin_basis` 를 추가했다(하위호환). `report_stats_service` 가 두 함수도 다시 내보낸다.
+  DB 저장 좌표·스키마·DB 교환·CSV·커뮤니티 업로드는 그대로, 외부 주소 변환 없음.
+- 웹 `/stats/map`, `/stats/map/points`, `/stats/map/missing` 과 API v1 `/api/v1/stats/map`,
+  `/api/v1/stats/map/points`, `/api/v1/stats/map/missing` 에 선택 쿼리 `pin_basis`(없으면 coords, 기존 응답과 동일).
+- `web/templates/report_map.html` 에 `#mapPinBasisGroup` 2버튼 토글("핀 기준", "위도·경도"/"주소",
+  기존 `#mapCategoryGroup`·`updateQuery` 패턴, coords 면 쿼리에서 뺌), 정보 칩에 현재 기준, 주소 모드 안내 문구.
+  기존 토큰·클래스만 사용, `/stats` 작은 지도는 그대로.
+- 시험: `tests/test_map_pin_basis.py`(벡터 함수 단위 + 임시 DB 양 모드 stats/missing + 경로 `pin_basis` 전달 +
+  쿼리 없을 때 기존 결과 동일). 문서: `docs/architecture/data-contracts.md`,
+  `docs/architecture/web-ui.md`, `contracts/selfhost-compat/README.md`.
 
 ---
 

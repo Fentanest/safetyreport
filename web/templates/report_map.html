@@ -141,6 +141,7 @@
             <div class="text-muted small"><i class="fas fa-circle-info me-1"></i>건수는 원 크기로, 확대하면 세부 주소별 원형 숫자로 나뉩니다.</div>
             <div class="d-flex flex-wrap align-items-center gap-2 map-toolbar">
                 <span class="map-chip">중복 반영 <b>{{ '대표건만' if dedupe_mode == 'canonical' else '원본 전체' }}</b></span>
+                <span class="map-chip">핀 기준 <b>{{ '주소' if pin_basis == 'address' else '위도·경도' }}</b></span>
                 <span class="map-chip">주소 그룹 <b>{{ map_meta.address_groups or 0 }}곳</b></span>
                 <span class="map-chip">미좌표 <b>{{ map_meta.missing_reports or 0 }}건</b></span>
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#missingAddressModal" title="미변환 주소 보기">
@@ -232,6 +233,17 @@
                     <button type="button" class="btn btn-sm {{ 'active' if selected_category == key }}" aria-pressed="{{ 'true' if selected_category == key else 'false' }}" data-category="{{ key }}">{{ label }}</button>
                     {% endfor %}
                 </div>
+            </div>
+            <div>
+                <div class="small text-muted fw-bold mb-2">핀 기준</div>
+                <div class="sr-seg" id="mapPinBasisGroup" role="group" aria-label="핀 기준">
+                    {% for key, label in [('coords', '위도·경도'), ('address', '주소')] %}
+                    <button type="button" class="btn btn-sm {{ 'active' if (pin_basis or 'coords') == key }}" aria-pressed="{{ 'true' if (pin_basis or 'coords') == key else 'false' }}" data-pin-basis="{{ key }}">{{ label }}</button>
+                    {% endfor %}
+                </div>
+                {% if pin_basis == 'address' %}
+                <div class="small text-muted mt-1">같은 주소의 신고를 한 핀으로 묶고, 그 주소에서 가장 많이 신고된 공식 좌표에 표시합니다.</div>
+                {% endif %}
             </div>
             <div>
                 <div class="small text-muted fw-bold mb-2">중복 신고 반영</div>
@@ -582,7 +594,7 @@
 
         function updateQuery(key, value) {
             var params = new URLSearchParams(window.location.search);
-            if (!value || value === 'all') {
+            if (!value || value === 'all' || (key === 'pin_basis' && value === 'coords')) {
                 params.delete(key);
             } else {
                 params.set(key, String(value));
@@ -599,6 +611,12 @@
         document.querySelectorAll('#mapCategoryGroup [data-category]').forEach(function (button) {
             button.addEventListener('click', function () {
                 updateQuery('category', this.getAttribute('data-category'));
+            });
+        });
+
+        document.querySelectorAll('#mapPinBasisGroup [data-pin-basis]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                updateQuery('pin_basis', this.getAttribute('data-pin-basis'));
             });
         });
 

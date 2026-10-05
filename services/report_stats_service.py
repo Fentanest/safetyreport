@@ -22,5 +22,6 @@ from services.stats.overview import (  # noqa: F401
     _compute_stats_overview, get_stats_overview,
 )
 from services.stats.map import (  # noqa: F401
-    _aggregate_map_points, get_report_map_missing_groups, get_report_map_missing_summary, get_report_map_stats,
+    _aggregate_map_points, apply_pin_basis, get_report_map_missing_groups, get_report_map_missing_summary, get_report_map_stats,
+    normalize_pin_basis,
 )

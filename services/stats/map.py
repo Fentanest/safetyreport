@@ -4,12 +4,51 @@ import pandas as pd
 
 from services import report_policy
 from services.report_cache import cached
-from services.stats.common import _MAP_COLUMNS, _MAP_MISSING_COLUMNS, _first_nonempty_value, _normalize_mode, _ratio_item, _row_to_dict, _sanitize_jsonable, _text_or_empty
+from services.stats.common import _MAP_COLUMNS, _MAP_MISSING_COLUMNS, _first_nonempty_value, _is_finite_number, _normalize_mode, _ratio_item, _row_to_dict, _sanitize_jsonable, _text_or_empty
 from services.stats.reads import _load_map_records_frame
 
 
+def normalize_pin_basis(value: str | None) -> str:
+    """핀 기준 정규화: `address` 외 모두 `coords`(기본, 기존 동작)."""
+    return "address" if isinstance(value, str) and value.strip().lower() == "address" else "coords"
+
+
+def apply_pin_basis(frame, basis: str = "coords"):
+    """표시용 effective 좌표를 적용한 사본을 돌려준다(입력 프레임은 바꾸지 않는다).
+
+    `coords`(기본): 그대로(기존 동작과 같은 행·좌표).
+    `address`: 주소키가 있는 신고는 같은 주소키 신고들의 유효 공식 좌표 중 가장 많이 나온
+    (위도, 경도) 쌍에 찍는다. 동률이면 위도가 작은 쌍, 다음 경도가 작은 쌍.
+    자기 좌표가 없어도 같은 주소에 유효 좌표가 있으면 찍히고, 주소키가 비면 자기 좌표 그대로,
+    같은 주소에 유효 좌표가 하나도 없으면 좌표 없음. DB 저장값은 바꾸지 않는다.
+    """
+    result = frame.copy()
+    if normalize_pin_basis(basis) != "address" or result.empty:
+        return result
+    if "주소키" not in result.columns or "위도" not in result.columns or "경도" not in result.columns:
+        return result
+    keys = result["주소키"].fillna("").astype(str).str.strip()
+    valid = result["유효좌표"].fillna(False).astype(bool) if "유효좌표" in result.columns else (
+        result["위도"].apply(_is_finite_number) & result["경도"].apply(_is_finite_number)
+    )
+    winners: dict[str, tuple[float, float]] = {}
+    for key in keys[valid & (keys != "")].drop_duplicates():
+        pairs = result.loc[valid & (keys == key), ["위도", "경도"]].itertuples(index=False, name=None)
+        counts: dict[tuple[float, float], int] = {}
+        for lat, lng in pairs:
+            pair = (float(lat), float(lng))
+            counts[pair] = counts.get(pair, 0) + 1
+        if counts:
+            winners[key] = sorted(counts.items(), key=lambda item: (-item[1], item[0][0], item[0][1]))[0][0]
+    mask = keys.isin(winners)
+    result.loc[mask, "위도"] = keys[mask].map(lambda key: winners[key][0])
+    result.loc[mask, "경도"] = keys[mask].map(lambda key: winners[key][1])
+    result["유효좌표"] = result["위도"].apply(_is_finite_number) & result["경도"].apply(_is_finite_number)
+    return result
+
+
 @cached
-def get_report_map_stats(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None, max_points: int | None = None, bounds: tuple | None = None, zoom: int = 7):
+def get_report_map_stats(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None, max_points: int | None = None, bounds: tuple | None = None, zoom: int = 7, pin_basis: str | None = None):
     category, available_years, combined_df = _load_map_records_frame(
         engine,
         year=year,
@@ -18,6 +57,8 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
         column_names=_MAP_COLUMNS,
         filters=filters,
     )
+    basis = normalize_pin_basis(pin_basis)
+    combined_df = apply_pin_basis(combined_df, basis)
 
     if combined_df.empty:
         return _sanitize_jsonable({
@@ -27,6 +68,7 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
                 "current_year": year or "all",
                 "selected_category": category,
                 "dedupe_mode": _normalize_mode(mode),
+                "pin_basis": basis,
                 "total_reports": 0,
                 "geocoded_reports": 0,
                 "missing_reports": 0,
@@ -64,6 +106,7 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
             "current_year": year or "all",
             "selected_category": category,
             "dedupe_mode": _normalize_mode(mode),
+            "pin_basis": basis,
             "total_reports": int(len(combined_df)),
             "geocoded_reports": int(len(geocoded_df)),
             "missing_reports": int(len(missing_df)),
@@ -143,18 +186,19 @@ def _aggregate_map_points(frame, *, max_points=None, zoom=7):
 
 
 def get_report_map_missing_summary(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical",
-                                   filters: dict | None = None) -> dict:
+                                    filters: dict | None = None, pin_basis: str | None = None) -> dict:
     """지도 첫 화면용: 좌표 없는 신고의 주소 그룹 수·신고 수만. 목록(본문 열 포함)은 모달을 열 때
     /stats/map/missing 으로 받는다(기술일지 B-03). 판정은 get_report_map_missing_groups 와 같다."""
     category, _available_years, combined_df = _load_map_records_frame(
         engine, year=year, category=category, mode=mode, column_names=_MAP_COLUMNS, filters=filters)
+    combined_df = apply_pin_basis(combined_df, normalize_pin_basis(pin_basis))
     if combined_df.empty:
         return {"group_count": 0, "report_count": 0}
     missing = combined_df[(combined_df["주소키"].str.strip() != "") & ~combined_df["유효좌표"]]
     return {"group_count": int(missing["주소키"].nunique(dropna=False)), "report_count": int(len(missing))}
 
 
-def get_report_map_missing_groups(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None):
+def get_report_map_missing_groups(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None, pin_basis: str | None = None):
     category, available_years, combined_df = _load_map_records_frame(
         engine,
         year=year,
@@ -163,6 +207,7 @@ def get_report_map_missing_groups(engine, *, year: str | None = None, category: 
         column_names=_MAP_MISSING_COLUMNS,
         filters=filters,
     )
+    combined_df = apply_pin_basis(combined_df, normalize_pin_basis(pin_basis))
 
     if combined_df.empty:
         return _sanitize_jsonable({
@@ -172,6 +217,7 @@ def get_report_map_missing_groups(engine, *, year: str | None = None, category: 
                 "current_year": year or "all",
                 "selected_category": category,
                 "dedupe_mode": _normalize_mode(mode),
+                "pin_basis": normalize_pin_basis(pin_basis),
                 "group_count": 0,
                 "report_count": 0,
             },
@@ -190,6 +236,7 @@ def get_report_map_missing_groups(engine, *, year: str | None = None, category: 
                 "current_year": year or "all",
                 "selected_category": category,
                 "dedupe_mode": _normalize_mode(mode),
+                "pin_basis": normalize_pin_basis(pin_basis),
                 "group_count": 0,
                 "report_count": 0,
             },
@@ -225,6 +272,7 @@ def get_report_map_missing_groups(engine, *, year: str | None = None, category: 
             "current_year": year or "all",
             "selected_category": category,
             "dedupe_mode": _normalize_mode(mode),
+            "pin_basis": normalize_pin_basis(pin_basis),
             "group_count": int(len(groups)),
             "report_count": int(len(missing_df)),
         },

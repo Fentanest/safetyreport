@@ -134,6 +134,7 @@ def get_stats_map(
     _: str = Depends(_require_api_key),
     year: str | None = None,
     category: str = "all",
+    pin_basis: str | None = None,
 ):
     try:
         payload = data_service.get_report_map_stats(
@@ -141,6 +142,7 @@ def get_stats_map(
             year=year,
             category=category,
             mode=default_dedupe_mode(),
+            pin_basis=pin_basis,
         )
         return {"status": "success", "data": payload}
     except Exception as exc:
@@ -150,7 +152,8 @@ def get_stats_map(
 @router.get('/stats/map/points')
 def get_stats_map_points(_: str = Depends(_require_api_key), year: str | None = None, category: str = 'all',
                          dedupe: str | None = None, max_points: int = Query(1200, ge=1, le=1200),
-                         bounds: str | None = None, zoom: int = Query(7, ge=0, le=19), law: str | None = None):
+                         bounds: str | None = None, zoom: int = Query(7, ge=0, le=19), law: str | None = None,
+                         pin_basis: str | None = None):
     import math
     viewport = None
     if bounds:
@@ -162,7 +165,7 @@ def get_stats_map_points(_: str = Depends(_require_api_key), year: str | None = 
         except ValueError:
             raise HTTPException(status_code=400, detail='bounds must be south,west,north,east')
     payload = data_service.get_report_map_stats(engine,year=year,category=category,mode=normalize_dedupe_mode(dedupe),
-             filters={'law':law} if law else None,max_points=max_points,bounds=viewport,zoom=zoom)
+             filters={'law':law} if law else None,max_points=max_points,bounds=viewport,zoom=zoom,pin_basis=pin_basis)
     return {'status':'success','data':payload}
 
 
@@ -171,6 +174,7 @@ def get_stats_map_missing(
     _: str = Depends(_require_api_key),
     year: str | None = None,
     category: str = "all",
+    pin_basis: str | None = None,
 ):
     try:
         payload = data_service.get_report_map_missing_groups(
@@ -178,6 +182,7 @@ def get_stats_map_missing(
             year=year,
             category=category,
             mode=default_dedupe_mode(),
+            pin_basis=pin_basis,
         )
         return {"status": "success", "data": payload}
     except Exception as exc:

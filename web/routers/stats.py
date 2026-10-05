@@ -165,6 +165,7 @@ def view_report_map(
     year: str = None,
     category: str = "all",
     dedupe: str | None = None,
+    pin_basis: str | None = None,
 ):
     # 통계 화면이 ?dedupe= 로 모드를 고른 경우 지도도 같은 모드(없으면 설정값 — 예전과 같음)
     dedupe_mode = normalize_dedupe_mode(dedupe)
@@ -181,6 +182,7 @@ def view_report_map(
         mode=dedupe_mode,
         filters=map_filters or None,
         max_points=1200,
+        pin_basis=pin_basis,
     )
     from services.report_stats_service import get_report_map_missing_summary
     # 좌표 없는 신고 목록은 모달을 처음 열 때 받는다 — 첫 응답에는 건수만(기술일지 B-03)
@@ -190,6 +192,7 @@ def view_report_map(
         category=selected_category,
         mode=dedupe_mode,
         filters=map_filters or None,
+        pin_basis=pin_basis,
     )
     meta = map_payload.get("meta", {})
 
@@ -203,6 +206,7 @@ def view_report_map(
         "available_years": meta.get("available_years", []),
         "selected_category": meta.get("selected_category", selected_category),
         "dedupe_mode": meta.get("dedupe_mode", dedupe_mode),
+        "pin_basis": meta.get("pin_basis", "coords"),
         "map_filters": map_filters,
         # T4 커뮤니티 공유 패널의 POST(upload/run·reshare)용 CSRF 토큰 (그 밖 변경 없음)
         "csrf_token": csrf.get_or_create_token(request),
@@ -215,6 +219,7 @@ def get_report_map_points(
     year: str = None,
     category: str = "all",
     dedupe: str | None = None,
+    pin_basis: str | None = None,
 ):
     """통계 화면의 작은 신고 지도용 JSON. 통계와 같은 조건을 받아 `/stats/map` 과 같은 함수로 집계한다."""
     from services.report_stats_service import get_report_map_stats
@@ -236,6 +241,7 @@ def get_report_map_points(
         mode=normalize_dedupe_mode(dedupe),
         filters=_map_filters(request) or None,
         max_points=1200, bounds=bounds, zoom=zoom,
+        pin_basis=pin_basis,
     )
 
 
@@ -251,6 +257,7 @@ def get_report_map_missing(
     year: str = None,
     category: str = "all",
     dedupe: str | None = None,
+    pin_basis: str | None = None,
 ):
     dedupe_mode = normalize_dedupe_mode(dedupe)
     selected_category = normalize_map_category(category)
@@ -260,4 +267,5 @@ def get_report_map_missing(
         category=selected_category,
         mode=dedupe_mode,
         filters=_map_filters(request) or None,
+        pin_basis=pin_basis,
     )
