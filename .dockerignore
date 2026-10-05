@@ -46,6 +46,7 @@ gspread_old.json
 # 테스트 / 임시 파일
 test_*.py
 list_table.html
+tetresults/
 
 # 아이콘 원본 (웹은 web/static/ 사용)
 mysafetyreport.ico
