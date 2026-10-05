@@ -21,6 +21,7 @@ from services.stats import map as map_stats
 from services import report_stats_service as stats
 
 VECTORS = json.loads((Path(__file__).resolve().parent.parent / "contracts" / "map-pin-basis-vectors.json").read_text(encoding="utf-8"))
+CLUSTER_VECTORS = json.loads((Path(__file__).resolve().parent.parent / "contracts" / "map-cluster-label-vectors.json").read_text(encoding="utf-8"))
 
 
 def _frame_from_rows(rows):
@@ -79,6 +80,22 @@ class PinBasisVectorsTest(unittest.TestCase):
         pd.testing.assert_frame_equal(frame, before)
 
 
+class ClusterLabelVectorsTest(unittest.TestCase):
+    """§6 후속 B: 묶음 점 이름은 `map-cluster-label-vectors.json` 규칙(description 정본)."""
+
+    def test_cluster_cell_label_matches_vectors(self):
+        for cell in CLUSTER_VECTORS["cells"]:
+            with self.subTest(cell=cell["name"]):
+                pairs = [(row.get("주소정규화"), row.get("위반장소")) for row in cell["rows"]]
+                self.assertEqual(map_stats.cluster_cell_label(pairs), cell["expected"])
+
+    def test_cluster_cell_label_does_not_mutate_input(self):
+        pairs = [("서울 강서구 등촌동 101", "서울 강서구 등촌동 101 ")]
+        before = list(pairs)
+        map_stats.cluster_cell_label(pairs)
+        self.assertEqual(pairs, before)
+
+
 class PinBasisServiceTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -111,6 +128,7 @@ class PinBasisServiceTest(unittest.TestCase):
                 self.assertEqual(meta["pin_basis"], basis)
                 self.assertEqual(meta["total_reports"], len(VECTORS["rows"]))
                 self.assertEqual(meta["geocoded_reports"], expected["geocoded_reports"])
+                self.assertEqual(meta["address_groups"], expected["address_groups"])
                 self.assertEqual(meta["missing_reports"], expected["missing_reports"])
                 self.assertEqual(_points_set(payload), _expected_points_set(expected["points"]))
                 summary = stats.get_report_map_missing_summary(self.engine, mode="raw", pin_basis=basis)
@@ -122,6 +140,34 @@ class PinBasisServiceTest(unittest.TestCase):
                 self.assertEqual(groups["meta"]["report_count"], expected["missing_groups"]["report_count"])
                 self.assertEqual(sum(g["report_count"] for g in groups["groups"]),
                                  expected["missing_groups"]["report_count"])
+
+    def test_clustered_points_follow_label_vectors(self):
+        # max_points 를 작게 해 공간 칸 묶음이 생기게 한다(양 모드).
+        for basis in ("coords", "address"):
+            with self.subTest(basis=basis):
+                payload = stats.get_report_map_stats(self.engine, mode="raw", pin_basis=basis, max_points=2)
+                self.assertTrue(payload["meta"]["clustered"])
+                self.assertGreater(len(payload["points"]), 0)
+                for point in payload["points"]:
+                    self.assertTrue(point.get("cluster"))
+                    self.assertNotEqual(point["region"], "영역 집계")
+                    self.assertNotEqual(point["address"], "이 영역의 신고")
+                    count = point["address_count"]
+                    self.assertIsInstance(count, int)
+                    if count == 0:
+                        self.assertEqual(point["address"], "")
+                        self.assertEqual(point["region"], "주소 정보 없음")
+                    elif count == 1:
+                        self.assertEqual(point["region"], point["address"])
+                    else:
+                        self.assertEqual(point["region"], f"{point['address']} 외 {count - 1}곳")
+
+    def test_non_clustered_points_unchanged(self):
+        payload = stats.get_report_map_stats(self.engine, mode="raw", pin_basis="coords")
+        self.assertFalse(payload["meta"]["clustered"])
+        for point in payload["points"]:
+            self.assertNotIn("cluster", point)
+            self.assertNotIn("address_count", point)
 
     def test_default_matches_coords(self):
         default_stats = stats.get_report_map_stats(self.engine, mode="raw")

@@ -140,6 +140,23 @@ by_law (법규별, 같은 필드 + law)
 - 경로(모두 선택 쿼리 `pin_basis`, 없으면 coords — 기존 응답과 동일):
   웹 `/stats/map`, `/stats/map/points`, `/stats/map/missing`;
   API v1 `/api/v1/stats/map`, `/api/v1/stats/map/points`, `/api/v1/stats/map/missing`.
+- `address_groups`(서버 정의가 정본, 모바일도 같게): effective 좌표가 있는 신고의
+  서로 다른 (위도, 경도, 주소키) 조합 수
+  (`geocoded_df[['위도','경도','주소키']].drop_duplicates()`). 주소키가 빈 신고도
+  (위도, 경도, '') 로 센다. `pin_basis=address` 에서는 effective 좌표로 센다.
+  벡터 기대값 coords 6 / address 4 — `tests/test_map_pin_basis.py` 가 확인한다.
+- 공간 칸 묶음 점(`cluster: true`) 이름(후속 B, 2026-10-05 —
+  고정 문구 '영역 집계'/'이 영역의 신고' 제거). 정본:
+  `contracts/map-cluster-label-vectors.json` description(서버·모바일 바이트 동일).
+  칸 안 주소키 = `trim(주소정규화)`, 비면 `trim(위반장소)`.
+  `address_count` = 빈 주소키를 뺀 종류 수(하위호환 추가 필드, 묶음 점에만).
+  대표 주소키 = 신고 수 최다(동률이면 문자열 비교 작은 것).
+  `address` = 대표 주소키 신고들의 빈 문자열이 아닌 `trim(위반장소)` 중 가장 작은 값,
+  없으면 대표 주소키, 주소키가 하나도 없으면 빈 문자열.
+  `region` = 0곳이면 '주소 정보 없음', 1곳이면 address, 2곳 이상이면 '{address} 외 {N-1}곳'.
+  서버 계산은 순수 함수 `services/stats/map.py` 의 `cluster_cell_label(pairs)` —
+  벡터 직접 테스트 + `max_points` 를 작게 한 `get_report_map_stats` 로 확인한다.
+  비묶음 점의 address/region 은 그대로다.
 
 ## 2026-09-24 사진 촬영 시각 컬럼 (주정차 과태료 추정용)
 

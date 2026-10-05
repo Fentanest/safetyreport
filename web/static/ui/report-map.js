@@ -185,7 +185,10 @@ function create(element, mapPoints, options) {
         var root = document.createElement('div');
         root.className = 'map-tooltip-card';
         root.appendChild(createTextElement('div', 'map-tooltip-title', payload.region));
-        appendMultilineText(root, payload.addressLines.join('\n'), 'map-tooltip-address');
+        // 서버 묶음 점(cluster)은 제목(region)만 보이고 주소 부제 줄은 보이지 않는다.
+        if (!point.cluster) {
+            appendMultilineText(root, payload.addressLines.join('\n'), 'map-tooltip-address');
+        }
 
         var totalContainer = document.createElement('div');
         totalContainer.className = 'map-tooltip-total';
@@ -253,7 +256,8 @@ function create(element, mapPoints, options) {
         root.style.setProperty('--popup-accent-soft', theme.accentSoft);
 
         root.appendChild(createTextElement('div', 'map-popup-title', title));
-        if (address !== title) {
+        // 서버 묶음 점(cluster)은 제목(region)만 보이고 주소 부제 줄은 보이지 않는다.
+        if (!point.cluster && address !== title) {
             appendMultilineText(root, address, 'map-popup-address');
         }
 
@@ -298,7 +302,7 @@ function create(element, mapPoints, options) {
         link.appendChild(document.createTextNode('리스트 보기'));
         if (!point.cluster && options.listReproducible !== false) root.appendChild(link);
         else if (!point.cluster) root.appendChild(createTextElement('div','small','현재 기관 조건은 목록에서 재현할 수 없어 링크를 제공하지 않습니다.'));
-        else root.appendChild(createTextElement('div','small','확대하면 이 영역의 주소별 신고를 볼 수 있습니다.'));
+        else root.appendChild(createTextElement('div','small','확대하면 주소별 신고를 볼 수 있습니다.'));
 
         return root;
     }

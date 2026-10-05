@@ -85,4 +85,13 @@ assert.deepEqual(JSON.parse(JSON.stringify(M.aggregateAgencies(pts, 4))),
 assert.deepEqual(JSON.parse(JSON.stringify(M.addPercent(M.sumBreakdownCounts(pts, 'status_breakdown', ['수용', '처리중', '취하']), 4))),
     [{ label: '수용', count: 3, pct: 75 }, { label: '처리중', count: 1, pct: 25 }]);
 assert.equal(M.summarizeClusterRegions([{ region: '' }]).title, '복수 행정구역');
+// 서버 묶음 점(cluster)은 '… 외 N곳' region 대신 address(대표 주소)로 요약한다
+const srv = [{ region: '서울 강서구 등촌동 101 외 2곳', address: '서울 강서구 등촌동 101', total: 5, cluster: true },
+             { region: '서울 강남구 역삼동', total: 3 }];
+assert.deepEqual(JSON.parse(JSON.stringify(M.summarizeClusterRegions(srv))),
+    { title: '서울 강서구 등촌동 101', addressLines: ['주요 구역', '서울 강서구 등촌동 101 (5건)', '서울 강남구 역삼동 (3건)'] });
+assert.ok(!M.summarizeClusterRegions(srv).title.includes('외'), '묶음 region 이 섞이지 않음');
+assert.deepEqual(JSON.parse(JSON.stringify(M.summarizeClusterRegions(
+    [{ region: '주소 정보 없음', address: '', total: 2, cluster: true }]))),
+    { title: '복수 행정구역', addressLines: ['행정구역 정보 없음'] });
 console.log('stats-calc ok');

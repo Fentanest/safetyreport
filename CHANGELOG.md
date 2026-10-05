@@ -8,6 +8,33 @@
 
 ---
 
+## 2026-10-05 (신고 지도 핀 기준 후속 A·B, feat/map-pin-basis — 서버분)
+
+- 정본: `docs/plans/2026-10-05-map-pin-basis.md` §5·§6,
+  `contracts/map-pin-basis-vectors.json`·`contracts/map-cluster-label-vectors.json`(수정 없음, 서버·모바일 바이트 동일).
+  모바일 §5·§6 Dart 쪽은 별도 작업.
+- 후속 A: 서버 `address_groups` 정의는 그대로(정본: effective 좌표가 있는 신고의 서로 다른
+  (위도, 경도, 주소키) 조합 수). `tests/test_map_pin_basis.py` 가 벡터 기대값(coords 6 / address 4)을 확인한다.
+- 후속 B: 공간 칸 묶음 점(`cluster: true`)의 고정 문구 '영역 집계'/'이 영역의 신고' 제거.
+  순수 함수 `services/stats/map.py::cluster_cell_label(pairs)`(벡터 description 그대로)로
+  `address`/`address_count`/`region` 을 만들고 묶음 점에만 `address_count` 를 추가(하위호환).
+  비묶음 점은 그대로. 벡터 직접 테스트 + `max_points=2` 강제 묶음 서비스 테스트.
+- 웹: 묶음 점 툴팁·팝업은 제목(region)만 보이고 주소 부제 줄 숨김, 안내 부제 없음(사용자 지시).
+  묶음 팝업 하단 '확대하면 주소별 신고를 볼 수 있습니다.'. `summarizeClusterRegions` 는
+  서버 묶음 점의 region 대신 address 를 요약에 사용. node `tests/js/stats_calc_check.js` 에 묶음 케이스 추가.
+- 성능: `apply_pin_basis` 가 주소키마다 전체 마스크를 만들던 O(주소 수 × 행 수)를
+  groupby/value_counts 한 번 집계로 변경 — 벡터 테스트로 동일 결과 확인.
+- 시험: `tests.test_map_pin_basis` 11건 OK, node `tests/js/*_check.js` 5건 OK,
+  전체 unittest 796건 중 7 오류는 기존 결함(`test_community_client_rules`, 계약 파일 gitignore 누락)이며 그 밖 회귀 0.
+  fixture 서버(18741) 실측: 커뮤니티 게이트(카카오 세션)가 있어 HTTP 화면·JSON 은 게이트에 막힘(로컬 Supabase 스택 없음).
+  대신 실제 Jinja 렌더(양 모드 `#mapPinBasisGroup`·active 버튼·칩·안내 문구)와 실행 중 fixture DB 읽기 전용
+  서비스 호출(`meta.pin_basis` 양 모드 일치, 고정 문구 없음)로 확인. fixture 합성 데이터에 공식 좌표가 없어
+  points·묶음은 비어 있음(묶음은 합성 DB 단위 테스트로 확인).
+- 문서: `docs/architecture/data-contracts.md`(address_groups 정의·묶음 이름 규칙),
+  `docs/architecture/web-ui.md`(묶음 툴팁·팝업·calc 규칙).
+
+---
+
 ## 2026-10-05 (신고 지도 핀 기준 스위치, feat/map-pin-basis — 서버분)
 
 - 정본: `docs/plans/2026-10-05-map-pin-basis.md` §1·§2, `contracts/map-pin-basis-vectors.json`(서버·모바일 바이트 동일). 모바일 §3 은 별도 작업.

@@ -13,6 +13,56 @@ def normalize_pin_basis(value: str | None) -> str:
     return "address" if isinstance(value, str) and value.strip().lower() == "address" else "coords"
 
 
+def _clean_text(value) -> str:
+    """None·NaN 을 빈 문자열로, 그 밖은 trim 한 문자열로(클러스터 라벨·주소키용)."""
+    if value is None:
+        return ""
+    try:
+        if pd.isna(value):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return str(value).strip()
+
+
+def cluster_cell_label(pairs) -> dict:
+    """공간 칸 묶음 점(cluster=true)의 이름(순수 함수, 입력 불변).
+
+    정본: `contracts/map-cluster-label-vectors.json` description.
+    `pairs` 는 칸 안 신고들의 `(주소정규화, 위반장소)` 쌍(각각 None 가능).
+    주소키 = trim(주소정규화), 비면 trim(위반장소).
+    address_count = 빈 주소키를 뺀 종류 수.
+    대표 주소키 = 신고 수가 가장 많은 주소키(동률이면 문자열 비교로 작은 것).
+    address = 대표 주소키 신고들의 빈 문자열이 아닌 trim(위반장소) 중 가장 작은 값,
+    없으면 대표 주소키, 주소키가 하나도 없으면 빈 문자열.
+    region = address_count 가 0 이면 '주소 정보 없음', 1 이면 address,
+    2 이상이면 '{address} 외 {address_count-1}곳'.
+    """
+    counts: dict[str, int] = {}
+    displays: dict[str, list[str]] = {}
+    for normalized, place in pairs:
+        key = _clean_text(normalized)
+        if not key:
+            key = _clean_text(place)
+        if not key:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+        text = _clean_text(place)
+        if text:
+            displays.setdefault(key, []).append(text)
+    address_count = len(counts)
+    if not counts:
+        return {"address": "", "address_count": 0, "region": "주소 정보 없음"}
+    winner = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
+    candidates = displays.get(winner, [])
+    address = min(candidates) if candidates else winner
+    if address_count == 1:
+        region = address
+    else:
+        region = f"{address} 외 {address_count - 1}곳"
+    return {"address": address, "address_count": address_count, "region": region}
+
+
 def apply_pin_basis(frame, basis: str = "coords"):
     """표시용 effective 좌표를 적용한 사본을 돌려준다(입력 프레임은 바꾸지 않는다).
 
@@ -31,18 +81,20 @@ def apply_pin_basis(frame, basis: str = "coords"):
     valid = result["유효좌표"].fillna(False).astype(bool) if "유효좌표" in result.columns else (
         result["위도"].apply(_is_finite_number) & result["경도"].apply(_is_finite_number)
     )
-    winners: dict[str, tuple[float, float]] = {}
-    for key in keys[valid & (keys != "")].drop_duplicates():
-        pairs = result.loc[valid & (keys == key), ["위도", "경도"]].itertuples(index=False, name=None)
-        counts: dict[tuple[float, float], int] = {}
-        for lat, lng in pairs:
-            pair = (float(lat), float(lng))
-            counts[pair] = counts.get(pair, 0) + 1
-        if counts:
-            winners[key] = sorted(counts.items(), key=lambda item: (-item[1], item[0][0], item[0][1]))[0][0]
-    mask = keys.isin(winners)
-    result.loc[mask, "위도"] = keys[mask].map(lambda key: winners[key][0])
-    result.loc[mask, "경도"] = keys[mask].map(lambda key: winners[key][1])
+    usable = valid & (keys != "")
+    if usable.any():
+        # 주소키마다 전체 마스크를 만들지 않고 유효 좌표 쌍의 건수를 한 번에 센다.
+        sub = pd.DataFrame({
+            "_key": keys[usable].to_numpy(),
+            "_lat": pd.to_numeric(result.loc[usable, "위도"], errors="coerce").to_numpy(dtype="float64"),
+            "_lng": pd.to_numeric(result.loc[usable, "경도"], errors="coerce").to_numpy(dtype="float64"),
+        })
+        counts = sub.groupby(["_key", "_lat", "_lng"], sort=False).size().reset_index(name="_n")
+        counts = counts.sort_values(["_key", "_n", "_lat", "_lng"], ascending=[True, False, True, True])
+        winners = counts.drop_duplicates("_key", keep="first").set_index("_key")[["_lat", "_lng"]]
+        mask = keys.isin(winners.index)
+        result.loc[mask, "위도"] = keys[mask].map(winners["_lat"].to_dict())
+        result.loc[mask, "경도"] = keys[mask].map(winners["_lng"].to_dict())
     result["유효좌표"] = result["위도"].apply(_is_finite_number) & result["경도"].apply(_is_finite_number)
     return result
 
@@ -166,13 +218,25 @@ def _aggregate_map_points(frame, *, max_points=None, zoom=7):
         for (gid, key, name), count in agency_counts.items():
             if name: agencies_by.setdefault(gid, []).append({'name':str(name),'agency_key':str(key),'count':int(count)})
     points = []
+    labels_by_group: dict = {}
+    if clustered:
+        normalized_all = frame["주소정규화"] if "주소정규화" in frame.columns else pd.Series([""] * len(frame), index=frame.index)
+        places_all = frame["위반장소"] if "위반장소" in frame.columns else pd.Series([""] * len(frame), index=frame.index)
+        for gid, group in grouped:
+            pairs = list(zip(normalized_all.loc[group.index].tolist(), places_all.loc[group.index].tolist()))
+            labels_by_group[gid] = cluster_cell_label(pairs)
     for gid, row in base.iterrows():
         total = int(row.total)
         agency = sorted(agencies_by.get(gid, []), key=lambda a: (-a['count'],a['name'],a['agency_key']))
         for a in agency: a['pct'] = round(a['count'] / sum(i['count'] for i in agency) * 100, 1)
+        if clustered:
+            cell_label = labels_by_group[gid]
+            address_text, region_text = cell_label["address"], cell_label["region"]
+        else:
+            address_text, region_text = str(row.address), str(row.region or row.address)
         point = dict(lat=float(row.lat), lng=float(row.lng), total=total,
-                     address='이 영역의 신고' if clustered else str(row.address),
-                     region='영역 집계' if clustered else str(row.region or row.address),
+                     address=address_text,
+                     region=region_text,
                      status_breakdown=[_ratio_item(k,v,total) for k,v in status_by.get(gid,{}).items()],
                      disposition_breakdown=[_ratio_item(label,int(dispositions.loc[gid,key]),total) for key,label in
                          [('_fine','과태료'),('_warning','경고/범칙금'),('_reject','불수용/기타'),('_unknown','미확인')]
@@ -181,6 +245,7 @@ def _aggregate_map_points(frame, *, max_points=None, zoom=7):
                      category_breakdown=[_ratio_item(label,categories_by.get(gid,{}).get(key,0),total) for key,label in
                          [('traffic','교통위반'),('parking','주정차위반'),('other','기타위반')]])
         if clustered: point['cluster'] = True
+        if clustered: point['address_count'] = int(labels_by_group[gid]["address_count"])
         points.append(point)
     return points
 

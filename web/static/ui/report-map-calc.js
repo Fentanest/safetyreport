@@ -87,9 +87,18 @@
         });
     }
 
+    // 서버 묶음 점(point.cluster)의 region 은 '… 외 N곳' 형태라 행정구역처럼 섞으면
+    // 이상한 제목이 되므로 address(대표 주소)를 쓴다. 그 밖의 점은 region 그대로.
+    function clusterDisplayName(point) {
+        if (point && point.cluster) {
+            return String(point.address || '').trim();
+        }
+        return String(point && point.region || '').trim();
+    }
+
     function summarizeClusterRegions(points) {
         var regions = points.map(function (point) {
-            return String(point.region || '').trim();
+            return clusterDisplayName(point);
         }).filter(Boolean);
         if (regions.length === 0) {
             return { title: '복수 행정구역', addressLines: ['행정구역 정보 없음'] };
@@ -110,7 +119,7 @@
         });
         var regionCounts = {};
         points.forEach(function (point) {
-            var region = String(point.region || '').trim();
+            var region = clusterDisplayName(point);
             if (!region) {
                 return;
             }

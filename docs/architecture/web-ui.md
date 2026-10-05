@@ -145,6 +145,18 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 - viewport 갱신 URL·좌표 없는 신고 모달 fetch 는 `window.location.search` 를 그대로 붙이므로 따라온다.
   테마 토큰·기존 CSS 만 쓰고 새 색 없음. `/stats` 의 작은 지도는 바꾸지 않는다(기본 coords).
 
+## 2026-10-05 신고 지도 묶음 점 이름(후속 B)
+
+- 서버 묶음 점(`point.cluster`)의 툴팁·팝업은 제목(region)만 보이고 주소 부제 줄을 보이지 않는다
+  (`web/static/ui/report-map.js` 의 `buildTooltip`·`buildPointPopup`).
+  '가까운 주소 N곳을 한 원으로 묶었습니다 · 확대하면 나뉩니다' 같은 안내 부제는 넣지 않는다(사용자 지시).
+- 묶음 팝업 하단 문구는 '확대하면 주소별 신고를 볼 수 있습니다.'('영역' 단어 제거).
+- Leaflet 클라이언트 묶음 요약(`report-map-calc.js` `summarizeClusterRegions`)은
+  서버 묶음 점의 region('… 외 N곳') 대신 address(대표 주소)를 행정구역 요약에 쓴다 —
+  새 region 문자열이 행정구역과 섞여 이상한 묶음 제목이 되지 않게 한다.
+  묶음 점이 아닌 점은 예전과 같다. node 시험 `tests/js/stats_calc_check.js` 에 묶음 점 케이스 추가.
+  `/stats` 작은 지도도 같은 JS 를 쓰며, 묶음 표시가 없는 모집단에서는 동작이 그대로다.
+
 ## 2026-09-29 기관 표시 설정
 
 설정 화면의 경찰기관명 정규화 토글은 제거했다. 기관명 표시와 통계 묶음은 기관코드 registry의 현행명·통계 키를 항상 사용하며, 확인되지 않은 코드는 원문 이름을 유지한다.
