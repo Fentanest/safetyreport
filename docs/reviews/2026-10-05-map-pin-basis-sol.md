@@ -7,7 +7,8 @@
 | 차수 | 대상 | 결과 | 반영 |
 |---|---|---|---|
 | 1차 | PC 0a8bc8e · 모바일 cdf93910 | 높음 0·중간 6(모두 모바일)·낮음 2 | PC 306d59f · 모바일 43228e06 |
-| 2차 | 위 반영 | 1차 7건 해결·1건 부분, 새 높음 0·중간 4·낮음 1 | 아래 표 |
+| 2차 | 위 반영 | 1차 7건 해결·1건 부분, 새 높음 0·중간 4·낮음 1 | PC f62dadb · 모바일 a5f0f304 |
+| 3차 | 위 반영 | 2차 3건 해결·2건 부분, 새 높음 0·중간 4·낮음 2 | 아래 표(모바일만) |
 
 ### 1차 반영
 
@@ -31,6 +32,19 @@
 | 중간3 주소 모드 좌표 없는 목록이 내부 공백을 합쳐 다른 키 병합 | 모바일: 주소 모드 목록은 e.addr_key 로 묶음. 시험 |
 | 중간4 Python strip 과 Dart trim 문자 집합 차이 | 정본 집합을 공용 벡터 `strip_code_points`·`key_cases` 로 명시, 모바일 SQLite·Dart 가 같은 집합. 조사 중 Dart UTF-8 디코더의 맨 앞 BOM 제거를 확인해 키 비교·재조회는 hex 로 |
 | 낮음1 pin_basis 정규화 차이 | 모바일도 앞뒤 공백·대소문자 무시. 시험 |
+
+### 3차 반영
+
+| 지적 | 처리 |
+|---|---|
+| 중간1 NULL ID 신고가 주소 모드 좌표 없는 목록에서 빠짐 | 고치지 않음: 실데이터에 NULL ID 없음(크롤러가 항상 채움, 사용자 확인), 기존 목록도 ID 조인 |
+| 중간2 대표 좌표 UPDATE 가 신고마다 후보 재탐색(5만 건 미완료) | 주소별 승자를 GROUP BY 3단계로 한 번 계산 + 고유 인덱스 적용. 한 주소 5천 좌표 시험 |
+| 중간3 주소 모드 '전체 신고 보기' 빈 목록(U+001C) | 첫 행으로 기존 목록 키 계산. 시험 |
+| 중간4 빈 장소 먼저면 묶음 누락, BOM 문구 비교 | 장소 문구 hex 비교·빈 문구도 값으로. 시험 |
+| 낮음1 Client 정규화 차이 | `map_pin_basis.dart` 공용 규칙을 Client·Standalone 이 사용 |
+| 낮음2 BOM 키가 hex 로 노출 | 표시문구는 원문만 사용 |
+
+실DB 대조(사용자 PC dev DB 사본, 외부 전송 없음): 서버·모바일 meta·신고별 effective 묶음 2,353 / 781개 전부 일치(3차 반영 뒤 재확인).
 
 ## 1차 원문
 
@@ -133,3 +147,69 @@
    수정 방향: 대소문자·앞뒤 공백 처리 기준을 통일하십시오.
 
 검증: 공용 벡터 두 파일은 바이트 동일. 모바일 지정 시험 **30건**, 추가 snapshot·coords 의미·마커 라벨 시험 **22건 통과**. 서버 원 명령은 읽기 전용 임시파일 제한으로 blocked였고, 파일 DB fixture만 메모리 SQLite로 바꾼 실행은 **14건 통과**했습니다. 캐시의 닫기·DB 교체·롤백·동시 조회·취소와 토글 경합은 코드 대조했으며, 전용 실행 검증을 모두 수행한 것은 아닙니다. 저장소 파일 변경 없음.
+
+## 3차 원문
+
+**2차 지적 처리**
+
+| 지적 | 판정 | 근거 |
+|---|---|---|
+| 중간1: NULL·빈 ID 신고 누락 | **부분** | 지도 건수·점은 effective 표에서 직접 집계해 해결. 주소 모드의 좌표 없는 목록에는 ID 조인이 남아 NULL ID가 빠짐. |
+| 중간2: coords 전량 행·ID 맵 적재 | **해결** | `CREATE AS SELECT`로 SQLite 안에서 표를 생성함. 다만 새 대표 좌표 UPDATE에 별도 성능 결함이 있음. |
+| 중간3: 주소 목록의 내부 공백 병합 | **해결** | address 목록을 `e.addr_key`로 묶어 `"서울  중구"`와 `"서울 중구"`를 구분함. |
+| 중간4: Python/Dart 공백 집합 차이 | **해결** | 주소키 계산에 정본 29자 집합을 적용. BOM·U+001C 경계 시험 통과. 후속 목록 조회·문구 비교에는 아래 잔여 결함이 있음. |
+| 낮음1: pin_basis 정규화 차이 | **부분** | Standalone의 `" ADDRESS "`는 해결. Client 요청과 Unicode 경계는 아직 불일치함. |
+
+## 높음
+
+새 높음 없음.
+
+## 중간
+
+**1. NULL ID 신고가 주소 모드의 좌표 없는 목록에서 누락됩니다.**  
+[local_db_service.dart:3331](/home/better0101/projects/wt-mobile-pinbasis/lib/services/local_db_service.dart:3331)
+
+좌표가 없고 주소가 `"서울 중구"`인 신고 3건의 ID를 `NULL`, `NULL`, `''`로 입력하면, effective 표·지도 미좌표 건수는 **3건**이지만 목록은 **1건**입니다. `e.ID=r.ID` 조인이 NULL 행을 제외합니다. SQLite 재현으로 확인했습니다.
+
+고칠 방향: effective 표에 원본 행 식별자와 목록에 필요한 열을 보존해 ID 조인을 제거하십시오.
+
+**2. 대표 좌표 UPDATE가 같은 주소의 좌표 후보를 신고마다 반복 검색합니다.**  
+[local_db_service.dart:2867](/home/better0101/projects/wt-mobile-pinbasis/lib/services/local_db_service.dart:2867), [2875](/home/better0101/projects/wt-mobile-pinbasis/lib/services/local_db_service.dart:2875)
+
+같은 주소키에 `(37+i×0.000001, 127)` 좌표를 가진 신고를 입력하면, 각 신고의 lat·lng 갱신마다 `NOT EXISTS`가 후보들을 다시 탐색합니다. 동일 SQL을 메모리 SQLite에서 실행한 결과 **1천 건 0.53초 → 2천 건 2.09초**였고, **5만 건은 5초 제한에서 미완료**였습니다. 5만 건의 건수 표·인덱스 생성은 약 0.13초였으므로 병목은 UPDATE입니다.
+
+취소 확인도 UPDATE 뒤에 있어 빠른 토글·닫기·동기화가 SQL 완료까지 기다립니다. 고칠 방향: 주소별 승자를 한 번만 계산해 인덱스를 만들고, 신고에는 그 결과를 적용하십시오.
+
+**3. 주소 모드 카드의 ‘전체 신고 보기’가 빈 목록을 엽니다.**  
+[local_db_service.dart:3263](/home/better0101/projects/wt-mobile-pinbasis/lib/services/local_db_service.dart:3263), [3357](/home/better0101/projects/wt-mobile-pinbasis/lib/services/local_db_service.dart:3357), [1773](/home/better0101/projects/wt-mobile-pinbasis/lib/services/local_db_service.dart:1773)
+
+좌표 없는 신고의 주소정규화를 `"\u001C서울 중구"`로 입력하면 주소 모드 카드는 **1건**입니다. 하지만 반환한 조회 키는 `"서울 중구"`이고, 기존 목록 표의 키는 `"\u001C서울 중구"`라서 ‘전체 신고 보기’는 **0건**입니다. Dart 공백 처리와 SQLite 조회로 재현했습니다.
+
+고칠 방향: effective 주소키에서 기존 목록 키를 다시 만들지 말고, 해당 그룹의 실제 기존 목록 키를 전달하십시오. 재조회에는 hex 키를 사용하고, coords 목록의 기존 정규화는 유지해야 합니다.
+
+**4. 빈 장소가 먼저 들어오면 기존 coords 묶음 판정이 깨집니다.**  
+[local_statistics.dart:332](/home/better0101/projects/wt-mobile-pinbasis/lib/services/local_statistics.dart:332), [local_db_service.dart:3128](/home/better0101/projects/wt-mobile-pinbasis/lib/services/local_db_service.dart:3128)
+
+같은 좌표·처리상태인 두 신고의 장소를 `''`, `"서울 중구"`로 입력하면, 변경 전에는 장소 종류가 2개여서 **cluster=true**였습니다. 변경 후 주소키별 SQL 그룹은 각각 종류가 1개이고, accumulator가 빈 문자열을 초기 상태로 취급해 **cluster=false**가 됩니다. 따라서 `2건 묶음` 라벨과 탭 확대가 사라집니다.
+
+또한 장소가 `"\uFEFF서울 중구"`와 `"서울 중구"`이고 처리상태가 다르면, Dart로 읽은 문구 비교에서 BOM이 사라져 묶음이 누락됩니다. 문구 비교에 hex가 적용되지 않은 경로입니다.
+
+고칠 방향: 초기화 여부를 별도로 관리하고, 칸 전체 장소 종류도 SQL/hex 기준으로 판정하십시오.
+
+## 낮음
+
+**1. pin_basis 정규화가 호출 경로·공백 문자에 따라 다릅니다.**  
+[api_service.dart:615](/home/better0101/projects/wt-mobile-pinbasis/lib/services/api_service.dart:615), [670](/home/better0101/projects/wt-mobile-pinbasis/lib/services/api_service.dart:670), [local_db_service.dart:2702](/home/better0101/projects/wt-mobile-pinbasis/lib/services/local_db_service.dart:2702)
+
+`" ADDRESS "`는 서버·Standalone에서 address지만 Client에서는 쿼리가 생략돼 coords입니다. `"\u001CADDRESS\u001F"`는 서버 address·Standalone coords이고, `"\uFEFFADDRESS"`는 반대입니다.
+
+고칠 방향: 정본 공백 집합을 사용하는 정규화 함수를 Client와 Standalone 모두에 적용하십시오.
+
+**2. BOM만 있는 주소키가 화면에 hex 문자열로 노출됩니다.**  
+[local_statistics.dart:397](/home/better0101/projects/wt-mobile-pinbasis/lib/services/local_statistics.dart:397), [local_db_service.dart:2799](/home/better0101/projects/wt-mobile-pinbasis/lib/services/local_db_service.dart:2799)
+
+주소정규화 `"\uFEFF"`, 장소 `''`, 유효 좌표를 입력하면 주소키 hex는 `EFBBBF`입니다. 표시 문자열은 디코딩 중 빈 문자열이 되고, 라벨 함수가 비교용 키로 fallback하여 **address·region에 `"EFBBBF"`**를 반환합니다. 실제 함수 코드 실행으로 확인했습니다.
+
+고칠 방향: hex 비교키와 표시용 원문을 분리하고, 표시문구 fallback에 hex를 사용하지 마십시오.
+
+검증: 공용 벡터 두 파일은 바이트 동일. 모바일 지정 36건·추가 20건 통과. 서버 원 명령은 임시파일 제한으로 blocked였고, fixture 저장소만 메모리 SQLite로 바꾼 실행은 16건 통과했습니다. 서버 경로 mock은 전달 코드를 우회하지 않습니다. 닫기·DB 교체·롤백·동시 조회·늦은 토글 응답은 코드 대조했으며 전체 전용 실행 검증은 수행하지 않았습니다. 저장소 파일을 수정하지 않았습니다.
