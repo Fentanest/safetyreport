@@ -1,5 +1,5 @@
 {
- "description": "신고 지도 핀 기준(pin_basis) 사양(2026-10-05). 서버 services/stats(지도 집계·좌표 없는 신고)와 모바일 Standalone lib/services/local_db_service.dart(computeReportMapStats·computeReportMapMissingGroups)가 같은 결과를 내는지 확인한다(두 레포 바이트 동일). 주소키 = trim(주소정규화), 비면 trim(위반장소). coords = 각 신고의 공식 좌표(기존 동작 그대로). address = 주소키가 있는 신고는 같은 주소키 신고들의 유효 공식 좌표 중 가장 많이 나온 (위도,경도) 쌍(동률이면 위도 작은 것, 다음 경도 작은 것)에 찍는다. 자기 좌표가 없어도 같은 주소에 좌표가 있으면 찍힌다. 주소키가 비면 자기 좌표. 표시용 계산이며 DB 의 위도·경도는 바꾸지 않는다. points 는 (lat,lng,total) 집합으로 비교한다(순서 무관). address_groups 는 기존 서버·모바일 정의가 달라 여기서 비교하지 않는다.",
+ "description": "신고 지도 핀 기준(pin_basis) 사양(2026-10-05). 서버 services/stats(지도 집계·좌표 없는 신고)와 모바일 Standalone lib/services/local_db_service.dart(computeReportMapStats·computeReportMapMissingGroups)가 같은 결과를 내는지 확인한다(두 레포 바이트 동일). 주소키 = trim(주소정규화), 비면 trim(위반장소). coords = 각 신고의 공식 좌표(기존 동작 그대로). address = 주소키가 있는 신고는 같은 주소키 신고들의 유효 공식 좌표 중 가장 많이 나온 (위도,경도) 쌍(동률이면 위도 작은 것, 다음 경도 작은 것)에 찍는다. 자기 좌표가 없어도 같은 주소에 좌표가 있으면 찍힌다. 주소키가 비면 자기 좌표. 표시용 계산이며 DB 의 위도·경도는 바꾸지 않는다. points 는 (lat,lng,total) 집합으로 비교한다(순서 무관). address_groups = effective 좌표가 있는 신고의 서로 다른 (위도,경도,주소키) 조합 수(서버 정의, 2026-10-05 모바일도 같게).",
  "rows": [
   {"ID": "A1", "주소정규화": "서울 중구 세종대로 110", "위반장소": "서울 중구 세종대로 110", "위도": 37.5665, "경도": 126.978},
   {"ID": "A2", "주소정규화": "서울 중구 세종대로 110", "위반장소": "서울 중구 세종대로 110", "위도": 37.5665, "경도": 126.978},
@@ -21,6 +21,7 @@
     "D1": [35.1, 129.0], "E1": [35.87, 128.6], "E2": null
    },
    "geocoded_reports": 7,
+   "address_groups": 6,
    "missing_reports": 4,
    "points": [
     {"lat": 37.5665, "lng": 126.978, "total": 2},
@@ -39,6 +40,7 @@
     "D1": [35.1, 129.0], "E1": [35.87, 128.6], "E2": [35.87, 128.6]
    },
    "geocoded_reports": 9,
+   "address_groups": 4,
    "missing_reports": 2,
    "points": [
     {"lat": 37.5665, "lng": 126.978, "total": 4},

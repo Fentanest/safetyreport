@@ -41,3 +41,20 @@
 
 ## 4. 범위 밖 / 금지
 - 외부 주소 변환, `mysafety_geocode_cache` 사용, DB 스키마 변경, 저장 좌표 수정, VERSION·push·태그. 기존 address_groups 정의 차이(서버 triple vs 모바일 주소키)는 이번에 고치지 않는다(보고만).
+
+## 5. 후속 A — 모바일 주소 그룹 수를 서버와 같게 (2026-10-05 사용자 지시)
+- 정의(서버 기존 정의가 정본): `address_groups` = 유효(effective) 좌표가 있는 신고의 서로 다른 (위도, 경도, 주소키) 조합 수. 주소키가 빈 신고도 (위도, 경도, '') 로 센다.
+  서버 `services/stats/map.py` 의 `geocoded_df[['위도','경도','주소키']].drop_duplicates()` 와 같다. pin_basis=address 에서는 effective 좌표로 센다.
+- 모바일 `computeReportMapStats` meta 의 `address_groups` 를 이 정의로 바꾼다(지금은 주소키만 센다).
+- `contracts/map-pin-basis-vectors.json` 의 expected 에 `address_groups`(coords 6, address 4) 를 넣었다. 양쪽 테스트가 이 값을 확인한다.
+
+## 6. 후속 B — 지도 묶음 원 이름 (2026-10-05 사용자 지시: "'영역 집계'라고 표시하면 어떡해")
+- 서버 공간 칸 묶음 점(`cluster: true`)의 `region`/`address` 고정 문구 '영역 집계'/'이 영역의 신고' 를 없앤다.
+  정본 규칙·벡터: `contracts/map-cluster-label-vectors.json`(두 레포 바이트 동일). 점에 `address_count` 를 추가(하위호환 추가 필드).
+  - `region`(말풍선 제목) = 주소 0곳 '주소 정보 없음' / 1곳 대표 주소 / 2곳 이상 '{대표 주소} 외 {N-1}곳'.
+  - `address` = 대표 주소(규칙은 벡터 description).
+- 웹 말풍선(`web/static/ui/report-map.js` 툴팁·팝업)에서 묶음 점(`point.cluster`)은 제목만 보이고 주소 부제 줄은 보이지 않는다. 사용자가 '가까운 주소 N곳을 한 원으로 묶었습니다 · 확대하면 나뉩니다' 같은 안내 부제는 빼라고 했다.
+  묶음 팝업 하단 문구 '확대하면 이 영역의 주소별 신고를 볼 수 있습니다.' 는 '확대하면 주소별 신고를 볼 수 있습니다.' 로('영역' 단어 제거).
+  Leaflet 클라이언트 묶음 요약(`report-map-calc.js` summarizeClusterRegions)이 서버 묶음 점의 새 region('… 외 N곳')을 행정구역처럼 섞어 이상한 제목을 만들지 않는지 확인하고, 필요하면 서버 묶음 점은 region 대신 address 를 쓰게 한다.
+- 모바일 Standalone 칸 점(`_MapCellAccumulator.toJson`)도 같은 규칙으로 `address`/`address_count`/`region` 를 낸다(지금은 MIN(위반장소)·COUNT(DISTINCT 위반장소)).
+  모바일 지도 화면은 묶음 점을 누르면 확대하는 기존 동작과 마커 라벨('N건 묶음')을 그대로 둔다. 새 region 문자열이 마커 라벨(`mapMarkerRegionLabel`)로 새어 나가 라벨이 바뀌지 않는지 확인한다.
