@@ -1,8 +1,8 @@
 """1회 초기화 크롤링 로컬 API (T3b).
 
 - 관리자 웹: /settings/community/rebuild/* (세션 인증 미들웨어 + CSRF·JSON·Origin 확인)
-- 모바일 Client: /api/v1/community/rebuild/* (X-API-Key, 관리 허용 키만 +
-  X-Community-User-Token 을 T3a community_gate.verify_client_user_token 으로 확인)
+- 모바일 Client: 상태 GET 은 유효한 X-API-Key 로 조회. 변경 POST 는 관리 허용 키 +
+  X-Community-User-Token 을 community_gate.verify_client_user_token 으로 확인
 
 main.py 등록은 T3a 가 한다. 모듈 변수 이름 router·api_router 고정.
 응답은 no-store, 토큰·비밀 없음.
@@ -149,9 +149,6 @@ async def _api_action(request: Request, api_key: str, allowed: set[str], action)
 
 @api_router.get("")
 async def api_status(api_key: str = Depends(_require_api_key)):
-    if not _can_manage(api_key):
-        return _ok({"detail": "커뮤니티 관리 권한이 없는 키입니다.",
-                     "code": "permission_required"}, 403)
     payload = await run_in_threadpool(rebuild.status)
     return _ok({"data": payload})
 

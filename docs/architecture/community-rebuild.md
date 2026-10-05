@@ -94,14 +94,15 @@ capture 재시도 ID(T4 `capture_retry_ids()`, 없으면 빈 집합 — 파일 �
 - 관리자: `/settings/community/rebuild` (`GET` 상태, `POST /start·/resume·/pause·/accept-gaps`,
   CSRF·JSON·Origin 확인). `main.py` 등록은 T3a.
 - 모바일 Client: `/api/v1/community/rebuild` (`GET`, `POST /start·/resume`,
-  관리 허용 API 키 + `X-Community-User-Token` 을 T3a
-  `community_gate.verify_client_user_token` 으로 확인 — 모듈·함수가 없으면 검사 생략).
+  GET 은 유효한 API 키로 조회. POST 는 관리 허용 API 키 + `X-Community-User-Token` 을
+  `community_gate.verify_client_user_token` 으로 확인하며 토큰 누락·검증 실패는 거부).
 - 응답 `no-store`, 토큰·비밀 없음.
 
 ## 코드 대조 정정
 
 | 문서 | 코드 | 상태 |
 |---|---|---|
+| 초기화 상태 조회 권한 | GET은 유효한 API 키면 허용하며 상태·진행량·백업 참조만 반환한다. 시작·재개 POST는 관리 권한 및 사용자 토큰 검사를 유지한다. | 정정 |
 | `rebuild.md` preparing_backup 실패 | `start()` → `failed`, 개인 DB 무변경 | 일치 (G07) |
 | 크롤러 실행 실패 | `start/resume/resume_on_startup`의 launch 예외는 `running`을 `failed`로 바꾸고 **해당 run 소유 lease만** 같은 트랜잭션에서 해제한다. 완료/일시정지 상태를 덮지 않으며 즉시 같은 run으로 재개 가능. 초기화 필요 판정은 유지 | 정정 |
 | 중복 제어 요청 | 같은 서버 프로세스의 start/resume/startup은 RLock으로 직렬화한다. DB의 scope별 active job 유일성도 유지한다. 건강한 live lease는 startup에서 재실행하지 않는다 | 일치 |

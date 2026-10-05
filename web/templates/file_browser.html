@@ -21,12 +21,12 @@
         <!-- Nav tabs -->
         <ul class="nav nav-tabs mb-3" id="fileTabs" role="tablist">
             <li class="nav-item" role="presentation">
-                <button class="nav-link active fw-bold text-success" id="results-tab" data-bs-toggle="tab" data-bs-target="#results-pane" type="button" role="tab" aria-controls="results-pane" aria-selected="true">
+                <button class="nav-link{% if active_target == 'results' %} active{% endif %} fw-bold text-success" id="results-tab" data-bs-toggle="tab" data-bs-target="#results-pane" type="button" role="tab" aria-controls="results-pane" aria-selected="{{ 'true' if active_target == 'results' else 'false' }}">
                     <i class="fas fa-file-excel me-1"></i> 결과 파일 (results)
                 </button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link fw-bold text-primary" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs-pane" type="button" role="tab" aria-controls="logs-pane" aria-selected="false">
+                <button class="nav-link{% if active_target == 'logs' %} active{% endif %} fw-bold text-primary" id="logs-tab" data-bs-toggle="tab" data-bs-target="#logs-pane" type="button" role="tab" aria-controls="logs-pane" aria-selected="{{ 'true' if active_target == 'logs' else 'false' }}">
                     <i class="fas fa-terminal me-1"></i> 로그 파일 (logs)
                 </button>
             </li>
@@ -35,7 +35,7 @@
         <!-- Tab panes -->
         <div class="tab-content" id="fileTabsContent">
             <!-- Results Tab (Moved to first and active) -->
-            <div class="tab-pane fade show active" id="results-pane" role="tabpanel" aria-labelledby="results-tab">
+            <div class="tab-pane fade{% if active_target == 'results' %} show active{% endif %}" id="results-pane" role="tabpanel" aria-labelledby="results-tab">
                 <div class="d-flex justify-content-end mb-2">
                     <button class="btn btn-outline-danger btn-sm btn-delete-all" data-target="results">
                         <i class="fas fa-eraser me-1"></i> 결과 파일 일괄 삭제
@@ -85,7 +85,7 @@
             </div>
 
             <!-- Logs Tab -->
-            <div class="tab-pane fade" id="logs-pane" role="tabpanel" aria-labelledby="logs-tab">
+            <div class="tab-pane fade{% if active_target == 'logs' %} show active{% endif %}" id="logs-pane" role="tabpanel" aria-labelledby="logs-tab">
                 <div class="d-flex justify-content-end mb-2">
                     <button class="btn btn-outline-danger btn-sm btn-delete-all" data-target="logs">
                         <i class="fas fa-eraser me-1"></i> 로그 파일 일괄 삭제

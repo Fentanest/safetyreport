@@ -573,7 +573,7 @@ $(document).ready(function() {
         _attachModal.show();
     });
 
-    // 엑셀 다운로드 (BOM 포함 CSV)
+    // CSV 다운로드 (UTF-8 BOM 포함)
     $('.btn-export-excel').on('click', function() {
         let resultData = [];
         let maxLinksLength = { "첨부사진": 0, "첨부파일": 0 };

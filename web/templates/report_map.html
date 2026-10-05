@@ -185,7 +185,7 @@
             <div class="d-flex flex-wrap align-items-center gap-2 map-toolbar">
                 <span class="map-chip">중복 반영 <b>{{ '대표건만' if dedupe_mode == 'canonical' else '원본 전체' }}</b></span>
                 <span class="map-chip">핀 기준 <b>{{ '주소' if pin_basis == 'address' else '위도·경도' }}</b></span>
-                <span class="map-chip">주소 그룹 <b>{{ map_meta.address_groups or 0 }}곳</b></span>
+                <span class="map-chip">지도 표시 지점 <b>{{ map_meta.address_groups or 0 }}곳</b></span>
                 <span class="map-chip">좌표 없음 <b>{{ map_meta.missing_reports or 0 }}건</b></span>
                 <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#missingAddressModal" title="공식 좌표 없는 신고 보기">
                     <i class="fas fa-triangle-exclamation me-1"></i> 좌표 없는 신고
@@ -247,7 +247,7 @@
         <div class="card map-summary-card h-100" style="--sr-kpi-accent: var(--sr-status-partial);">
             <div class="card-body">
                 <div class="map-summary-value">{{ map_meta.address_groups or 0 }}</div>
-                <div class="map-summary-label">지도 주소 그룹</div>
+                <div class="map-summary-label">지도 표시 지점</div>
             </div>
         </div>
     </div>

@@ -686,6 +686,34 @@ class RouterTest(unittest.TestCase):
         self.assertEqual(started.status_code, 200)
         self.assertTrue(started.json()["data"]["run_id"])
 
+    def test_non_manager_can_read_but_cannot_start_or_resume(self):
+        from web.routers import community_rebuild_route as route
+        with mock.patch.object(route, "_can_manage", return_value=False), \
+             mock.patch.object(route, "_verify_client_user_token") as verify:
+            resp = self.client.get("/api/v1/community/rebuild")
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.headers["Cache-Control"], "no-store")
+            self.assertEqual(resp.json()["data"]["state"], "required")
+            self.assertEqual(set(resp.json()["data"]), {
+                "required", "state", "phase", "run_id", "counts", "backup_ref",
+                "last_error", "required_version", "legacy_reset",
+            })
+            for action in ("start", "resume"):
+                denied = self.client.post("/api/v1/community/rebuild/" + action, json={})
+                self.assertEqual((denied.status_code, denied.json()["code"]),
+                                 (403, "permission_required"))
+            verify.assert_not_called()
+            self.assertEqual(self.env.launches, [])
+
+    def test_status_still_requires_valid_api_key(self):
+        from web.routers.api_route import _require_api_key
+        from web.routers import api_route
+        del self.client.app.dependency_overrides[_require_api_key]
+        with mock.patch.object(api_route.database, "validate_api_key", return_value=False):
+            for headers in ({}, {"X-API-Key": "invalid-fixture-key"}):
+                self.assertEqual(self.client.get("/api/v1/community/rebuild",
+                                                 headers=headers).status_code, 401)
+
     def test_no_token_in_responses(self):
         resp = self.client.get("/settings/community/rebuild")
         self.assertNotIn("token", resp.text.lower())
