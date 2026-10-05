@@ -1,6 +1,6 @@
 import { test, expect, Page } from '@playwright/test';
 
-// 신고 지도(W4): 지도 바깥 영역 — 세그먼트 버튼, 미변환 주소 창, 두 테마·휴대폰 폭.
+// 신고 지도(W4): 지도 바깥 영역 — 세그먼트 버튼, 좌표 없는 신고 창, 두 테마·휴대폰 폭.
 async function login(page: Page) {
   await page.goto('/login');
   await page.locator('#username').fill('fixture-admin');
@@ -20,7 +20,7 @@ test('year and category buttons mark the selection and filter by URL', async ({ 
 test('missing address list opens', async ({ page }) => {
   await login(page);
   await page.goto('/stats/map');
-  await page.getByRole('button', { name: /미변환 주소/ }).click();
+  await page.getByRole('button', { name: /좌표 없는 신고/ }).click();
   await expect(page.locator('#missingAddressModal')).toBeVisible();
   await expect(page.locator('#missingAddressModal .map-chip').first()).toContainText('주소 그룹');
 });

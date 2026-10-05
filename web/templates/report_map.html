@@ -186,9 +186,9 @@
                 <span class="map-chip">중복 반영 <b>{{ '대표건만' if dedupe_mode == 'canonical' else '원본 전체' }}</b></span>
                 <span class="map-chip">핀 기준 <b>{{ '주소' if pin_basis == 'address' else '위도·경도' }}</b></span>
                 <span class="map-chip">주소 그룹 <b>{{ map_meta.address_groups or 0 }}곳</b></span>
-                <span class="map-chip">미좌표 <b>{{ map_meta.missing_reports or 0 }}건</b></span>
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#missingAddressModal" title="미변환 주소 보기">
-                    <i class="fas fa-triangle-exclamation me-1"></i> 미변환 주소
+                <span class="map-chip">좌표 없음 <b>{{ map_meta.missing_reports or 0 }}건</b></span>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#missingAddressModal" title="공식 좌표 없는 신고 보기">
+                    <i class="fas fa-triangle-exclamation me-1"></i> 좌표 없는 신고
                     <span class="sr-badge sr-badge-supplement ms-1">{{ missing_map_meta.report_count or 0 }}</span>
                 </button>
             </div>
@@ -332,7 +332,7 @@
                     <div class="text-muted small py-3" data-role="placeholder">목록을 불러오려면 잠시 기다려 주세요…</div>
                     {% else %}
                     <div class="map-empty py-4">
-                        <div class="fw-bold mb-2">현재 조건에서 미변환 주소가 없습니다.</div>
+                        <div class="fw-bold mb-2">현재 조건에서 공식 좌표 없는 신고가 없습니다.</div>
                         <div>좌표가 비어 있는 신고가 생기면 이 목록에서 바로 확인할 수 있습니다.</div>
                     </div>
                     {% endif %}
@@ -394,7 +394,7 @@
             list.textContent = '';
             if (!groups.length) {
                 var empty = el('div', 'map-empty py-4');
-                empty.appendChild(el('div', 'fw-bold mb-2', '현재 조건에서 미변환 주소가 없습니다.'));
+                empty.appendChild(el('div', 'fw-bold mb-2', '현재 조건에서 공식 좌표 없는 신고가 없습니다.'));
                 list.appendChild(empty);
                 return;
             }
