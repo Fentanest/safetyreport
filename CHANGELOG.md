@@ -8,6 +8,16 @@
 
 ---
 
+## 2026-10-05 (사용 안내 글 공개에 맞춘 README·제작자 블로그 링크)
+
+- hbWorklazy 에 PC·Android 통합 사용 안내 글을 공개했다: <https://hb.worklazy.net/mysafetyreport-pc-android-guide/> (블로그 커밋 55ee977, Actions run 37307432569 success).
+  글은 아스트라(codex gpt-6-astra)가 쓰고 Gemini(agy gemini-3.1-pro-high)에게 표현 지적만 받아 배포했다. 이번 작업 한정으로 사용자 지시가 역할 규정보다 우선했다(기록: `docs/reviews/2026-10-05-blog-guide.md`).
+- 사이드바 `제작자 블로그` 링크를 새 글로 바꿨다(`web/templates/base.html`). 브라우저에서 눌러 새 탭으로 그 글이 열리는 것을 확인했다.
+- README 를 사용자 기준으로 다시 썼다: 버전 안내(공개판 v2.5.x 와 이번 3.0.0.0 dev 차이), 계정 세 가지와 카카오 로그아웃 주의, 주요 기능 사진(`docs/images/readme/*.webp` 9장, 실제 fixture 앱에서 촬영·차량번호/담당자 치환), 처음 설정 순서, PC↔앱 함께 쓰기, 상세 안내 글 링크. 맨 위 예시 사진 `mysafetyreport.webp` 를 새 대시보드 화면으로 교체.
+  사실 정정: 감시 목록에는 변경 알림이 없다, 목록의 `엑셀 다운로드`는 CSV, 수집은 직접 로그인 우선·크롬은 대체 경로.
+
+---
+
 ## 2026-10-05 (신고 지도 — 커뮤니티 지도 바로가기, feat/map-pin-basis — 서버분)
 
 - `/stats/map` 제목 줄 오른쪽에 '커뮤니티 지도' 바로가기(지구 아이콘 + 이름 + `safemap.worklazy.net` + 외부 열기 표시, 알약 모양, 테마 토큰만 사용).
