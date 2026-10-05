@@ -96,27 +96,21 @@
         return String(point && point.region || '').trim();
     }
 
+    // Leaflet 묶음(여러 점을 합친 원) 말풍선 제목 = '{대표 주소} 외 {N-1}곳'(2026-10-05 사용자 지시, 서버 묶음 점과 같은 꼴).
+    // 대표 주소 = 신고 수가 가장 많은 이름. N = 일반 점의 서로 다른 이름 수 + 서버 묶음 점의 address_count 합
+    // (서버 묶음 점 안의 주소별 건수는 모르므로 그 점 전체 건수를 대표 주소에 싣는 근사다).
     function summarizeClusterRegions(points) {
-        var regions = points.map(function (point) {
-            return clusterDisplayName(point);
-        }).filter(Boolean);
-        if (regions.length === 0) {
-            return { title: '복수 행정구역', addressLines: ['행정구역 정보 없음'] };
-        }
-        var tokenGroups = regions.map(function (region) {
-            return region.split(/\s+/).filter(Boolean);
-        });
-        var prefix = tokenGroups[0].slice();
-        tokenGroups.slice(1).forEach(function (tokens) {
-            var next = [];
-            for (var i = 0; i < Math.min(prefix.length, tokens.length); i += 1) {
-                if (prefix[i] !== tokens[i]) {
-                    break;
-                }
-                next.push(prefix[i]);
+        var names = {};
+        var clusterAddresses = 0;
+        points.forEach(function (point) {
+            var name = clusterDisplayName(point);
+            if (point && point.cluster) {
+                clusterAddresses += Number(point.address_count || 0);
+            } else if (name) {
+                names[name] = true;
             }
-            prefix = next;
         });
+        var addressCount = Object.keys(names).length + clusterAddresses;
         var regionCounts = {};
         points.forEach(function (point) {
             var region = clusterDisplayName(point);
@@ -129,13 +123,16 @@
             if (regionCounts[b] !== regionCounts[a]) {
                 return regionCounts[b] - regionCounts[a];
             }
-            return a.localeCompare(b, 'ko');
+            return a < b ? -1 : (a > b ? 1 : 0); // 서버 묶음 이름과 같이 문자열 순서(동률)
         });
-        var title = prefix.length >= 2 ? prefix.join(' ') : majorRegions[0];
+        if (majorRegions.length === 0) {
+            return { title: '주소 정보 없음', addressLines: [] };
+        }
+        var title = addressCount > 1 ? majorRegions[0] + ' 외 ' + (addressCount - 1) + '곳' : majorRegions[0];
         var addressLines = ['주요 구역'].concat(majorRegions.slice(0, 4).map(function (region) {
             return region + ' (' + regionCounts[region] + '건)';
         }));
-        return { title: title || '복수 행정구역', addressLines: addressLines };
+        return { title: title, addressLines: addressLines };
     }
 
     root.SrReportMapCalc = {

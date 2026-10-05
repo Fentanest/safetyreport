@@ -79,19 +79,22 @@ const pts = [{ region: '서울 강남구 역삼동', total: 3, agency_breakdown:
                status_breakdown: [{ label: '수용', count: 3 }] },
              { region: '서울 강남구 삼성동', total: 1, agency_breakdown: [{ name: 'B', count: 1 }], status_breakdown: [{ label: '처리중', count: 1 }] }];
 assert.deepEqual(JSON.parse(JSON.stringify(M.summarizeClusterRegions(pts))),
-    { title: '서울 강남구', addressLines: ['주요 구역', '서울 강남구 역삼동 (3건)', '서울 강남구 삼성동 (1건)'] });
+    { title: '서울 강남구 역삼동 외 1곳', addressLines: ['주요 구역', '서울 강남구 역삼동 (3건)', '서울 강남구 삼성동 (1건)'] });
 assert.deepEqual(JSON.parse(JSON.stringify(M.aggregateAgencies(pts, 4))),
     [{ name: 'A', count: 2, pct: 50 }, { name: 'B', count: 2, pct: 50 }]);
 assert.deepEqual(JSON.parse(JSON.stringify(M.addPercent(M.sumBreakdownCounts(pts, 'status_breakdown', ['수용', '처리중', '취하']), 4))),
     [{ label: '수용', count: 3, pct: 75 }, { label: '처리중', count: 1, pct: 25 }]);
-assert.equal(M.summarizeClusterRegions([{ region: '' }]).title, '복수 행정구역');
+assert.equal(M.summarizeClusterRegions([{ region: '' }]).title, '주소 정보 없음');
+// 한 주소만 묶이면 '외 N곳' 없이 그 주소
+assert.equal(M.summarizeClusterRegions([{ region: '서울 중구', total: 2 }, { region: '서울 중구', total: 1 }]).title, '서울 중구');
 // 서버 묶음 점(cluster)은 '… 외 N곳' region 대신 address(대표 주소)로 요약한다
-const srv = [{ region: '서울 강서구 등촌동 101 외 2곳', address: '서울 강서구 등촌동 101', total: 5, cluster: true },
+const srv = [{ region: '서울 강서구 등촌동 101 외 2곳', address: '서울 강서구 등촌동 101', address_count: 3, total: 5, cluster: true },
              { region: '서울 강남구 역삼동', total: 3 }];
 assert.deepEqual(JSON.parse(JSON.stringify(M.summarizeClusterRegions(srv))),
-    { title: '서울 강서구 등촌동 101', addressLines: ['주요 구역', '서울 강서구 등촌동 101 (5건)', '서울 강남구 역삼동 (3건)'] });
-assert.ok(!M.summarizeClusterRegions(srv).title.includes('외'), '묶음 region 이 섞이지 않음');
+    { title: '서울 강서구 등촌동 101 외 3곳', addressLines: ['주요 구역', '서울 강서구 등촌동 101 (5건)', '서울 강남구 역삼동 (3건)'] });
+// 서버 묶음 점의 region('… 외 N곳')은 이름으로 섞이지 않는다(대표 주소 + address_count 로 센다)
+assert.ok(!M.summarizeClusterRegions(srv).addressLines.join().includes('외 2곳'));
 assert.deepEqual(JSON.parse(JSON.stringify(M.summarizeClusterRegions(
     [{ region: '주소 정보 없음', address: '', total: 2, cluster: true }]))),
-    { title: '복수 행정구역', addressLines: ['행정구역 정보 없음'] });
+    { title: '주소 정보 없음', addressLines: [] });
 console.log('stats-calc ok');

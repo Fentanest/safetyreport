@@ -126,12 +126,21 @@ function create(element, mapPoints, options) {
         container.appendChild(title);
         container.appendChild(document.createElement('br'));
 
-        validItems.forEach(function (item, index) {
+        // 큰 묶음은 기관이 수십 곳이라 말풍선이 지도 밖으로 넘치고 제목이 잘린다(2026-10-05 실데이터 확인).
+        // 건수 상위 5곳만 적고 나머지는 '외 N개 기관 (M건)'으로 줄인다.
+        var shown = validItems.slice(0, 5);
+        shown.forEach(function (item, index) {
             if (index > 0) {
                 container.appendChild(document.createElement('br'));
             }
             container.appendChild(document.createTextNode(item.name + ' (' + Number(item.count || 0) + '건)'));
         });
+        var rest = validItems.slice(5);
+        if (rest.length > 0) {
+            var restCount = rest.reduce(function (sum, item) { return sum + Number(item.count || 0); }, 0);
+            container.appendChild(document.createElement('br'));
+            container.appendChild(document.createTextNode('외 ' + rest.length + '개 기관 (' + restCount + '건)'));
+        }
         return container;
     }
 
