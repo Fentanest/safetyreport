@@ -185,3 +185,8 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
   대시보드 카드 포커스 테두리는 `box-shadow: var(--sr-focus)`(C10). 별점 시작 버튼은 어두운 글자 `--sr-on-status-supplement`(C11). 일부수용 배지는 노랑 계열(C14).
 - 필수 설정 화면: 계정 확인 단계에서는 상단 안내가 다음 행동을 알려 주고(F-02), 중앙 링크를 이미 연 뒤에는 '새 링크로 다시 시작'을 보인다(F-01).
   동의 문서는 카카오 연결이 확인된 뒤에만 요청한다(F-03).
+
+## 2026-10-05 신고 지도 커뮤니티 지도 바로가기
+- `base.html` 제목 줄의 `{% block page_actions %}` 에 화면별 버튼을 둔다(지금은 `/stats/map` 만 사용).
+- `/stats/map`: 제목 줄 `.community-map-link`(새 창, `https://safemap.worklazy.net/`), '커뮤니티 공유' 패널 맨 아래 `.community-map-note` 안내 링크.
+  모바일 앱은 지도 오른쪽 위 버튼으로 폰의 기본 브라우저 앱을 연다(앱 안 웹뷰 금지).

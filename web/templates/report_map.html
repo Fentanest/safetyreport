@@ -41,6 +41,31 @@
     #mapCategoryGroup .btn[data-category="parking"] { --sr-seg-accent: var(--sr-status-supplement); }
     #mapCategoryGroup .btn[data-category="other"]   { --sr-seg-accent: var(--sr-status-accept); }
 
+    /* 커뮤니티 지도(safemap.worklazy.net) 바로가기 — 제목 줄 오른쪽 */
+    .community-map-link {
+        display: inline-flex; align-items: center; gap: 0.7rem;
+        padding: 0.45rem 0.9rem 0.45rem 0.5rem; border-radius: 999px;
+        border: 1px solid var(--sr-border); background: var(--sr-surface); color: var(--sr-text);
+        text-decoration: none; box-shadow: var(--sr-shadow);
+        transition: border-color .15s ease, transform .15s ease;
+    }
+    .community-map-link:hover { border-color: var(--sr-primary); color: var(--sr-text); transform: translateY(-1px); }
+    .community-map-link:focus-visible { outline: 2px solid var(--sr-focus); outline-offset: 2px; }
+    .community-map-link .cml-icon {
+        width: 2.1rem; height: 2.1rem; border-radius: 50%; flex: none;
+        display: inline-flex; align-items: center; justify-content: center;
+        background: var(--sr-primary-soft); color: var(--sr-primary); font-size: 1rem;
+    }
+    .community-map-link .cml-text { display: flex; flex-direction: column; line-height: 1.15; }
+    .community-map-link .cml-title { font-weight: 700; font-size: 0.92rem; }
+    .community-map-link .cml-host { font-size: 0.74rem; color: var(--sr-text-muted); }
+    .community-map-link .cml-go { color: var(--sr-text-muted); font-size: 0.8rem; margin-left: 0.15rem; }
+    .community-map-link:hover .cml-go { color: var(--sr-primary); }
+    @media (prefers-reduced-motion: reduce) { .community-map-link { transition: none; } .community-map-link:hover { transform: none; } }
+    .community-map-note { border-top: 1px dashed var(--sr-border); padding-top: 0.55rem; margin-top: 0.6rem; }
+    .community-map-note a { color: var(--sr-primary); font-weight: 600; text-decoration: none; }
+    .community-map-note a:hover { text-decoration: underline; }
+
     #reportMap {
         width: 100%;
         height: 72vh;
@@ -112,6 +137,18 @@
 </style>
 {% endblock %}
 
+{% block page_actions %}
+<a class="community-map-link" href="https://safemap.worklazy.net/" target="_blank" rel="noopener noreferrer"
+   title="커뮤니티 지도를 새 창으로 엽니다" aria-label="커뮤니티 지도 열기 (safemap.worklazy.net, 새 창)">
+    <span class="cml-icon" aria-hidden="true"><i class="fas fa-earth-asia"></i></span>
+    <span class="cml-text">
+        <span class="cml-title">커뮤니티 지도</span>
+        <span class="cml-host">safemap.worklazy.net</span>
+    </span>
+    <i class="fas fa-arrow-up-right-from-square cml-go" aria-hidden="true"></i>
+</a>
+{% endblock %}
+
 {% block content %}
 {% if map_filters %}
 {# 통계 화면에서 넘어온 조건. 연도·분류 버튼은 이 조건을 유지한 채 바뀐다. #}
@@ -176,6 +213,10 @@
         <div class="small text-muted">자동 업로드: 매일 00:00 (한국 시간) — 서버가 꺼져 있으면 다음 시작 때 한 번 보충합니다.</div>
         <div class="small text-muted">수정한 개인 데이터는 공유하지 않습니다. 공식 상세 응답 그대로만 공유됩니다.</div>
         <div class="small fw-bold mt-1" id="communityShareState" role="status" aria-live="polite"></div>
+        <div class="small text-muted community-map-note">
+            <i class="fas fa-earth-asia me-1" aria-hidden="true"></i>공유한 신고는 다른 사용자의 신고와 함께
+            <a href="https://safemap.worklazy.net/" target="_blank" rel="noopener noreferrer">커뮤니티 지도<i class="fas fa-arrow-up-right-from-square ms-1 small" aria-hidden="true"></i></a>에서 볼 수 있습니다.
+        </div>
     </div>
 </div>
 

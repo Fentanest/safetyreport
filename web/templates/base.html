@@ -164,6 +164,7 @@
         <main class="col-md-10 ms-sm-auto px-4 main-content">
             <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
                 <h1 class="h2">{{ title }}</h1>
+                {% block page_actions %}{% endblock %}
             </div>
             <!-- 커뮤니티 초기화 크롤링 안내(필요·진행 중일 때만). 크롤 시작만 막히고 다른 화면은 그대로 쓴다. -->
             <div class="alert alert-warning flex-wrap align-items-center gap-2 small" id="srRebuildBanner" role="status" hidden>
