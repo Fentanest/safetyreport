@@ -34,6 +34,8 @@ class FileBrowserTargetTests(unittest.TestCase):
                 with self.subTest(query=query):
                     response = client.get("/file-browser" + query)
                     self.assertEqual(response.status_code, 200)
+                    explicit = selected if query in ("?target=logs", "?target=results") else None
+                    self.assertEqual(response.context["explicit_target"], explicit)
                     elements = Elements(response.text).by_id
                     for target in ("logs", "results"):
                         tab = elements[target + "-tab"]

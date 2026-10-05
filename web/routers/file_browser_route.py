@@ -10,12 +10,13 @@ from services import file_service
 router = APIRouter(prefix="/file-browser", tags=["file-browser"])
 
 @router.get("", response_class=HTMLResponse)
-def list_files(request: Request, target: str = "results"):
+def list_files(request: Request, target: str | None = None):
     active_target = target if target in {"logs", "results"} else "results"
     return templates.TemplateResponse(request, "file_browser.html", {
         "title": "파일 브라우저",
         "files": file_service.list_browser_groups(),
-        "active_target": active_target
+        "active_target": active_target,
+        "explicit_target": target if target in {"logs", "results"} else None
     })
 
 @router.get("/download")

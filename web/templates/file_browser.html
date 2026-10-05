@@ -161,11 +161,16 @@ $(document).ready(function() {
         $.fn.dataTable.tables({ visible: true, api: true }).columns.adjust();
     });
 
-    // Restore active tab from localStorage
-    var savedTabId = localStorage.getItem('activeFileTab');
-    if (savedTabId && $('#' + savedTabId).length) {
-        var tabTrigger = new bootstrap.Tab(document.getElementById(savedTabId));
-        tabTrigger.show();
+    // A valid explicit target wins over the saved tab; otherwise restore the last tab.
+    var explicitTarget = {{ explicit_target | tojson }};
+    if (explicitTarget) {
+        localStorage.setItem('activeFileTab', explicitTarget + '-tab');
+    } else {
+        var savedTabId = localStorage.getItem('activeFileTab');
+        if (savedTabId === 'logs-tab' || savedTabId === 'results-tab') {
+            var tabTrigger = new bootstrap.Tab(document.getElementById(savedTabId));
+            tabTrigger.show();
+        }
     }
 
     // 전체 선택은 그 표 안(검색 결과의 모든 페이지)만. 예전에는 두 표가 같은 클래스를 써서 보이지 않는
