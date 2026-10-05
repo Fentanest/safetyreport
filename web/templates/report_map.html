@@ -37,6 +37,12 @@
         color: var(--sr-text-muted);
         font-size: 0.88rem;
     }
+    /* 좁은 화면: 요약 카드 2×2(한 줄에 한 장이면 화면 한 개를 차지한다) */
+    @media (max-width: 575.98px) {
+        .map-summary-card .card-body { padding: 0.7rem 0.8rem; }
+        .map-summary-value { font-size: 1.25rem; }
+        .map-summary-label { font-size: 0.78rem; line-height: 1.3; }
+    }
     #mapCategoryGroup .btn[data-category="traffic"] { --sr-seg-accent: var(--sr-primary); }
     #mapCategoryGroup .btn[data-category="parking"] { --sr-seg-accent: var(--sr-status-supplement); }
     #mapCategoryGroup .btn[data-category="other"]   { --sr-seg-accent: var(--sr-status-accept); }
@@ -220,8 +226,8 @@
     </div>
 </div>
 
-<div class="row g-3 mb-3">
-    <div class="col-xl-3 col-md-6">
+<div class="row g-2 g-sm-3 mb-3">
+    <div class="col-6 col-xl-3">
         <div class="card map-summary-card h-100" style="--sr-kpi-accent: var(--sr-primary);">
             <div class="card-body">
                 <div class="map-summary-value">{{ map_meta.total_reports or 0 }}</div>
@@ -229,7 +235,7 @@
             </div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
+    <div class="col-6 col-xl-3">
         <div class="card map-summary-card h-100" style="--sr-kpi-accent: var(--sr-status-accept);">
             <div class="card-body">
                 <div class="map-summary-value">{{ map_meta.geocoded_reports or 0 }}</div>
@@ -237,7 +243,7 @@
             </div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
+    <div class="col-6 col-xl-3">
         <div class="card map-summary-card h-100" style="--sr-kpi-accent: var(--sr-status-partial);">
             <div class="card-body">
                 <div class="map-summary-value">{{ map_meta.address_groups or 0 }}</div>
@@ -245,7 +251,7 @@
             </div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
+    <div class="col-6 col-xl-3">
         <div class="card map-summary-card h-100" style="--sr-kpi-accent: var(--sr-status-supplement);">
             <div class="card-body">
                 <div class="map-summary-value">{{ map_meta.missing_reports or 0 }}</div>
