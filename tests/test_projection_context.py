@@ -126,6 +126,25 @@ class ProjectionContextTest(unittest.TestCase):
         self.assertIn(self.rep, ids)
         self.assertTrue(set(self.loose) <= ids)
 
+    def test_page_order_is_report_number_then_id_descending(self):
+        # Insertion/ID order disagrees with report number; ties span boundaries.
+        table = TABLES['traffic']
+        with self.engine.begin() as conn:
+            conn.execute(table.delete())
+            for rid, number in [('z', 'SPP-2601-1'), ('a', 'SPP-2610-1'),
+                                ('b', 'SPP-2610-1'), ('c', 'SPP-2609-1')]:
+                conn.execute(table.insert().values(ID=rid, 신고번호=number, 처리상태='수용'))
+        for mode in ('raw', 'canonical'):
+            for size in (1, 2, 3):
+                rows, offset = [], 0
+                while offset is not None:
+                    page = rqs.get_report_page(self.engine, 'traffic', offset=offset,
+                                               limit=size, mode=mode)
+                    self.assertEqual(page['total'], 4)
+                    rows.extend(r['ID'] for r in page['data'])
+                    offset = page['next_offset']
+                self.assertEqual(rows, ['b', 'a', 'c', 'z'])
+
     def test_mode_normalization_is_shared(self):
         for value, expected in ((None, "raw"), ("", "raw"), (" Canonical ", "canonical"), ("x", "raw")):
             self.assertEqual(dgs.normalize_mode(value), expected)

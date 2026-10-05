@@ -103,7 +103,7 @@ def get_report_page(engine, category, *, offset=0, limit=200, mode='canonical'):
         # One read transaction for count and page; no full materialization.
         conn.exec_driver_sql('BEGIN')
         total = conn.execute(select(func.count()).select_from(query.order_by(None).subquery())).scalar_one()
-        df = pd.read_sql_query(query.order_by(None).order_by(table.c.ID).offset(offset).limit(limit), conn)
+        df = pd.read_sql_query(query.order_by(None).order_by(table.c["신고번호"].desc(), table.c.ID.desc()).offset(offset).limit(limit), conn)
         watch_ids = _get_watch_ids(conn)
         if projection.mode == 'canonical' and not df.empty:
             page_ids = set(df['ID'].astype(str))
