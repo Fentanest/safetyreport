@@ -8,6 +8,14 @@
 
 ---
 
+## 2026-10-05 (신고 지도 핀 기준 — Sol 2차 검수 반영, feat/map-pin-basis — 서버분)
+
+- 서버 코드는 바꾸지 않았다(서버가 정본). 공용 벡터 `contracts/map-pin-basis-vectors.json` 에 주소키 strip 집합
+  `strip_code_points`(Python `str.strip()` 기본 29자)와 경계 7사례 `key_cases`(탭·NBSP·BOM·U+001C·내부 이중 공백·전각 공백·NULL)를 추가했다(모바일과 바이트 동일).
+- 시험: 집합이 Python 기본 집합과 같은지, 실제 서버 로더(`_load_map_records_frame`)의 `주소키` 가 사례와 같은지. `tests.test_map_pin_basis` 16건 OK.
+
+---
+
 ## 2026-10-05 (신고 지도 핀 기준 — Sol 1차 검수 반영·화면 확인, feat/map-pin-basis — 서버분)
 
 - 근거: `docs/plans/2026-10-05-map-pin-basis.md` §7, 검수 기록 `docs/reviews/2026-10-05-map-pin-basis-sol.md`.

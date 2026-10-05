@@ -215,6 +215,21 @@ class PinBasisBoundaryTest(unittest.TestCase):
         self.assertEqual((meta["geocoded_reports"], meta["missing_reports"], meta["address_groups"]), (3, 0, 1))
         self.assertEqual(stats.get_report_map_missing_summary(engine, mode="raw", pin_basis="address")["report_count"], 0)
 
+    def test_strip_set_is_python_default(self):
+        # 정본 집합(공용 벡터)이 서버 str.strip() 기본 집합과 같다. 모바일은 이 목록을 그대로 쓴다.
+        expected = [c for c in range(0x110000) if chr(c).isspace()]
+        self.assertEqual(VECTORS["strip_code_points"], expected)
+
+    def test_key_cases_through_server_loader(self):
+        from services.stats.reads import _load_map_records_frame
+        cases = VECTORS["key_cases"]
+        engine = self._engine([(f"K{i}", c["주소정규화"], c["위반장소"], 37.5, 127.0) for i, c in enumerate(cases)])
+        _, _, frame = _load_map_records_frame(engine, year=None, category="all", mode="raw", column_names=None, filters=None)
+        got = dict(zip(frame["ID"], frame["주소키"]))
+        for i, case in enumerate(cases):
+            with self.subTest(case=i):
+                self.assertEqual(got[f"K{i}"], case["key"])
+
     def test_close_floats_are_distinct_address_groups(self):
         engine = self._engine([("F1", "서울 중구", "서울 중구", 37.5, 127.0),
                                ("F2", "서울 중구", "서울 중구", 37.50000000000001, 127.0)])
