@@ -1,0 +1,115 @@
+{
+ "description": "기기 이름 검증(client-rules \u00a73, 중앙 protocol.ts normalizeDeviceLabel\u00b7서버 normalize_device_label)과 모바일 정리(fallback 'Android 기기'). 정리 결과는 검증을 통과해야 한다.",
+ "cases": [
+  {
+   "input": "이 PC",
+   "valid": "이 PC",
+   "sanitized": "이 PC"
+  },
+  {
+   "input": "  Galaxy   S24  ",
+   "valid": "Galaxy S24",
+   "sanitized": "Galaxy S24"
+  },
+  {
+   "input": "a\tb\nc",
+   "valid": "a b c",
+   "sanitized": "a b c"
+  },
+  {
+   "input": "a\u3000b\u00a0c",
+   "valid": "a b c",
+   "sanitized": "a b c"
+  },
+  {
+   "input": "a\ufeffb",
+   "valid": "a b",
+   "sanitized": "a b"
+  },
+  {
+   "input": "\u200b숨김",
+   "valid": null,
+   "sanitized": "숨김"
+  },
+  {
+   "input": "<script>",
+   "valid": null,
+   "sanitized": "script"
+  },
+  {
+   "input": "it's",
+   "valid": null,
+   "sanitized": "it s"
+  },
+  {
+   "input": "http://x",
+   "valid": null,
+   "sanitized": "Android 기기"
+  },
+  {
+   "input": "Mailto:me",
+   "valid": null,
+   "sanitized": "Android 기기"
+  },
+  {
+   "input": "1http:x",
+   "valid": "1http:x",
+   "sanitized": "1http:x"
+  },
+  {
+   "input": "",
+   "valid": null,
+   "sanitized": "Android 기기"
+  },
+  {
+   "input": "   ",
+   "valid": null,
+   "sanitized": "Android 기기"
+  },
+  {
+   "input": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+   "valid": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+   "sanitized": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가"
+  },
+  {
+   "input": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가",
+   "valid": null,
+   "sanitized": "가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가"
+  },
+  {
+   "input": "\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8",
+   "valid": "각각각각각각각각각각각각각각",
+   "sanitized": "\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100\u1161\u11a8\u1100"
+  },
+  {
+   "input": "a\u0085b",
+   "valid": null,
+   "sanitized": "a b"
+  },
+  {
+   "input": "\u202eevil",
+   "valid": null,
+   "sanitized": "evil"
+  },
+  {
+   "input": "back\\slash",
+   "valid": null,
+   "sanitized": "back slash"
+  },
+  {
+   "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx y",
+   "valid": null,
+   "sanitized": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx "
+  },
+  {
+   "input": null,
+   "valid": null,
+   "sanitized": "Android 기기"
+  },
+  {
+   "input": 5,
+   "valid": null,
+   "sanitized": null
+  }
+ ]
+}

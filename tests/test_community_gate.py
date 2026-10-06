@@ -34,6 +34,7 @@ class FakeAccount:
 
     def __init__(self, fake):
         self.fake = fake
+        self.bindings = {}
         self.consents: dict[str, dict] = {}      # user_id -> {state, grant_id, policy_version, granted_at}
         self.connections: dict[str, dict] = {}   # connection_id -> {...}
         self.contributor: dict[str, str] = {}
@@ -75,6 +76,7 @@ class FakeAccount:
                          "source_app": "safetyreport", "source_mode": "server", "dataset_key": conn["dataset_key"]}
         contributor = self.contributor.get(uid, "active" if c["state"] != "none" else "none")
         return 200, {"protocol": 1,
+                     "official_account": {"dataset_key": self.bindings.get(uid), "bound_at": None},
                      "gate": {"kakao": True, "consent": c["state"] == "active", "can_enter": c["state"] == "active",
                               "reasons": [] if c["state"] == "active" else [f"consent_{c['state']}"]},
                      "policy": {"required_version": POLICY, "consent_text_sha256": self.policy_hash},
@@ -109,6 +111,12 @@ class FakeAccount:
                      "lineage_active": False}
 
     def _connections(self, uid, sid, body):
+        key = body["dataset_key"]
+        if self.bindings.get(uid) and self.bindings[uid] != key:
+            return 409, {"error": {"code": "official_account_mismatch", "bound_dataset_key": self.bindings[uid]}}
+        if any(owner != uid and value == key for owner, value in self.bindings.items()):
+            return 409, {"error": {"code": "official_account_taken"}}
+        self.bindings[uid] = key
         active = [c for c in self.connections.values() if c["dataset_key"] == body["dataset_key"] and c["status"] == "active"]
         if active and not body.get("takeover"):
             a = active[0]
@@ -143,13 +151,14 @@ class FakeAccount:
         return 200, {"protocol": 1, "connection_id": body["connection_id"], "status": "revoked"}
 
     def _contributions_delete(self, uid, sid, body):
+        self.bindings.pop(uid, None)
         n = 0
         for c in self.connections.values():
             if c["user_id"] == uid and c["status"] == "active":
                 c["status"] = "revoked"
                 n += 1
         return 200, {"protocol": 1, "deletion_id": str(uuid.uuid4()), "deleted_facts": 3, "revoked_connections": n,
-                     "deleted_at": "2026-09-26T00:00:00Z"}
+                     "deleted_at": "2026-09-26T00:00:00Z", "official_account_released": True}
 
 
 def inject_module(name, module):
@@ -211,7 +220,7 @@ class GateTestBase(CommunityTestBase):
             database.upgrade_schema(get_engine())
             with get_engine().begin() as conn:
                 conn.execute(database.sync_meta_table.delete().where(
-                    database.sync_meta_table.c.key == database.KAKAO_MEMBER_META_KEY))
+                    database.sync_meta_table.c.key.in_([database.KAKAO_MEMBER_META_KEY, "official_account_dataset_key"])))
         except Exception:
             pass
 
@@ -262,7 +271,7 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(d("ok", "valid", self.status(policy=newer, consent={"state": "active", "policy_version": "2026-10-01.1",
                                                                                "consent_text_sha256": "2" * 64}), 1, False),
                          ("ok", []), "새 정책도 앱을 새로 배포하지 않고 통과한다")
-        self.assertEqual(d("ok", "valid", self.status(contributor={"status": "none"}), 600, False), ("ok", []))
+        self.assertEqual(d("ok", "valid", self.status(contributor={"status": "none"}), 300, False), ("ok", []))
 
     def test_contract_gate_vectors(self):
         # 모바일 test/community/gate_evaluate_test.dart 와 같은 계약 벡터 — PC·모바일 판정이 같아야 한다
@@ -331,21 +340,21 @@ class GateServiceTests(GateTestBase):
         self.clock.now += 2
         self.assertTrue(community_gate.require_fresh(60)["can_enter"])
         self.assertEqual(self.account.count("status"), n + 1, "새 작업은 60초 이내 재검증")
-        self.clock.now += 599
-        self.assertTrue(community_gate.evaluate()["can_enter"], "화면 이동은 10분 캐시")
+        self.clock.now += 299
+        self.assertTrue(community_gate.evaluate()["can_enter"], "화면 이동도 5분 이내 대조")
         self.clock.now += 2
         self.assertEqual(community_gate.evaluate()["state"], "verification_required")
 
-    def test_network_failure_keeps_cache_only_within_ttl(self):
+    def test_network_failure_blocks_even_with_fresh_cache(self):
         self.open_gate()
         self.clock.now += 300
         self.account.fail = [(503, "server_error")]
-        self.assertTrue(community_gate.refresh_now()["can_enter"], "장애 때 유효 기간 안 성공 캐시는 유지")
-        self.assertEqual(self.store.context()["state"], "active")
+        self.assertFalse(community_gate.refresh_now()["can_enter"], "장애 시 즉시 차단")
+        self.assertEqual(self.store.context()["state"], "inactive")
         self.clock.now += 301
         self.account.fail = [(503, "server_error")]
         result = community_gate.refresh_now()
-        self.assertEqual((result["state"], result["can_enter"]), ("verification_required", False))
+        self.assertEqual((result["state"], result["can_enter"]), ("cloud_unavailable", False))
         self.assertFalse(self.service.is_upload_allowed())
 
     def test_remote_revoke_blocks_on_next_poll(self):
@@ -387,7 +396,7 @@ class GateServiceTests(GateTestBase):
         self.assertEqual(self.account.count("connections"), 1)
         self.assertEqual(self.store.context()["connection_id"], cid)
 
-    def test_other_user_conflict_then_takeover(self):
+    def test_other_user_cannot_takeover_official_account(self):
         from services import account_data
 
         self.open_gate(USER_A)
@@ -400,18 +409,12 @@ class GateServiceTests(GateTestBase):
         self.account.grant(USER_B)
         community_gate.invalidate("login")
         result = community_gate.refresh_now()
-        self.assertTrue(result["can_enter"], "writer 충돌은 진입을 막지 않는다(업로드만 멈춤)")
-        view = community_gate.status_view()
-        self.assertEqual(view["writer"]["code"], "writer_conflict")
-        self.assertEqual(view["writer"]["active_writer"]["device_label"], "테스트 PC")
-        self.assertEqual(self.store.context()["state"], "inactive")
+        self.assertFalse(result["can_enter"], "다른 카카오 계정의 선점은 진입도 막는다")
+        self.assertEqual(result["state"], "official_account_taken")
         community_gate.request_takeover()
-        ctx = self.store.context()
-        self.assertEqual(ctx["state"], "active")
-        self.assertNotEqual(ctx["connection_id"], first)
-        self.assertEqual(ctx["writer_epoch"], 2)
-        self.assertEqual(self.account.connections[first]["status"], "superseded")
-        self.assertEqual(ctx["contributor_fingerprint"], community_gate.account_fingerprint(USER_B["id"]))
+        self.assertEqual(community_gate.evaluate()["state"], "official_account_taken")
+        self.assertEqual(self.store.context()["state"], "inactive")
+        self.assertEqual(self.account.connections[first]["status"], "active")
 
     def _other_device_takes_writer(self, first):
         conn = self.account.connections[first]
@@ -459,7 +462,7 @@ class GateServiceTests(GateTestBase):
     def test_request_check_throttles_retries_when_offline(self):
         self.connect(USER_A)
         self.account.fail = [(503, "server_error")] * 5
-        self.assertEqual(community_gate.check_for_request()["state"], "verification_required")
+        self.assertEqual(community_gate.check_for_request()["state"], "cloud_unavailable")
         n = self.account.count("status")
         self.clock.now += 5
         community_gate.check_for_request()
@@ -748,12 +751,46 @@ class GateAppTests(GateTestBase):
         self.assertEqual(self.post("/settings/community/db-owner/adopt", {}, token=token).status_code, 400)
         r = self.post("/settings/community/db-owner/adopt", {"confirm": "DELETE_OTHER_ACCOUNT_REPORTS"}, token=token)
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertTrue(r.json()["data"]["can_enter"])
+        self.assertFalse(r.json()["data"]["can_enter"])
+        self.assertEqual(r.json()["data"]["state"], "official_account_taken")
         self.assertEqual(account_data.db_owner(), "910002")
         with get_engine().connect() as conn:
             self.assertEqual(conn.execute(select(func.count()).select_from(models.title_table)).scalar(), 0)
         self.assertEqual(self.post("/settings/community/db-owner/adopt", {"confirm": "DELETE_OTHER_ACCOUNT_REPORTS"},
-                                   token=token).status_code, 409, "주인이 같아진 뒤에는 다시 지우지 않는다")
+                                   token=token).status_code, 403, "공식 계정 선점 장벽도 유지된다")
+
+    def test_binding_mismatch_redirects_all_pages_to_settings_and_rejects_mutations(self):
+        token = self.login()
+        self.open_gate()
+        self.official = "changed-by-hand"
+        for path in ("/", "/stats", "/onboarding/community", "/onboarding/rebuild"):
+            r = self.client.get(path, follow_redirects=False)
+            self.assertEqual((r.status_code, r.headers.get("location")), (302, "/settings/"), path)
+        self.assertEqual(self.client.get("/api/v1/server/version", headers={"X-API-Key": self.key}).status_code, 200)
+        page = self.client.get("/settings/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("연결된 안전신문고 계정과 설정이 다릅니다", page.text)
+        self.assertIn("official-account-settings.js", page.text)
+        self.assertEqual(self.post("/crawl/start", {}, token=token).status_code, 403)
+        self.assertEqual(self.post("/settings/community/consent-revoke", {"confirm": True}, token=token).status_code, 403)
+
+    def test_cloud_failure_page_retry_and_authentication(self):
+        token = self.login()
+        self.open_gate()
+        self.account.fail = [(503, "server_error")] * 10
+        self.assertEqual(community_gate.refresh_now()["state"], "cloud_unavailable")
+        for path in ("/stats", "/settings/", "/onboarding/community"):
+            r = self.client.get(path, follow_redirects=False)
+            self.assertEqual(r.headers.get("location"), "/onboarding/cloud")
+        page = self.client.get("/onboarding/cloud")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("클라우드에 연결할 수 없습니다. 잠시 후 이용해 주세요", page.text)
+        self.assertIn('id="cloudRetry"', page.text)
+        self.assertEqual(self.client.post("/settings/official-account/retry").status_code, 403)
+        self.account.fail.clear()
+        response = self.post("/settings/official-account/retry", {}, token=token)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["data"]["can_enter"])
 
     def test_config_invalid_recovery_allowed(self):
         token = self.login()

@@ -122,6 +122,7 @@ class CrawlManager:
             if restore_generation is not None and restore_generation != self._restore_generation:
                 raise CrawlBlockedByRestore("DB 가 복원되어 공유 데이터 확인을 다시 해야 합니다. 다시 시작하세요.")
 
+            start_generation = self._restore_generation
             self._preparing = True
         try:
             block_if_fixture("crawl subprocess")
@@ -143,6 +144,8 @@ class CrawlManager:
             with open(log_file, 'a', encoding='utf-8', errors='replace') as log_output, self._state_lock:
                 if getattr(self, '_shutting_down', False):
                     raise RuntimeError('서버가 종료 중입니다.')
+                if start_generation != self._restore_generation:
+                    raise CrawlBlockedByRestore('계정 확인 상태가 바뀌어 크롤링 시작을 취소했습니다. 설정을 확인하세요.')
                 if rebuild_id:
                     with community_rebuild._store().transaction() as tx:
                         community_rebuild.assert_current_attempt(tx, rebuild_id, run_id)
@@ -190,6 +193,12 @@ class CrawlManager:
         with self._state_lock:
             proc = self._active_process
             return not self._preparing and (proc is None or proc.poll() is not None)
+
+    def stop_for_account_binding(self) -> None:
+        """Invalidate starts that passed the gate, including work still in prepare()."""
+        with self._state_lock:
+            self._restore_generation += 1
+        self.stop_crawl()
 
     def stop_crawl(self, *, timeout=None) -> bool:
         """크롤링 강제 종료. 종료 신호를 보낸 뒤 **실제로 끝난 것을 확인한 다음에만** 참조를 지운다(감사 R2-01) —
@@ -423,6 +432,14 @@ class CrawlManager:
         # 실행 중이면 그 크롤의 완료 훅이 이어서 처리하므로 걸지 않는다.
         if not started and not self.is_crawling() and self.pending_count():
             self._schedule_retry()
+
+    def discard_account_pending(self) -> None:
+        """Account replacement: persist removal before permitting a new account's crawl."""
+        with self._state_lock:
+            self._load_pending_locked()
+            self._pending_queue.clear()
+            self._reserved.clear()
+            self._save_pending_locked()  # failure keeps account replacement pending
 
     def pop_pending(self) -> List[str]:
         """대기 큐 전체를 반환하고 초기화(테스트·수동 정리용 — 자동 시작은 launch_pending_crawl 이 시작 성공 뒤에만 뺀다)."""

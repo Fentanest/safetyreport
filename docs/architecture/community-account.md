@@ -163,3 +163,28 @@
 - 로컬 스택: `tests/test_community_auth_live.py`(실제 GoTrue v2.197.0 + 실제 중계 + 가짜 카카오, 선택 실행 — 실행법은 파일 머리말).
 - **하지 않은 것**: 실제 카카오·호스팅 Supabase E2E(운영 프로젝트·테스트 계정 필요), 업로더(신고 데이터 업로드) 자체, OS 보안 저장소 연동,
   모바일 앱 쪽 화면(`safetyreport-mobile`, `/api/v1/community-auth/*` 사용).
+
+
+## PC 안전신문고 계정 변경
+
+설정 `POST /settings/save`는 `services/settings_service.apply` → `official_account.save_settings`에서 처리한다.
+정규화 ID가 달라지는 경우 및 수동 config 수정으로 이미 달라진 경우에 기존 config ID·후보 ID와 서버의 fresh status를 비교한다.
+기존 바인딩 계정으로 되돌리는 저장은 데이터 삭제 없이 가능하다. 다른 계정으로의 변경은 폼 확인값
+`DELETE_OLD_OFFICIAL_ACCOUNT_DATA`가 필요하며 확인창에 “기존 데이터가 지워집니다”를 표시한다.
+
+개인 DB는 기존 SQLite backup 규칙(`data/backups/data_before_restore_*.db`, 0600, 이름 충돌 방지)을 재사용하고
+integrity_check 후에만 원격 `contributions-delete`를 호출한다. 이후 기존 `empty_report_data` 범위로 비우며
+관리자·API 키·감시목록·지오코딩 캐시는 남긴다. community dataset을 회전하고 이전 계정의 대기 크롤 큐도 지운다.
+새 config 저장 후 새 writer를 등록하고, 새 설치 상태에서 다시 수집할 수 있다.
+
+`data/official-account-change.json`은 target hash·단계·백업 경로·현재 커뮤니티 사용자 식별자를 담는 0600 로컬 복구 기록이다.
+비밀번호/토큰/공식 ID 원문은 기록하지 않는다. 단계는 started → backed_up → released → wiped이며
+오류·재시작 때 진입을 계속 막는다. 같은 카카오 사용자·같은 대상 공식 계정으로 확인 후 저장하면 남은 단계만 재개한다.
+백업 실패는 클라우드/개인 DB 무변경, 삭제 응답 실패는 개인 DB 유지, 설정 저장 실패는 원래 백업과 wiped 기록 유지다.
+임의로 이 파일을 지워 복구하지 않는다. 새 연결 선점(taken)은 설정에서 운영자 문의 안내를 유지한다.
+
+### 코드 대조 정정 — 개인 DB 식별자
+| 종전 설명 | 현재 코드 |
+|---|---|
+| 개인 DB 안신 키도 비교·기록 | config/원격 바인딩만 비교. 개인 DB에 안신 ID·해시 기록 없음 |
+| 변경 전 백업에 안신 키 보충 | SQLite backup 사본을 그대로 검증하며 계정 정보를 추가하지 않음 |

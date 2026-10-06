@@ -331,6 +331,7 @@ def _login_redirect(request: Request):
 
 _GATE_ALLOW = frozenset({
     ("GET", "/login"), ("POST", "/login"), ("GET", "/setup"), ("POST", "/setup"), ("GET", "/logout"), ("GET", "/health"),
+    ("GET", "/onboarding/cloud"), ("POST", "/settings/official-account/retry"),
     ("GET", "/onboarding/community"), ("GET", "/onboarding/rebuild"),
     ("GET", "/settings/community/status"), ("GET", "/settings/community/policy"), ("GET", "/settings/community/gate"),
     # disconnect 는 2026-09-27 에 없앴다(카카오 로그인 필수) — 대신 logout(신고 자료 삭제)·reset-session(세션 파일 손상 때만)·
@@ -376,6 +377,11 @@ def _gate_blocked_response(request: Request, gate: dict):
             and not path.startswith(("/api/", "/media/", "/community/", "/settings/community/"))):
         from urllib.parse import quote
         target = path + (f"?{request.url.query}" if request.url.query else "")
+        from services.official_account import BLOCKED
+        if gate.get("state") in BLOCKED:
+            return RedirectResponse("/settings/", status_code=302)
+        if gate.get("state") in ("cloud_unavailable", "official_account_protocol_required"):
+            return RedirectResponse("/onboarding/cloud", status_code=302)
         return RedirectResponse(f"/onboarding/community?next={quote(target, safe='/')}", status_code=302)
     return JSONResponse({"detail": "COMMUNITY_ONBOARDING_REQUIRED", "code": "COMMUNITY_ONBOARDING_REQUIRED",
                          "gate": {"state": gate.get("state"), "reasons": gate.get("reasons") or []}},
@@ -401,6 +407,25 @@ async def community_gate_middleware(request: Request, call_next):
                 return JSONResponse(problem, status_code=409, headers={"Cache-Control": "no-store"})
     if request.method == "OPTIONS":
         return await call_next(request)
+    if (request.method, path) in {("GET", "/api/v1/server/version"), ("GET", "/onboarding/cloud"), ("POST", "/settings/official-account/retry"),
+                                   ("GET", "/settings/community/gate")}:
+        return await call_next(request)
+    # Binding barriers also cover other onboarding pages; only recovery controls remain usable.
+    recovery = {("GET", "/settings"), ("GET", "/settings/"), ("POST", "/settings/save"),
+                ("GET", "/onboarding/cloud"), ("POST", "/settings/official-account/retry"),
+                ("GET", "/settings/community/gate"), ("GET", "/settings/community/status")}
+    public = path.startswith("/static/") or path in ("/login", "/logout", "/setup", "/health")
+    binding_gate = None
+    if not public:
+        from services.official_account import BLOCKED
+        binding_gate = await run_in_threadpool(_community_gate_state)
+        if binding_gate.get("state") in BLOCKED | {"cloud_unavailable", "official_account_protocol_required"}:
+            if (request.method, path) in recovery:
+                # Cloud failures expose only retry UI/status, never an unverified settings mutation.
+                if binding_gate.get("state") in ("cloud_unavailable", "official_account_protocol_required") and path in ("/settings", "/settings/", "/settings/save"):
+                    return _gate_blocked_response(request, binding_gate)
+                return await call_next(request)
+            return _gate_blocked_response(request, binding_gate)
     if _gate_exempt(request.method, path):
         return await call_next(request)
     if path.startswith("/api/v1/"):
@@ -413,7 +438,7 @@ async def community_gate_middleware(request: Request, call_next):
             from fastapi.responses import JSONResponse
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
     gate_started = time.perf_counter()
-    gate = await run_in_threadpool(_community_gate_state)
+    gate = binding_gate if binding_gate is not None else await run_in_threadpool(_community_gate_state)
     request.state.gate_ms = (time.perf_counter() - gate_started) * 1000
     if gate.get("can_enter"):
         return await call_next(request)

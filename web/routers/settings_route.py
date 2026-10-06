@@ -15,7 +15,10 @@ router = APIRouter(prefix="/settings")
 
 @router.get("/")
 def view_settings(request: Request):
+    from services import community_gate, official_account
+    gate = community_gate.check_for_request()
     return templates.TemplateResponse(request, "settings.html", {
+        "binding_message": official_account.MESSAGES.get(request.query_params.get("binding_error") or gate["state"], ""),
         "title": "앱 설정",
         **settings_service.view_values(),
         "csrf_token": csrf.get_or_create_token(request),
@@ -48,10 +51,21 @@ def save_settings(
     phone_number: str = Form(""),
     remotepath: str = Form("http://localhost:4444/wd/hub"),
     session_max_age: int = Form(10800),
+    official_account_confirm: str = Form(""),
     trusted_proxies: str = Form("")
 ):
     form = {key: value for key, value in locals().items() if key != "request"}
-    settings_service.apply(settings_service.web_command(form))
+    from services.official_account import BindingError
+    from core.storage.exchange import RestoreRefused
+    try:
+        settings_service.apply(settings_service.web_command(form))
+    except BindingError as exc:
+        from urllib.parse import quote
+        if exc.code == "cloud_unavailable":
+            return RedirectResponse("/onboarding/cloud", status_code=303)
+        return RedirectResponse("/settings/?binding_error=" + quote(exc.code), status_code=303)
+    except RestoreRefused as exc:
+        raise HTTPException(409, str(exc)) from None
     return RedirectResponse(url="/settings?saved=true", status_code=303)
 
 
@@ -68,3 +82,9 @@ async def upload_json(file: UploadFile = File(...)):
         raise HTTPException(400, 'Invalid service account JSON') from None
     await run_in_threadpool(settings_service.save_google_credential, contents)
     return RedirectResponse(url="/settings?saved=true", status_code=303)
+
+
+@router.post("/official-account/retry")
+def retry_official_account(request: Request):
+    from services import community_gate
+    return {"data": community_gate.refresh_now()}

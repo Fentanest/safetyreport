@@ -1,7 +1,7 @@
 """`community-account` 사용자 전용 API 클라이언트 (계약: contracts/community-ingest/account-api.md).
 
 - 헤더: apikey = Publishable Key, Authorization = 이 서버의 커뮤니티 세션 access token(community_auth_service 가 공급).
-- 리다이렉트를 따르지 않는다. 타임아웃 10초. 토큰·연결 비밀·응답 원문을 로그에 남기지 않는다.
+- 리다이렉트를 따르지 않는다. 타임아웃 25초. 토큰·연결 비밀·응답 원문을 로그에 남기지 않는다.
 - 예외에는 계약 오류 코드와 HTTP 상태만 담는다.
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ from services.community_client_rules import classify_response
 
 PROTOCOL_VERSION = 1
 FUNCTION = "community-account"
-TIMEOUT_SECONDS = 10
+TIMEOUT_SECONDS = 25
 
 
 class AccountApiError(RuntimeError):
@@ -102,6 +102,6 @@ class CommunityAccountClient:
     def revoke_connection(self, access_token: str, connection_id: str) -> dict:
         return self._post("connections-revoke", access_token, {"connection_id": connection_id})
 
-    # 공유한 자료 전체 삭제: 아직 구현하지 않는 기능이다(2026-09-27). 현재 이를 부르는 화면·HTTP 경로가 없다.
+    # 공식 계정 변경 시 기존 공유자료 삭제 및 바인딩 해제.
     def delete_contributions(self, access_token: str) -> dict:
         return self._post("contributions-delete", access_token, {"confirm": "DELETE_MY_SHARED_REPORTS"})

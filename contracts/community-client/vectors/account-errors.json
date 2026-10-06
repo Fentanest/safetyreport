@@ -1,0 +1,403 @@
+{
+ "description": "community-account HTTP 응답 분류(client-rules \u00a72). central_codes 는 중앙(auth account.ts)이 각 코드로 내는 HTTP 상태와 retryable 값.",
+ "cases": [
+  {
+   "name": "성공",
+   "transport": null,
+   "http_status": 200,
+   "body": "{\"protocol\": 1, \"gate\": {}}",
+   "headers": {},
+   "expect": {
+    "success": true,
+    "code": null,
+    "transient": null,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "200 인데 error 키가 있으면 오류",
+   "transport": null,
+   "http_status": 200,
+   "body": "{\"error\": {\"code\": \"busy\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": true}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "busy",
+    "transient": true,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "200 인데 최상위가 배열",
+   "transport": null,
+   "http_status": 200,
+   "body": "[1]",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "server_error",
+    "transient": false,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "인증 필요",
+   "transport": null,
+   "http_status": 401,
+   "body": "{\"error\": {\"code\": \"auth_required\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": false}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "auth_required",
+    "transient": false,
+    "retry_after_seconds": null,
+    "auth": true
+   }
+  },
+  {
+   "name": "401 인데 본문 없음",
+   "transport": null,
+   "http_status": 401,
+   "body": "",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "server_error",
+    "transient": false,
+    "retry_after_seconds": null,
+    "auth": true
+   }
+  },
+  {
+   "name": "카카오 필요",
+   "transport": null,
+   "http_status": 403,
+   "body": "{\"error\": {\"code\": \"kakao_required\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": false}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "kakao_required",
+    "transient": false,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "기여자 정지",
+   "transport": null,
+   "http_status": 403,
+   "body": "{\"error\": {\"code\": \"contributor_suspended\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": false}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "contributor_suspended",
+    "transient": false,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "정책 불일치",
+   "transport": null,
+   "http_status": 409,
+   "body": "{\"error\": {\"code\": \"policy_mismatch\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": false, \"required_version\": \"2026-09-28.3\"}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "policy_mismatch",
+    "transient": false,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "다른 기기가 업로드 중",
+   "transport": null,
+   "http_status": 409,
+   "body": "{\"error\": {\"code\": \"writer_conflict\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": false, \"active_writer\": {\"device_label\": \"PC\"}}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "writer_conflict",
+    "transient": false,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "요청 과다(본문 대기)",
+   "transport": null,
+   "http_status": 429,
+   "body": "{\"error\": {\"code\": \"rate_limited\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": true, \"retryAfterSeconds\": 12}}",
+   "headers": {
+    "Retry-After": "30"
+   },
+   "expect": {
+    "success": false,
+    "code": "rate_limited",
+    "transient": true,
+    "retry_after_seconds": 12.0,
+    "auth": false
+   }
+  },
+  {
+   "name": "요청 과다(헤더 대기만)",
+   "transport": null,
+   "http_status": 429,
+   "body": "{\"error\": {\"code\": \"rate_limited\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": true}}",
+   "headers": {
+    "Retry-After": "30"
+   },
+   "expect": {
+    "success": false,
+    "code": "rate_limited",
+    "transient": true,
+    "retry_after_seconds": 30.0,
+    "auth": false
+   }
+  },
+  {
+   "name": "요청 과다(retryable 없음)",
+   "transport": null,
+   "http_status": 429,
+   "body": "{\"error\": {\"code\": \"rate_limited\", \"message\": \"m\", \"requestTraceId\": \"t\"}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "rate_limited",
+    "transient": true,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "Retry-After 가 날짜면 무시",
+   "transport": null,
+   "http_status": 429,
+   "body": "{\"error\": {\"code\": \"rate_limited\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": true}}",
+   "headers": {
+    "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"
+   },
+   "expect": {
+    "success": false,
+    "code": "rate_limited",
+    "transient": true,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "음수 대기는 무시",
+   "transport": null,
+   "http_status": 429,
+   "body": "{\"error\": {\"code\": \"rate_limited\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": true, \"retryAfterSeconds\": -5}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "rate_limited",
+    "transient": true,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "바쁨",
+   "transport": null,
+   "http_status": 503,
+   "body": "{\"error\": {\"code\": \"busy\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": true}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "busy",
+    "transient": true,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "서비스 꺼짐(중앙이 재시도 불가)",
+   "transport": null,
+   "http_status": 503,
+   "body": "{\"error\": {\"code\": \"service_disabled\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": false}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "service_disabled",
+    "transient": false,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "서비스 꺼짐(retryable 없음 \u2192 5xx)",
+   "transport": null,
+   "http_status": 503,
+   "body": "{\"error\": {\"code\": \"service_disabled\", \"message\": \"m\", \"requestTraceId\": \"t\"}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "service_disabled",
+    "transient": true,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "게이트웨이 HTML 502",
+   "transport": null,
+   "http_status": 502,
+   "body": "<html>bad gateway</html>",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "server_error",
+    "transient": true,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "서버 오류",
+   "transport": null,
+   "http_status": 500,
+   "body": "{\"error\": {\"code\": \"server_error\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": true}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "server_error",
+    "transient": true,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "코드가 숫자",
+   "transport": null,
+   "http_status": 400,
+   "body": "{\"error\": {\"code\": 5}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "server_error",
+    "transient": false,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "요청 형식 오류",
+   "transport": null,
+   "http_status": 400,
+   "body": "{\"error\": {\"code\": \"invalid_request\", \"message\": \"m\", \"requestTraceId\": \"t\", \"retryable\": false}}",
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": "invalid_request",
+    "transient": false,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "네트워크 실패",
+   "transport": "network",
+   "http_status": null,
+   "body": null,
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": null,
+    "transient": true,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  },
+  {
+   "name": "시간 초과",
+   "transport": "timeout",
+   "http_status": null,
+   "body": null,
+   "headers": {},
+   "expect": {
+    "success": false,
+    "code": null,
+    "transient": true,
+    "retry_after_seconds": null,
+    "auth": false
+   }
+  }
+ ],
+ "central_codes": {
+  "invalid_request": {
+   "http_status": 400,
+   "retryable": false
+  },
+  "unsupported_protocol": {
+   "http_status": 400,
+   "retryable": false
+  },
+  "method_not_allowed": {
+   "http_status": 405,
+   "retryable": false
+  },
+  "not_found": {
+   "http_status": 404,
+   "retryable": false
+  },
+  "auth_required": {
+   "http_status": 401,
+   "retryable": false
+  },
+  "kakao_required": {
+   "http_status": 403,
+   "retryable": false
+  },
+  "policy_mismatch": {
+   "http_status": 409,
+   "retryable": false
+  },
+  "contributor_suspended": {
+   "http_status": 403,
+   "retryable": false
+  },
+  "writer_conflict": {
+   "http_status": 409,
+   "retryable": false
+  },
+  "connection_revoked": {
+   "http_status": 409,
+   "retryable": false
+  },
+  "connection_superseded": {
+   "http_status": 409,
+   "retryable": false
+  },
+  "connection_suspended": {
+   "http_status": 409,
+   "retryable": false
+  },
+  "stale_grant": {
+   "http_status": 409,
+   "retryable": false
+  },
+  "rate_limited": {
+   "http_status": 429,
+   "retryable": true
+  },
+  "busy": {
+   "http_status": 503,
+   "retryable": true
+  },
+  "service_disabled": {
+   "http_status": 503,
+   "retryable": false
+  },
+  "server_error": {
+   "http_status": 500,
+   "retryable": true
+  }
+ }
+}

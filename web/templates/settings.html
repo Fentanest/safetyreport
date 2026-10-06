@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% if binding_message %}<div class="alert alert-warning" role="alert">{{ binding_message }}</div>{% endif %}
 
 <!-- 메인 설정 폼 (전체 행을 감쌈) -->
 <form action="/settings/save" method="post" id="mainSettingsForm">
+<input type="hidden" name="official_account_confirm" id="officialAccountConfirm" value="">
 <div class="row">
     <!-- Left Column: System Settings -->
     <div class="col-md-6">
@@ -14,7 +16,7 @@
                 <h6 class="mb-3 text-primary border-bottom pb-2">안전신문고 로그인 계정</h6>
                 <div class="mb-3">
                     <label class="form-label" for="fld_username">아이디 (ID)</label>
-                    <input id="fld_username" type="text" class="form-control" name="username" value="{{ username }}">
+                    <input data-original-username="{{ username }}" id="fld_username" type="text" class="form-control" name="username" value="{{ username }}">
                 </div>
                 <div class="mb-3">
                     <label class="form-label" for="fld_password">비밀번호 (Password)</label>
@@ -305,4 +307,8 @@
             });
     }
 </script>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', path='ui/official-account-settings.js') }}"></script>
 {% endblock %}

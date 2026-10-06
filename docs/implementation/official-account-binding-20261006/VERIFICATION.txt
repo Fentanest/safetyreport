@@ -1,0 +1,47 @@
+PC official account binding r2 — 2026-10-06
+HEAD: 835ac23a2f32d8157b02cca75a21c8fb3b799606
+No commit/push/deployment.
+Logs: .agent-runs/official-binding-r2/
+
+baseline-full: exit 1
+sha256 056e11ff435151d8a88746015ac6ab6c07b12b766e8c9996620228a9dc982869
+ERROR: test_classification (test_community_client_rules.AccountErrorTest.test_classification)
+ERROR: test_client_raises_with_the_classification (test_community_client_rules.AccountErrorTest.test_client_raises_with_the_classification)
+ERROR: test_validation_and_sanitized_values_pass (test_community_client_rules.DeviceLabelTest.test_validation_and_sanitized_values_pass)
+ERROR: test_cache_boundaries (test_community_client_rules.GateTimingTest.test_cache_boundaries)
+ERROR: test_late_responses (test_community_client_rules.GateTimingTest.test_late_responses)
+ERROR: test_files_match_manifest (test_community_client_rules.ManifestTest.test_files_match_manifest)
+ERROR: test_normalization_and_gate (test_community_client_rules.StatusDtoTest.test_normalization_and_gate)
+Ran 813 tests in 186.370s
+FAILED (errors=7, skipped=5)
+
+full-tests: exit 1
+sha256 3d74f68afe937a7555398939b304e757c79b55452a292f5282cecf18f3b180e6
+ERROR: test_classification (test_community_client_rules.AccountErrorTest.test_classification)
+ERROR: test_client_raises_with_the_classification (test_community_client_rules.AccountErrorTest.test_client_raises_with_the_classification)
+ERROR: test_validation_and_sanitized_values_pass (test_community_client_rules.DeviceLabelTest.test_validation_and_sanitized_values_pass)
+ERROR: test_cache_boundaries (test_community_client_rules.GateTimingTest.test_cache_boundaries)
+ERROR: test_late_responses (test_community_client_rules.GateTimingTest.test_late_responses)
+ERROR: test_files_match_manifest (test_community_client_rules.ManifestTest.test_files_match_manifest)
+ERROR: test_normalization_and_gate (test_community_client_rules.StatusDtoTest.test_normalization_and_gate)
+Ran 842 tests in 216.373s
+FAILED (errors=7, skipped=5)
+
+targeted-final: exit 0
+sha256 c915ca02ce23c0e2c3577c79a0e8d2a4ccb31708ea61888df922c3354e974a57
+Ran 166 tests in 97.609s
+OK
+
+browser-chromium: exit 0
+sha256 f5f56db2ddb422f702f898af48ed0f20b551b49fad13f03157c4fd468885a3b8
+{"browser":"chromium","flowsPassed":9,"errors":[]}
+
+browser-firefox: exit 0
+sha256 3c424f9d7b90d297c6929a2b272f34a6dd32e15a8501ebab0543d2c794fe4a5f
+{"browser":"firefox","flowsPassed":9,"errors":[]}
+
+Baseline/current: same seven failing test IDs and missing contract paths.
+Baseline worktree removed; original Git metadata unchanged.
+DOM inventory cmp: identical; six referenced IDs present.
+AST 5 files / JS syntax 3 files / account-api manifest / git diff --check: passed.
+Browser fixtures stopped after each run.

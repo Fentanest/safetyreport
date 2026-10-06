@@ -253,6 +253,7 @@ async def web_policy(request: Request):
 
 @router.get("/gate")
 async def web_gate(request: Request):
+    await run_in_threadpool(community_gate.check_for_request)
     return _ok({"data": await run_in_threadpool(community_gate.status_view)})
 
 

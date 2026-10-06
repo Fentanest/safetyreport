@@ -72,3 +72,15 @@ async def onboarding_rebuild(request: Request, next: str | None = None):
         "csrf_token": csrf.get_or_create_token(request), "next": safe_next(next),
         "rebuild": await run_in_threadpool(_rebuild_status),
     }, headers=_NO_STORE)
+
+
+@router.get("/onboarding/cloud")
+def onboarding_cloud(request: Request):
+    from services import official_account
+    gate = community_gate.evaluate()
+    if gate["can_enter"]:
+        return RedirectResponse("/", status_code=302)
+    return templates.TemplateResponse(request, "onboarding_cloud.html", {
+        "message": official_account.MESSAGES.get(gate["state"], official_account.MESSAGES["cloud_unavailable"]),
+        "csrf_token": csrf.get_or_create_token(request),
+    }, headers=_NO_STORE)

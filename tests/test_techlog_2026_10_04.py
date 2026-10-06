@@ -335,7 +335,7 @@ class CrawlChangesTests(unittest.TestCase):
 
 
 class GateOwnershipTests(unittest.TestCase):
-    STATUS = {"gate": {"kakao": True}, "contributor": {"status": "active"},
+    STATUS = {"official_account": {"dataset_key": None, "bound_at": None}, "gate": {"kakao": True}, "contributor": {"status": "active"},
               "consent": {"state": "active", "policy_version": "P", "consent_text_sha256": "H"},
               "policy": {"required_version": "P", "consent_text_sha256": "H"}}
 

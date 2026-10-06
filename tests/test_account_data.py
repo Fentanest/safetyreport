@@ -201,6 +201,29 @@ class ImportRefusalTests(_DbCase):
         self.assertEqual(count, 1)
         self.assertEqual(account_data.db_owner(), "910001")
 
+    def test_same_kakao_foreign_or_missing_official_account_is_restored(self):
+        from services import community_gate
+        for kind, table in (("mobile", "sync_meta"), ("server", "mysafety_sync_meta")):
+            for value in (None, community_gate.dataset_key("other-official")):
+                with self.subTest(kind=kind, value=value):
+                    path = Path(self._tmp.name) / f"official_{kind}_{value}.db"
+                    if kind == "mobile":
+                        _mobile_db(path, "910001")
+                    else:
+                        exchange._copy_sqlite(settings.db_path, str(path))
+                    with sqlite3.connect(path) as con:
+                        con.execute(f"DELETE FROM {table} WHERE key=?", ("official_account_dataset_key",))
+                        if value:
+                            con.execute(f"INSERT INTO {table} VALUES (?, ?)", ("official_account_dataset_key", value))
+                    with mock.patch("services.community_store.CommunityStore.rotate_dataset", lambda self, reason: None):
+                        backup, count = self._restore(path, kind)
+                    self.assertTrue(Path(backup).is_file())
+                    self.assertEqual(count, 1)
+                    self.assertEqual(self.count(models.title_table), 1)
+                    self.assertEqual(account_data.db_owner(), "910001")
+                    # Legacy arbitrary metadata remains lossless, but is never an owner check.
+                    self.assertEqual(database.get_meta(get_engine(), "official_account_dataset_key"), value)
+
     def test_server_db_owner_is_read_from_its_own_meta_table(self):
         other = Path(self._tmp.name) / "server_other.db"
         exchange._copy_sqlite(settings.db_path, str(other))

@@ -57,6 +57,7 @@ class ShutdownRecoveryTests(unittest.TestCase):
         manager._shutting_down = False
         manager._rating_token = manager._active_process = manager._retry_timer = None
         manager._restore_hold = manager._preparing = manager._post_upload_active = False
+        manager._restore_generation = 0
         manager._pending_queue = []
         entered, release = threading.Event(), threading.Event()
         failures = []

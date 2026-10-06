@@ -1,0 +1,137 @@
+PC official binding RC 3.0.0.2-rc1 — 2026-10-06 KST
+HEAD ec570bc; uncommitted VERSION/contract recovery/docs changes.
+Full unittest: 842 executed, 837 passed, 5 existing skipped, 0 failures/errors; 190.738 s.
+Targeted regressions: 173 passed; 89.390 s.
+Docker linux/amd64 and Linux x64 PyInstaller 6.22.3: built; authenticated gate and static HTTP smoke passed.
+No remote push, workflow execution, tag, commit or upload.
+
+{"browser":"chromium","flowsPassed":9,"errors":[]}
+chromium SQLite verification:
+{
+  "backup_integrity": "ok",
+  "backup_count": 1,
+  "before": {
+    "mysafety": 24,
+    "mysafetydetail_traffic": 12,
+    "mysafetydetail_parking": 6,
+    "mysafetydetail_other": 6
+  },
+  "after": {
+    "mysafety": 0,
+    "mysafetydetail_traffic": 0,
+    "mysafetydetail_parking": 0,
+    "mysafetydetail_other": 0
+  },
+  "personal_db_official_key": false
+}
+
+{"browser":"firefox","flowsPassed":9,"errors":[]}
+firefox SQLite verification:
+{
+  "backup_integrity": "ok",
+  "backup_count": 1,
+  "before": {
+    "mysafety": 24,
+    "mysafetydetail_traffic": 12,
+    "mysafetydetail_parking": 6,
+    "mysafetydetail_other": 6
+  },
+  "after": {
+    "mysafety": 0,
+    "mysafetydetail_traffic": 0,
+    "mysafetydetail_parking": 0,
+    "mysafetydetail_other": 0
+  },
+  "personal_db_official_key": false
+}
+
+docker HTTP verification:
+[
+  {
+    "path": "/health",
+    "status": 200,
+    "mime": "application/json"
+  },
+  {
+    "path": "/login",
+    "status": 200,
+    "mime": "text/html; charset=utf-8"
+  },
+  {
+    "path": "/static/ui/official-account-settings.js",
+    "status": 200,
+    "mime": "text/javascript; charset=utf-8"
+  },
+  {
+    "path": "/static/ui/official-account-retry.js",
+    "status": 200,
+    "mime": "text/javascript; charset=utf-8"
+  },
+  {
+    "path": "/static/logo.png",
+    "status": 200,
+    "mime": "image/png"
+  },
+  {
+    "login": 303,
+    "authenticated_gate_path": "/onboarding/community?next=/settings/",
+    "status": 200
+  }
+]
+
+
+frozen HTTP verification:
+[
+  {
+    "path": "/health",
+    "status": 200,
+    "mime": "application/json"
+  },
+  {
+    "path": "/login",
+    "status": 200,
+    "mime": "text/html; charset=utf-8"
+  },
+  {
+    "path": "/static/ui/official-account-settings.js",
+    "status": 200,
+    "mime": "text/javascript; charset=utf-8"
+  },
+  {
+    "path": "/static/ui/official-account-retry.js",
+    "status": 200,
+    "mime": "text/javascript; charset=utf-8"
+  },
+  {
+    "path": "/static/logo.png",
+    "status": 200,
+    "mime": "image/png"
+  },
+  {
+    "login": 303,
+    "authenticated_gate_path": "/onboarding/community?next=/settings/",
+    "status": 200
+  }
+]
+
+
+ZIP CRC validation: passed
+Runtime cleanup:
+127.0.0.1:18806: listener absent
+127.0.0.1:18816: listener absent
+127.0.0.1:18826: listener absent
+Own Docker compose containers absent; down -v completed. Local image/ZIP retained.
+
+SHA256 of raw logs (relative to repository):
+9e2eee9a510bae97d80a353611ea4bce9b2d4cc0ddac7d81167ea426f1e87e64  .agent-runs/official-binding-rc/full-tests.log
+e6943a963b7c25e76fc44a7cca3ae383b1c680d7a9bfb346af61c1b690c18d51  .agent-runs/official-binding-rc/targeted.log
+f5f56db2ddb422f702f898af48ed0f20b551b49fad13f03157c4fd468885a3b8  .agent-runs/official-binding-rc/browser-chromium-verified.log
+3c424f9d7b90d297c6929a2b272f34a6dd32e15a8501ebab0543d2c794fe4a5f  .agent-runs/official-binding-rc/browser-firefox-verified.log
+e91511b20e2e77648c03c0f9176c96725392d234aba0ec05998a202b16f2e6c6  .agent-runs/official-binding-rc/docker-build-local-config.log
+5055ce96c472e800c858674e2eb7bb2f3be39c08196e48f9c56d8d454808e52e  .agent-runs/official-binding-rc/docker-image-assets.log
+fedaa9886ba53ebc344039c991631173e08b46d9b90fe1bf905bcd9e93a18b7c  .agent-runs/official-binding-rc/docker-http.log
+19271abccc24807651ae33d2b5b092c285948630e0654bebebfd33da26794ecc  .agent-runs/official-binding-rc/docker-down.log
+58eb38d284844c0c3e45ade28dedb45da6017de6e167e460662251b64b50925a  .agent-runs/official-binding-rc/frozen-build.log
+fedaa9886ba53ebc344039c991631173e08b46d9b90fe1bf905bcd9e93a18b7c  .agent-runs/official-binding-rc/frozen-http.log
+f3a0c761141c64940a169a27d4c3fef0697a0fc061cc3a8e61caf33287702cc9  .agent-runs/official-binding-rc/version-check.log
+c8524d7908c67910a9aca4f15c272a7e95e5bb2e8d631fad47c7d980150d00a5  .agent-runs/official-binding-rc/mysafetyreport-linux-3.0.0.2-rc1.zip

@@ -110,3 +110,33 @@ fixture 모드는 `127.0.0.1` 스택에만 연결한다(계정 API·`/user` 확�
 |---|---|---|
 | 공유 자료 삭제 API 를 현행처럼 표기 | `contributions-delete` 라우트·버튼 주석 처리 | 보류로 표기(D2-09) |
 | reset-session 은 세션 파일만 옮김 | 키가 망가진 경우 복구되지 않았음 | 키·writer 함께 보관하도록 코드 수정 후 문서 갱신(D2-04) |
+
+
+## 공식 계정 바인딩 게이트
+
+`services/official_account.py`가 공식 계정 status 형식·계정 변경 복구를 맡는다.
+기존 세션/동의 상태 정규화 계약의 600초 TTL은 유지하고, PC 바인딩은 300초 추가 상한을 적용한다.
+시작 검사와 60초 scheduler poll, 웹 복귀/5분 확인에서 config 파일을 다시 읽는다.
+`official_account_mismatch`/`official_account_taken`/`official_account_change_pending`는 설정으로 리다이렉트하고,
+나머지 페이지·변경 API를 차단한다. 상태·재시도·관리자 로그인과 정적 자원만 복구에 필요한 범위로 허용한다.
+`cloud_unavailable`/`official_account_protocol_required`는 `/onboarding/cloud`로 보낸다.
+게이트 상태 변경 시 community context를 끄고 실행 중 크롤러를 기존 `stop_crawl`로 종료한다. 시작 예약 세대도 무효화하고 Popen 직전에 다시 검사하여, 준비 중이던 크롤이 뒤늦게 실행되는 경쟁을 차단한다. 업로더는 배치마다 context를 재확인한다.
+새 크롤·업로드의 기존 60초 재검증도 유지한다. 이미 전송 중인 요청의 취소는 보장하지 않으며 중앙 삭제 fence가 이전 이벤트를 막는다.
+
+`POST /settings/official-account/retry`는 관리자 세션과 기존 전역 CSRF 검사를 유지한다. 클라우드 화면은
+2/5/10초 간격으로 최대 3회 자동 재시도하고 수동 버튼을 제공한다. HTTP 요청 자체 timeout은 25초다.
+카카오 연동은 앱 사용의 필수 조건이다. 미연동자는 기존 `/onboarding/community`에서 계속 버튼이 숨겨지고,
+설정/신고 등 보호 페이지 및 작업 API에 진입할 수 없다(익명 status 호출 없음).
+`official_account` 필드 누락은 원격 대조만 생략하고 기존 게이트·writer 규칙으로 정상 동작한다.
+필드가 있는 `{dataset_key:null,bound_at:null}`은 미바인딩으로 현재 config의 연결 등록을 시도한다.
+`official_account:null` 또는 오형식은 차단한다. 안신 정보가 없는 개인 DB는 차단 근거가 아니다.
+
+### 코드 대조 정정 — 공식 계정 바인딩
+| 종전 설명 | 현재 코드 |
+|---|---|
+| 네트워크 실패 시 10분 성공 캐시 유지 | 바인딩 검사 실패는 즉시 cloud_unavailable, 화면·백그라운드 작업 차단 |
+| 공식 계정 변경 시 자동으로 새 writer 등록 | 경고·백업·공유자료 삭제·로컬 초기화 완료 뒤에만 새 writer 등록 |
+| 공유자료 삭제 호출 보류 | 일반 삭제 버튼은 보류, 공식 계정 변경 내부 절차에서만 사용 |
+| 다른 사용자 공식 계정 writer takeover 가능 | 양방향 1:1 선점이면 진입도 차단, 운영자 문의 |
+| 구서버 필드 누락도 차단 | 필드 누락은 원격 대조만 생략. 카카오/동의/등록 오류 검사는 유지 |
+| 개인 DB 안신 키를 기록하고 config와 대조 | 해당 기록·대조 제거. config ↔ 서버 status 및 등록 거절만 사용 |

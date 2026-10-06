@@ -56,6 +56,7 @@ class CredentialTooLarge(ValueError):
 class SettingsCommand:
     values: tuple  # ((섹션, 키, 값), ...) — 기록 순서 그대로
     refresh_jobs: bool = False
+    official_account_confirm: str = ""
 
 
 @dataclass
@@ -74,7 +75,7 @@ def web_command(form: dict) -> SettingsCommand:
     values["phone_number"] = re.sub(r'[^0-9]', '', values.get("phone_number") or "")
     values["trusted_proxies"] = (values.get("trusted_proxies") or "").strip()
     return SettingsCommand(tuple((*_WEB_FIELDS[key], values[key]) for key in _WEB_FIELDS if key in values),
-                           refresh_jobs=True)
+                           refresh_jobs=True, official_account_confirm=values.get("official_account_confirm", ""))
 
 
 def api_command(body: dict) -> SettingsCommand:
@@ -85,6 +86,11 @@ def api_command(body: dict) -> SettingsCommand:
 
 
 def apply(command: SettingsCommand) -> SettingsResult:
+    from services.official_account import save_settings
+    return save_settings(command, _persist)
+
+
+def _persist(command: SettingsCommand) -> SettingsResult:
     instance = app_settings._instance
     previous_login = (instance.username, instance.password)
     result = SettingsResult()

@@ -1,0 +1,154 @@
+{
+ "description": "게이트 캐시 경계와 늦은 응답(client-rules \u00a74). ages: 정상 status 를 받은 뒤 경과 초.",
+ "ttl_seconds": 600,
+ "fresh_max_age_seconds": 60,
+ "age_cases": [
+  {
+   "age": 0,
+   "ttl": 600,
+   "expect": "ok"
+  },
+  {
+   "age": 600,
+   "ttl": 600,
+   "expect": "ok"
+  },
+  {
+   "age": 600.001,
+   "ttl": 600,
+   "expect": "verification_required"
+  },
+  {
+   "age": 59.999,
+   "ttl": 60,
+   "expect": "ok"
+  },
+  {
+   "age": 60,
+   "ttl": 60,
+   "expect": "ok"
+  },
+  {
+   "age": 60.5,
+   "ttl": 60,
+   "expect": "verification_required"
+  },
+  {
+   "age": 0,
+   "ttl": 0,
+   "expect": "ok"
+  },
+  {
+   "age": 0.001,
+   "ttl": 0,
+   "expect": "verification_required"
+  }
+ ],
+ "currency_cases": [
+  {
+   "name": "그대로",
+   "started": {
+    "generation": 3,
+    "mode": "server",
+    "user_id": "u1"
+   },
+   "now": {
+    "generation": 3,
+    "mode": "server",
+    "user_id": "u1",
+    "session": "valid"
+   },
+   "current": true
+  },
+  {
+   "name": "도중에 무효화",
+   "started": {
+    "generation": 3,
+    "mode": "server",
+    "user_id": "u1"
+   },
+   "now": {
+    "generation": 4,
+    "mode": "server",
+    "user_id": "u1",
+    "session": "valid"
+   },
+   "current": false
+  },
+  {
+   "name": "다른 계정으로 바뀜",
+   "started": {
+    "generation": 3,
+    "mode": "server",
+    "user_id": "u1"
+   },
+   "now": {
+    "generation": 3,
+    "mode": "server",
+    "user_id": "u2",
+    "session": "valid"
+   },
+   "current": false
+  },
+  {
+   "name": "로그아웃됨",
+   "started": {
+    "generation": 3,
+    "mode": "server",
+    "user_id": "u1"
+   },
+   "now": {
+    "generation": 3,
+    "mode": "server",
+    "user_id": null,
+    "session": "none"
+   },
+   "current": false
+  },
+  {
+   "name": "재인증 필요",
+   "started": {
+    "generation": 3,
+    "mode": "standalone",
+    "user_id": null
+   },
+   "now": {
+    "generation": 3,
+    "mode": "standalone",
+    "user_id": null,
+    "session": "reauth_required"
+   },
+   "current": false
+  },
+  {
+   "name": "앱 모드가 바뀜",
+   "started": {
+    "generation": 3,
+    "mode": "standalone",
+    "user_id": null
+   },
+   "now": {
+    "generation": 3,
+    "mode": "client",
+    "user_id": null,
+    "session": "valid"
+   },
+   "current": false
+  },
+  {
+   "name": "시작할 때 계정 모름",
+   "started": {
+    "generation": 3,
+    "mode": "standalone",
+    "user_id": null
+   },
+   "now": {
+    "generation": 3,
+    "mode": "standalone",
+    "user_id": "u9",
+    "session": "valid"
+   },
+   "current": true
+  }
+ ]
+}

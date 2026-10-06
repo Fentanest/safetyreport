@@ -38,6 +38,8 @@ test_*
 !/contracts/*.json
 !/contracts/community-ingest/**/*.json
 !/contracts/community-ingest/**/*.md
+!/contracts/community-client/**/*.json
+!/contracts/community-client/**/*.md
 !/contracts/upload-control/*.json
 !/contracts/selfhost-compat/*.json
 !/contracts/selfhost-compat/*.md

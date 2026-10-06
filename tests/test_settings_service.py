@@ -57,30 +57,30 @@ class ApplyTest(unittest.TestCase):
         return app_settings.config.get(section, key, fallback=None)
 
     def test_api_partial_save_keeps_every_other_value(self):
-        svc.apply(svc.web_command(dict(FORM, telegram_token="keep-me")))
-        svc.apply(svc.api_command({"auto_export_excel": True}))
+        svc._persist(svc.web_command(dict(FORM, telegram_token="keep-me")))
+        svc._persist(svc.api_command({"auto_export_excel": True}))
         self.assertEqual(self._read("SETTINGS", "auto_export_excel"), "True")
         self.assertEqual(self._read("TELEGRAM", "telegram_token"), "keep-me")
         self.assertEqual(self._read("GOOGLESHEET", "sheet_key"), "AbC-12_x")
 
     def test_login_change_invalidates_the_previous_token_only_when_it_changes(self):
-        svc.apply(svc.web_command(dict(FORM, username="first")))
+        svc._persist(svc.web_command(dict(FORM, username="first")))
         self.invalidate.reset_mock()
-        result = svc.apply(svc.web_command(dict(FORM, username="first")))
+        result = svc._persist(svc.web_command(dict(FORM, username="first")))
         self.assertFalse(result.login_changed)
         self.invalidate.assert_not_called()
-        result = svc.apply(svc.web_command(dict(FORM, username="second")))
+        result = svc._persist(svc.web_command(dict(FORM, username="second")))
         self.assertTrue(result.login_changed)
         self.invalidate.assert_called_once()
         self.assertNotEqual(self._read("LOGIN", "password"), "pw1", "비밀번호는 암호화해 저장한다")
 
     def test_job_refresh_failure_keeps_the_saved_settings(self):
         self.update_jobs.side_effect = RuntimeError("scheduler down")
-        result = svc.apply(svc.web_command(dict(FORM, chat_id="42")))
+        result = svc._persist(svc.web_command(dict(FORM, chat_id="42")))
         self.assertEqual(result.jobs_error, "RuntimeError")
         self.assertEqual(self._read("TELEGRAM", "chat_id"), "42")
         self.update_jobs.side_effect = None
-        self.assertIsNone(svc.apply(svc.api_command({})).jobs_error)
+        self.assertIsNone(svc._persist(svc.api_command({})).jobs_error)
 
     def test_google_credential_validation(self):
         for body in (b"broken", b"[]", b"{}", b"\xff"):

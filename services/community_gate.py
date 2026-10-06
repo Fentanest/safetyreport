@@ -4,7 +4,7 @@ K = 이 서버의 커뮤니티 세션이 유효하고 중앙 status 가 카카�
 C = 중앙에 현재 정책 버전·동의문 해시와 같은 활성 동의 grant 가 있음.
 로컬 파일의 "완료" 값으로는 통과하지 않는다. 중앙 ingest 는 이 캐시와 무관하게 저장 트랜잭션에서 다시 확인한다.
 
-캐시: 화면 이동은 10분(CACHE_TTL), 새 작업(크롤·업로드·초기화·설정 저장·자정 실행)은 require_fresh(60).
+캐시: 공통 동의 판정은 10분(CACHE_TTL), PC 바인딩은 5분(BINDING_TTL), 새 작업(크롤·업로드·초기화·설정 저장·자정 실행)은 require_fresh(60).
 온라인이면 60초 주기 refresh_now()(스케줄러 job community-gate-poll)로 원격 철회를 반영한다.
 통과하면 writer 연결을 확보하고 community.db context 를 활성화한다. 미충족·철회·로그아웃이면 context 를 끈다.
 """
@@ -33,10 +33,13 @@ _log = logging.getLogger("safetyreport.core.community_gate")
 # 필수 동의 정책(버전·동의문 해시·본문)은 앱에 넣어 두지 않는다 — 중앙 status.policy 와 `policy` 액션이 정본이다
 # (2026-09-27, contracts/community-ingest/account-api.md). 동의문이 바뀌어도 이 서버를 새로 배포할 필요가 없다.
 CACHE_TTL = 600.0
+BINDING_TTL = 300.0
 FRESH_SECONDS = 60.0
 
 STATES = ("ok", "config_invalid", "kakao_required", "kakao_reauth_required", "session_unreadable",
-          "verification_required", "suspended", "consent_required", "db_owner_mismatch")
+          "verification_required", "suspended", "consent_required", "db_owner_mismatch",
+          "official_account_mismatch", "official_account_taken", "official_account_change_pending",
+          "official_account_protocol_required", "cloud_unavailable")
 
 
 def dataset_key(username: str | None) -> str | None:
@@ -54,6 +57,7 @@ def account_fingerprint(user_id: str) -> str:
 def official_username() -> str | None:
     import settings.settings as app_settings
 
+    app_settings._instance.load()  # config 파일 직접 수정도 매 요청/주기 검사에 반영
     return getattr(app_settings._instance, "username", None)
 
 
@@ -116,7 +120,7 @@ class _Gate:
     def __init__(self, clock: Callable[[], float] = time.monotonic):
         self._clock = clock
         self._lock = threading.RLock()
-        self._refresh_lock = threading.Lock()
+        self._refresh_lock = threading.RLock()
         self._status: dict | None = None
         self._verified_at: float | None = None
         self._invalidated = True  # cold start: 한 번은 중앙 status 를 받아야 한다
@@ -157,6 +161,24 @@ class _Gate:
                 invalidated = True  # 지금 세션과 다른 계정으로 받은 status — 다시 받아야 한다
         age = None if verified_at is None else max(0.0, self._clock() - verified_at)
         state, reasons = decide(config_state(cfg), session, status, age, invalidated)
+        if state == "ok" and age is not None and age > BINDING_TTL:
+            state, reasons = "verification_required", ["official_account_stale"]
+        if session == "valid" and status is not None and not invalidated:
+            from services import official_account as official
+            try:
+                bound = official.binding(status)
+                local = dataset_key(official_username())
+                if official.pending():
+                    state, reasons = "official_account_change_pending", ["official_account_change_pending"]
+                elif bound and bound != local:
+                    state, reasons = "official_account_mismatch", ["official_account_mismatch"]
+                elif state == "ok" and self._writer_note and self._writer_note.get("code") in official.BLOCKED:
+                    state = self._writer_note["code"]
+                    reasons = [state]
+            except official.BindingError as exc:
+                state, reasons = exc.code, [exc.code]
+            except Exception:
+                state, reasons = "verification_required", ["official_account_unverified"]
         if state == "ok":
             # 카카오 로그인·동의가 끝나도, 이 서버의 신고 자료가 다른 카카오 계정 것이면 들어가지 않는다(자료를 지우거나 로그아웃할 때까지)
             with self._lock:
@@ -167,13 +189,21 @@ class _Gate:
                 state, reasons = "verification_required", ["data_owner_unverified"]
         if state == "verification_required" and self._last_error:
             reasons = reasons + [self._last_error]
+        from services import official_account as official
+        try:
+            if official.pending():
+                state, reasons = "official_account_change_pending", ["official_account_change_pending"]
+        except Exception:
+            state, reasons = "official_account_change_pending", ["official_account_change_pending"]
+        if session == "valid" and self._last_error == "cloud_unavailable":
+            state, reasons = "cloud_unavailable", ["cloud_unavailable"]
         result = {"state": state, "can_enter": state == "ok", "reasons": reasons, "verified_age": age}
         self._notify_if_changed(result)
         return result
 
     # -- 재검증 ------------------------------------------------------------------------------------------
     def refresh_now(self, max_age: float | None = None) -> dict:
-        """중앙 status 를 다시 받는다(한 번에 하나). 네트워크 장애면 유효 기간 안의 성공 캐시는 유지한다."""
+        """중앙 status 를 다시 받는다(한 번에 하나). 네트워크 장애면 이전 성공 캐시가 있어도 진입과 작업을 막는다."""
         with self._refresh_lock:
             if max_age is not None:
                 with self._lock:
@@ -185,9 +215,10 @@ class _Gate:
                 self._refresh_locked()
             except Exception as exc:  # 게이트 갱신 실패가 서버를 멈추지 않게 한다(판정은 fail-closed)
                 _log.warning("[community] 게이트 확인 중 오류: %s", type(exc).__name__)
-                self._last_error = "gate_error"
+                self._last_error = "cloud_unavailable"
+                self._mark_invalid()
             result = self.evaluate()
-            if not result["can_enter"] and result["state"] != "verification_required":
+            if not result["can_enter"]:
                 self._deactivate(result["state"])
             return result
 
@@ -205,7 +236,7 @@ class _Gate:
         try:
             token = service.get_access_token()
         except cas.CommunityAuthError as exc:
-            self._last_error = exc.code
+            self._last_error = "cloud_unavailable" if exc.code == "auth_unavailable" else exc.code
             if exc.code != "auth_unavailable":
                 self._mark_invalid()
             return
@@ -215,7 +246,7 @@ class _Gate:
         try:
             status = normalize_status(client.status(token, own.get("connection_id") if own else None))
         except AccountApiError as exc:
-            self._last_error = exc.code
+            self._last_error = "cloud_unavailable" if exc.transient else exc.code
             if not exc.transient:
                 self._mark_invalid()
             return
@@ -227,9 +258,40 @@ class _Gate:
         self._last_error = None
         state, _ = decide("ok", "valid", status, 0.0, False)
         if state == "ok":
+            from services import official_account as official
+            try:
+                bound = official.binding(status)
+                dkey = dataset_key(official_username())
+                if official.pending() or (bound and bound != dkey):
+                    return
+            except official.BindingError:
+                return
             owner = self._check_owner(service, generation)
             if owner == "ok":  # 다른 계정의 자료가 남아 있으면 writer 연결도 만들지 않는다
                 self._ensure_writer(service, client, token, status, own, current, generation)
+
+    def binding_status(self) -> dict:
+        """Fresh status for settings replacement, without creating a writer for the old config."""
+        from services.official_account import BindingError, binding
+        with self._refresh_lock:
+            service = cas.get_service()
+            session, current = self._session_state(service)
+            if session != "valid":
+                raise BindingError("kakao_required")
+            cfg = service.config()
+            if config_state(cfg) != "ok":
+                raise BindingError("config_invalid")
+            try:
+                status = normalize_status(CommunityAccountClient(cfg.supabase_url, cfg.publishable_key).status(service.get_access_token()))
+            except (AccountApiError, cas.CommunityAuthError):
+                self._last_error = "cloud_unavailable"
+                self._deactivate("cloud_unavailable")
+                raise BindingError("cloud_unavailable") from None
+            binding(status)
+            state, _ = decide("ok", "valid", status, 0, False)
+            if state != "ok":
+                raise BindingError(state)
+            return status
 
     def _still_current(self, service, generation: int, user_id: str | None) -> bool:
         """조회를 시작한 세대·세션 계정이 그대로인가(self._lock 을 잡은 채 부른다)."""
@@ -242,7 +304,7 @@ class _Gate:
         """HTTP 요청용: 캐시 판정. 확인이 필요하면(cold start·무효화·만료) 중앙 status 를 받되,
         네트워크 장애 때 요청마다 10초씩 막히지 않게 retry_interval 초에 한 번만 시도한다."""
         result = self.evaluate()
-        if result["state"] != "verification_required":
+        if result["state"] not in ("verification_required", "cloud_unavailable", "official_account_protocol_required"):
             return result
         now = self._clock()
         with self._lock:
@@ -271,7 +333,7 @@ class _Gate:
         try:
             owner = account_data.check_owner(service.current_kakao_id())
         except cas.CommunityAuthError as exc:
-            self._last_error = exc.code
+            self._last_error = "cloud_unavailable" if exc.code == "auth_unavailable" else exc.code
             owner = "unknown"
         except Exception as exc:
             _log.warning("[community] 자료 주인 확인 실패: %s", type(exc).__name__)
@@ -303,6 +365,11 @@ class _Gate:
             changed = result["state"] != self._last_state
             self._last_state = result["state"]
             listeners = list(self._listeners)
+        if changed and not result["can_enter"]:
+            self._deactivate(result["state"])
+            if result["state"] in ("official_account_mismatch", "official_account_taken", "official_account_change_pending", "cloud_unavailable", "official_account_protocol_required"):
+                from services.crawl_manager import crawl_manager
+                crawl_manager.stop_for_account_binding()
         if changed:
             for cb in listeners:
                 try:
@@ -328,7 +395,10 @@ class _Gate:
         if not dkey or not user_id:
             self._set_writer_note("official_account_required")
             return
-        conn = status.get("connection") if writer and writer.get("dataset_key") == dkey else None
+        # Legacy servers omit binding support: preserve their existing writer lifecycle.
+        # Explicitly unbound extended responses must register to acquire a binding.
+        binding_matches = "official_account" not in status or status["official_account"]["dataset_key"] == dkey
+        conn = status.get("connection") if writer and writer.get("dataset_key") == dkey and binding_matches else None
         takeover, self._takeover_requested = self._takeover_requested, False
         claim, self._claim_requested = self._claim_requested, False
         try:
@@ -348,10 +418,15 @@ class _Gate:
                 writer = {"connection_id": res["connection_id"], "connection_secret": secret,
                           "writer_epoch": res["writer_epoch"], "dataset_key": dkey, "user_id": user_id}
                 last = 0
-            if not self._generation_is(generation):
+            if not self._generation_is(generation) or dataset_key(official_username()) != dkey:
                 return  # 연결 확보 도중 무효화됐다 — 이전 계정 문맥으로 저장·활성화하지 않는다
             service.store.save_writer(writer)
+            with self._lock:
+                if self._status is not None and "official_account" in status:
+                    self._status["official_account"] = {"dataset_key": dkey, "bound_at": (status.get("official_account") or {}).get("bound_at")}
         except AccountApiError as exc:
+            if exc.transient:
+                self._last_error = "cloud_unavailable"
             note = {"code": exc.code}
             if isinstance(exc.extra.get("active_writer"), dict):
                 aw = exc.extra["active_writer"]

@@ -1,0 +1,1090 @@
+{
+ "description": "status 응답 정규화(client-rules \u00a71)와 게이트 판정(config ok\u00b7세션 유효\u00b7age 10초). 서버 services/community_client_rules.py, 모바일 lib/community/gate/community_client_rules.dart.",
+ "cases": [
+  {
+   "name": "모두 정상",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "ok"
+  },
+  {
+   "name": "kakao 가 문자열 true",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": "true",
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": false,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "kakao_required"
+  },
+  {
+   "name": "kakao 가 1",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": 1,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": false,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "kakao_required"
+  },
+  {
+   "name": "gate 가 객체 아님",
+   "raw": {
+    "protocol": 1,
+    "gate": "ok",
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": false,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "kakao_required"
+  },
+  {
+   "name": "reasons 에 문자열 아닌 값",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": false,
+     "consent": true,
+     "can_enter": true,
+     "reasons": [
+      "kakao_missing",
+      3,
+      null
+     ]
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": false,
+     "consent": true,
+     "can_enter": true,
+     "reasons": [
+      "kakao_missing"
+     ]
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "kakao_required"
+  },
+  {
+   "name": "기여자 정지",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "suspended"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "suspended"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "suspended"
+  },
+  {
+   "name": "기여자 상태가 숫자(없는 값 \u2192 active\u00b7none 밖이라 정지)",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": 7
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": null
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "suspended"
+  },
+  {
+   "name": "기여자 없음",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z",
+    "contributor": {
+     "status": null
+    }
+   },
+   "gate": "suspended"
+  },
+  {
+   "name": "동의 철회",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "revoked",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "revoked",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "consent_required"
+  },
+  {
+   "name": "동의 상태가 숫자",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": 1,
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": null,
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "consent_required"
+  },
+  {
+   "name": "동의 정책 버전이 다름(오래된 동의)",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.1",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.1",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "consent_required"
+  },
+  {
+   "name": "동의문 해시가 다름",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "consent_required"
+  },
+  {
+   "name": "정책 해시가 숫자",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": 5
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": null
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "consent_required"
+  },
+  {
+   "name": "정책 없음",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z",
+    "policy": {
+     "required_version": null,
+     "consent_text_sha256": null
+    }
+   },
+   "gate": "consent_required"
+  },
+  {
+   "name": "connection 이 배열",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": [
+     1
+    ],
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": "ffffffffffffffffffffffffffffffff",
+     "display_name": "홍길동"
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "ok"
+  },
+  {
+   "name": "account 가 null",
+   "raw": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": null,
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "normalized": {
+    "protocol": 1,
+    "gate": {
+     "kakao": true,
+     "consent": true,
+     "can_enter": true,
+     "reasons": []
+    },
+    "policy": {
+     "required_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "consent": {
+     "state": "active",
+     "grant_id": "g-1",
+     "policy_version": "2026-09-28.3",
+     "consent_text_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+     "granted_at": "2026-09-28T00:00:00Z"
+    },
+    "contributor": {
+     "status": "active"
+    },
+    "connection": null,
+    "projection": {
+     "ready": false
+    },
+    "account": {
+     "fingerprint": null,
+     "display_name": null
+    },
+    "server_time": "2026-10-05T00:00:00.000Z"
+   },
+   "gate": "ok"
+  }
+ ],
+ "invalid_top_level": [
+  [],
+  "x",
+  3,
+  null
+ ]
+}
