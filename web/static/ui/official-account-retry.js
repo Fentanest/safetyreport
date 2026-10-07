@@ -13,7 +13,7 @@
                 headers: {'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content}, cache: 'no-store'});
             if (!r.ok) throw new Error('retry');
             var g = (await r.json()).data;
-            if (g.can_enter) { location.replace('/'); return; }
+            if (g.can_enter || g.can_browse) { location.replace('/'); return; }
             if (['official_account_mismatch', 'official_account_taken', 'official_account_change_pending'].includes(g.state)) {
                 location.replace('/settings/'); return;
             }

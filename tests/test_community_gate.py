@@ -774,23 +774,46 @@ class GateAppTests(GateTestBase):
         self.assertEqual(self.post("/crawl/start", {}, token=token).status_code, 403)
         self.assertEqual(self.post("/settings/community/consent-revoke", {"confirm": True}, token=token).status_code, 403)
 
-    def test_cloud_failure_page_retry_and_authentication(self):
+    def test_cloud_failure_allows_browsing_but_keeps_work_and_auth_checks(self):
         token = self.login()
         self.open_gate()
         self.account.fail = [(503, "server_error")] * 10
         self.assertEqual(community_gate.refresh_now()["state"], "cloud_unavailable")
-        for path in ("/stats", "/settings/", "/onboarding/community"):
+        for path in ("/stats", "/settings/"):
             r = self.client.get(path, follow_redirects=False)
-            self.assertEqual(r.headers.get("location"), "/onboarding/cloud")
-        page = self.client.get("/onboarding/cloud")
-        self.assertEqual(page.status_code, 200)
-        self.assertIn("클라우드에 연결할 수 없습니다. 잠시 후 이용해 주세요", page.text)
-        self.assertIn('id="cloudRetry"', page.text)
+            self.assertEqual(r.status_code, 200, path)
+        for path in ("/onboarding/cloud", "/onboarding/community"):
+            self.assertEqual(self.client.get(path, follow_redirects=False).headers.get("location"), "/")
+        self.assertEqual(self.client.get("/api/v1/summary", headers={"X-API-Key": self.key}).status_code, 200)
+        self.assertEqual(self.client.get("/api/v1/summary", headers={"X-API-Key": "wrong"}).status_code, 401)
+        self.assertEqual(self.post("/crawl/start", {}, token=token).status_code, 403)
+        self.assertEqual(self.post("/settings/save", {}, token=token).status_code, 403)
+        gate = self.client.get("/settings/community/gate").json()["data"]
+        self.assertFalse(gate["can_enter"])
+        self.assertTrue(gate["can_browse"])
         self.assertEqual(self.client.post("/settings/official-account/retry").status_code, 403)
         self.account.fail.clear()
         response = self.post("/settings/official-account/retry", {}, token=token)
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["data"]["can_enter"])
+
+    def test_cloud_browsing_works_after_restart_and_rejects_foreign_db(self):
+        self.login()
+        self.open_gate()
+        # 새 게이트 인스턴스에는 성공 status 캐시가 없지만 세션/DB 주인은 남아 있다.
+        with mock.patch.object(community_gate, "_gate", community_gate._Gate(clock=self.clock)):
+            self.account.fail = [(503, "server_error")] * 10
+            result = community_gate.refresh_now()
+            self.assertTrue(result["can_browse"])
+            self.assertFalse(result["can_enter"])
+            from services import account_data, official_account
+            with mock.patch.object(account_data, "db_owner", return_value="other-fixture-owner"):
+                self.assertFalse(community_gate.evaluate()["can_browse"])
+                self.assertEqual(self.client.get("/stats", follow_redirects=False).status_code, 302)
+            with mock.patch.object(official_account, "pending", return_value=True):
+                result = community_gate.evaluate()
+                self.assertEqual(result["state"], "official_account_change_pending")
+                self.assertFalse(result["can_browse"])
 
     def test_config_invalid_recovery_allowed(self):
         token = self.login()

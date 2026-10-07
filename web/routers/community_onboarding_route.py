@@ -58,6 +58,8 @@ async def onboarding_community(request: Request, next: str | None = None):
     gate = await run_in_threadpool(community_gate.evaluate)
     if gate["state"] == "verification_required":
         gate = await run_in_threadpool(community_gate.refresh_now)
+    if gate["state"] == "cloud_unavailable" and community_gate.can_browse(gate):
+        return RedirectResponse(target, status_code=302)
     return templates.TemplateResponse(request, "onboarding_community.html", {
         "csrf_token": csrf.get_or_create_token(request), "next": target, "gate": gate, "cm_mode": "onboarding",
     }, headers=_NO_STORE)
@@ -78,7 +80,7 @@ async def onboarding_rebuild(request: Request, next: str | None = None):
 def onboarding_cloud(request: Request):
     from services import official_account
     gate = community_gate.evaluate()
-    if gate["can_enter"]:
+    if community_gate.can_browse(gate):
         return RedirectResponse("/", status_code=302)
     return templates.TemplateResponse(request, "onboarding_cloud.html", {
         "message": official_account.MESSAGES.get(gate["state"], official_account.MESSAGES["cloud_unavailable"]),

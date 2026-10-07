@@ -419,6 +419,12 @@ async def community_gate_middleware(request: Request, call_next):
     if not public:
         from services.official_account import BLOCKED
         binding_gate = await run_in_threadpool(_community_gate_state)
+        # Supabase 무료 플랜 장애로 웹/모바일 조회까지 가두던 차단을 임시 해제.
+        # 관리자/API 키 인증은 위에서 유지하며 POST 등 변경·작업 요청은 계속 검증한다.
+        from services import community_gate
+        if (binding_gate.get("state") == "cloud_unavailable"
+                and request.method in ("GET", "HEAD") and community_gate.can_browse(binding_gate)):
+            return await call_next(request)
         if binding_gate.get("state") in BLOCKED | {"cloud_unavailable", "official_account_protocol_required"}:
             if (request.method, path) in recovery:
                 # Cloud failures expose only retry UI/status, never an unverified settings mutation.

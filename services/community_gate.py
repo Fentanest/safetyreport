@@ -36,6 +36,14 @@ CACHE_TTL = 600.0
 BINDING_TTL = 300.0
 FRESH_SECONDS = 60.0
 
+# Supabase 무료 플랜의 반복적인 장애·사용량 제한 때문에 앱 전체를 가두는
+# 클라우드 장애 화면 차단을 임시 비활성화한다. 조회만 허용하고 작업 검증은 유지한다.
+BLOCK_BROWSING_ON_CLOUD_FAILURE = False
+
+
+def can_browse(result: dict) -> bool:
+    return bool(result.get("can_enter") or result.get("can_browse"))
+
 STATES = ("ok", "config_invalid", "kakao_required", "kakao_reauth_required", "session_unreadable",
           "verification_required", "suspended", "consent_required", "db_owner_mismatch",
           "official_account_mismatch", "official_account_taken", "official_account_change_pending",
@@ -195,9 +203,20 @@ class _Gate:
                 state, reasons = "official_account_change_pending", ["official_account_change_pending"]
         except Exception:
             state, reasons = "official_account_change_pending", ["official_account_change_pending"]
-        if session == "valid" and self._last_error == "cloud_unavailable":
+        if (session == "valid" and self._last_error == "cloud_unavailable"
+                and state not in official.BLOCKED | {"db_owner_mismatch", "suspended", "consent_required"}):
             state, reasons = "cloud_unavailable", ["cloud_unavailable"]
         result = {"state": state, "can_enter": state == "ok", "reasons": reasons, "verified_age": age}
+        result["can_browse"] = result["can_enter"]
+        if state == "cloud_unavailable" and not BLOCK_BROWSING_ON_CLOUD_FAILURE:
+            # 네트워크를 더 호출하거나 주인 표시를 새로 쓰지 않고 기존 세션/DB만 대조한다.
+            # 새 로그인·다른 사람의 DB·계정 변경 미완료를 장애 우회로 열지 않는다.
+            from services import account_data
+            try:
+                member = (current or {}).get("kakao_id")
+                result["can_browse"] = bool(member and account_data.db_owner() == member)
+            except Exception:
+                result["can_browse"] = False
         self._notify_if_changed(result)
         return result
 
@@ -518,7 +537,7 @@ class _Gate:
         with self._lock:
             status = self._status or {}
         consent = status.get("consent") or {}
-        return {"state": result["state"], "can_enter": result["can_enter"], "reasons": result["reasons"],
+        return {"state": result["state"], "can_enter": result["can_enter"], "can_browse": result["can_browse"], "reasons": result["reasons"],
                 "verified_age": result["verified_age"], "policy_version": (status.get("policy") or {}).get("required_version"),
                 "consent": {"state": consent.get("state"), "granted_at": consent.get("granted_at"),
                             "policy_version": consent.get("policy_version")},

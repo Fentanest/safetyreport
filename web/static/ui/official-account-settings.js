@@ -15,7 +15,9 @@
             var body = await response.json();
             var state = (body.data || {}).state;
             if (state === 'cloud_unavailable' || state === 'official_account_protocol_required') {
-                window.location.assign('/onboarding/cloud'); return;
+                // 무료 Supabase 장애 중에는 현재 설정 화면을 유지한다. 저장은 재확인 뒤 진행한다.
+                window.alert('클라우드 연결을 확인할 수 없어 설정을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+                return;
             }
             var changed = normalize(username.value) !== normalize(username.dataset.originalUsername);
             if (changed || state === 'official_account_mismatch' || state === 'official_account_change_pending' ||
@@ -29,6 +31,6 @@
             }
             confirmed = true;
             form.requestSubmit();
-        } catch (_) { window.location.assign('/onboarding/cloud'); }
+        } catch (_) { window.alert('연결을 확인할 수 없어 설정을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.'); }
     });
 }());

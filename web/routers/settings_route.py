@@ -61,8 +61,6 @@ def save_settings(
         settings_service.apply(settings_service.web_command(form))
     except BindingError as exc:
         from urllib.parse import quote
-        if exc.code == "cloud_unavailable":
-            return RedirectResponse("/onboarding/cloud", status_code=303)
         return RedirectResponse("/settings/?binding_error=" + quote(exc.code), status_code=303)
     except RestoreRefused as exc:
         raise HTTPException(409, str(exc)) from None

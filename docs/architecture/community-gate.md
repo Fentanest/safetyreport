@@ -59,6 +59,7 @@ MANIFEST 해시 확인)이 정하고 서버 `services/community_client_rules.py`
 - 미들웨어 순서: Session → 관리자 `auth_middleware` → `community_gate_middleware` → 라우트. 게이트 미들웨어를 auth 보다 **먼저 선언**해야 안쪽에서 돈다
   (`tests/test_community_gate.py::test_middleware_order_session_auth_gate`).
 - 미충족: 관리자 HTML GET → `/onboarding/community?next=<상대경로>`, 그 밖 → 403 `{"code":"COMMUNITY_ONBOARDING_REQUIRED","gate":{state,reasons}}`.
+- 클라우드 일시 장애의 조회 예외(2026-10-07): `cloud_unavailable`이고 저장된 카카오 회원번호와 DB 주인이 같으면 `can_browse=true`를 반환한다. 관리자/API 키 인증 후 GET·HEAD는 허용한다. `can_enter=false`와 변경 요청·작업·WS 검증은 유지한다.
 - `/api/v1/**`: API 키가 틀리면 라우트가 401(게이트 상태를 인증 전에 드러내지 않음), 맞으면 게이트 → 403.
 - `/media/*`: 예전에는 인증 없이 열려 있었다 → 관리자 세션 또는 API 키(헤더·`api_key` 쿼리) + 게이트.
 - WS(`core/utils/ws_auth.py`): `/ws/events`(API 키), `/crawl/ws/logs`·`/rating/ws/rating_logs`(관리자 세션 쿠키 읽기 전용 또는 API 키).
@@ -119,7 +120,11 @@ fixture 모드는 `127.0.0.1` 스택에만 연결한다(계정 API·`/user` 확�
 시작 검사와 60초 scheduler poll, 웹 복귀/5분 확인에서 config 파일을 다시 읽는다.
 `official_account_mismatch`/`official_account_taken`/`official_account_change_pending`는 설정으로 리다이렉트하고,
 나머지 페이지·변경 API를 차단한다. 상태·재시도·관리자 로그인과 정적 자원만 복구에 필요한 범위로 허용한다.
-`cloud_unavailable`/`official_account_protocol_required`는 `/onboarding/cloud`로 보낸다.
+Supabase 무료 플랜의 반복적인 장애·사용량 제한 때문에 `BLOCK_BROWSING_ON_CLOUD_FAILURE=False`로 화면 차단을 임시 비활성화했다.
+`cloud_unavailable`은 기존 세션의 카카오 회원번호와 저장된 DB 주인을 로컬에서 대조하여 같을 때만 조회를 허용한다.
+새 게이트 인스턴스에 성공 캐시가 없어도 이 대조는 가능하다. 주인 불명·불일치 및 계정 변경 미완료는 허용하지 않는다.
+조회 가능하면 `/onboarding/cloud`와 `/onboarding/community`에서 일반 화면으로 돌아가며, 주기 확인 JS도 클라우드 화면으로 보내지 않는다.
+설정 저장의 연결 확인 실패는 현재 화면에 오류를 알린다. `official_account_protocol_required`와 조회 자격이 없는 장애는 기존 복구 화면을 유지한다.
 게이트 상태 변경 시 community context를 끄고 실행 중 크롤러를 기존 `stop_crawl`로 종료한다. 시작 예약 세대도 무효화하고 Popen 직전에 다시 검사하여, 준비 중이던 크롤이 뒤늦게 실행되는 경쟁을 차단한다. 업로더는 배치마다 context를 재확인한다.
 새 크롤·업로드의 기존 60초 재검증도 유지한다. 이미 전송 중인 요청의 취소는 보장하지 않으며 중앙 삭제 fence가 이전 이벤트를 막는다.
 
@@ -134,7 +139,7 @@ fixture 모드는 `127.0.0.1` 스택에만 연결한다(계정 API·`/user` 확�
 ### 코드 대조 정정 — 공식 계정 바인딩
 | 종전 설명 | 현재 코드 |
 |---|---|
-| 네트워크 실패 시 10분 성공 캐시 유지 | 바인딩 검사 실패는 즉시 cloud_unavailable, 화면·백그라운드 작업 차단 |
+| 바인딩 검사 실패 시 화면·백그라운드 작업 모두 차단 | cloud_unavailable은 로컬 계정/DB 주인이 일치하면 조회 허용. 변경·백그라운드 작업 검증은 유지(2026-10-07) |
 | 공식 계정 변경 시 자동으로 새 writer 등록 | 경고·백업·공유자료 삭제·로컬 초기화 완료 뒤에만 새 writer 등록 |
 | 공유자료 삭제 호출 보류 | 일반 삭제 버튼은 보류, 공식 계정 변경 내부 절차에서만 사용 |
 | 다른 사용자 공식 계정 writer takeover 가능 | 양방향 1:1 선점이면 진입도 차단, 운영자 문의 |
