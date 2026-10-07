@@ -63,15 +63,10 @@ def classify_response(http_status: int, text: str | None, headers=None) -> Accou
     code = body_code or "server_error"
     retryable = err.get("retryable")
     # 본문에 코드가 없어 server_error 로 채운 경우는 HTTP 상태로만 판단한다(401·400·깨진 200 을 재시도하지 않게).
-    transient = retryable if isinstance(retryable, bool) else (body_code in _TRANSIENT_CODES or http_status >= 500)
-    after = err.get("retryAfterSeconds")
-    retry_after = None
-    if isinstance(after, (int, float)) and not isinstance(after, bool) and after >= 0:
-        retry_after = float(after)
-    else:
-        header = str((headers or {}).get("Retry-After") or "").strip()
-        if _RETRY_AFTER_HEADER.match(header):
-            retry_after = float(header)
+    transient = retryable if isinstance(retryable, bool) else (http_status == 429 or body_code in _TRANSIENT_CODES or http_status >= 500)
+    transient = transient or http_status == 429 or http_status >= 500
+    from services.community_cloud import retry_after as parse_hint
+    retry_after = parse_hint(headers, data) or None
     extra = {k: v for k, v in err.items() if k in ("active_writer", "required_version")}
     return AccountResponse(False, code=code, transient=transient, retry_after=retry_after,
                            auth=code == "auth_required" or http_status == 401, extra=extra)

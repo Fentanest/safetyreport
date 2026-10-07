@@ -85,4 +85,4 @@ async def upload_json(file: UploadFile = File(...)):
 @router.post("/official-account/retry")
 def retry_official_account(request: Request):
     from services import community_gate
-    return {"data": community_gate.refresh_now()}
+    return {"data": community_gate.check_for_request()}

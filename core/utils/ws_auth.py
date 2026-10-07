@@ -67,7 +67,7 @@ def authenticated(websocket: WebSocket, *, allow_session: bool = True, allow_api
 async def gate_ok() -> bool:
     from services import community_gate
 
-    return bool((await run_in_threadpool(community_gate.evaluate))["can_enter"])
+    return bool((await run_in_threadpool(community_gate.evaluate)).get("can_local", False))
 
 
 async def reject_gate(websocket: WebSocket) -> None:

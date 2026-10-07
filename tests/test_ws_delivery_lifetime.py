@@ -39,7 +39,7 @@ class WsDeliveryLifetimeTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.temp.cleanup)
         self.addCleanup(mock.patch.stopall)
         mock.patch.object(ws_event_store.settings, 'datapath', self.temp.name).start()
-        mock.patch('services.community_gate.evaluate', return_value={'can_enter': True}).start()
+        mock.patch('services.community_gate.evaluate', return_value={'can_enter': True, 'can_local': True}).start()
         mock.patch('services.ws_manager.SEND_TIMEOUT', .03).start()
         mock.patch('services.ws_manager.CLOSE_TIMEOUT', .03).start()
         self.previous = WsManager._instance

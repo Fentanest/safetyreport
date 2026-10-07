@@ -63,7 +63,7 @@ def start_batch_rating(engine, report_numbers, score: int, cause: str = ""):
         )
     from services import community_gate  # 새 작업은 60초 이내 게이트 재검증(필수 설정 전·철회 뒤 시작 금지)
 
-    if not community_gate.require_fresh()["can_enter"]:
+    if not community_gate.require_local()["can_local"]:
         raise RuntimeError(community_gate.BLOCK_MESSAGES[community_gate.ONBOARDING_REQUIRED])
 
     block_if_fixture("star rating batch")

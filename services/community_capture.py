@@ -371,6 +371,11 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
     run_id = _rebuild_run_id(rebuild_run_id)
     local_dataset_id = store.local_dataset_id()
     now = _now_iso()
+    from services import community_cloud
+    try:
+        captured_context, authorization = community_cloud.capture_context(store.context())
+    except Exception:
+        captured_context, authorization = None, 'unverified_owner'
 
     with store.transaction() as tx:
         if run_id and os.environ.get('SAFETYREPORT_CRAWL_RUN_ID'):
@@ -400,7 +405,7 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
         if prev is None:
             # 2026-09-28 계정 규칙: prev 는 현 계정(dataset_key·fingerprint)의 최신 journal 행이다.
             # 파일 단위 report_latest 포인터를 그대로 쓰면 계정 전환 뒤 B의 제출이 건너뛰어진다.
-            ctx_row = tx.execute("SELECT dataset_key, contributor_fingerprint FROM context WHERE id=1").fetchone()
+            ctx_row = captured_context
             ctx_dataset = ctx_row["dataset_key"] if ctx_row else None
             ctx_fp = ctx_row["contributor_fingerprint"] if ctx_row else None
             row = tx.execute(
@@ -429,8 +434,9 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
         if event_type is None:
             return CaptureResult(event_id=None, event_type=None, eligible=eligible, payload_sha256=sha)
 
-        ctx = tx.execute("SELECT * FROM context WHERE id=1").fetchone()
-        active = ctx is not None and ctx["state"] == "active"
+        ctx = captured_context
+        active = ctx is not None and ctx.get("state") == "active"
+        capture_origin = trigger + ":consent=" + authorization
         revision = store.next_revision(tx)
         event_id = str(uuid.uuid4())
         namespace = _project_namespace()
@@ -443,14 +449,14 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
             " personal_save_state, blocked_reason)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
             (event_id, namespace, local_dataset_id,
-             ctx["dataset_key"] if ctx else None, source_report_id, report_number, revision, event_type, now, trigger, run_id,
+             ctx.get("dataset_key") if ctx else None, source_report_id, report_number, revision, event_type, now, capture_origin, run_id,
              SCHEMA_VERSION, PARSER_VERSION, payload_text, sha, 1 if eligible else 0,
-             ctx["contributor_fingerprint"] if ctx else None,
-             ctx["connection_id"] if ctx else None,
-             ctx["writer_epoch"] if ctx else None,
-             ctx["consent_grant_id"] if ctx else None,
+             ctx.get("contributor_fingerprint") if ctx else None,
+             ctx.get("connection_id") if ctx else None,
+             ctx.get("writer_epoch") if ctx else None,
+             ctx.get("consent_grant_id") if ctx else None,
              f"blocked:{AGENCY_CODE_TOO_LONG}" if code_blocked
-             else (None if active else "no_active_context")))
+             else (None if active else "consent:" + authorization)))
         if active:
             if code_blocked:
                 tx.execute(

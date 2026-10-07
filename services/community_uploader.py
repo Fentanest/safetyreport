@@ -1,7 +1,7 @@
 """community-ingest 업로드 (PC 데이터 경로) — 공통 업로드 제어 UC-1(contracts/upload-control, 모바일과 같은 규칙).
 
 request_upload(trigger) 하나가 realtime/manual/midnight/recovery/rebuild/reshare 를 모두 처리한다.
-- 삭제 정리 대기·게이트(require_fresh 60) → 영속 전송 제어(upload_control: 서비스·계정 cooldown) → lease(`upload`, 실행별 owner)
+- 삭제 정리 대기·공통 cloud cooldown → 게이트(require_fresh 60) → 전송 제어(upload_control) → lease(`upload`, 실행별 owner)
 - manual/midnight/recovery 면 현재 context 의 미ACK journal 을 outbox 에 넣는다
 - 신고마다 보낼 수 있는 가장 앞 revision 하나만 후보(뒤 revision 이 먼저 가지 않음), 요청당 ≤20건·envelope UTF-8 ≤256KiB·신고당 1건
 - 실제 HTTP 요청마다 그 요청의 이벤트만 attempt_count+1. 요청 전 lease heartbeat(소유권을 잃으면 멈춤), 요청 간격 ≥1.1초,
@@ -316,6 +316,10 @@ def _event(row: dict, payload_json: str, ctx: dict) -> dict:
 
 def _envelope(ctx: dict, trigger: str, events: list[dict]) -> dict:
     from services import community_ingest_client as client
+    # Durable reshare rows can be resumed by realtime/recovery after restart.
+    # The server requires trigger=reshare whenever such an event is present.
+    if any(event.get('event_type') == 'reshare' for event in events):
+        trigger = 'reshare'
     return client.build_envelope(
         connection_id=ctx.get("connection_id") or "", consent_grant_id=ctx.get("consent_grant_id") or "",
         policy_version=ctx.get("policy_version") or "", source_mode=ctx.get("source_mode") or "server",
@@ -682,6 +686,12 @@ def _run_upload(run_id: str, trigger: str, data_dir=None, progress=None) -> dict
     if _cap.deletion_cleanup_pending(data_dir):  # 삭제 뒤 로컬 차단이 끝나기 전에는 아무것도 보내지 않는다(Sol H-03)
         run.error_code = "deletion_cleanup_pending"
         return run.finish("blocked_gate")
+    from services import community_cloud as cloud
+    wait = cloud.remaining()
+    if wait > 0:
+        run.error_code = "cloud_unavailable"
+        run.next_attempt_at = _iso(_now() + timedelta(seconds=wait))
+        return run.finish("cooldown")
     gate_block = _gate_result(_gate_check())
     if gate_block:
         return run.finish(gate_block)
@@ -706,6 +716,17 @@ def _run_upload(run_id: str, trigger: str, data_dir=None, progress=None) -> dict
             run.counts["blocked"] += block_superseded_corrections(data_dir)  # 잔여 status_correction 은 보내지 않는다
         except Exception:
             _log.info("[community] superseded correction 차단 실패", exc_info=True)
+        # A restored writer may have collected while no upload context existed.
+        # Server-confirmed consent permits these same-account rows to be queued,
+        # even when the grant's one-time full crawl already finished before outage.
+        waiting = store.connect().execute(
+            "SELECT 1 FROM source_journal j JOIN report_latest l ON l.event_id=j.event_id"
+            " WHERE j.contributor_fingerprint IS ? AND j.dataset_key IS ? AND j.ack_status IS NULL"
+            " AND j.blocked_reason IN ('consent:unknown','consent:none','consent:revoked','consent:outdated') LIMIT 1",
+            (ctx.get('contributor_fingerprint'), ctx.get('dataset_key'))).fetchone()
+        if waiting:
+            from services import community_upload_status
+            community_upload_status.request_reshare(data_dir, consent_grant=ctx['consent_grant_id'], send=False, only_waiting=True)
         if trigger in ("manual", "midnight", "recovery"):
             try:
                 _enqueue_missing(trigger, data_dir)
@@ -735,7 +756,9 @@ def _drain(run: UploadRunContext) -> dict:
     while True:
         if counts["requests"] >= RUN_MAX_REQUESTS or _monotonic() - started >= RUN_MAX_SECONDS:
             budget_hit = True
-            wake()  # 예산을 다 썼다 — 남은 것은 곧바로 이어서(요청 간격은 다음 실행도 지킨다)
+            until = _iso(_now() + timedelta(seconds=30))
+            with store.transaction() as tx:
+                tx.execute("UPDATE outbox SET next_retry_at=? WHERE state IN ('pending','retry_wait') AND (next_retry_at IS NULL OR next_retry_at < ?)", (until, until))
             break
         current = store.active_context()
         if current is None or _ctx_identity(current) != _ctx_identity(ctx):
@@ -963,6 +986,9 @@ def _refresh_next_due(data_dir, result: dict | None) -> None:
     다른 실행이 잡고 있으면 5초 뒤, 실패면 60초 뒤 다시 본다."""
     global _next_due
     outcome = (result or {}).get("result")
+    if outcome == "cooldown" and (result or {}).get("next_attempt_at"):
+        _next_due = _parse(result["next_attempt_at"])
+        return
     if outcome in ("needs_auth", "needs_consent", "blocked_gate"):
         _next_due = None
         return

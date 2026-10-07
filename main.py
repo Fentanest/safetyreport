@@ -422,8 +422,10 @@ async def community_gate_middleware(request: Request, call_next):
         # Supabase 무료 플랜 장애로 웹/모바일 조회까지 가두던 차단을 임시 해제.
         # 관리자/API 키 인증은 위에서 유지하며 POST 등 변경·작업 요청은 계속 검증한다.
         from services import community_gate
-        if (binding_gate.get("state") == "cloud_unavailable"
-                and request.method in ("GET", "HEAD") and community_gate.can_browse(binding_gate)):
+        local_route = not path.startswith(("/settings/community/", "/community/upload/", "/api/v1/community/", "/api/v1/community-auth/"))
+        if binding_gate.get("can_local") and local_route:
+            return await call_next(request)
+        if path == "/settings/community/consent-revoke" and binding_gate.get("can_local"):
             return await call_next(request)
         if binding_gate.get("state") in BLOCKED | {"cloud_unavailable", "official_account_protocol_required"}:
             if (request.method, path) in recovery:
@@ -461,7 +463,7 @@ async def request_timings(request: Request, call_next):
 
 def _on_community_gate_change(result: dict) -> None:
     """게이트를 잃으면(확인 필요 포함 — Sol M-01) 이벤트 WS 를 4403 으로 닫는다(로그 WS 는 자체 GateWatch)."""
-    if not result.get("can_enter"):
+    if not result.get("can_local", result.get("can_enter")):
         from services.ws_manager import ws_manager
         ws_manager.close_all_from_thread(4403, "COMMUNITY_ONBOARDING_REQUIRED")
 
@@ -489,6 +491,7 @@ def _start_community_services() -> None:
         steps.append(("midnight catch-up", lambda: _call("community_schedule", "catch_up_on_start")))
     steps.append(("rebuild supervisor", lambda: _call("community_rebuild", "start_background")))
     steps.append(("rebuild resume", lambda: _call("community_rebuild", "resume_on_startup", background=True)))
+    steps.append(("consent catch-up", lambda: threading.Thread(target=lambda: _call("community_consent_jobs", "tick"), name="community-consent-catch-up", daemon=True).start()))
     for name, fn in steps:
         try:
             fn()

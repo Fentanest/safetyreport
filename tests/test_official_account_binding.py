@@ -77,7 +77,8 @@ class BindingGateTests(_BindingBase):
         self.open_gate()
         with mock.patch.object(CommunityAccountClient, 'status', side_effect=AccountApiError('network_error')):
             self.assertEqual(gate.refresh_now()['state'], 'cloud_unavailable')
-        self.assertEqual(self.store.context()['state'], 'inactive')
+        self.assertEqual(self.store.context()['state'], 'active')
+        self.assertTrue(gate.evaluate()['can_local'])
         self.assertTrue(gate.refresh_now()['can_enter'])
         from services.community_auth_service import CommunityAuthError
         for method in ('get_access_token', 'current_kakao_id'):
@@ -138,7 +139,9 @@ class BindingGateTests(_BindingBase):
         self.assertTrue(self.open_gate()['can_enter'])
         self.account.bindings[USER_A['id']] = gate.dataset_key('changed-remotely')
         self.clock.now += 301
-        self.assertEqual(gate.check_for_request()['state'], 'official_account_mismatch')
+        from test_community_auth import wait_for
+        gate.check_for_request()  # owned local response is immediate; check runs once in background
+        self.assertTrue(wait_for(lambda: gate.evaluate()['state'] == 'official_account_mismatch'))
         self.assertEqual(self.store.context()['state'], 'inactive')
 
 

@@ -15,6 +15,7 @@ import unicodedata
 from urllib.parse import parse_qsl
 
 import requests
+from services import community_cloud as cloud
 
 PROTOCOL_VERSION = 1
 RELAY_FUNCTION = "community-auth-relay"
@@ -51,7 +52,7 @@ class CommunityHttpError(RuntimeError):
     @property
     def transient(self) -> bool:
         return self.code in ("network_error", "server_error", "rate_limited", "capacity") or (
-            self.status is not None and self.status >= 500
+            self.status is not None and (self.status == 429 or self.status >= 500)
         )
 
 
@@ -62,7 +63,7 @@ class RelayError(CommunityHttpError):
 class AuthError(CommunityHttpError):
     @property
     def reauth_required(self) -> bool:
-        return self.code in REAUTH_ERROR_CODES
+        return not self.transient and self.code in REAUTH_ERROR_CODES
 
 
 # ── 도우미 ────────────────────────────────────────────────────────────────────
@@ -111,14 +112,7 @@ def _json_or_empty(response) -> dict:
 
 
 def _retry_after(response, body_error: dict | None) -> float | None:
-    raw = response.headers.get("Retry-After") if response is not None else None
-    for candidate in (raw, (body_error or {}).get("retryAfterSeconds")):
-        try:
-            if candidate is not None:
-                return max(0.0, float(candidate))
-        except (TypeError, ValueError):
-            continue
-    return None
+    return cloud.retry_after(response.headers if response is not None else {}, {"error": body_error or {}}) or None
 
 
 # ── 클라이언트 ────────────────────────────────────────────────────────────────
@@ -133,11 +127,13 @@ class CommunityAuthClient:
     def _relay(self, action: str, body: dict, headers: dict | None = None) -> dict:
         url = f"{self.base}/functions/v1/{RELAY_FUNCTION}/{action}"
         try:
-            response = self.http.post(
+            response = cloud.run(self.base, lambda: self.http.post(
                 url, data=json.dumps({"protocol": PROTOCOL_VERSION, **body}),
                 headers={"Content-Type": "application/json", "Accept": "application/json",
                          "apikey": self.publishable_key, **(headers or {})},
-                timeout=TIMEOUT_SECONDS, allow_redirects=False)
+                timeout=TIMEOUT_SECONDS, allow_redirects=False))
+        except cloud.CloudDeferred as exc:
+            raise RelayError("rate_limited", 429, exc.retry_after) from None
         except requests.RequestException:
             raise RelayError("network_error") from None
         data = _json_or_empty(response)
@@ -181,11 +177,13 @@ class CommunityAuthClient:
             headers["Authorization"] = f"Bearer {access_token}"
         try:
             if method == "GET":
-                response = self.http.get(url, headers=headers, timeout=TIMEOUT_SECONDS, allow_redirects=False)
+                response = cloud.run(self.base, lambda: self.http.get(url, headers=headers, timeout=TIMEOUT_SECONDS, allow_redirects=False))
             else:
                 headers["Content-Type"] = "application/json"
-                response = self.http.post(url, data=json.dumps(body or {}), headers=headers,
-                                          timeout=TIMEOUT_SECONDS, allow_redirects=False)
+                response = cloud.run(self.base, lambda: self.http.post(url, data=json.dumps(body or {}), headers=headers,
+                                          timeout=TIMEOUT_SECONDS, allow_redirects=False))
+        except cloud.CloudDeferred as exc:
+            raise AuthError("rate_limited", 429, exc.retry_after) from None
         except requests.RequestException:
             raise AuthError("network_error") from None
         return response

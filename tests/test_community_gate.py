@@ -178,6 +178,18 @@ class FakeClock:
 
 
 class GateTestBase(CommunityTestBase):
+    real_cloud_boundary = True
+
+    @classmethod
+    def setUpClass(cls):
+        # Import binary modules before module injection; patch.dict restores the
+        # module registry and numpy cannot be imported a second time.
+        import main
+        main.get_app()
+        from core.database import database
+        from core.database.engine import get_engine
+        database.upgrade_schema(get_engine(), maintenance=False)
+
     def setUp(self):
         super().setUp()
         self.account = FakeAccount(self.fake)
@@ -345,12 +357,13 @@ class GateServiceTests(GateTestBase):
         self.clock.now += 2
         self.assertEqual(community_gate.evaluate()["state"], "verification_required")
 
-    def test_network_failure_blocks_even_with_fresh_cache(self):
+    def test_network_failure_keeps_local_context_but_blocks_upload(self):
         self.open_gate()
         self.clock.now += 300
         self.account.fail = [(503, "server_error")]
         self.assertFalse(community_gate.refresh_now()["can_enter"], "장애 시 즉시 차단")
-        self.assertEqual(self.store.context()["state"], "inactive")
+        self.assertEqual(self.store.context()["state"], "active")
+        self.assertTrue(community_gate.evaluate()["can_local"])
         self.clock.now += 301
         self.account.fail = [(503, "server_error")]
         result = community_gate.refresh_now()
@@ -469,7 +482,7 @@ class GateServiceTests(GateTestBase):
         self.assertEqual(self.account.count("status"), n, "15초 안에는 다시 시도하지 않는다")
         self.clock.now += 11
         community_gate.check_for_request()
-        self.assertEqual(self.account.count("status"), n + 1)
+        self.assertEqual(self.account.count("status"), n, "다른 HTTP 요청도 영속 5분 cooldown을 우회하지 않음")
 
     def test_verify_client_user_token(self):
         self.open_gate(USER_A)
@@ -532,8 +545,8 @@ class GateAppTests(GateTestBase):
         cls.TestClient = TestClient
         engine = get_engine()
         database.upgrade_schema(engine, maintenance=False)
-        if not database.has_admin_user(engine):
-            database.create_admin_user(engine, "fixture-admin", "fixture-pass")
+        if not database.get_admin_user(engine, "gate-fixture-admin"):
+            database.create_admin_user(engine, "gate-fixture-admin", "fixture-pass")
         cls.key = database.create_api_key(engine, "게이트 테스트 폰")
 
     @classmethod
@@ -550,7 +563,7 @@ class GateAppTests(GateTestBase):
         self.addCleanup(self.client.close)
 
     def login(self):
-        r = self.client.post("/login", data={"username": "fixture-admin", "password": "fixture-pass"},
+        r = self.client.post("/login", data={"username": "gate-fixture-admin", "password": "fixture-pass"},
                              follow_redirects=False)
         self.assertEqual(r.status_code, 303)
         page = self.client.get("/onboarding/community")
@@ -699,7 +712,7 @@ class GateAppTests(GateTestBase):
         self.assertEqual(r.json()["data"]["gate"]["state"], "consent_required")
         self.assertEqual(self.store.context()["state"], "inactive")
         r = self.client.get("/settings/", follow_redirects=False)
-        self.assertEqual(r.status_code, 302, "철회하면 즉시 필수 설정 화면으로")
+        self.assertEqual(r.status_code, 200, "긴급 정책: 철회 후에도 본인 로컬 조회 허용")
 
     def test_logout_closes_gate_immediately(self):
         token = self.login()
@@ -786,8 +799,9 @@ class GateAppTests(GateTestBase):
             self.assertEqual(self.client.get(path, follow_redirects=False).headers.get("location"), "/")
         self.assertEqual(self.client.get("/api/v1/summary", headers={"X-API-Key": self.key}).status_code, 200)
         self.assertEqual(self.client.get("/api/v1/summary", headers={"X-API-Key": "wrong"}).status_code, 401)
-        self.assertEqual(self.post("/crawl/start", {}, token=token).status_code, 403)
-        self.assertEqual(self.post("/settings/save", {}, token=token).status_code, 403)
+        self.assertNotEqual(self.post("/crawl/start", {}, token=token).status_code, 403)
+        self.assertTrue(community_gate.evaluate()["can_local"])
+        self.assertFalse(community_gate.evaluate()["can_enter"])
         gate = self.client.get("/settings/community/gate").json()["data"]
         self.assertFalse(gate["can_enter"])
         self.assertTrue(gate["can_browse"])
@@ -795,7 +809,7 @@ class GateAppTests(GateTestBase):
         self.account.fail.clear()
         response = self.post("/settings/official-account/retry", {}, token=token)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()["data"]["can_enter"])
+        self.assertFalse(response.json()["data"]["can_enter"], "수동 요청도 cooldown을 우회하지 않음")
 
     def test_cloud_browsing_works_after_restart_and_rejects_foreign_db(self):
         self.login()
@@ -831,25 +845,26 @@ class GateAppTests(GateTestBase):
         self.open_gate()
         rebuild = types.ModuleType("services.community_rebuild")
         rebuild.required = lambda: True
-        rebuild.blocking_state = lambda: None
+        rebuild.blocking_state = lambda: {"state": "running"}
         p_mod, p_attr = inject_module("services.community_rebuild", rebuild)
         with p_mod, p_attr, mock.patch("services.crawl_control.start_crawl") as start:
             n = self.account.count("status")
             self.clock.now += 61
             r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, headers={"X-CSRF-Token": token}, follow_redirects=False)
             self.assertEqual((r.status_code, r.json()["code"]), (409, "COMMUNITY_REBUILD_REQUIRED"))
-            self.assertEqual(self.account.count("status"), n + 1, "크롤 시작 전 60초 이내 재검증")
+            self.assertEqual(self.account.count("status"), n, "로컬 크롤 시작은 중앙 60초 재검증을 요구하지 않음")
             r = self.client.post("/api/v1/crawl/enqueue", headers={"X-API-Key": self.key}, json={"report_number": "1"})
             self.assertEqual((r.status_code, r.json()["detail"]), (409, "COMMUNITY_REBUILD_REQUIRED"))
             rebuild.required = lambda: False
+            rebuild.blocking_state = lambda: None
             r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, headers={"X-CSRF-Token": token}, follow_redirects=False)
             self.assertEqual(r.status_code, 200, r.text)
             self.assertEqual(start.call_count, 1)
             self.account.consents[USER_A["id"]]["state"] = "revoked"
             self.clock.now += 61
             r = self.client.post("/crawl/start", data={"crawl_mode": "full"}, headers={"X-CSRF-Token": token}, follow_redirects=False)
-            self.assertEqual(r.status_code, 403, "철회 뒤 60초 안에 새 작업이 막힌다")
-            self.assertEqual(start.call_count, 1)
+            self.assertEqual(r.status_code, 200, "긴급 정책: 철회 후에도 로컬 수집 유지")
+            self.assertEqual(start.call_count, 2)
 
     def test_client_sensitive_controls_require_phone_user_token(self):
         # Client 민감 제어(수동 업로드·초기화 시작)는 폰 사용자 토큰이 서버 연결 사용자와 같을 때만(plan §6.3).
@@ -900,12 +915,15 @@ class GateAppTests(GateTestBase):
         mgr._connections["t-open"] = ws
         self.addCleanup(mgr._connections.pop, "t-open", None)
         self.addCleanup(mgr._connection_meta.pop, "t-open", None)
-        with mock.patch.object(community_gate, "evaluate", return_value={"state": "ok", "can_enter": True}):
+        with mock.patch.object(community_gate, "evaluate", return_value={"state": "ok", "can_enter": True, "can_local": True}):
             asyncio.run(mgr.broadcast("crawl_done", {"n": 1}))
         self.assertEqual(len(ws.sent), 1)
-        with mock.patch.object(community_gate, "evaluate", return_value={"state": "verification_required", "can_enter": False}):
+        with mock.patch.object(community_gate, "evaluate", return_value={"state": "cloud_unavailable", "can_enter": False, "can_local": True}):
             asyncio.run(mgr.broadcast("crawl_done", {"n": 2}))
-        self.assertEqual(len(ws.sent), 1, "게이트가 닫히면 보내지 않는다")
+        self.assertEqual(len(ws.sent), 2, "로컬 소유자는 장애 중에도 이벤트를 받는다")
+        with mock.patch.object(community_gate, "evaluate", return_value={"state": "verification_required", "can_enter": False, "can_local": False}):
+            asyncio.run(mgr.broadcast("crawl_done", {"n": 2}))
+        self.assertEqual(len(ws.sent), 2, "게이트가 닫히면 보내지 않는다")
         self.assertEqual(ws.closed, 4403)
         self.assertNotIn("t-open", mgr._connections)
 

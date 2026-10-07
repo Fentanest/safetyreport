@@ -1,14 +1,7 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card mx-auto mt-5" style="max-width: 42rem">
-  <div class="card-body">
-    <h1 class="h4">클라우드 연결 확인</h1>
-    <p id="cloudMessage" role="alert">{{ message }}</p>
-    <p id="cloudRetryStatus" role="status" aria-live="polite">잠시 후 자동으로 다시 확인합니다.</p>
-    <button id="cloudRetry" type="button" class="btn btn-primary">다시 시도</button>
-  </div>
-</div>
-{% endblock %}
-{% block extra_js %}
-<script src="/static/ui/official-account-retry.js"></script>
+<div class="card mx-auto mt-5" style="max-width:42rem"><div class="card-body">
+<h1 class="h4">계정 확인 대기</h1><p role="status">{{ message }}</p>
+<p>연결이 복구되면 자동으로 확인합니다.</p>
+</div></div>
 {% endblock %}

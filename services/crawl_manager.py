@@ -107,7 +107,7 @@ class CrawlManager:
             return self._preparing or self._post_upload_active or self._process_busy_locked()
 
     def start_crawl(self, cmd: list, cwd: str, log_file: str, *, prepare=None,
-                    restore_generation: Optional[int] = None) -> bool:
+                    restore_generation: Optional[int] = None, on_run_created=None) -> bool:
         """크롤링 프로세스를 시작합니다. 이미 실행 중이면 False 반환.
         restore_generation: 호출자가 허용 검사(게이트·초기화) 전에 읽은 복원 세대. 그 사이 복원이 있었으면 시작하지 않는다(R4-03).
         prepare: 시작을 예약한 뒤 Popen 전에 실행. 예약 표시가 다른 시작·복원을 막고,
@@ -129,6 +129,8 @@ class CrawlManager:
             from services import crawl_run_state
             run_id = crawl_run_state.create()
             crawl_run_state.write(run_id, 'starting')
+            if on_run_created:
+                on_run_created(run_id)
             os.makedirs(os.path.dirname(log_file), exist_ok=True)
             if prepare is not None:
                 prepare()
@@ -160,6 +162,14 @@ class CrawlManager:
                 )
                 self._active_process._safetyreport_run_id = run_id
                 self._active_process._rebuild_run_id = rebuild_id
+                if on_run_created:
+                    try:
+                        on_run_created(run_id, self._active_process.pid)
+                    except Exception:
+                        # The child already exists; its own sidecar records the
+                        # outcome. Never mark a running process as spawn-failed.
+                        from core.utils import logger
+                        logger.LoggerFactory.logbot.warning('크롤링 실행 연결 기록을 저장하지 못했습니다.')
             return True
         except Exception:
             if 'run_id' in locals():

@@ -49,6 +49,13 @@ class CaptureTest(unittest.TestCase):
         self.assertEqual(self.store.connect().execute("SELECT report_number FROM source_journal WHERE event_id=?", (second.event_id,)).fetchone()[0], "SPP-2609-8000001")
 
     def setUp(self):
+        # This suite tests the journal/uploader with synthetic writer contexts.
+        # Owner/consent authorization is covered by test_community_offline.
+        context_patch = mock.patch('services.community_cloud.capture_context',
+                                   side_effect=lambda ctx: (ctx, 'active' if ctx and ctx.get('state') == 'active' else 'none'))
+        context_patch.start(); self.addCleanup(context_patch.stop)
+        cooldown_patch = mock.patch('services.community_cloud.remaining', return_value=0)
+        cooldown_patch.start(); self.addCleanup(cooldown_patch.stop)
         self.tmp = tempfile.mkdtemp()
         self.store = CommunityStore.open(self.tmp)
         self.store.set_context(**CTX)
@@ -168,7 +175,7 @@ class CaptureTest(unittest.TestCase):
         self.assertIsNotNone(result.event_id)
         self.assertEqual(self._counts(), (1, 0, 1, 0))
         row = self.store.connect().execute("SELECT blocked_reason FROM source_journal").fetchone()
-        self.assertEqual(row["blocked_reason"], "no_active_context")
+        self.assertEqual(row["blocked_reason"], "consent:none")
 
     def test_mark_personal_save(self):
         result = cap.capture(dict(eligible_input()), source_report_id="R1", trigger="realtime",
@@ -338,6 +345,8 @@ class AgencyCodePayloadTests(unittest.TestCase):
     """observation-v3(2026-09-28): 선택 답변의 C_MANAGE_ORG 원문을 TEXT 그대로 payload 로."""
 
     def setUp(self):
+        p = mock.patch('services.community_cloud.capture_context', side_effect=lambda ctx: (ctx, 'active'))
+        p.start(); self.addCleanup(p.stop)
         self.tmp = tempfile.mkdtemp()
         self.store = CommunityStore.open(self.tmp)
         self.store.set_context(**CTX)

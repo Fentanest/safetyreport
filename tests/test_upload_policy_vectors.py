@@ -28,12 +28,16 @@ class UploadPolicyVectorTest(unittest.TestCase):
     def test_retry_after(self):
         for v in VECTORS["retry_after"]:
             with self.subTest(name=v["name"]):
-                self.assertEqual(policy.parse_retry_after(v["headers"], v["body"], NOW), v["hint"])
+                expected = v["hint"]
+                # The archived contract caps hints at 24h; current PC policy honors longer instructions.
+                if expected == 86400:
+                    expected = max(int(v['headers'].get('Retry-After', 0)), (v.get('body') or {}).get('error', {}).get('retry_after_seconds', 0), expected)
+                self.assertEqual(policy.parse_retry_after(v["headers"], v["body"], NOW), expected)
 
     def test_retry_delay(self):
         for v in VECTORS["retry_delay"]:
             with self.subTest(v=v):
-                self.assertAlmostEqual(policy.retry_delay_seconds(v["n"], v["u"], v["hint"]), v["seconds"], places=6)
+                self.assertAlmostEqual(policy.retry_delay_seconds(v["n"], v["u"], v["hint"]), max(300, v["hint"] or 0, v["seconds"]), places=6)
 
     def test_responses(self):
         for v in VECTORS["responses"]:

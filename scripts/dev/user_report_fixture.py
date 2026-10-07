@@ -12,6 +12,7 @@ def main():
     p.add_argument('--data-dir',required=True)
     p.add_argument('--port',type=int,default=18703)
     p.add_argument('--review-fixture',action='store_true',help='동일명 기관 충돌 합성 자료 추가')
+    p.add_argument('--cloud-outage', action='store_true', help='합성 중앙 503과 업로드 대기 자료')
     args=p.parse_args()
     root=prepare_data_dir(args.data_dir,reset=False)
     activate_environment(root)
@@ -54,6 +55,12 @@ def main():
         connection.execute('CREATE TABLE IF NOT EXISTS mysafetymerge_traffic (ID TEXT)')
         connection.execute('PRAGMA user_version='+str(version))
         connection.commit(); connection.close()
+    if args.cloud_outage:
+        from services import community_capture
+        from test_community_uploader import INPUT
+        community_capture.capture(INPUT, source_report_id='offline-browser-fixture', trigger='fixture')
+        account.fail = [(503, 'server_error')]
+        community_gate.refresh_now()
     try: serve(root,'127.0.0.1',args.port)
     finally: service.shutdown(); fake.close()
 

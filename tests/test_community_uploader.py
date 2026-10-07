@@ -59,6 +59,13 @@ ack_response = ok_resp
 
 class UploaderTest(unittest.TestCase):
     def setUp(self):
+        # This suite tests the journal/uploader with synthetic writer contexts.
+        # Owner/consent authorization is covered by test_community_offline.
+        context_patch = mock.patch('services.community_cloud.capture_context',
+                                   side_effect=lambda ctx: (ctx, 'active' if ctx and ctx.get('state') == 'active' else 'none'))
+        context_patch.start(); self.addCleanup(context_patch.stop)
+        cooldown_patch = mock.patch('services.community_cloud.remaining', return_value=0)
+        cooldown_patch.start(); self.addCleanup(cooldown_patch.stop)
         self.tmp = tempfile.mkdtemp()
         self.store = CommunityStore.open(self.tmp)
         self.store.set_context(**CTX)
@@ -657,6 +664,9 @@ def _check_manifest_contract(t):
 
 
 class ManifestClientContractTest(unittest.TestCase):
+    def setUp(self):
+        p = mock.patch('services.community_cloud.run', side_effect=lambda base, send: send())
+        p.start(); self.addCleanup(p.stop)
     def test_request_body_and_response_validation(self):
         sent = {}
 

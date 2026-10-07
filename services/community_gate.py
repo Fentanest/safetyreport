@@ -4,7 +4,7 @@ K = 이 서버의 커뮤니티 세션이 유효하고 중앙 status 가 카카�
 C = 중앙에 현재 정책 버전·동의문 해시와 같은 활성 동의 grant 가 있음.
 로컬 파일의 "완료" 값으로는 통과하지 않는다. 중앙 ingest 는 이 캐시와 무관하게 저장 트랜잭션에서 다시 확인한다.
 
-캐시: 공통 동의 판정은 10분(CACHE_TTL), PC 바인딩은 5분(BINDING_TTL), 새 작업(크롤·업로드·초기화·설정 저장·자정 실행)은 require_fresh(60).
+캐시: 공통 동의 판정은 10분(CACHE_TTL), PC 바인딩은 5분(BINDING_TTL), 업로드·서버 변경은 require_fresh(60), 로컬 수집·조회·WS는 require_local().
 온라인이면 60초 주기 refresh_now()(스케줄러 job community-gate-poll)로 원격 철회를 반영한다.
 통과하면 writer 연결을 확보하고 community.db context 를 활성화한다. 미충족·철회·로그아웃이면 context 를 끈다.
 """
@@ -26,6 +26,7 @@ from core.utils import runtime_mode
 from core.utils.fallback import note_fallback
 from services.community_client_rules import is_current_response, normalize_status
 from services import community_auth_service as cas
+from services import community_cloud as cloud
 from services.community_account_client import AccountApiError, CommunityAccountClient
 
 _log = logging.getLogger("safetyreport.core.community_gate")
@@ -140,6 +141,7 @@ class _Gate:
         # 이 서버에서 카카오 로그인 확정·공유 동의를 방금 마쳤다(2026-09-28): 업로드 연결이 다른 기기에 있으면 이 서버로 가져온다.
         # 서버 재시작·주기 확인만으로는 세우지 않는다(기기끼리 서로 뺏지 않게). 모바일 `CommunityGate._claimRequested` 와 같은 규칙.
         self._claim_requested = False
+        self._request_refreshing = False
         self._last_attempt: float | None = None
         # 신고 자료 주인 확인(services/account_data.py): None=아직 확인 안 함, 'ok', 'mismatch', 'unknown'(카카오 번호 확인 실패)
         self._owner: str | None = None
@@ -206,23 +208,34 @@ class _Gate:
         if (session == "valid" and self._last_error == "cloud_unavailable"
                 and state not in official.BLOCKED | {"db_owner_mismatch", "suspended", "consent_required"}):
             state, reasons = "cloud_unavailable", ["cloud_unavailable"]
+        if session == "valid" and cloud.suspension(service):
+            state, reasons = "suspended", ["contributor_suspended"]
+        if state in ("verification_required", "ok") and cloud.remaining(cfg.supabase_url) > 0:
+            state, reasons = "cloud_unavailable", ["cloud_unavailable"]
+        # Explicit local revoke stops sending even while the server still says active.
+        if state == "ok" and cloud.denial(service).get("sticky"):
+            state, reasons = "consent_required", ["consent_revoked_locally"]
         result = {"state": state, "can_enter": state == "ok", "reasons": reasons, "verified_age": age}
         result["can_browse"] = result["can_enter"]
-        if state == "cloud_unavailable" and not BLOCK_BROWSING_ON_CLOUD_FAILURE:
+        if state in ("cloud_unavailable", "verification_required", "consent_required"):
+            # Emergency policy: consent history is recorded, not a local-use barrier.
+            # Login, DB ownership, binding and contributor suspension still apply.
             # 네트워크를 더 호출하거나 주인 표시를 새로 쓰지 않고 기존 세션/DB만 대조한다.
             # 새 로그인·다른 사람의 DB·계정 변경 미완료를 장애 우회로 열지 않는다.
             from services import account_data
             try:
                 member = (current or {}).get("kakao_id")
-                result["can_browse"] = bool(member and account_data.db_owner() == member)
+                result["can_browse"] = cloud.local_allowed(service, current, account_data.db_owner(), dataset_key(official_username()))
             except Exception:
                 result["can_browse"] = False
+        result["can_local"] = result["can_browse"]
+        result["cloud"] = cloud.view(cfg.supabase_url)
         self._notify_if_changed(result)
         return result
 
     # -- 재검증 ------------------------------------------------------------------------------------------
     def refresh_now(self, max_age: float | None = None) -> dict:
-        """중앙 status 를 다시 받는다(한 번에 하나). 네트워크 장애면 이전 성공 캐시가 있어도 진입과 작업을 막는다."""
+        """중앙 status 를 한 번에 하나 갱신한다. 장애는 업로드를 막고 소유자의 로컬 사용을 보존한다."""
         with self._refresh_lock:
             if max_age is not None:
                 with self._lock:
@@ -237,7 +250,7 @@ class _Gate:
                 self._last_error = "cloud_unavailable"
                 self._mark_invalid()
             result = self.evaluate()
-            if not result["can_enter"]:
+            if not result["can_local"] or result["state"] == "consent_required":
                 self._deactivate(result["state"])
             return result
 
@@ -265,6 +278,7 @@ class _Gate:
         try:
             status = normalize_status(client.status(token, own.get("connection_id") if own else None))
         except AccountApiError as exc:
+            cloud.observe(service, kind="unknown", source="status_failed")
             self._last_error = "cloud_unavailable" if exc.transient else exc.code
             if not exc.transient:
                 self._mark_invalid()
@@ -276,7 +290,11 @@ class _Gate:
             self._status_user = user_id
         self._last_error = None
         state, _ = decide("ok", "valid", status, 0.0, False)
-        if state == "ok":
+        cloud.record_status(service, current, status, state)
+        # Owner verification also applies to a logged-in account without consent.
+        if state in ("ok", "consent_required"):
+            self._check_owner(service, generation)
+        if state == "ok" and not cloud.denial(service).get("sticky"):
             from services import official_account as official
             try:
                 bound = official.binding(status)
@@ -330,7 +348,22 @@ class _Gate:
             due = self._last_attempt is None or now - self._last_attempt >= retry_interval
             if due:
                 self._last_attempt = now
-        return self.refresh_now() if due else result
+        if not due or cloud.remaining() > 0:
+            return result
+        if result.get("can_local"):
+            with self._lock:
+                if self._request_refreshing:
+                    return result
+                self._request_refreshing = True
+            def refresh():
+                try:
+                    self.refresh_now(max_age=FRESH_SECONDS)
+                finally:
+                    with self._lock:
+                        self._request_refreshing = False
+            threading.Thread(target=refresh, name="community-local-refresh", daemon=True).start()
+            return result
+        return self.refresh_now()
 
     def require_fresh(self, max_age: float = FRESH_SECONDS) -> dict:
         with self._lock:
@@ -384,9 +417,9 @@ class _Gate:
             changed = result["state"] != self._last_state
             self._last_state = result["state"]
             listeners = list(self._listeners)
-        if changed and not result["can_enter"]:
+        if changed and (not result.get("can_local") or result["state"] == "consent_required"):
             self._deactivate(result["state"])
-            if result["state"] in ("official_account_mismatch", "official_account_taken", "official_account_change_pending", "cloud_unavailable", "official_account_protocol_required"):
+            if not result.get("can_local") and result["state"] in ("official_account_mismatch", "official_account_taken", "official_account_change_pending", "cloud_unavailable", "official_account_protocol_required", "suspended"):
                 from services.crawl_manager import crawl_manager
                 crawl_manager.stop_for_account_binding()
         if changed:
@@ -521,12 +554,12 @@ class _Gate:
         if urlsplit(cfg.supabase_url).hostname != "127.0.0.1" and runtime_mode.is_fixture_mode():
             return False
         try:
-            resp = requests.get(f"{cfg.supabase_url}/auth/v1/user", timeout=10, allow_redirects=False,
-                                headers={"apikey": cfg.publishable_key, "Authorization": f"Bearer {token}"})
+            resp = cloud.run(cfg.supabase_url, lambda: requests.get(f"{cfg.supabase_url}/auth/v1/user", timeout=10, allow_redirects=False,
+                                headers={"apikey": cfg.publishable_key, "Authorization": f"Bearer {token}"}))
             if resp.status_code != 200:
                 return False
             user = resp.json()
-        except (requests.RequestException, ValueError):
+        except (requests.RequestException, cloud.CloudDeferred, ValueError):
             return False
         return isinstance(user, dict) and user.get("id") == current.get("user_id") and not user.get("is_anonymous")
 
@@ -538,6 +571,7 @@ class _Gate:
             status = self._status or {}
         consent = status.get("consent") or {}
         return {"state": result["state"], "can_enter": result["can_enter"], "can_browse": result["can_browse"], "reasons": result["reasons"],
+                "can_local": result["can_local"], "cloud": result["cloud"],
                 "verified_age": result["verified_age"], "policy_version": (status.get("policy") or {}).get("required_version"),
                 "consent": {"state": consent.get("state"), "granted_at": consent.get("granted_at"),
                             "policy_version": consent.get("policy_version")},
@@ -545,7 +579,7 @@ class _Gate:
                 "contributor": (status.get("contributor") or {}).get("status"),
                 "account": status.get("account"), "projection": status.get("projection"),
                 "writer": self._writer_note or ({"code": "ok"} if result["can_enter"] else None),
-                "deletion": _deletion_state()}
+                "upload_pending": _pending_uploads(), "deletion": _deletion_state()}
 
     def current_grant_id(self) -> str | None:
         with self._lock:
@@ -607,6 +641,22 @@ def status_view() -> dict:
     return _gate.status_view()
 
 
+def _pending_uploads() -> int | None:
+    try:
+        from services.community_store import CommunityStore
+        service = cas.get_service()
+        current = service.store.load().get("current") or {}
+        if not current.get("user_id"):
+            return 0
+        store = CommunityStore.open()
+        row = store.connect().execute("SELECT COUNT(*) FROM source_journal j WHERE j.contributor_fingerprint=? AND j.ack_status IS NULL AND (j.blocked_reason IS NULL OR j.blocked_reason LIKE 'consent:%')", (account_fingerprint(current['user_id']),)).fetchone()
+        return row[0]
+    except Exception as exc:
+        from core.utils.fallback import note_fallback
+        note_fallback("community_gate.pending_uploads", exc)
+        return None
+
+
 def _deletion_state() -> str | None:
     try:
         from services import community_capture
@@ -629,13 +679,17 @@ BLOCK_MESSAGES = {
 }
 
 
+def require_local() -> dict:
+    return check_for_request()
+
+
 def crawl_block() -> tuple[int, str] | None:
-    """크롤 시작(수동·예약·큐) 전: 게이트 60초 이내 재검증 → 초기화 필요·진행 중이면 막는다. 통과면 None."""
-    if not require_fresh(FRESH_SECONDS)["can_enter"]:
+    """크롤 시작(수동·예약·큐) 전: 로컬 소유권과 진행 중 초기화 작업을 확인한다."""
+    if not require_local()["can_local"]:
         return 403, ONBOARDING_REQUIRED
     from services import community_rebuild
 
-    if community_rebuild.required() or community_rebuild.blocking_state():
+    if community_rebuild.blocking_state():
         return 409, REBUILD_REQUIRED
     return None
 

@@ -22,7 +22,7 @@ class CacheRegressions(unittest.TestCase):
             calls.append(1); gate._verified_at=100.0; gate._invalidated=False
         def synchronized(max_age=None):
             barrier.wait(timeout=3); return original(max_age=max_age)
-        with mock.patch.object(gate,'evaluate',return_value={'state':'ok','can_enter':True}), mock.patch.object(gate,'_refresh_locked',side_effect=verified):
+        with mock.patch.object(gate,'evaluate',return_value={'state':'ok','can_enter':True,'can_local':True}), mock.patch.object(gate,'_refresh_locked',side_effect=verified):
             with mock.patch.object(gate,'refresh_now',side_effect=synchronized):
                 threads=[threading.Thread(target=gate.require_fresh) for _ in range(2)]
                 for thread in threads: thread.start()

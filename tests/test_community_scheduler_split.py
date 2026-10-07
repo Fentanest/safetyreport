@@ -126,7 +126,7 @@ class SchedulerSplitTest(unittest.TestCase):
     def test_run_crawler_skips_on_gate_or_rebuild(self):
         import services.crawl_control as cc
         gate = types.ModuleType("services.community_gate")
-        gate.require_fresh = lambda max_age=60.0: {"state": "x", "can_enter": False, "reasons": []}
+        gate.require_local = lambda: {"state": "x", "can_local": False, "can_enter": False, "reasons": []}
         _inject_module(self, "services.community_gate", gate)
         with mock.patch.object(cc, "start_crawl") as started:
             scheduler.run_crawler()

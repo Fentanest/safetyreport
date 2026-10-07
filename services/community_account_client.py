@@ -11,6 +11,7 @@ import hashlib
 from urllib.parse import urlsplit
 
 import requests
+from services import community_cloud as cloud
 
 from core.utils import runtime_mode
 from services.community_client_rules import classify_response
@@ -46,6 +47,7 @@ class AccountApiError(RuntimeError):
 
 class CommunityAccountClient:
     def __init__(self, supabase_url: str, publishable_key: str, session: requests.Session | None = None):
+        self.cloud_base = supabase_url.rstrip("/")
         self.base = f"{supabase_url.rstrip('/')}/functions/v1/{FUNCTION}"
         self.publishable_key = publishable_key
         self.http = session or requests.Session()
@@ -58,8 +60,10 @@ class CommunityAccountClient:
             except runtime_mode.ExternalSideEffectBlocked:
                 raise AccountApiError("fixture_blocked") from None
         try:
-            resp = self.http.post(f"{self.base}/{action}", json=payload, timeout=TIMEOUT_SECONDS, allow_redirects=False,
-                                  headers={"apikey": self.publishable_key, "Authorization": f"Bearer {access_token}"})
+            resp = cloud.run(self.cloud_base, lambda: self.http.post(f"{self.base}/{action}", json=payload, timeout=TIMEOUT_SECONDS, allow_redirects=False,
+                                  headers={"apikey": self.publishable_key, "Authorization": f"Bearer {access_token}"}))
+        except cloud.CloudDeferred as exc:
+            raise AccountApiError("network_error", retry_after=exc.retry_after) from None
         except requests.RequestException:
             raise AccountApiError("network_error") from None
         result = classify_response(resp.status_code, resp.text, resp.headers)

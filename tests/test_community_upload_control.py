@@ -79,6 +79,13 @@ class UploadControlTest(unittest.TestCase):
         self.assertNotIn("report_number", sent["payload"])
 
     def setUp(self):
+        # This suite tests the journal/uploader with synthetic writer contexts.
+        # Owner/consent authorization is covered by test_community_offline.
+        context_patch = mock.patch('services.community_cloud.capture_context',
+                                   side_effect=lambda ctx: (ctx, 'active' if ctx and ctx.get('state') == 'active' else 'none'))
+        context_patch.start(); self.addCleanup(context_patch.stop)
+        cooldown_patch = mock.patch('services.community_cloud.remaining', return_value=0)
+        cooldown_patch.start(); self.addCleanup(cooldown_patch.stop)
         self.tmp = tempfile.mkdtemp()
         self.store = CommunityStore.open(self.tmp)
         self.store.set_context(**CTX)
@@ -93,6 +100,7 @@ class UploadControlTest(unittest.TestCase):
             return "tok2" if rejected else "tok"
 
         patches = [
+            mock.patch('services.community_cloud.run', side_effect=lambda base, send: send()),
             mock.patch.object(up, "_gate_check", return_value={"state": "ok", "can_enter": True, "reasons": []}),
             mock.patch.object(up, "_now", lambda: self.now),
             mock.patch.object(up, "_rand", lambda: 0.0),
@@ -170,7 +178,7 @@ class UploadControlTest(unittest.TestCase):
     def test_attempt_count_and_backoff_grow_with_each_real_request(self):
         res = self.capture("R1")
         self.responder = lambda env, h: err_body(503, "busy")
-        expected_row = [2.5, 5.0, 10.0]  # UC-1: 5·2^(n-1)·0.5 (u=0)
+        expected_row = [300.0, 300.0, 300.0]  # Emergency minimum, including row retries.
         for n, delay in enumerate(expected_row, start=1):
             self.assertEqual(self.upload("recovery")["result"], "cooldown")
             row = self.row(res.event_id)
@@ -215,7 +223,7 @@ class UploadControlTest(unittest.TestCase):
         self.assertEqual(self.upload()["result"], "cooldown")
         account = self.control("account")
         self.assertEqual(account["state"], "cooling_down")
-        self.assertEqual(self.at(account["next_attempt_at"]) - self.now, timedelta(seconds=60))
+        self.assertEqual(self.at(account["next_attempt_at"]) - self.now, timedelta(seconds=300))
         self.capture("R2")  # 새 수집은 로컬에만 쌓인다
         for trigger in ("realtime", "manual", "midnight", "recovery", "reshare"):
             self.assertEqual(self.upload(trigger)["result"], "cooldown", trigger)
@@ -224,7 +232,7 @@ class UploadControlTest(unittest.TestCase):
         self.store = CommunityStore.open(self.tmp)
         self.assertEqual(self.upload("manual")["result"], "cooldown")
         self.assertEqual(len(self.requests), 1)
-        self.now = T0 + timedelta(seconds=61)
+        self.now = T0 + timedelta(seconds=301)
         self.responder = lambda env, h: ack_body(env["events"])
         self.assertEqual(self.upload("recovery")["result"], "sent")
         self.assertEqual(len(self.requests[1][1]["events"]), 1, "복구 확인은 1건짜리 요청 하나")
@@ -236,9 +244,9 @@ class UploadControlTest(unittest.TestCase):
         cases = [
             (lambda env, h: (503, {"Retry-After": format_datetime(self.now + timedelta(seconds=300), usegmt=True)},
                              b'{"error":{"code":"busy","message":"m","request_id":"r","retryable":true}}'), 300),
-            (lambda env, h: (429, {"retry-after": "120"}, b"slow down"), 120),
-            (lambda env, h: err_body(503, "busy", retry_after=45, header="90"), 90),
-            (lambda env, h: (503, {}, b"<html>busy</html>"), 2.5),
+            (lambda env, h: (429, {"retry-after": "120"}, b"slow down"), 300),
+            (lambda env, h: err_body(503, "busy", retry_after=45, header="90"), 300),
+            (lambda env, h: (503, {}, b"<html>busy</html>"), 300),
         ]
         for responder, wait in cases:
             with self.subTest(wait=wait):
@@ -719,19 +727,19 @@ class UploadControlTest(unittest.TestCase):
         status = up.upload_status(self.tmp)
         self.assertEqual(status["control"]["state"], "cooling_down")
         self.assertEqual(status["control"]["reason"], "rate_limited")
-        self.assertEqual(status["next_retry_kst"], "2026-09-27 09:01")
+        self.assertEqual(status["next_retry_kst"], "2026-09-27 09:05")
         self.assertIsNotNone(status["oldest_unsent_kst"])
         self.assertIsNone(status["last_central_ack_kst"])
         self.assertEqual(status["last_result"], "deferred", "API 소비자 호환 값")
         self.assertEqual(status["last_outcome"], "cooldown")
-        self.now = T0 + timedelta(minutes=2)
+        self.now = T0 + timedelta(minutes=6)
         self.responder = lambda env, h: (200, {}, json.dumps({"protocol": 1, "request_id": "r", "results": [
             {"event_id": res.event_id, "status": "quarantined", "durable": True, "receipt_id": RECEIPT,
              "projection_status": "not_applicable"}]}).encode())
         self.upload("recovery")
         status = up.upload_status(self.tmp)
         self.assertEqual((status["quarantined"], status["stored"]), (1, 1))
-        self.assertEqual(status["last_central_ack_kst"], "2026-09-27 09:02")
+        self.assertEqual(status["last_central_ack_kst"], "2026-09-27 09:06")
 
 
 if __name__ == "__main__":

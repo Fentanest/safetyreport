@@ -1,4 +1,4 @@
-"""이전 미전송 공유 자료가 새 크롤링보다 앞서는지 확인한다."""
+"""클라우드 전송 지연이 로컬 수집 시작을 막지 않는지 확인한다."""
 import os
 import tempfile
 import unittest
@@ -19,7 +19,7 @@ class CrawlUploadBoundaryTests(unittest.TestCase):
         with open(self.log, encoding="utf-8") as source:
             return source.read()
 
-    def test_drains_multiple_runs_before_crawl(self):
+    def test_drains_multiple_runs_after_crawl(self):
         outcomes = [
             {"result": "more_pending", "counts": {"sent": 25}, "error_code": None},
             {"result": "sent", "counts": {"sent": 2}, "error_code": None},
@@ -27,25 +27,25 @@ class CrawlUploadBoundaryTests(unittest.TestCase):
         statuses = [2, 0]
         with mock.patch("services.community_uploader.request_upload", side_effect=outcomes) as upload, \
              mock.patch("services.community_uploader.crawl_pending_count", side_effect=statuses):
-            flush(self.log, before_crawl=True)
+            flush(self.log, before_crawl=False)
         self.assertEqual(upload.call_count, 2)
         self.assertIn("대기 중인 공유 자료가 없습니다", self.log_text())
 
-    def test_offline_keeps_crawl_stopped_and_logs_reason(self):
-        with mock.patch("services.community_uploader.request_upload", return_value={"result": "cooldown", "error_code": "offline"}), \
-             mock.patch("services.community_uploader.crawl_pending_count", return_value=3):
-            with self.assertRaisesRegex(PendingUploadError, "3건"):
-                flush(self.log, before_crawl=True)
-        self.assertIn("offline", self.log_text())
+    def test_offline_preupload_only_wakes_background_worker(self):
+        with mock.patch("services.community_uploader.request_upload") as upload, \
+             mock.patch("services.community_uploader.wake") as wake:
+            flush(self.log, before_crawl=True)
+        upload.assert_not_called()
+        wake.assert_called_once()
 
-    def test_waits_for_orphan_upload_lease_then_retries(self):
+    def test_after_crawl_waits_for_orphan_upload_lease_then_retries(self):
         outcomes = [{"result": "busy_other_run", "error_code": None},
                     {"result": "sent", "error_code": None}]
         statuses = [1, 0]
         with mock.patch("services.community_uploader.request_upload", side_effect=outcomes) as upload, \
              mock.patch("services.community_uploader.crawl_pending_count", side_effect=statuses), \
              mock.patch("time.sleep"):
-            flush(self.log, before_crawl=True)
+            flush(self.log, before_crawl=False)
         self.assertEqual(upload.call_count, 2)
         self.assertIn("저장소 잠금", self.log_text())
 

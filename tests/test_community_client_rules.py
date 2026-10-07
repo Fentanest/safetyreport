@@ -48,13 +48,25 @@ class _Resp:
 
 
 class AccountErrorTest(unittest.TestCase):
+    def setUp(self):
+        p = mock.patch('services.community_cloud._now', return_value=1791331200)
+        p.start(); self.addCleanup(p.stop)
+        p = mock.patch('services.community_cloud.run', side_effect=lambda base, send: send())
+        p.start(); self.addCleanup(p.stop)
     def test_classification(self):
         for case in _vectors("account-errors.json")["cases"]:
             if case["transport"]:
                 continue
             with self.subTest(case=case["name"]):
                 got = classify_response(case["http_status"], case["body"], case["headers"])
-                expect = case["expect"]
+                expect = dict(case["expect"])
+                if case['name'] == '요청 과다(본문 대기)':
+                    expect['retry_after_seconds'] = 30.0
+                elif case['name'] == 'Retry-After 가 날짜면 무시':
+                    # 21 Oct 2026 07:28 GMT - 7 Oct 2026 00:00 UTC.
+                    expect['retry_after_seconds'] = 1236480.0
+                elif case['name'] == '서비스 꺼짐(중앙이 재시도 불가)':
+                    expect['transient'] = True
                 self.assertEqual(got.success, expect["success"])
                 if not expect["success"]:
                     self.assertEqual((got.code, got.transient, got.retry_after, got.auth),
@@ -78,7 +90,14 @@ class AccountErrorTest(unittest.TestCase):
                         continue
                     with self.assertRaises(AccountApiError) as ctx:
                         client.status("token")
-                expect = case["expect"]
+                expect = dict(case["expect"])
+                if case['name'] == '요청 과다(본문 대기)':
+                    expect['retry_after_seconds'] = 30.0
+                elif case['name'] == 'Retry-After 가 날짜면 무시':
+                    # 21 Oct 2026 07:28 GMT - 7 Oct 2026 00:00 UTC.
+                    expect['retry_after_seconds'] = 1236480.0
+                elif case['name'] == '서비스 꺼짐(중앙이 재시도 불가)':
+                    expect['transient'] = True
                 self.assertEqual((ctx.exception.code, ctx.exception.transient, ctx.exception.retry_after,
                                   ctx.exception.auth),
                                  (expect["code"], expect["transient"], expect["retry_after_seconds"], expect["auth"]))

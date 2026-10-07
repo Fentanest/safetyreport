@@ -347,6 +347,10 @@ class GateOwnershipTests(unittest.TestCase):
         service = mock.Mock()
         service.config.return_value = mock.Mock()
         patches = [
+            mock.patch('services.community_cloud.suspension', return_value=False),
+            mock.patch('services.community_cloud.denial', return_value={}),
+            mock.patch('services.community_cloud.remaining', return_value=0),
+            mock.patch('services.community_cloud.view', return_value={}),
             mock.patch.object(community_gate.cas, "get_service", return_value=service),
             mock.patch.object(community_gate, "config_state", return_value="ok"),
             mock.patch.object(community_gate._Gate, "_session_state",

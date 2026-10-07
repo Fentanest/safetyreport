@@ -539,6 +539,11 @@ class CommunityAuthService:
                 if not exc.transient or attempt == COMPLETE_ATTEMPTS - 1:
                     _log.warning("[community] complete 실패: %s", exc.code)
                     return False
+                from services import community_cloud
+                if community_cloud.remaining(cfg.supabase_url) > 0:
+                    # The local session is already durable. Do not hold the
+                    # confirmation HTTP request open throughout an outage.
+                    return False
                 wait = max(min(MAX_BACKOFF_SECONDS, delay), float(exc.retry_after or 0))
                 if deadline_ts is not None and self._now() + wait >= deadline_ts:
                     _log.warning("[community] complete 재시도가 연결 요청 만료를 넘겨 멈춥니다: %s", exc.code)

@@ -185,7 +185,7 @@ class WsManager:
         try:
             from services import community_gate
             # 세션 파일 해독이 있어 이벤트 루프를 막지 않게 스레드에서 평가한다
-            gate_open = bool((await asyncio.to_thread(community_gate.evaluate))["can_enter"])
+            gate_open = bool((await asyncio.to_thread(community_gate.evaluate)).get("can_local", False))
         except Exception:
             gate_open = False
         if not gate_open:

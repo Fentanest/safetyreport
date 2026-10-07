@@ -120,6 +120,8 @@ def register_community_jobs(scheduler) -> None:
         try:
             from services import community_gate as _gate
             _gate.refresh_now()
+            from services import community_consent_jobs
+            community_consent_jobs.tick()
         except ImportError:
             pass
 

@@ -17,8 +17,8 @@ def run_crawler():
     try:
         from services import community_gate as _gate
 
-        fresh = _gate.require_fresh(max_age=60.0) if hasattr(_gate, "require_fresh") else None
-        if fresh is not None and not fresh.get("can_enter"):
+        fresh = _gate.require_local()
+        if fresh is not None and not fresh.get("can_local"):
             logger.LoggerFactory.logbot.warning("스케줄러: 커뮤니티 게이트 미충족. 건너뜁니다.")
             return
     except Exception as exc:  # 사전 확인만 실패했다. start_crawl 이 게이트를 다시 확인한다.
@@ -26,7 +26,7 @@ def run_crawler():
     try:
         from services import community_rebuild as _rebuild
 
-        if _rebuild.required() or _rebuild.blocking_state() is not None:
+        if _rebuild.blocking_state() is not None:
             logger.LoggerFactory.logbot.warning("스케줄러: 초기화 크롤 필요·진행 중. 건너뜁니다.")
             return
     except Exception as exc:

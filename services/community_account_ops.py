@@ -12,6 +12,7 @@ import logging
 from core.utils.fallback import note_fallback
 from services import community_auth_service as cas
 from services import community_gate
+from services import community_cloud as cloud
 from services.community_account_client import AccountApiError, CommunityAccountClient
 from services.community_auth_service import CommunityAuthError
 
@@ -46,6 +47,7 @@ def logout() -> dict:
     except Exception as exc:  # 주인 표시를 읽지 못함 — 남의 자료를 지우지 않게 로그아웃하지 않는다
         logger.warning("[community] 로그아웃 전 자료 주인 확인 실패: %s", type(exc).__name__)
         raise OperationRefused("저장된 신고 내역을 확인하지 못해 로그아웃하지 않았습니다. 잠시 뒤 다시 시도하세요.") from None
+    cloud.deny("logout", service=service)
     community_gate.invalidate("logout")  # 업로드·새 작업을 먼저 멈춘다
     wiped = None
     if wipe:
@@ -138,17 +140,21 @@ def policy_view() -> dict:
 def consent(policy_version: str, consent_text_sha256: str) -> dict:
     # 화면이 보여 준 동의문의 (버전, 해시) 그대로 보낸다. 그 사이 중앙 정책이 바뀌었으면 중앙이 policy_mismatch 로 거절한다.
     res = account_call(lambda c, t: c.consent(t, policy_version, consent_text_sha256))
+    cloud.consent_accepted()
+    cloud.observe(cas.get_service(), kind="active", source="consent_accepted")
     return {"result": {k: res.get(k) for k in ("policy_version", "granted_at", "created")}, "gate": regate("consent_saved")}
 
 
 def consent_revoke() -> dict:
+    cloud.deny("consent_revoked", sticky=True)
+    cloud.observe(cas.get_service(), kind="revoked", source="local_revoke_pending")
+    community_gate.invalidate("consent_revoked")
     grant_id = community_gate.current_grant_id()
     if not grant_id:
         community_gate.refresh_now()
         grant_id = community_gate.current_grant_id()
     if not grant_id:
         raise CommunityAuthError("invalid_state", "철회할 동의가 없습니다.")
-    community_gate.invalidate("consent_revoked")  # 응답 전에 업로드부터 멈춘다
     res = account_call(lambda c, t: c.consent_revoke(t, grant_id))
     return {"result": {"revoked": bool(res.get("revoked")), "already_revoked": bool(res.get("already_revoked"))},
             "gate": regate("consent_revoked")}

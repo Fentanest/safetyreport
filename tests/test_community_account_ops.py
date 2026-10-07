@@ -35,6 +35,7 @@ class _Recorder:
             return {"wiped": True}
 
         patches = [
+            mock.patch("services.community_cloud.deny"),
             mock.patch.object(ops.cas, "get_service", return_value=service),
             mock.patch("services.account_data.db_owner", side_effect=db_owner),
             mock.patch("services.account_data.wipe_report_data", side_effect=wipe),
@@ -110,6 +111,10 @@ class AdoptOrderTest(unittest.TestCase):
 
 
 class AccountCallTest(unittest.TestCase):
+    def setUp(self):
+        for name in ('deny', 'observe'):
+            p = mock.patch('services.community_cloud.' + name)
+            p.start(); self.addCleanup(p.stop)
     def _service(self):
         service = mock.Mock()
         service.config.return_value = mock.Mock(supabase_url="http://127.0.0.1:1", publishable_key="pk")

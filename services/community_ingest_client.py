@@ -148,13 +148,14 @@ def post_envelope(envelope: dict, *, token: str | None = None, now=None) -> Inge
             cls = "offline" if exc.code == "auth_unavailable" else "auth_required"
             return IngestResponse(ok=False, http_status=None, code=exc.code, error_class=cls,
                                   retryable=cls == "offline", raw_error_message=exc.code, not_sent=True)
+    from services import community_cloud as cloud
     url = cfg.supabase_url.rstrip("/") + INGEST_PATH
     headers = {"apikey": cfg.publishable_key, "Authorization": f"Bearer {token}",
                "Content-Type": "application/json"}
     sent_ids = [str(e.get("event_id")) for e in envelope.get("events") or []]
     moment = now or datetime.now(timezone.utc)
     try:
-        status, raw, resp_headers = _http_post(url, headers, body, CONNECT_TIMEOUT + READ_TIMEOUT)
+        status, raw, resp_headers = cloud.run(cfg.supabase_url, lambda: _http_post(url, headers, body, CONNECT_TIMEOUT + READ_TIMEOUT))
     except Exception as exc:
         _log.info("[community] ingest 연결 실패: %s", type(exc).__name__)
         return _from_interpretation(policy.interpret_response(sent_ids, None, {}, None, moment), token=token)
@@ -213,13 +214,14 @@ def post_manifest(*, connection_id: str, after: str | None = None, limit: int = 
         token = cas.get_access_token()
     except cas.CommunityAuthError:
         return False, {}
+    from services import community_cloud as cloud
     url = cfg.supabase_url.rstrip("/") + MANIFEST_PATH
     body = json.dumps({"protocol": 1, "connection_id": connection_id, "after": after, "limit": max(1, min(limit, 5000))},
                       separators=(",", ":")).encode()
     headers = {"apikey": cfg.publishable_key, "Authorization": f"Bearer {token}",
                "Content-Type": "application/json"}
     try:
-        status, raw, _ = _http_post(url, headers, body, CONNECT_TIMEOUT + READ_TIMEOUT)
+        status, raw, _ = cloud.run(cfg.supabase_url, lambda: _http_post(url, headers, body, CONNECT_TIMEOUT + READ_TIMEOUT))
     except Exception as exc:
         _log.info("[community] manifest 연결 실패: %s", type(exc).__name__)
         return False, {}

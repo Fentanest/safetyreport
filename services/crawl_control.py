@@ -74,13 +74,13 @@ def _check_crawl_allowed():
     from services import community_rebuild as rebuild
 
     try:
-        fresh = gate.require_fresh(max_age=60.0)
+        fresh = gate.require_local()
     except Exception:
         raise RuntimeError("COMMUNITY_ONBOARDING_REQUIRED") from None
-    if not fresh.get("can_enter"):
+    if not fresh.get("can_local"):
         raise RuntimeError("COMMUNITY_ONBOARDING_REQUIRED")
     try:
-        blocked = rebuild.required() or rebuild.blocking_state() is not None
+        blocked = rebuild.blocking_state() is not None
     except Exception:
         raise RuntimeError("COMMUNITY_REBUILD_REQUIRED") from None
     if blocked:
@@ -225,6 +225,8 @@ def start_crawl(
     queue_filename: str = "queue.txt",
     header: str,
     broadcast_source: str,
+    force_full: bool = False,
+    on_run_created=None,
 ):
     if crawl_manager.is_crawling():
         raise RuntimeError("크롤링이 이미 실행 중입니다.")
@@ -246,10 +248,13 @@ def start_crawl(
         crawl_mode=crawl_mode,
         queue_file=queue_file,
     )
+    if force_full:
+        command.append('--force')
     log_file, prepare = _log_header(header)
     try:
+        extra = {'on_run_created': on_run_created} if on_run_created else {}
         started = _launch_watched(command, log_file, prepare, queue_file,
-                                  restore_generation=generation)
+                                  restore_generation=generation, **extra)
     except BaseException:
         _discard_queue_file(queue_file)
         raise

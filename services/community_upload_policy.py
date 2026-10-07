@@ -7,7 +7,7 @@
   request_too_large / payload_invalid. 오류 envelope 가 없는 4xx 는 payload 오류로 보지 않는다(서버 이상 → 재시도).
 - 대기: 로컬 백오프 min(300, 5·2^(n-1))·(0.5+0.5u), 서버 지시(Retry-After 초·HTTP-date, 본문 retry_after_seconds)는 최댓값,
   실제 대기 = max(서버 지시, 로컬 백오프). HTTP-date 는 응답 `Date` 헤더가 있으면 그 시각 기준(기기 시계가 틀려도 조기 재전송 없음).
-  24시간을 넘는 지시는 비정상 값으로 보고 24시간으로 제한한다(중앙 계약값은 60초 — 유일한 예외, 문서화).
+  PC 긴급 정책: 실제 재시도는 최소 300초, 더 긴 서버 지시는 상한 없이 존중한다.
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def backoff_seconds(n: int, u: float) -> float:
 
 def retry_delay_seconds(n: int, u: float, hint: int | None) -> float:
     """서버 지시보다 일찍 보내지 않고, 서버 지시를 로컬 상한으로 줄이지 않는다."""
-    local = backoff_seconds(n, u)
+    local = max(300.0, backoff_seconds(n, u))
     return float(max(local, hint)) if hint else local
 
 
@@ -67,7 +67,7 @@ def _header(headers: dict | None, name: str) -> str | None:
 
 
 def parse_retry_after(headers: dict | None, body_obj, now: datetime) -> int | None:
-    """유효한 서버 지시(초) 중 최댓값. 과거·0·음수·파싱 불가는 무시, 24시간 초과는 24시간(비정상 값 방어)."""
+    """유효한 서버 지시(초) 중 최댓값. 과거·0·음수·파싱 불가는 무시."""
     hints: list[int] = []
     raw = _header(headers, "Retry-After")
     if raw is not None:
@@ -101,7 +101,7 @@ def parse_retry_after(headers: dict | None, body_obj, now: datetime) -> int | No
             hints.append(value)
     if not hints:
         return None
-    return min(max(hints), SERVER_HINT_CAP_SECONDS)
+    return max(hints)
 
 
 @dataclass
@@ -212,6 +212,8 @@ def interpret_response(sent_ids: list[str], status: int | None, headers: dict | 
     code, request_id = _error_envelope(obj)
     if status == 429:
         return _error("rate_limited", status, code=code or "rate_limited", hint=hint, request_id=request_id)
+    if status >= 500:
+        return _error("server_busy", status, code=code or f"http_{status}", hint=hint, request_id=request_id)
     if status in (405, 415) and code is None:
         return _error("request_rejected", status, code="method_not_allowed" if status == 405 else "unsupported_media_type")
     if status == 413:

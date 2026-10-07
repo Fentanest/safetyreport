@@ -268,6 +268,9 @@ FORBIDDEN_KEYS = ("access_token", "refresh_token", "code_verifier", "device_secr
 
 
 class CommunityTestBase(unittest.TestCase):
+    # Protocol unit tests isolate transport cooldown; integration coverage uses
+    # the real boundary in GateTestBase / test_community_offline.
+    real_cloud_boundary = False
     def setUp(self):
         self.fake = FakeSupabase()
         self.addCleanup(self.fake.close)
@@ -276,6 +279,11 @@ class CommunityTestBase(unittest.TestCase):
         self.cfg = cas.CommunityConfig(enabled=True, supabase_url=self.fake.url, publishable_key="sb_publishable_testkey1234567890",
                                        site_url=SITE_URL, device_label="테스트 PC")
         self.service = self.make_service(self.tmp)
+        p = mock.patch.object(cas, '_default', self.service)
+        p.start(); self.addCleanup(p.stop)
+        if not self.real_cloud_boundary:
+            p = mock.patch('services.community_cloud.run', side_effect=lambda base, send: send())
+            p.start(); self.addCleanup(p.stop)
 
     def make_service(self, datapath, **kw):
         service = cas.CommunityAuthService(datapath, lambda: self.cfg, dockerenv_path=os.path.join(datapath, "nope"),
@@ -523,6 +531,9 @@ class ServiceFlowTests(CommunityTestBase):
         self.assert_no_secrets(dto)
 
     def test_lost_poll_response_is_retried_with_same_delivery_key(self):
+        # Isolate delivery-key protocol from the outage clock exercised separately.
+        p = mock.patch.object(cac, '_retry_after', return_value=0)
+        p.start(); self.addCleanup(p.stop)
         dto = self.service.start()
         rid = dto["pending"]["request_id"]
         self.fake.give_code(rid, USER_A)

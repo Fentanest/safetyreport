@@ -29,6 +29,8 @@ def read(run_id):
 
 
 def write(run_id, state, **fields):
+    if os.environ.get(ENV_KEY) == run_id:
+        fields.setdefault('pid', os.getpid())
     payload = {'run_id': run_id, 'attempt': 1, 'state': state,
                'updated_at': datetime.now(timezone.utc).isoformat(), **fields}
     write_bytes(_path(run_id), json.dumps(payload, ensure_ascii=False).encode('utf-8'))

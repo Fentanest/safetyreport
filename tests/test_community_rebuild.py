@@ -56,6 +56,7 @@ class RebuildEnv:
             return dict(env.gate_state)
 
         gate.require_fresh = require_fresh
+        gate.require_local = lambda: {**env.gate_state, "can_local": env.gate_state.get("can_enter", False)}
         self._inject("services.community_gate", gate)
 
         uploader = types.ModuleType("services.community_uploader")
@@ -266,12 +267,13 @@ class GateAndCommandTest(unittest.TestCase):
         payload = rebuild.status()
         self.assertEqual(payload["state"], "required")
         self.assertEqual(self.env.launches, [])
-        # 확인 전 일반 크롤도 막힌다.
+        # Pending sharing migration is no longer a local collection prerequisite.
+        # An actually running rebuild still serializes access to personal data.
         import services.crawl_control as cc
-        with self.assertRaisesRegex(RuntimeError, "COMMUNITY_REBUILD_REQUIRED"):
-            cc.start_crawl(crawl_mode="full", header="x", broadcast_source="t")
-        with self.assertRaisesRegex(RuntimeError, "COMMUNITY_REBUILD_REQUIRED"):
-            cc.enqueue_report("SPP-1")
+        cc._check_crawl_allowed()
+        with mock.patch.object(rebuild, 'blocking_state', return_value={'state': 'running'}):
+            with self.assertRaisesRegex(RuntimeError, "COMMUNITY_REBUILD_REQUIRED"):
+                cc._check_crawl_allowed()
 
     def test_g02_rebuild_command_has_force_and_rebuild_without_reset(self):
         import services.crawl_control as cc

@@ -30,7 +30,10 @@ def flush(log_file: str, *, before_crawl: bool) -> None:
         with open(log_file, "a", encoding="utf-8") as out:
             out.write(f"[Supabase] {message}\n")
 
-    log("이전 공유 자료 업로드 확인 중..." if before_crawl else "수집한 공유 자료 업로드 중...")
+    if before_crawl:
+        community_uploader.wake()
+        return
+    log("수집한 공유 자료 업로드 중...")
     lease_deadline = time.monotonic() + 125
     waiting_for_lease = False
     try:

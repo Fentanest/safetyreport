@@ -21,7 +21,7 @@ def upload_status(data_dir=None) -> dict:
     """지도 패널용. 현재 context 계정의 것만 집계한다(UC-1 §1-7). 원문·토큰 없음."""
     store = up._store(data_dir)
     conn = store.connect()
-    ctx = store.active_context()
+    ctx = store.context()
     fingerprint = (ctx or {}).get("contributor_fingerprint")
     last = conn.execute("SELECT * FROM upload_runs ORDER BY started_at DESC LIMIT 1").fetchone()
     states = {s: 0 for s in ("pending", "retry_wait", "in_flight", "auth_required", "blocked", "dead_letter")}
@@ -127,7 +127,7 @@ def reshare_candidates(data_dir=None) -> int:
     return count
 
 
-def request_reshare(data_dir=None) -> dict:
+def request_reshare(data_dir=None, *, consent_grant=None, send=True, only_waiting=False) -> dict:
     """최신 eligible 행을 새 event_id·revision·reshare 로 재발급 후 업로드."""
     from services.community_capture import canonical_json as _cj
     from services import community_capture as _cap
@@ -140,23 +140,38 @@ def request_reshare(data_dir=None) -> dict:
     local_id = store.local_dataset_id()
     created: list[str] = []
     with store.transaction() as tx:
-        # 현 계정의 최신 eligible 행만 재발급한다(타 계정 행 rebind 금지 — 위 reshare_candidates와 같은 범위).
+        # Explicit grant recovery includes preserved journals before same-account
+        # personal DB restoration. Fingerprint and official dataset stay mandatory.
+        scope = "dataset_key IS ? AND contributor_fingerprint IS ?"
+        params = [ctx.get('dataset_key'), ctx.get('contributor_fingerprint')]
+        if not consent_grant:
+            scope += " AND local_dataset_id=?"
+            params.append(local_id)
         rows = tx.execute(
-            "SELECT source_report_id, MAX(source_revision) AS rev FROM source_journal"
-            " WHERE local_dataset_id=? AND eligible=1 AND dataset_key IS ? AND contributor_fingerprint IS ?"
-            " GROUP BY source_report_id",
-            (local_id, ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchall()
-        for item in rows:
-            row = tx.execute(
-                "SELECT * FROM source_journal WHERE local_dataset_id=? AND source_report_id=?"
-                " AND source_revision=? AND dataset_key IS ? AND contributor_fingerprint IS ?"
-                " ORDER BY source_revision DESC LIMIT 1",
-                (local_id, item["source_report_id"], item["rev"],
-                 ctx.get("dataset_key"), ctx.get("contributor_fingerprint"))).fetchone()
-            if row is None or row["blocked_reason"]:
+            "SELECT * FROM (SELECT j.*, ROW_NUMBER() OVER (PARTITION BY source_report_id"
+            " ORDER BY source_revision DESC, rowid DESC) AS candidate_rank FROM source_journal j"
+            " WHERE eligible=1 AND " + scope + ") WHERE candidate_rank=1", params).fetchall()
+        for row in rows:
+            # A tombstone belongs to the logical report, across local DB rotations.
+            deleted = tx.execute(
+                "SELECT 1 FROM source_journal WHERE source_report_id=? AND dataset_key IS ?"
+                " AND contributor_fingerprint IS ? AND blocked_reason IN ('deleted_by_user','deleted','blocked:deleted') LIMIT 1",
+                (row['source_report_id'], ctx.get('dataset_key'), ctx.get('contributor_fingerprint'))).fetchone()
+            if deleted:
                 continue
-            if row["consent_grant_id"] == ctx.get("consent_grant_id") \
-                    and row["connection_id"] == ctx.get("connection_id"):
+            reason = row["blocked_reason"]
+            if only_waiting and (row["ack_status"] is not None or reason not in ('consent:unknown', 'consent:none', 'consent:revoked', 'consent:outdated')):
+                continue
+            consent_period = reason in ("no_active_context", "consent:revoked", "consent:none", "consent:unknown", "consent:outdated")
+            if reason and not (consent_grant and consent_period):
+                continue
+            origin = "consent:" + consent_grant if consent_grant else "reshare"
+            if consent_grant:
+                if consent_grant != ctx.get("consent_grant_id") or row["capture_trigger"] == origin:
+                    continue
+                if not consent_period and row["consent_grant_id"] == consent_grant and row["connection_id"] == ctx.get("connection_id"):
+                    continue
+            elif row["consent_grant_id"] == ctx.get("consent_grant_id") and row["connection_id"] == ctx.get("connection_id"):
                 continue
             revision = store.next_revision(tx)
             event_id = str(uuid.uuid4())
@@ -166,9 +181,9 @@ def request_reshare(data_dir=None) -> dict:
                 " source_report_id, report_number, source_revision, event_type, captured_at, capture_trigger,"
                 " schema_version, parser_version, payload_json, payload_sha256, eligible,"
                 " contributor_fingerprint, connection_id, writer_epoch, consent_grant_id, personal_save_state)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, 'reshare', ?, 'reshare', ?, ?, ?, ?, 1, ?, ?, ?, ?, 'pending')",
+                " VALUES (?, ?, ?, ?, ?, ?, ?, 'reshare', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 'pending')",
                 (event_id, row["project_namespace"], local_id, ctx.get("dataset_key"),
-                 row["source_report_id"], row["report_number"], revision, row["captured_at"],
+                 row["source_report_id"], row["report_number"], revision, row["captured_at"], origin,
                  row["schema_version"], row["parser_version"], row["payload_json"], row["payload_sha256"],
                  ctx.get("contributor_fingerprint"), ctx.get("connection_id"), ctx.get("writer_epoch"),
                  ctx.get("consent_grant_id")))
@@ -184,7 +199,7 @@ def request_reshare(data_dir=None) -> dict:
             created.append(event_id)
     if not created:
         return {"result": "no_change", "count": 0}
-    result = up.request_upload("reshare", data_dir)
+    result = up.request_upload("reshare", data_dir) if send else {"result": "queued"}
     result["reshared"] = len(created)
     return result
 
