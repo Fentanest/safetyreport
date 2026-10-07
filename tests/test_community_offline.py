@@ -161,6 +161,9 @@ class OfflinePolicyTests(GateTestBase):
 
     def test_grant_job_is_durable_once_and_full_not_reset(self):
         self.open_gate()
+        from services import community_account_ops as ops
+        from test_community_gate import POLICY, HASH
+        ops.consent(POLICY, HASH)
         from services import community_consent_jobs as jobs, crawl_run_state
         key,grant,job=cloud.current_job()
         launched=[]
@@ -176,6 +179,9 @@ class OfflinePolicyTests(GateTestBase):
 
     def test_restored_writer_uploads_waiting_rows_after_completed_grant_job(self):
         self.open_gate()
+        from services import community_account_ops as ops
+        from test_community_gate import POLICY, HASH
+        ops.consent(POLICY, HASH)
         key, grant, _ = cloud.current_job()
         cloud.update_job(key, grant, state='succeeded')
         self.store.deactivate_context('cloud_unavailable')

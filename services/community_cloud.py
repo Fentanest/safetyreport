@@ -245,8 +245,9 @@ def consent_accepted(service=None):
     service = service or cas.get_service()
     current = service.store.load().get('current') or {}
     with _state() as state:
-        row = state['accounts'].get(_account_key(service.config().supabase_url, current.get('user_id')), {})
+        row = state['accounts'].setdefault(_account_key(service.config().supabase_url, current.get('user_id')), {})
         row.pop('deny', None)
+        row['catchup_requested'] = True
 
 
 def observe(service, status=None, *, kind=None, source='status', user=None):
@@ -262,8 +263,16 @@ def observe(service, status=None, *, kind=None, source='status', user=None):
         row = state['accounts'].setdefault(account, {})
         prior = row.get('consent') or {}
         grant = consent.get('grant_id')
-        if result == 'active' and grant and source == 'status':
+        # First status (including a later grant ID fill-in) is a baseline.
+        # Keep a successful explicit consent request until status confirms its
+        # grant, even if the intervening status request fails or we restart.
+        changed = (prior.get('state') is not None and
+                   (prior.get('state') != 'active' or
+                    (prior.get('grant_id') is not None and prior['grant_id'] != grant)))
+        if (result == 'active' and grant and source == 'status' and
+                (row.get('catchup_requested') is True or changed)):
             row.setdefault('jobs', {}).setdefault(grant, {'state': 'pending', 'phase': 'reshare', 'created_at': _now()})
+            row.pop('catchup_requested', None)
         if prior.get('state') == result and (result != 'active' or prior.get('grant_id') in (None, grant)):
             if grant:
                 row['consent'] = {**prior, 'grant_id': grant, 'policy_version': consent.get('policy_version')}
@@ -272,8 +281,6 @@ def observe(service, status=None, *, kind=None, source='status', user=None):
                  'at': _now(), 'source': source}
         row['consent'] = event
         row.setdefault('history', []).append(event)
-        if result == 'active' and grant and source == 'status':
-            row.setdefault('jobs', {}).setdefault(grant, {'state': 'pending', 'phase': 'reshare', 'created_at': _now()})
 
 
 def suspension(service):

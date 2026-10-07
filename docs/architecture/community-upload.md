@@ -169,6 +169,8 @@
 
 소유권을 확인한 캡처는 동의/네트워크 상태와 별도로 기존 journal에 저장한다. 그 시점의 상태는 기존 capture_trigger/blocked_reason에 남긴다. 전송 가능한 문맥은 outbox에 대기하고, 비활성 문맥의 캡처도 fingerprint·dataset_key를 보존한다. 실제 서버 동의 복구 뒤 같은 계정/데이터셋만 기존 reshare 계약으로 다시 발급한다. 원본 payload·captured_at은 보존하며, background/recovery가 재개해도 reshare envelope trigger를 유지한다.
 
+기존 활성 동의를 처음 확인한 status는 baseline으로만 저장하며, 이때 빠진 grant ID가 나중에 보충되어도 새 전체 수집을 예약하지 않는다. 명시적 동의 POST 성공은 계정별 `catchup_requested`로 암호화 저장하여 후속 status 장애·재시작 뒤에도 보존하고, 서버가 active grant를 확인하면 한 번 소비한다. 기록된 미동의·철회 등에서 active로 바뀌거나 기존의 non-null grant가 바뀐 경우에도 한 번 예약한다. 이미 등록된 pending/running/succeeded 작업은 덮거나 삭제하지 않는다.
+
 서버가 확인한 grant별 한 번의 보충 작업은 암호화 내부 저장소에 `reshare → crawl → succeeded`로 남는다. 수집은 일반 full + `--force`, `--reset` 없음. 실행 ID를 spawn 전 기록하고 child sidecar의 PID/성공 결과와 실행 lease로 중복을 억제한다. 장애/중단은 같은 작업을 재개하며 매 status poll마다 새 전체 수집을 만들지 않는다. 현재 grant 보충이 완료된 뒤 발생한 오프라인 캡처도 복구 uploader가 따로 대기열에 편입한다.
 
 완료 판정은 유효한 durable ACK와 receipt_id다. 응답 유실은 같은 event_id 재전송으로 확인한다. manifest는 공개 완료 fact의 prefix 목록이며 보편적인 영수증 목록이 아니다. 기존 완전성·페이지 token·count 검사를 유지하고 실패/부분 목록을 삭제 또는 누락으로 간주하지 않는다. 명시적 `deleted_by_user`/`deleted` 차단은 자동 reshare로 되살리지 않는다. 영수증이 있는데 중앙 fact가 사라진 모든 원인을 manifest만으로 구분하는 범용 복구 API는 구현 범위에 없다.
@@ -177,6 +179,7 @@
 
 | 종전 설명 | 현재 코드 |
 |---|---|
+| active status의 grant면 최초 관측에도 보충 작업 등록 | 최초 관측은 baseline. 명시적 동의 성공 또는 기록된 상태·grant 전환 뒤 confirmed active에서만 등록 |
 | 첫 실패 대기 2.5~5초 | 실제 재시도 최소300초 |
 | 서버 Retry-After 최대24시간 제한 | 더 긴 유효 서버 지시는 상한 없이 존중 |
 | 이전 업로드 완료 뒤 수집 시작 | background uploader를 깨우고 로컬 수집 시작 |
