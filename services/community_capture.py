@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 from core.utils.fallback import note_fallback
+from services import report_category
 
 STATUS_MAP = {
     "수용": "accepted",
@@ -32,7 +33,7 @@ STATUS_MAP = {
     "처리중": "processing",
 }
 ELIGIBLE = {"accepted", "partial", "rejected", "completed_unknown"}
-PARSER_VERSION = "pc-parser-4"  # 2026-09-28 observation-v4(rating)
+PARSER_VERSION = "pc-parser-5"  # 2026-10-11 observation-v5(5분류·SSNPC)
 SCHEMA_VERSION = 1
 
 _AMOUNT_RE = re.compile(r"^(과태료|범칙금):\s*(.+?)\s*원$")
@@ -211,7 +212,8 @@ def _parse_location(geocode) -> dict:
 
 def build_adapter_input(detail: dict, title_fields: dict | None = None,
                         entry_value: str | None = None, geo: dict | None = None,
-                        progress_status: str | None = None) -> dict:
+                        progress_status: str | None = None, *,
+                        ssnpc_cd: str | None = None, ssnpc_type: str | None = None) -> dict:
     """observation.md 2절 PC 열 → 플랫폼 중립 입력. geo 는 _prefetch_derived() 값만."""
     detail = detail or {}
     title_fields = title_fields or {}
@@ -232,6 +234,9 @@ def build_adapter_input(detail: dict, title_fields: dict | None = None,
         "car_number": detail.get("차량번호"),
         "violation_location": detail.get("위반장소"),
         "entry_value": entry_value,
+        # observation-v5(2026-10-11): 안전신문고 분류 코드. category 는 코드가 있으면 코드로 정한다.
+        "ssnpc_cd": ssnpc_cd,
+        "ssnpc_type": ssnpc_type,
         "penalty_points": detail.get("벌점"),
         # observation-v2(2026-09-28): 파서가 처리내용에서 뽑은 법 이름·조항(처리내용 원문은 보내지 않는다)
         "violation_law": detail.get("위반법규"),
@@ -252,12 +257,8 @@ def build_payload(adapter_input: dict) -> dict:
     status = STATUS_MAP.get(status_raw or "", "other")
     eligible = status in ELIGIBLE
     entry_value = adapter_input.get("entry_value") if isinstance(adapter_input.get("entry_value"), str) else ""
-    if "자동차·교통위반" in entry_value:
-        category = "traffic"
-    elif "불법주정차신고" in entry_value:
-        category = "parking"
-    else:
-        category = "other"
+    # observation-v5: 5분류(contracts/report-categories.json). 코드가 있으면 코드, 없으면 접수 메뉴 문구.
+    category = report_category.category_of(adapter_input.get("ssnpc_cd"), adapter_input.get("ssnpc_type"), entry_value)
     report_date = _parse_day(adapter_input.get("report_date"))
     response_day = _parse_day(adapter_input.get("response_date"))
     completed_date = response_day if eligible else None

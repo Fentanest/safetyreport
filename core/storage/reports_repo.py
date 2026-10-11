@@ -208,7 +208,8 @@ def _community_capture_for(rec: CrawledDetail, derived: dict):
     geo = {c: derived.get(c) for c in GEO_COLUMNS}
     detail = dict(rec.detail or {})
     title_fields = dict(rec.title_fields or {}) if rec.title_fields else None
-    adapter = _cap.build_adapter_input(detail, title_fields, rec.entry_value, geo, rec.progress_status)
+    adapter = _cap.build_adapter_input(detail, title_fields, rec.entry_value, geo, rec.progress_status,
+                                       ssnpc_cd=rec.ssnpc_cd, ssnpc_type=rec.ssnpc_type)
     trigger = _os.environ.get("SAFETYREPORT_REBUILD_RUN_ID") and "rebuild" or "realtime"
     run_id = _os.environ.get("SAFETYREPORT_REBUILD_RUN_ID") or None
     try:

@@ -1,4 +1,4 @@
-# 공식 관측 → 공유 DTO (observation-v4)
+# 공식 관측 → 공유 DTO (observation-v5)
 
 ## 1. 확정 시점
 공식 상세 응답을 받고 파서가 끝난 직후, **개인 수정값(override)·별점사유 보강·화면 계산과 합치기 전** 에 DTO 를 만들고 정규 JSON 문자열로 확정한다.
@@ -20,6 +20,8 @@
 | `car_number` | `car_number` / 차량번호 | `carNumber` |
 | `violation_location` | `violation_location` / 위반장소 | `location` |
 | `entry_value` | `entry_value` | `entryValueFromDetail(...)` |
+| `ssnpc_cd` | `ssnpc_cd`(상세 응답 SSNPC_CD, 정규화) (2026-10-11, v5) | `ssnpcCd` |
+| `ssnpc_type` | `ssnpc_type`(상세 응답 SSNPC_TYPE, 두 자리) (v5) | `ssnpcType` |
 | `penalty_points` | `penalty_points` / 벌점 | `penaltyPoints` |
 | `rating` | `title_fields['별점']`(공식 상세의 만족도 점수) | `rating` |
 | `violation_law` | `violation_law` / 위반법규 (2026-09-28, v2) | `law` |
@@ -46,7 +48,7 @@
 
 - `status_raw` = `clean(processing_status, 40)`(빈 값이면 null).
 - `eligible` = status ∈ {accepted, partial, rejected, completed_unknown}. **`종결여부=Y` 와 같은 뜻이 아니다**(취하·이송은 완료 답변이 아님).
-- `category`: entry_value 에 `자동차·교통위반` 포함 → `traffic`, `불법주정차신고` 포함 → `parking`, 그 밖 → `other`(PC `category_from_entry_value` 와 같음).
+- `category`(v5, 2026-10-11): `traffic`·`parking`·`safety`·`living`·`other` 5분류. 안전신문고 분류 코드(`ssnpc_cd`+`ssnpc_type`)가 있으면 코드로, 없으면 `entry_value`(접수 메뉴 문구)로 정한다 — 규칙과 코드표는 `contracts/report-categories.json`(PC `services/report_category.resolve`, 모바일 `report_category.dart` `resolve`). 통계에 없는 접수 경로·코드 없음·메뉴 모름은 `other`. v4 까지는 entry_value 로 traffic·parking·other 3분류였다.
 - 날짜 `day(s)`: 앞 10자가 `YYYY-MM-DD` → 그대로, `YYYY.MM.DD` → 점을 `-` 로, 8자리 숫자 `YYYYMMDD` → 하이픈 삽입; 실제 달력 날짜가 아니면 null. 시각이 붙은 값은 앞 날짜만(안전신문고 표시 시각은 KST).
 - `report_date` = day(report_date). `completed_date` = eligible 이면 day(response_date), 아니면 null. 결측을 업로드일·신고일로 채우지 않는다.
 - 금액(확정만, 규칙 추정 금액은 넣지 않음) — `penalty_amount` 전체가 정확히 다음 문법일 때만 확정 금액:

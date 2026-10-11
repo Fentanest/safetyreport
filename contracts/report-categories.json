@@ -62,7 +62,7 @@
     {"cd": "DR", "type": "08", "name": "불법 숙박", "category": "living"}
   ],
   "entry_value": {
-    "rule": "코드(SSNPC_CD+SSNPC_TYPE)가 있으면 코드로만 정한다. 코드가 없을 때만 entry_value('메뉴-소분류')로 찾는다. 비교 전 정규화: 모든 공백 제거, 소분류 끝의 '불법주차' 제거, 코드 이름 앞의 '(구)' 제거. 메뉴는 menus 로 대분류 후보를 고르고, 소분류는 그 후보 안에서 정규화 이름 또는 aliases 로 찾는다. 메뉴만 알고 소분류를 못 찾으면 code 없이 그 메뉴의 category, 메뉴도 모르면 other.",
+    "rule": "코드(SSNPC_CD+SSNPC_TYPE)가 있으면 코드로만 정한다. 코드가 없을 때만 entry_value('메뉴-소분류')로 찾는다. 비교 전 정규화: 모든 공백 제거, 소분류 끝의 '불법주차' 제거, 코드 이름 앞의 '(구)' 제거. 메뉴는 menus 로 대분류 후보를 고르고, 소분류는 그 후보 안에서 정규화 이름 또는 aliases 로 찾는다. 메뉴만 알고 소분류를 못 찾으면 code 없이 그 메뉴의 category. '-' 앞부분이 아는 메뉴와 정확히 같지 않으면, 정규화한 전체 문구가 아는 메뉴 이름으로 시작할 때 그중 가장 긴 메뉴를 쓴다(소분류 모름, code 없음). 그래도 모르면 other.",
     "menus": [
       {"menu": "불법주정차신고", "cds": ["IP", "EP"], "category": "parking"},
       {"menu": "자동차·교통위반", "cds": ["TV"], "category": "traffic"},
@@ -98,6 +98,9 @@
     {"name": "코드 없음 · 안전신고 소방안전", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "안전 신고-소방안전", "expect": {"code": "CM-11", "category": "safety"}},
     {"name": "코드 없음 · 옛 안전신고 교통위반('(구)' 없이 적힌 옛 메뉴)", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "안전 신고-교통위반", "expect": {"code": "CM-06", "category": "traffic"}},
     {"name": "코드 없음 · 옛 안전신고 쓰레기(생활불편으로 나뉘기 전 이름)", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "안전신고-쓰레기, 폐기물", "expect": {"code": "CM-05", "category": "living"}},
+    {"name": "코드 없음 · '-' 가 아닌 구분자(메뉴 이름으로 시작)", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "자동차·교통위반 > 신호위반", "expect": {"code": null, "category": "traffic"}},
+    {"name": "코드 없음 · 가장 긴 메뉴 이름 우선", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "자동차·교통위반 신고 > 기타", "expect": {"code": null, "category": "traffic"}},
+    {"name": "코드 없음 · 비슷하지만 다른 메뉴는 기타", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "안전신문고 > 기타", "expect": {"code": null, "category": "other"}},
     {"name": "코드 없음 · 메뉴만 있음", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "불법주정차신고", "expect": {"code": null, "category": "parking"}},
     {"name": "코드 없음 · 메뉴는 알고 소분류 모름", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "생활불편 신고-새로 생긴 소분류", "expect": {"code": null, "category": "living"}},
     {"name": "코드 없음 · 모르는 메뉴", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "해양 안전신고-해양오염", "expect": {"code": null, "category": "other"}},

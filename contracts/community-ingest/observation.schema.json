@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://safemap.worklazy.net/contracts/community-ingest/observation-v4.json",
-  "title": "observation-v4 공유 payload",
+  "$id": "https://safemap.worklazy.net/contracts/community-ingest/observation-v5.json",
+  "title": "observation-v5 공유 payload",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -101,6 +101,8 @@
       "enum": [
         "traffic",
         "parking",
+        "safety",
+        "living",
         "other"
       ]
     },
