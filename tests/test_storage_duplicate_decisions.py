@@ -76,7 +76,7 @@ class DuplicateDecisionTests(unittest.TestCase):
         self.assertEqual(before, after)
 
     # 옛 "그룹 상태를 판단 표로 한 번 복사"(_migration_3_duplicate_decisions, 버전 1~4 번호 붙은 마이그레이션)는
-    # 스키마 6 에서 _apply_versioned_migrations 와 함께 제거됐다 — mysafety_duplicate_decision 은 버전 5 부터도
+    # 스키마 6 에서 옛 번호 붙은 마이그레이션과 함께 제거됐다 — mysafety_duplicate_decision 은 버전 5 부터도
     # 이미 있던 표라 더 옮길 옛 상태가 없다. 판단이 버전 5→6 제자리 변환에서 그대로 남는지는
     # tests/test_storage_migration.py 의 migrate_schema 테스트(중복 판단 보존)가 대신 본다.
 

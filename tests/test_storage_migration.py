@@ -344,17 +344,16 @@ class NewServerDbTests(unittest.TestCase):
 
     def test_the_old_update_steps_are_not_called(self):
         """스키마 6: 번호 붙은 버전별 마이그레이션의 보조 함수(migrate_by_entry_value·backfill_synced_at·
-        _normalize_processing_layers·category_from_entry_value·_migration_1~4)는 이름조차 남지 않았다.
-        _apply_versioned_migrations·backup_before_upgrade 는 이전(2026-09-26) 비활성화의 유물로 아직
-        database.py 에 있지만(core/database/disabled_upgrade.py) 여전히 아무도 부르지 않는다 — upgrade_schema 는
-        표 만들기만 하고, 실제 버전 전환(migrate_schema)·이전 DB 비우기(reset_legacy_database)도 스스로 부르지
-        않는다(호출 순서는 main.py 가 정한다)."""
+        _normalize_processing_layers·category_from_entry_value·_migration_1~4·_apply_versioned_migrations·
+        backup_before_upgrade)는 이름조차 남지 않았다. upgrade_schema 는 표 만들기만 하고, 실제 버전 전환(migrate_schema)·
+        이전 DB 비우기(reset_legacy_database)도 스스로 부르지 않는다(호출 순서는 main.py 가 정한다)."""
         removed = ("migrate_by_entry_value", "backfill_synced_at", "_normalize_processing_layers",
-                  "category_from_entry_value", "_migration_1", "_migration_2", "_migration_3", "_migration_4")
+                  "category_from_entry_value", "_migration_1", "_migration_2", "_migration_3", "_migration_4",
+                  "_apply_versioned_migrations", "backup_before_upgrade")
         for name in removed:
             with self.subTest(removed=name):
                 self.assertFalse(hasattr(database, name), name)
-        names = ("_apply_versioned_migrations", "backup_before_upgrade", "migrate_schema", "reset_legacy_database")
+        names = ("migrate_schema", "reset_legacy_database")
         patches = [mock.patch.object(database, name) for name in names]
         mocks = [p.start() for p in patches]
         try:

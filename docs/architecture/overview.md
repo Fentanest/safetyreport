@@ -272,7 +272,7 @@ PyInstaller 단일 바이너리 배포 시 서브프로세스가 `sys.executable
 - `core/database/accounts_repo.py`: 관리자 계정·API 키 CRUD(최초 관리자 생성 잠금 포함).
 - `core/database/report_reads.py`: 병합 표 읽기(`load_results*`)·신고번호/ID 조회·차량번호/신고번호 검색.
 - `services/collection_policy.py`: 상세 수집 대상 선정(신규·미종결·list-refetch-v1 재조회, community.db sidecar). `database.get_pending_detail_ids` 는 이것을 부른다.
-- `core/database/disabled_upgrade.py`: 꺼 둔 이전 DB 업데이트 호출 조각 보관(실행 코드 없음, 다시 켤 자리 번호 ①~⑤).
+- (2026-10-11 삭제) `core/database/disabled_upgrade.py` — 옛 업데이트 조각 보관 파일. 스키마 6 부터 버전 5 는 `database.migrate_schema` 가 제자리 변환한다.
 
 ### DB 자동 마이그레이션 (2026-09-27 초기화 크롤링 릴리스: 비활성)
 `upgrade_schema()` — 새 DB 는 지금 스키마로 만들고, 이전 버전 DB 는 옮기지 않는다(열 추가·마이그레이션 코드는 주석으로 남김).

@@ -374,54 +374,8 @@ def legacy_reset_info(engine) -> dict | None:
     return info if isinstance(info, dict) else None
 
 
+#: 제자리 변환(migrate_schema) 전 백업 파일 이름 앞부분
 PRE_UPGRADE_BACKUP_PREFIX = "before_schema_v"
-PRE_UPGRADE_BACKUP_KEEP = 5
-
-
-def backup_before_upgrade(engine, backup_dir: str) -> str | None:
-    """스키마를 올리기 전 DB 사본. 반환: 만든 파일 경로(할 일이 없으면 None).
-
-    파일 DB 이고, 표가 이미 있고(새로 만드는 빈 DB 가 아님), 버전이 코드보다 낮을 때만 만든다.
-    SQLite backup API 로 복사하므로 WAL 에만 있던 내용도 들어간다. 이 접두어 파일은 최근 PRE_UPGRADE_BACKUP_KEEP 개만 남긴다.
-    """
-    import sqlite3
-
-    db_path = engine.url.database
-    if not db_path or db_path == ":memory:" or not os.path.exists(db_path):
-        return None
-    current = get_schema_version(engine)
-    if current >= SCHEMA_VERSION:
-        return None
-    with engine.connect() as conn:
-        has_tables = conn.execute(text("SELECT count(*) FROM sqlite_master WHERE type='table'")).scalar()
-    if not has_tables:
-        return None
-    os.makedirs(backup_dir, exist_ok=True)
-    target = os.path.join(backup_dir, f"{PRE_UPGRADE_BACKUP_PREFIX}{current}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
-    source = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    dest = sqlite3.connect(target)
-    try:
-        source.backup(dest)
-    finally:
-        dest.close()
-        source.close()
-    logger.LoggerFactory.logbot.info(f"[schema] 버전 {current} → {SCHEMA_VERSION} 올리기 전 DB 백업: {target}")
-    old = sorted(f for f in os.listdir(backup_dir) if f.startswith(PRE_UPGRADE_BACKUP_PREFIX) and f.endswith(".db"))
-    for name in old[:-PRE_UPGRADE_BACKUP_KEEP]:
-        try:
-            os.remove(os.path.join(backup_dir, name))
-        except OSError:
-            pass
-    return target
-
-
-def _apply_versioned_migrations(engine):
-    current = get_schema_version(engine)
-    for version in range(current + 1, SCHEMA_VERSION + 1):
-        with engine.begin() as conn:
-            _VERSIONED_MIGRATIONS[version](conn)
-            conn.execute(text(f"PRAGMA user_version = {version}"))
-        logger.LoggerFactory.logbot.info(f"[schema] DB 스키마 버전 {version} 적용")
 
 
 # ── 스키마 5 → 6 제자리 변환 (2026-10-11) ──────────────────────────────────────
