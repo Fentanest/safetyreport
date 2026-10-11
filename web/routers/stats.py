@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request
 import settings.settings as app_settings
 from core.database.engine import get_engine
 from core.utils import csrf
-from services import data_service, geocode_service, sunwi_service
+from services import data_service, geocode_service, report_category, sunwi_service
 from core.utils.templating import templates
 from web.routers.filters import default_dedupe_mode, normalize_dedupe_mode, normalize_map_category
 
@@ -82,28 +82,29 @@ def view_stats(
     }
     dedupe_mode = normalize_dedupe_mode(dedupe)
     # 표·요약 카드·차트는 한 번 읽은 같은 행에서 만든다(모바일 통계 요약과 같은 함수·조건) — statistics-spec §5, §9
+    # 웹 화면은 늘 5분류(taxonomy=5).
     fragment = request.url.path == "/stats/content"
     if fragment:
-        records, overview = data_service.get_stats_page(engine, filters, mode=dedupe_mode)
+        records, overview = data_service.get_stats_page(engine, filters, mode=dedupe_mode, taxonomy=5)
     else:
         import pandas as pd
         from services import report_stats_service as service
-        empty = pd.DataFrame()
-        records = service._compute_agency_stats([], empty.copy(), empty.copy(), empty.copy(), filters, dedupe_mode)
-        overview = service._compute_stats_overview([], empty, empty, empty, filters, dedupe_mode)
+        empty_frames = {cat: pd.DataFrame() for cat in report_category.CATEGORIES}
+        records = service._compute_agency_stats([], {cat: df.copy() for cat, df in empty_frames.items()}, filters, dedupe_mode)
+        overview = service._compute_stats_overview([], {cat: df.copy() for cat, df in empty_frames.items()}, filters, dedupe_mode)
     # 선택 항목 상세 패널·CSV 내보내기용 행 자료. 경찰/비경찰 표는 기관별·담당자별의 부분집합이라 두 목록만 내린다.
     table_rows = {
         cat: {"agency": records[cat]["by_agency"], "person": records[cat]["by_person"]}
-        for cat in ("traffic", "parking", "other")
+        for cat in report_category.CATEGORIES
     }
-    # 상세표 18개(분류 3 × 보기 6). 경찰/비경찰 보기는 기관별·담당자별의 부분집합(기관명에 '경찰').
+    # 상세표 30개(분류 5 × 보기 6). 경찰/비경찰 보기는 기관별·담당자별의 부분집합(기관명에 '경찰').
     pane_rows = {
         cat: {
             "agency": records[cat]["by_agency"], "person": records[cat]["by_person"],
             "police_agency": records[cat]["police_by_agency"], "police_person": records[cat]["police_by_person"],
             "other_agency": records[cat]["other_by_agency"], "other_person": records[cat]["other_by_person"],
         }
-        for cat in ("traffic", "parking", "other")
+        for cat in report_category.CATEGORIES
     }
     try:
         last_crawl_time = data_service.get_last_sync_label(engine)
@@ -155,6 +156,24 @@ def view_stats(
         "records_other_other_agency":     records["other"]["other_by_agency"],
         "records_other_other_person":     records["other"]["other_by_person"],
         "records_other_law":              records["other"]["by_law"],
+        "safety_available_laws":          records["safety"].get("available_laws", []),
+        "living_available_laws":          records["living"].get("available_laws", []),
+        "safety_has_empty_law":           records["safety"].get("has_empty_law", False),
+        "living_has_empty_law":           records["living"].get("has_empty_law", False),
+        "records_safety_agency":          records["safety"]["by_agency"],
+        "records_safety_person":          records["safety"]["by_person"],
+        "records_safety_police_agency":   records["safety"]["police_by_agency"],
+        "records_safety_police_person":   records["safety"]["police_by_person"],
+        "records_safety_other_agency":    records["safety"]["other_by_agency"],
+        "records_safety_other_person":    records["safety"]["other_by_person"],
+        "records_safety_law":             records["safety"]["by_law"],
+        "records_living_agency":          records["living"]["by_agency"],
+        "records_living_person":          records["living"]["by_person"],
+        "records_living_police_agency":   records["living"]["police_by_agency"],
+        "records_living_police_person":   records["living"]["police_by_person"],
+        "records_living_other_agency":    records["living"]["other_by_agency"],
+        "records_living_other_person":    records["living"]["other_by_person"],
+        "records_living_law":             records["living"]["by_law"],
         "f": filters,
     })
 
@@ -169,7 +188,8 @@ def view_report_map(
 ):
     # 통계 화면이 ?dedupe= 로 모드를 고른 경우 지도도 같은 모드(없으면 설정값 — 예전과 같음)
     dedupe_mode = normalize_dedupe_mode(dedupe)
-    selected_category = normalize_map_category(category)
+    # 웹 지도는 늘 5분류.
+    selected_category = normalize_map_category(category, taxonomy=5)
     map_error = ""
     # 통계 화면에서 넘어온 조건(법규·상세 검색·상세 패널 대상). 없으면 예전과 같은 전체 지도.
     map_filters = _map_filters(request)
@@ -183,6 +203,7 @@ def view_report_map(
         filters=map_filters or None,
         max_points=1200,
         pin_basis=pin_basis,
+        taxonomy=5,
     )
     from services.report_stats_service import get_report_map_missing_summary
     # 좌표 없는 신고 목록은 모달을 처음 열 때 받는다 — 첫 응답에는 건수만(기술일지 B-03)
@@ -193,6 +214,7 @@ def view_report_map(
         mode=dedupe_mode,
         filters=map_filters or None,
         pin_basis=pin_basis,
+        taxonomy=5,
     )
     meta = map_payload.get("meta", {})
 
@@ -237,11 +259,12 @@ def get_report_map_points(
     return get_report_map_stats(
         engine,
         year=year,
-        category=normalize_map_category(category),
+        category=normalize_map_category(category, taxonomy=5),
         mode=normalize_dedupe_mode(dedupe),
         filters=_map_filters(request) or None,
         max_points=1200, bounds=bounds, zoom=zoom,
         pin_basis=pin_basis,
+        taxonomy=5,
     )
 
 
@@ -260,7 +283,7 @@ def get_report_map_missing(
     pin_basis: str | None = None,
 ):
     dedupe_mode = normalize_dedupe_mode(dedupe)
-    selected_category = normalize_map_category(category)
+    selected_category = normalize_map_category(category, taxonomy=5)
     return data_service.get_report_map_missing_groups(
         engine,
         year=year,
@@ -268,4 +291,5 @@ def get_report_map_missing(
         mode=dedupe_mode,
         filters=_map_filters(request) or None,
         pin_basis=pin_basis,
+        taxonomy=5,
     )

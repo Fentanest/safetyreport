@@ -10,28 +10,28 @@ from services.stats.overview import _compute_stats_overview
 from services.stats.reads import _apply_stats_law_filter, _apply_stats_row_filters, _exclude_withdraw_rows, _load_stats_frames
 
 
-def get_agency_stats(engine, filters=None, mode: str = "canonical"):
-    available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
+def get_agency_stats(engine, filters=None, mode: str = "canonical", taxonomy: int = 3):
+    available_years, frames = _load_stats_frames(engine, filters, mode, taxonomy)
     # 웹 get_stats_page 와 같이 날짜·처분·금액 파생값을 한 번만 계산한다(모바일 /api/v1/stats, 기술일지 B-08).
     # 결과는 같다(test_stats_page_matches_separate_calls).
-    df_t, df_p, df_o = map(_prepare_metrics, (df_t, df_p, df_o))
-    return _compute_agency_stats(available_years, df_t, df_p, df_o, filters, mode)
+    frames = {category: _prepare_metrics(df) for category, df in frames.items()}
+    return _compute_agency_stats(available_years, frames, filters, mode)
 
 
 @cached
-def get_stats_page(engine, filters=None, mode: str = "canonical"):
+def get_stats_page(engine, filters=None, mode: str = "canonical", taxonomy: int = 3):
     """웹 통계 화면: 표(`get_agency_stats`)와 요약·차트(`get_stats_overview`)를 한 번 읽은 같은 프레임으로 만든다.
 
     두 결과는 각 공개 함수와 같다(테스트 `test_stats_page_matches_separate_calls`). 표 계산이 프레임 열을 고치므로 복사본을 넘긴다.
     """
-    available_years, df_t, df_p, df_o = _load_stats_frames(engine, filters, mode)
-    df_t, df_p, df_o = map(_prepare_metrics, (df_t, df_p, df_o))
-    overview = _compute_stats_overview(available_years, df_t, df_p, df_o, filters, mode)
-    records = _compute_agency_stats(available_years, df_t.copy(), df_p.copy(), df_o.copy(), filters, mode)
+    available_years, frames = _load_stats_frames(engine, filters, mode, taxonomy)
+    frames = {category: _prepare_metrics(df) for category, df in frames.items()}
+    overview = _compute_stats_overview(available_years, frames, filters, mode)
+    records = _compute_agency_stats(available_years, {category: df.copy() for category, df in frames.items()}, filters, mode)
     return records, overview
 
 
-def _compute_agency_stats(available_years, df_t, df_p, df_o, filters=None, mode: str = "canonical"):
+def _compute_agency_stats(available_years, frames, filters=None, mode: str = "canonical"):
     def calc_stats(df, category):
         empty_payload = {
             "by_agency": [],
@@ -103,14 +103,11 @@ def _compute_agency_stats(available_years, df_t, df_p, df_o, filters=None, mode:
             "has_empty_law": has_empty_law,
         })
 
-    res_t = calc_stats(df_t, "traffic")
-    res_p = calc_stats(df_p, "parking")
-    res_o = calc_stats(df_o, "other")
+    results = {category: calc_stats(df, category) for category, df in frames.items()}
+    traffic_df = frames.get("traffic")
     return _sanitize_jsonable({
-        "traffic": res_t,
-        "parking": res_p,
-        "other": res_o,
+        **results,
         "available_years": available_years,
-        "traffic_total_fine": int(_fine_amounts(df_t).sum()) if not df_t.empty else 0,
+        "traffic_total_fine": int(_fine_amounts(traffic_df).sum()) if traffic_df is not None and not traffic_df.empty else 0,
         "dedupe_mode": _normalize_mode(mode),
     })

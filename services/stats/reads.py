@@ -1,4 +1,5 @@
 """통계 원천 읽기(EO R-05): SQL 후보 조회·한 읽기 snapshot·대표건 투영·기관 표시·행 필터."""
+from collections import OrderedDict
 from datetime import datetime
 
 import pandas as pd
@@ -91,9 +92,14 @@ def _apply_stats_law_filter(df: pd.DataFrame, filters=None) -> pd.DataFrame:
     return ReportFilterSpec.from_filters(filters).apply_law(df) if filters else df
 
 
-def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
-    """DB 에서 3개 카테고리 프레임을 읽고 대표건 projection 까지 적용한다. (available_years, df_t, df_p, df_o)
-    통계 화면은 아직 3분류다: df_o 는 교통·주정차가 아닌 모든 신고(안전신고·생활불편·기타, report_category.legacy_category)."""
+def _load_stats_frames(engine, filters=None, mode: str = "canonical", taxonomy: int = 5):
+    """DB 에서 분류별 프레임을 읽고 대표건 projection 까지 적용한다. (available_years, frames)
+
+    `frames` 는 분류 순서를 지키는 dict{category: DataFrame}. taxonomy=5(기본): report_category.CATEGORIES
+    5개(traffic·parking·safety·living·other). taxonomy=3: 예전 3분류(traffic·parking·other) — 안전신고·생활불편은
+    report_category.legacy_category 로 행 단계에서 기타에 접는다(구앱·구화면 호환, 기존 동작과 동일).
+    """
+    categories = report_category.CATEGORIES if taxonomy == 5 else report_category.LEGACY_CATEGORIES
     with engine.connect() as conn:
         conn.exec_driver_sql('BEGIN')
         available_years = _load_available_years(conn)
@@ -102,7 +108,8 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
 
     combined_df = _ensure_id_column(combined_df)
     if not combined_df.empty:
-        combined_df["category"] = combined_df["category"].map(report_category.legacy_category)
+        if taxonomy == 3:
+            combined_df["category"] = combined_df["category"].map(report_category.legacy_category)
         # 처분 분류(처분 대상 아님)와 추정 과태료 규칙이 신고 메뉴(entry_value)를 쓴다.
         combined_df["entry_value"] = combined_df["entry_value"].fillna("").astype(str)
     combined_df = projection.project_frame(combined_df)
@@ -110,13 +117,14 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
         combined_df = _apply_registry_agency_display(combined_df)
     # 대표건 투영이 모든 행을 뺐어도(예: 비대표건만 걸리는 연도) 투영 결과로 바꾼다. 예전에는 빈 결과일 때 투영 전
     # 프레임을 그대로 돌려 제외해야 할 비대표건이 통계에 들어갔다(기술일지 A1-01).
+    frames = OrderedDict()
     if "category" in combined_df.columns:
-        df_t = combined_df[combined_df["category"] == "traffic"].copy()
-        df_p = combined_df[combined_df["category"] == "parking"].copy()
-        df_o = combined_df[combined_df["category"] == "other"].copy()
+        for category in categories:
+            frames[category] = combined_df[combined_df["category"] == category].copy()
     else:
-        df_t, df_p, df_o = (combined_df.iloc[0:0].copy() for _ in range(3))
-    return available_years, df_t, df_p, df_o
+        for category in categories:
+            frames[category] = combined_df.iloc[0:0].copy()
+    return available_years, frames
 
 
 def _apply_registry_agency_display(df: pd.DataFrame) -> pd.DataFrame:
@@ -149,11 +157,14 @@ def _load_map_records_frame(
     mode: str = "canonical",
     column_names: list[str] | None = None,
     filters: dict | None = None,
+    taxonomy: int = 3,
 ):
     """지도용 행. `filters` 는 통계 화면과 같은 조건(법규·상세 검색)이며 같은 순서로 적용한다(2026-09-28 추가, 없으면 예전과 같음).
 
     `targetAgency`/`targetPerson` 은 통계 상세 패널의 '지도에서 보기' 대상이다. 통계표의 기관명은 경찰서 정규화 뒤 이름이므로
     정규화 뒤 정확히 일치로 거른다(목록 `/data` 의 agencyExact 와 같은 순서).
+
+    taxonomy=3(기본, 예전과 같음): traffic·parking·other(안전신고·생활불편은 기타에 접는다). taxonomy=5: 5분류 그대로.
     """
     stats_filters = {key: value for key, value in (filters or {}).items() if key not in _MAP_TARGET_KEYS and value not in (None, "", False)}
     target_agency = _text_or_empty((filters or {}).get("targetAgency"))
@@ -164,7 +175,7 @@ def _load_map_records_frame(
     if year and year not in ("all", "", None):
         filters["year"] = str(year)
 
-    normalized_category = _normalize_map_category_value(category)
+    normalized_category = _normalize_map_category_value(category, taxonomy)
     selected_columns = list(column_names or _MAP_COLUMNS)
 
     with engine.connect() as conn:
@@ -174,7 +185,8 @@ def _load_map_records_frame(
         df = _read_stats_frame(conn, database.report_effective_table, filters,
                                column_names=list(dict.fromkeys([*selected_columns, "category"])))
         if not df.empty:
-            df["category"] = df["category"].map(report_category.legacy_category)  # 지도는 아직 3분류
+            if taxonomy == 3:
+                df["category"] = df["category"].map(report_category.legacy_category)  # 구앱·구화면 호환(3분류)
             if normalized_category != "all":
                 df = df[df["category"] == normalized_category]
             frames.append(df)

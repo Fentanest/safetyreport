@@ -4,7 +4,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 import pandas as pd
 
-from services import duplicate_group_service
+from services import duplicate_group_service, report_category
 
 
 _STATS_COLUMNS = [
@@ -191,9 +191,11 @@ def _first_nonempty_value(group_df: pd.DataFrame, column: str) -> str:
     return ""
 
 
-def _normalize_map_category_value(category: str | None) -> str:
+def _normalize_map_category_value(category: str | None, taxonomy: int = 3) -> str:
+    """지도 분류 필터 정규화. taxonomy=3(기본, 예전과 같음): traffic·parking·other. taxonomy=5: CATEGORIES 5개."""
     normalized = (category or "all").strip().lower()
-    return normalized if normalized in {"all", "traffic", "parking", "other"} else "all"
+    allowed = {"all", *report_category.CATEGORIES} if taxonomy == 5 else {"all", *report_category.LEGACY_CATEGORIES}
+    return normalized if normalized in allowed else "all"
 
 
 def _is_finite_number(value) -> bool:
