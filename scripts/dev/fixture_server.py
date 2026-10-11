@@ -132,33 +132,37 @@ def seed(data_dir: Path) -> dict:
     return result
 
 
+def _end_of_day_ms(day: str) -> int | None:
+    from datetime import datetime, timedelta
+
+    try:
+        start = datetime.strptime(str(day)[:10], "%Y-%m-%d")
+    except ValueError:
+        return None
+    return int((start + timedelta(days=1)).timestamp() * 1000) - 1
+
+
 def seed_engine(engine) -> dict:
     """합성 신고 24건 + 관리자 + API 키를 engine 에 넣는다. 테스트에서도 재사용한다."""
     from core.database import database, models
+    from services import report_category
     from services.geocode_service import official_geo_payload
 
     database.upgrade_schema(engine)
 
     with engine.begin() as conn:
-        if conn.execute(models.title_table.select().limit(1)).first() is not None:
+        if conn.execute(models.report_table.select().limit(1)).first() is not None:
             return {"seeded": False, "reason": "already seeded"}
 
-        detail_tables = {
-            "traffic": models.detail_traffic_table,
-            "parking": models.detail_parking_table,
-            "other": models.detail_other_table,
-        }
         for index, (category, rid, rnum, name, reported, status, fine, agency, person, answered, law, rating, place) in enumerate(_REPORTS):
-            watch = "Y" if rnum in _WATCHLIST else ""
-            conn.execute(models.title_table.insert().values(
-                ID=rid, 상태=status, 신고번호=rnum, 신고명=name, 신고일=reported,
-                만족도조사여부="참여 완료" if rating else ("참여 가능" if answered else ""),
-                별점=rating, 별점사유="(fixture) 별점 사유" if rating else None, 감시목록=watch,
-            ))
             closed = status not in {"처리중", "보완요청"}
             body = _DUPLICATE_BODY if rid in _DUPLICATE_IDS else (_LONG_BODY if rid == "90000005" else f"(fixture) {name} 신고 본문 {rid}")
-            conn.execute(detail_tables[category].insert().values(
-                ID=rid, 처리상태=status, 차량번호=_vehicle(rid, index, category),
+            entry_value = _ENTRY_VALUES[category]
+            conn.execute(models.report_table.insert().values(
+                ID=rid, 상태=status, 신고번호=rnum, 신고명=name, 신고일=reported,
+                만족도조사여부="참여 완료" if rating else ("참여 가능" if answered else ""),
+                별점=rating, 별점사유="(fixture) 별점 사유" if rating else None, 감시목록="N",
+                처리상태=status, 차량번호=_vehicle(rid, index, category),
                 위반법규=law, 범칙금_과태료=fine, 벌점="", 처리기관=agency, 담당자=person, 답변일=answered,
                 발생일자=reported[:10], 발생시각=reported[11:16], 위반장소=place,
                 종결여부="Y" if closed else "N", 신고내용=body,
@@ -168,19 +172,20 @@ def seed_engine(engine) -> dict:
                 보완횟수=1 if status == "보완요청" else 0,
                 보완_미응답="Y" if status == "보완요청" else "N",
                 보완_요청_내용="보완 요청자: (fixture) 담당 · 요청 일시: 2026-09-02 10:00 · 완료 일시: -\n사진 추가 요청" if status == "보완요청" else "",
+                # 크롤러처럼 synced_at 을 채운다(답변일 우선, 없으면 신고일, 그날 23:59:59.999)
+                synced_at=_end_of_day_ms(answered or reported[:10]),
+                category=report_category.category_of(None, None, entry_value), entry_value=entry_value,
             ))
-            conn.execute(models.entry_value_table.insert().values(ID=rid, entry_value=_ENTRY_VALUES[category]))
             if rid in _DUPLICATE_IDS:
-                conn.execute(models.raw_content_table.insert().values(
+                conn.execute(models.report_body_table.insert().values(
                     ID=rid, raw_content=_DUPLICATE_BODY, raw_type="report_body", saved_at=1790000000000,
                 ))
         for rnum in _WATCHLIST:
             conn.execute(models.watchlist_table.insert().values(신고번호=rnum))
         conn.execute(models.sync_meta_table.insert().values(key="last_sync", value="2026-09-23T09:00:00"))
+        database.refresh_watch_flags(conn)
 
-    # 크롤러처럼 synced_at 을 채운다(서버 기동 시 backfill 규칙: 답변일 우선, 없으면 신고일, 그날 23:59:59.999).
-    database.backfill_synced_at(engine)
-    database.merge_final(engine)
+    database.rebuild_effective(engine)
     if not database.has_admin_user(engine):
         database.create_admin_user(engine, ADMIN_USER, ADMIN_PASSWORD)
     api_key = database.create_api_key(engine, "fixture-client")

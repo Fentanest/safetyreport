@@ -1,66 +1,21 @@
 from sqlalchemy import Table, MetaData, Column, String, Integer, Float
-import settings.settings as settings
 
 metadata = MetaData()
 
-title_table = Table(settings.table_title, metadata,
-                    Column('ID', String, primary_key=True),
-                    Column('상태', String),
-                    Column('신고번호', String),
-                    Column('신고명', String),
-                    Column('신고일', String),
-                    Column('만족도조사여부', String),
-                    Column('별점', Integer),
-                    Column('별점사유', String),
-                    Column('감시목록', String))
+# ── 신고 (서버 스키마 6, 2026-10-11) ─────────────────────────────────────────────
+# 신고 한 건 = mysafety_report 한 행(목록 + 상세 + 분류). 카테고리는 표 이름이 아니라 category 열 값이다
+# (traffic|parking|safety|living|other, services/report_category.py · contracts/report-categories.json).
+# 화면·통계·API 는 mysafety_report_effective(= report + 수정값 + 감시목록 + 6개월 첨부 가림)를 읽는다.
+# 모바일 reports 표와 같은 열(모바일 전용 legacy raw_content 제외)이라 교환은 열 복사다(contracts/storage-contract.json).
 
-def get_detail_columns():
+TITLE_COLUMN_NAMES = ('상태', '신고번호', '신고명', '신고일', '만족도조사여부', '별점', '별점사유', '감시목록')
+CATEGORY_COLUMN_NAMES = ('category', 'entry_value', 'ssnpc_cd', 'ssnpc_type')
+
+
+def get_report_columns():
     return [
         Column('ID', String, primary_key=True),
-        Column('처리상태', String),
-        Column('차량번호', String),
-        Column('위반법규', String),
-        Column('범칙금_과태료', String),
-        Column('벌점', String),
-        Column('처리기관', String),
-        Column('처리기관코드', String),
-        Column('담당자', String),
-        Column('답변일', String),
-        Column('발생일자', String),
-        Column('발생시각', String),
-        Column('위반장소', String),
-        Column('주소정규화', String),
-        Column('행정구역', String),
-        Column('위도', Float),
-        Column('경도', Float),
-        Column('지오코딩상태', String),
-        Column('종결여부', String),
-        Column('신고내용', String),
-        Column('처리내용', String),
-        Column('지도', String),
-        Column('첨부사진', String),
-        Column('첨부파일', String),
-        Column('synced_at', Integer),
-        Column('보완횟수', Integer),
-        Column('보완_미응답', String),
-        Column('보완_요청자', String),
-        Column('보완_요청일시', String),
-        Column('보완_완료일시', String),
-        Column('보완_요청_내용', String),
-        Column('보완_신고자_의견', String),
-        # 주정차 사진 EXIF 촬영 시각(services/photo_capture_time.py). NULL = 아직 시도 안 함, 사진_촬영수 0 = 촬영 정보 없음
-        Column('사진_첫촬영', String),
-        Column('사진_끝촬영', String),
-        Column('사진_촬영수', Integer),
-    ]
-
-detail_traffic_table = Table(settings.table_detail_traffic, metadata, *get_detail_columns())
-detail_parking_table = Table(settings.table_detail_parking, metadata, *get_detail_columns())
-detail_other_table = Table(settings.table_detail_other, metadata, *get_detail_columns())
-
-def get_merge_columns():
-    return [
-        Column('ID', String, primary_key=True),
+        # 목록(사이트 목록 API·상세 응답의 목록 필드). 감시목록은 mysafety_watchlist 에서 계산한 표시값.
         Column('상태', String),
         Column('신고번호', String),
         Column('신고명', String),
@@ -69,6 +24,7 @@ def get_merge_columns():
         Column('별점', Integer),
         Column('별점사유', String),
         Column('감시목록', String),
+        # 상세
         Column('처리상태', String),
         Column('차량번호', String),
         Column('위반법규', String),
@@ -104,11 +60,27 @@ def get_merge_columns():
         Column('사진_첫촬영', String),
         Column('사진_끝촬영', String),
         Column('사진_촬영수', Integer),
+        # 분류: 상세 응답 SSNPC_CD/SSNPC_TYPE(없으면 NULL)과 본문 접수 메뉴, 그로부터 정한 category.
+        # category NULL = 목록에서만 본 신고(상세를 아직 저장하지 않음). 화면용 표에는 category 가 있는 행만 들어간다.
+        Column('category', String),
+        Column('entry_value', String),
+        Column('ssnpc_cd', String),
+        Column('ssnpc_type', String),
     ]
 
-merge_traffic_table = Table(settings.table_merge_traffic, metadata, *get_merge_columns())
-merge_parking_table = Table(settings.table_merge_parking, metadata, *get_merge_columns())
-merge_other_table = Table(settings.table_merge_other, metadata, *get_merge_columns())
+
+report_table = Table('mysafety_report', metadata, *get_report_columns())
+report_effective_table = Table('mysafety_report_effective', metadata, *get_report_columns())
+REPORT_COLUMN_NAMES = tuple(c.name for c in report_table.columns)
+DETAIL_COLUMN_NAMES = tuple(n for n in REPORT_COLUMN_NAMES
+                            if n != 'ID' and n not in TITLE_COLUMN_NAMES and n not in CATEGORY_COLUMN_NAMES)
+
+# 본문 원문(큰 텍스트라 따로). 중복군 판정(본문 sha256)·차량번호 복구가 읽는다.
+report_body_table = Table('mysafety_report_body', metadata,
+                          Column('ID', String, primary_key=True),
+                          Column('raw_content', String, nullable=False, default=''),
+                          Column('raw_type', String, nullable=False, default=''),
+                          Column('saved_at', Integer))
 
 watchlist_table = Table('mysafety_watchlist', metadata,
                         Column('신고번호', String, primary_key=True))
@@ -122,16 +94,6 @@ api_keys_table = Table('api_keys', metadata,
                        Column('key', String, primary_key=True),
                        Column('name', String, nullable=False),
                        Column('created_at', String, nullable=False))
-
-entry_value_table = Table('mysafety_entry_value', metadata,
-                          Column('ID', String, primary_key=True),
-                          Column('entry_value', String, nullable=False))
-
-raw_content_table = Table('mysafety_raw_content', metadata,
-                          Column('ID', String, primary_key=True),
-                          Column('raw_content', String, nullable=False, default=''),
-                          Column('raw_type', String, nullable=False, default=''),
-                          Column('saved_at', Integer))
 
 sync_meta_table = Table('mysafety_sync_meta', metadata,
                         Column('key', String, primary_key=True),

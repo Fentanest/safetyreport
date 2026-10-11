@@ -116,22 +116,21 @@ def repair_car_numbers(engine) -> int:
     from core.storage import reports_repo
     from services.parser import extract_car_number
 
-    raw = models.raw_content_table
+    raw, table = models.report_body_table, models.report_table
     fixed_ids = []
     with engine.begin() as conn:
-        for table in (models.detail_traffic_table, models.detail_parking_table, models.detail_other_table):
-            rows = conn.execute(
-                select(table.c.ID, table.c["차량번호"], raw.c.raw_content)
-                .select_from(table.join(raw, raw.c.ID == table.c.ID))
-                .where(table.c["차량번호"].like("%*%"))
-            ).all()
-            for record_id, old, content in rows:
-                new = extract_car_number(content or "")
-                if new != old:
-                    conn.execute(update(table).where(table.c.ID == record_id).values(차량번호=new))
-                    fixed_ids.append(record_id)
+        rows = conn.execute(
+            select(table.c.ID, table.c["차량번호"], raw.c.raw_content)
+            .select_from(table.join(raw, raw.c.ID == table.c.ID))
+            .where(table.c["차량번호"].like("%*%"))
+        ).all()
+        for record_id, old, content in rows:
+            new = extract_car_number(content or "")
+            if new != old:
+                conn.execute(update(table).where(table.c.ID == record_id).values(차량번호=new))
+                fixed_ids.append(record_id)
         if fixed_ids:
-            reports_repo.refresh_merge_rows(conn, fixed_ids)
+            reports_repo.refresh_effective_rows(conn, fixed_ids)
     if fixed_ids:
         logger.LoggerFactory.logbot.info(f"[maintenance] 차량번호 다시 뽑기: {len(fixed_ids)}건")
     return len(fixed_ids)

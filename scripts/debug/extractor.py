@@ -19,13 +19,13 @@ import settings.settings as settings  # noqa: E402
 from core.utils import logger  # noqa: E402
 import services.parser as doc_parser  # noqa: E402
 from sqlalchemy import select  # noqa: E402
-from core.database.models import title_table  # noqa: E402
+from core.database.models import report_table  # noqa: E402
 
 
 def lookup_id_by_report_number(engine, report_number: str):
     with engine.connect() as conn:
         result = conn.execute(
-            select(title_table.c.ID).where(title_table.c.신고번호 == report_number)
+            select(report_table.c.ID).where(report_table.c.신고번호 == report_number)
         ).first()
         return result[0] if result else None
 

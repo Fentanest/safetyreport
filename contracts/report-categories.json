@@ -71,7 +71,8 @@
       {"menu": "생활불편신고", "cds": ["DR"], "category": "living"}
     ],
     "aliases": [
-      {"cds": ["TV"], "sub": "버스전용차로위반(일반도로)", "code": "TV-05"}
+      {"cds": ["TV"], "sub": "버스전용차로위반(일반도로)", "code": "TV-05"},
+      {"cds": ["CM"], "sub": "쓰레기,폐기물", "code": "CM-05"}
     ]
   },
   "vectors": [
@@ -96,6 +97,7 @@
     {"name": "코드 없음 · 생활불편 쓰레기", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "생활불편 신고-쓰레기, 폐기물", "expect": {"code": "DR-06", "category": "living"}},
     {"name": "코드 없음 · 안전신고 소방안전", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "안전 신고-소방안전", "expect": {"code": "CM-11", "category": "safety"}},
     {"name": "코드 없음 · 옛 안전신고 교통위반('(구)' 없이 적힌 옛 메뉴)", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "안전 신고-교통위반", "expect": {"code": "CM-06", "category": "traffic"}},
+    {"name": "코드 없음 · 옛 안전신고 쓰레기(생활불편으로 나뉘기 전 이름)", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "안전신고-쓰레기, 폐기물", "expect": {"code": "CM-05", "category": "living"}},
     {"name": "코드 없음 · 메뉴만 있음", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "불법주정차신고", "expect": {"code": null, "category": "parking"}},
     {"name": "코드 없음 · 메뉴는 알고 소분류 모름", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "생활불편 신고-새로 생긴 소분류", "expect": {"code": null, "category": "living"}},
     {"name": "코드 없음 · 모르는 메뉴", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "해양 안전신고-해양오염", "expect": {"code": null, "category": "other"}},

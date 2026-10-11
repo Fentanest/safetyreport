@@ -5,7 +5,7 @@ import pandas as pd
 from sqlalchemy import func, select
 
 from core.database import database
-from services import report_policy
+from services import report_category, report_policy
 from services.report_filter_spec import ReportFilterSpec
 import settings.settings as app_settings
 from services import duplicate_group_service
@@ -47,17 +47,14 @@ def _exclude_withdraw_rows(df: pd.DataFrame) -> pd.DataFrame:
 
 def _load_available_years(conn):
     available_years = set()
-    for table_obj in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
-        if "답변일" not in table_obj.c:
-            continue
-        query = (
-            select(func.substr(table_obj.c["답변일"], 1, 4).label("year"))
-            .where(table_obj.c["답변일"].is_not(None))
-            .distinct()
-        )
-        df_years = pd.read_sql_query(query, conn)
-        if df_years.empty or "year" not in df_years.columns:
-            continue
+    table_obj = database.report_effective_table
+    query = (
+        select(func.substr(table_obj.c["답변일"], 1, 4).label("year"))
+        .where(table_obj.c["답변일"].is_not(None))
+        .distinct()
+    )
+    df_years = pd.read_sql_query(query, conn)
+    if not df_years.empty and "year" in df_years.columns:
         years = df_years["year"].dropna().astype(str)
         available_years.update(years[years.str.match(r"^\d{4}$", na=False)].tolist())
     return sorted(available_years, reverse=True)
@@ -95,35 +92,22 @@ def _apply_stats_law_filter(df: pd.DataFrame, filters=None) -> pd.DataFrame:
 
 
 def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
-    """DB 에서 3개 카테고리 프레임을 읽고 대표건 projection 까지 적용한다. (available_years, df_t, df_p, df_o)"""
+    """DB 에서 3개 카테고리 프레임을 읽고 대표건 projection 까지 적용한다. (available_years, df_t, df_p, df_o)
+    통계 화면은 아직 3분류다: df_o 는 교통·주정차가 아닌 모든 신고(안전신고·생활불편·기타, report_category.legacy_category)."""
     with engine.connect() as conn:
         conn.exec_driver_sql('BEGIN')
         available_years = _load_available_years(conn)
-        df_t = _read_stats_frame(conn, database.merge_traffic_table, filters)
-        df_p = _read_stats_frame(conn, database.merge_parking_table, filters)
-        df_o = _read_stats_frame(conn, database.merge_other_table, filters)
-        df_entry = pd.read_sql_query(select(database.entry_value_table.c.ID, database.entry_value_table.c.entry_value), conn)
+        combined_df = _read_stats_frame(conn, database.report_effective_table, filters)
         projection = duplicate_group_service.ProjectionContext.load(conn, mode)
 
-    df_t = _ensure_id_column(df_t)
-    df_p = _ensure_id_column(df_p)
-    df_o = _ensure_id_column(df_o)
-
-    if not df_t.empty:
-        df_t["category"] = "traffic"
-    if not df_p.empty:
-        df_p["category"] = "parking"
-    if not df_o.empty:
-        df_o["category"] = "other"
-
-    combined_df = pd.concat([df_t, df_p, df_o], ignore_index=True) if not (df_t.empty and df_p.empty and df_o.empty) else pd.DataFrame()
+    combined_df = _ensure_id_column(combined_df)
+    if not combined_df.empty:
+        combined_df["category"] = combined_df["category"].map(report_category.legacy_category)
+        # 처분 분류(처분 대상 아님)와 추정 과태료 규칙이 신고 메뉴(entry_value)를 쓴다.
+        combined_df["entry_value"] = combined_df["entry_value"].fillna("").astype(str)
     combined_df = projection.project_frame(combined_df)
     if not combined_df.empty and "처리기관" in combined_df.columns:
         combined_df = _apply_registry_agency_display(combined_df)
-    if not combined_df.empty and "ID" in combined_df.columns:
-        # 처분 분류(처분 대상 아님)와 추정 과태료 규칙이 신고 메뉴(entry_value)를 쓴다.
-        entry_map = dict(zip(df_entry["ID"].astype(str), df_entry["entry_value"].fillna("").astype(str)))
-        combined_df["entry_value"] = combined_df["ID"].astype(str).map(entry_map).fillna("")
     # 대표건 투영이 모든 행을 뺐어도(예: 비대표건만 걸리는 연도) 투영 결과로 바꾼다. 예전에는 빈 결과일 때 투영 전
     # 프레임을 그대로 돌려 제외해야 할 비대표건이 통계에 들어갔다(기술일지 A1-01).
     if "category" in combined_df.columns:
@@ -131,7 +115,7 @@ def _load_stats_frames(engine, filters=None, mode: str = "canonical"):
         df_p = combined_df[combined_df["category"] == "parking"].copy()
         df_o = combined_df[combined_df["category"] == "other"].copy()
     else:
-        df_t, df_p, df_o = (frame.iloc[0:0].copy() for frame in (df_t, df_p, df_o))
+        df_t, df_p, df_o = (combined_df.iloc[0:0].copy() for _ in range(3))
     return available_years, df_t, df_p, df_o
 
 
@@ -187,17 +171,13 @@ def _load_map_records_frame(
         conn.exec_driver_sql('BEGIN')
         available_years = _load_available_years(conn)
         frames = []
-        for table_obj, table_category in [
-            (database.merge_traffic_table, "traffic"),
-            (database.merge_parking_table, "parking"),
-            (database.merge_other_table, "other"),
-        ]:
-            if normalized_category != "all" and normalized_category != table_category:
-                continue
-            df = _read_stats_frame(conn, table_obj, filters, column_names=selected_columns)
-            if not df.empty:
-                df["category"] = table_category
-                frames.append(df)
+        df = _read_stats_frame(conn, database.report_effective_table, filters,
+                               column_names=list(dict.fromkeys([*selected_columns, "category"])))
+        if not df.empty:
+            df["category"] = df["category"].map(report_category.legacy_category)  # 지도는 아직 3분류
+            if normalized_category != "all":
+                df = df[df["category"] == normalized_category]
+            frames.append(df)
         projection = duplicate_group_service.ProjectionContext.load(conn, mode)
 
     combined_df = (

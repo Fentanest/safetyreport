@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from core.database import database
 from core.utils.fallback import note_fallback
-from services import report_policy
+from services import report_category, report_policy
 import settings.settings as app_settings
 from services import duplicate_group_service
 from services.report_cache import cached
@@ -47,11 +47,8 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
             return pd.Series(pd.NaT, index=df.index)
         return pd.to_datetime(df["답변일"], errors="coerce").dt.date
 
-    table_category_map = {
-        database.merge_traffic_table: "traffic",
-        database.merge_parking_table: "parking",
-        database.merge_other_table: "other",
-    }
+    table_obj = database.report_effective_table
+    legacy_category = func.coalesce(func.nullif(func.nullif(table_obj.c.category, "safety"), "living"), "other")
 
     combined_frames = []
     with engine.connect() as conn:
@@ -59,26 +56,23 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
         # 두 번 세거나 빠뜨리지 않는다(기술일지 A1-07, _load_stats_frames 와 같은 방식).
         conn.exec_driver_sql('BEGIN')
         last_crawl_time = _last_sync_label(conn)
-        for table_obj in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
-            # Full-population SQL aggregation; no report bodies in the count path.
-            query = select(table_obj.c['처리상태'], table_obj.c['범칙금_과태료'], func.count().label('_weight')).group_by(
-                table_obj.c['처리상태'], table_obj.c['범칙금_과태료'])
-            df = pd.read_sql_query(duplicate_group_service.canonical_sql(table_obj, query, mode), conn)
-            if df.empty:
-                continue
-            category = table_category_map.get(table_obj, "")
-            df["category"] = category
+        # Full-population SQL aggregation; no report bodies in the count path. 대시보드는 아직 3분류(safety·living → other).
+        query = select(table_obj.c['처리상태'], table_obj.c['범칙금_과태료'], legacy_category.label('category'),
+                       func.count().label('_weight')).group_by(
+            table_obj.c['처리상태'], table_obj.c['범칙금_과태료'], legacy_category)
+        df = pd.read_sql_query(duplicate_group_service.canonical_sql(table_obj, query, mode), conn)
+        if not df.empty:
             combined_frames.append(df)
-            recent_query = select(table_obj).where(table_obj.c['답변일'] >= str(three_days_ago),
-                table_obj.c['답변일'] < str(today + timedelta(days=1)))
-            if app_settings.exclude_withdraw:
-                recent_query = recent_query.where(report_policy.sql_not_withdrawn(table_obj.c['처리상태']))
-            recent_query = duplicate_group_service.canonical_sql(table_obj, recent_query, mode).order_by(
-                table_obj.c.synced_at.desc(), table_obj.c['답변일'].desc(), table_obj.c['신고번호'].desc()).limit(200)
-            for row in conn.execute(recent_query):
-                item = _row_to_dict(row._mapping)
-                item['category'] = category
-                recent_answers.append(item)
+        recent_query = select(table_obj).where(table_obj.c['답변일'] >= str(three_days_ago),
+            table_obj.c['답변일'] < str(today + timedelta(days=1)))
+        if app_settings.exclude_withdraw:
+            recent_query = recent_query.where(report_policy.sql_not_withdrawn(table_obj.c['처리상태']))
+        recent_query = duplicate_group_service.canonical_sql(table_obj, recent_query, mode).order_by(
+            table_obj.c.synced_at.desc(), table_obj.c['답변일'].desc(), table_obj.c['신고번호'].desc()).limit(200)
+        for row in conn.execute(recent_query):
+            item = _row_to_dict(row._mapping)
+            item['category'] = report_category.legacy_category(item.get('category'))
+            recent_answers.append(item)
 
         try:
             watch_df = pd.read_sql_query(select(database.watchlist_table.c.신고번호), conn)
@@ -88,18 +82,16 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
         watch_ids = watch_df["신고번호"].tolist() if "신고번호" in watch_df.columns else []
 
         if watch_ids:
-            for table_obj in [database.merge_traffic_table, database.merge_parking_table, database.merge_other_table]:
-                query = select(table_obj).where(table_obj.c.신고번호.in_(watch_ids))
-                try:
-                    df_watch_part = pd.read_sql_query(query, conn)
-                except Exception as exc:
-                    note_fallback("report_stats.dashboard_watch_rows", exc)
-                    continue
-                category = table_category_map.get(table_obj, "")
-                for _, row in df_watch_part.iterrows():
-                    item = _row_to_dict(row)
-                    item["category"] = category
-                    watchlist_items.append(item)
+            query = select(table_obj).where(table_obj.c.신고번호.in_(watch_ids))
+            try:
+                df_watch_part = pd.read_sql_query(query, conn)
+            except Exception as exc:
+                note_fallback("report_stats.dashboard_watch_rows", exc)
+                df_watch_part = pd.DataFrame()
+            for _, row in df_watch_part.iterrows():
+                item = _row_to_dict(row)
+                item["category"] = report_category.legacy_category(item.get("category"))
+                watchlist_items.append(item)
 
     combined_df = pd.concat(combined_frames, ignore_index=True) if combined_frames else pd.DataFrame()
 

@@ -27,6 +27,11 @@ _STATS_COLUMNS = [
     "차량번호",
     "사진_첫촬영",
     "사진_끝촬영",
+    # 분류(스키마 6): category·접수 메뉴·SSNPC 코드 — 처분 분류·추정 과태료 규칙이 쓴다
+    "category",
+    "entry_value",
+    "ssnpc_cd",
+    "ssnpc_type",
 ]
 
 _MAP_COLUMNS = [

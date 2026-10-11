@@ -11,7 +11,7 @@ engine = get_engine()
 
 @router.get("", response_class=HTMLResponse)
 def db_editor_list(request: Request, category: str = "traffic"):
-    if not db_editor_service.get_category_tables(category):
+    if not db_editor_service.categories_for(category):
         category = "traffic"
     records = db_editor_service.list_records(engine, category, summary=True)
     return templates.TemplateResponse(request, "db_editor.html", {
@@ -23,7 +23,7 @@ def db_editor_list(request: Request, category: str = "traffic"):
 
 @router.get("/{category}/{record_id}", response_class=HTMLResponse)
 def db_editor_form(request: Request, category: str, record_id: str):
-    if not db_editor_service.get_category_tables(category):
+    if not db_editor_service.categories_for(category):
         return RedirectResponse("/db-editor")
     record = db_editor_service.get_record(engine, category, record_id)
     if not record:
@@ -42,7 +42,7 @@ def db_editor_form(request: Request, category: str, record_id: str):
 
 @router.post("/{category}/{record_id}")
 async def db_editor_save(request: Request, category: str, record_id: str):
-    if not db_editor_service.get_category_tables(category):
+    if not db_editor_service.categories_for(category):
         return RedirectResponse("/db-editor", status_code=303)
     form = await request.form()
     await run_in_threadpool(db_editor_service.update_record, engine, category, record_id, dict(form))

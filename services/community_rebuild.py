@@ -282,14 +282,15 @@ def _personal_db_facts() -> tuple[int | None, dict | None]:
     path = app_settings.db_path
     if not path or not os.path.exists(path):
         return 0, None
-    title = getattr(app_settings, "table_title", "mysafety")
     try:
         conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     except sqlite3.Error:
         return None, None
     try:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        count = int(conn.execute(f'SELECT count(*) FROM "{title}"').fetchone()[0]) if title in tables else 0
+        # 스키마 6 은 mysafety_report, 그 이전은 목록 표 mysafety(서버 시작 전 이전 버전 DB 판정용)
+        title = next((name for name in ("mysafety_report", "mysafety") if name in tables), None)
+        count = int(conn.execute(f'SELECT count(*) FROM "{title}"').fetchone()[0]) if title else 0
         legacy = None
         if "mysafety_sync_meta" in tables:
             row = conn.execute("SELECT value FROM mysafety_sync_meta WHERE key='legacy_reset'").fetchone()

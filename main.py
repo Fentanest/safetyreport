@@ -116,7 +116,7 @@ async def lifespan(app: FastAPI):
     _managed_crawl.resume_managed()
     from services import download_artifacts
     await run_in_threadpool(download_artifacts.recover)
-    # 이전 버전 DB 는 옮기지 않는다(2026-09-26 초기화 크롤링 릴리스): data/backups/legacy_v*.db 로 통째로 백업한 뒤
+    # 버전 5 미만 DB 는 옮기지 않는다(2026-09-26 초기화 크롤링 릴리스): data/backups/legacy_v*.db 로 통째로 백업한 뒤
     # 신고 자료를 비우고(관리자·API 키·감시목록·지오코딩 캐시만 남김) 초기화 크롤링 안내로 다시 채운다. 새 설치는 해당 없음.
     def _rotate_community_dataset():
         # 개인 DB 를 비우기 직전 community.db 데이터셋 선회전(복원과 같은 보수적 순서, S-20).
@@ -124,9 +124,12 @@ async def lifespan(app: FastAPI):
         CommunityStore.open().rotate_dataset("legacy_reset")
 
     engine = get_engine()
-    database.reset_legacy_database(engine, os.path.join(settings.datapath, "backups"), before_reset=_rotate_community_dataset)
-    database.upgrade_schema(engine, backup_dir=os.path.join(settings.datapath, "backups"))
-    database.repair_stale_merge(engine)
+    backup_dir = os.path.join(settings.datapath, "backups")
+    # 버전 5 DB 는 제자리 변환(백업 → 변환 → 행 수·값 대조 → 교체)으로 신고·수정값·중복 판단·별점을 그대로 둔다(스키마 6, 2026-10-11).
+    database.migrate_schema(engine, backup_dir)
+    database.reset_legacy_database(engine, backup_dir, before_reset=_rotate_community_dataset)
+    database.upgrade_schema(engine, backup_dir=backup_dir)
+    database.repair_stale_effective(engine)
     from core.utils.runtime_mode import skip_in_fixture
     if not skip_in_fixture("startup photo capture backfill"):
         try:
@@ -602,7 +605,9 @@ def create_app() -> FastAPI:
     app.add_api_route("/version/latest", version_latest, methods=["GET"])
     app.add_api_route("/health", health_check, methods=["GET"])
 
-    for middleware in (inject_version_middleware, community_gate_middleware, request_timings, auth_middleware):
+    from core.utils.taxonomy_compat import taxonomy_compat_middleware
+    for middleware in (taxonomy_compat_middleware, inject_version_middleware, community_gate_middleware, request_timings,
+                       auth_middleware):
         app.middleware("http")(middleware)
     session_key = get_or_create_session_key(settings.datapath)
     _ws_auth.configure(session_key)  # 로그 WS 가 관리자 세션 쿠키를 같은 키로 읽는다

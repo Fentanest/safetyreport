@@ -3,9 +3,11 @@
 원칙
 - 값은 바꾸지 않는다: NULL 은 NULL, '' 는 '' (계약 null_rule). 열 목록은 SQLAlchemy 모델에서 가져오며,
   모델 = contracts/storage-contract.json 은 tests/test_storage_contract.py 가 보장한다.
-- 감시목록의 원천은 mysafety_watchlist 하나다. title/merge 의 `감시목록` 열은 거기서 계산한 값이고,
+- 신고 행은 서버 mysafety_report 와 모바일 reports 가 같은 열이다(스키마 6 / 모바일 17) — 행을 그대로 옮긴다.
+- 감시목록의 원천은 mysafety_watchlist 하나다. 신고·화면용 표의 `감시목록` 열은 거기서 계산한 값이고,
   서버 sync_meta 에는 'watchlist' 사본을 두지 않는다(모바일은 sync_meta 'watchlist' 키가 원천이라 교환 때 변환).
 - 모바일 DB 로 복원해도 서버 전용 데이터(관리자·API 키·변경 기록·지오코딩 캐시)는 지우지 않는다.
+- 같은 스키마 버전끼리만 복원한다(복원 뒤 초기화 크롤링을 하므로 옛 버전 변환은 두지 않는다, 2026-10-11 결정).
 - 복원은 현재 DB 의 사본(또는 업로드 파일)에 먼저 적용 → 무결성 검사 → 백업 → 원자적 교체.
   크롤링이나 지도 좌표 변환이 도는 중에는 거부한다.
 """
@@ -28,11 +30,6 @@ from core.utils.fallback import note_fallback
 BATCH = 200
 SERVER_RUNTIME_META_KEYS = {"map_backfill_state"}
 WATCHLIST_META_KEY = "watchlist"
-_DETAIL_BY_CATEGORY = {
-    "traffic": models.detail_traffic_table,
-    "parking": models.detail_parking_table,
-    "other": models.detail_other_table,
-}
 
 
 class RestoreRefused(RuntimeError):
@@ -41,11 +38,11 @@ class RestoreRefused(RuntimeError):
 
 
 # 모바일 앱 DB 스키마 버전(openDatabase version). contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
-MOBILE_SCHEMA_VERSION = 16
+MOBILE_SCHEMA_VERSION = 17
 
 
 class LegacyDatabaseRefused(RestoreRefused):
-    """이번 버전보다 낮은(또는 모르는 새) 스키마의 DB — 2026-09-26 초기화 크롤링 릴리스는 이전 DB 를 가져오지 않는다."""
+    """이번 버전보다 낮은(또는 모르는 새) 스키마의 DB — 같은 버전 백업만 복원한다(복원 뒤 초기화 크롤링을 하므로)."""
     code = "DB_LEGACY_UNSUPPORTED"
 
 
@@ -87,8 +84,8 @@ def refuse_other_version(path: str, kind: str) -> None:
     version = _file_user_version(path)
     if version < expected:
         raise LegacyDatabaseRefused(
-            f"이전 버전 DB는 이 버전에서 복원할 수 없습니다. 이전 버전 {label} DB(스키마 {version}), 지원 스키마 {expected}. "
-            "이번 업데이트는 이전 DB 를 옮기지 않습니다 — 초기화 크롤링으로 안전신문고에서 다시 수집하세요.")
+            f"같은 버전에서 만든 백업만 복원할 수 있습니다. 이전 버전 {label} DB(스키마 {version}), 지원 스키마 {expected}. "
+            "초기화 크롤링으로 안전신문고에서 다시 수집하세요.")
     if version > expected:
         raise FutureDatabaseRefused(
             f"더 새 버전 {label} DB(스키마 {version})는 가져올 수 없습니다(지금 {expected}). 프로그램을 먼저 업데이트하세요.")
@@ -118,14 +115,14 @@ def _read_table(conn: sqlite3.Connection, tables: set[str], name: str) -> list[d
 
 
 # 모바일 표별로 이 서버가 아는 열 = 계약(contracts/storage-contract.json)의 mobile 열.
-# tests/test_storage_exchange.py 가 계약과 같은지 검사한다. reports 의 category·entry_value·raw_content(legacy)는 모바일 전용 열이다.
-REPORTS_MOBILE_ONLY_COLUMNS = ("category", "entry_value", "raw_content")
+# tests/test_storage_exchange.py 가 계약과 같은지 검사한다. reports 의 raw_content(legacy, 항상 '')는 모바일 전용 열이다.
+REPORTS_MOBILE_ONLY_COLUMNS = ("raw_content",)
 
 
 def known_mobile_columns() -> dict[str, set[str]]:
     return {
-        "reports": set(_columns(models.title_table)) | set(_columns(models.detail_traffic_table)) | set(REPORTS_MOBILE_ONLY_COLUMNS),
-        "report_raw": set(_columns(models.raw_content_table)),
+        "reports": set(_columns(models.report_table)) | set(REPORTS_MOBILE_ONLY_COLUMNS),
+        "report_raw": set(_columns(models.report_body_table)),
         "sync_meta": set(_columns(models.sync_meta_table)),
         "geocode_cache": set(_columns(models.geocode_cache_table)),
         "duplicate_group": set(_columns(models.duplicate_group_table)),
@@ -157,13 +154,15 @@ def _refuse_unknown_columns(conn: sqlite3.Connection, tables: set[str]) -> None:
 
 
 def _refuse_unknown_categories(reports: list[dict]) -> None:
-    """category 는 traffic|parking|other 만 계약에 있다(contracts/storage-contract.json). 서버는 이 값을 표 이름으로만
-    표현하므로 다른 값(NULL·빈 값 포함)을 기타로 바꾸면 원래 값이 사라진다 — 교체 전에 ID 를 밝히고 멈춘다(PROJECT_RULES 3-1)."""
-    bad = [(r.get("ID"), r.get("category")) for r in reports if r.get("category") not in _DETAIL_BY_CATEGORY]
+    """category 는 5분류(services/report_category.CATEGORIES)만 계약에 있다. 다른 값(NULL·빈 값 포함)을 기타로 바꾸면 원래 값이
+    사라진다 — 교체 전에 ID 를 밝히고 멈춘다(PROJECT_RULES 3-1). 모바일 신고는 항상 상세까지 받은 행이라 NULL 이 없다."""
+    from services import report_category
+
+    bad = [(r.get("ID"), r.get("category")) for r in reports if r.get("category") not in report_category.CATEGORIES]
     if bad:
         shown = ", ".join(f"{rid}={value!r}" for rid, value in bad[:5]) + (f" 외 {len(bad) - 5}건" if len(bad) > 5 else "")
         raise InvalidDatabaseRefused(
-            f"이 서버가 모르는 신고 분류(category)가 있어 복원하지 않았습니다(traffic·parking·other 만 지원): {shown}")
+            f"이 서버가 모르는 신고 분류(category)가 있어 복원하지 않았습니다(traffic·parking·safety·living·other 만 지원): {shown}")
 
 
 def read_mobile_db(path: str) -> MobileSnapshot:
@@ -242,20 +241,13 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
 
     raw_by_id: dict[str, str] = {}
     raw_rows: list[dict] = []
-    if snapshot.raw is not None:
-        for r in snapshot.raw:
-            raw_rows.append({"ID": r["ID"], "raw_content": r["raw_content"], "raw_type": r["raw_type"], "saved_at": r["saved_at"]})
-            raw_by_id[r["ID"]] = r["raw_content"]
-    else:  # v5 이전 앱: 본문이 reports.raw_content 에 있었다
-        for r in snapshot.reports:
-            if r.get("raw_content"):
-                raw_rows.append({"ID": r["ID"], "raw_content": r["raw_content"], "raw_type": "", "saved_at": r.get("synced_at")})
-                raw_by_id[r["ID"]] = r["raw_content"]
+    for r in snapshot.raw or []:
+        raw_rows.append({"ID": r["ID"], "raw_content": r["raw_content"], "raw_type": r["raw_type"], "saved_at": r["saved_at"]})
+        raw_by_id[r["ID"]] = r["raw_content"]
 
     group_id_map = _canonical_group_ids(snapshot, raw_by_id)
 
-    title_cols = _columns(models.title_table)
-    detail_cols = _columns(models.detail_traffic_table)
+    report_cols = _columns(models.report_table)
     report_ids = set()
 
     with engine.begin() as conn:
@@ -263,42 +255,23 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
             watchlist = [r[0] for r in conn.execute(select(models.watchlist_table.c["신고번호"]))]
         watch_set = set(watchlist)
 
-        title_rows, detail_rows = [], {k: [] for k in _DETAIL_BY_CATEGORY}
-        for r in snapshot.reports:
+        report_rows = []
+        for r in snapshot.reports:  # read_mobile_db 가 열·분류 값을 검사했다
             report_ids.add(r["ID"])
-            title = {c: r.get(c) for c in title_cols}
-            title["감시목록"] = "Y" if r.get("신고번호") in watch_set else "N"
-            title_rows.append(title)
-            detail_rows[r["category"]].append({c: r.get(c) for c in detail_cols})  # read_mobile_db 가 값을 검사했다
+            row = {c: r.get(c) for c in report_cols}
+            row["감시목록"] = "Y" if r.get("신고번호") in watch_set else "N"
+            report_rows.append(row)
 
-        for table in (models.merge_traffic_table, models.merge_parking_table, models.merge_other_table,
-                      models.detail_traffic_table, models.detail_parking_table, models.detail_other_table,
-                      models.title_table, models.raw_content_table, models.duplicate_member_table, models.duplicate_group_table):
+        for table in (models.report_effective_table, models.report_table, models.report_body_table,
+                      models.duplicate_member_table, models.duplicate_group_table):
             conn.execute(table.delete())
-        _insert(conn, models.title_table, title_rows)
-        for category, rows in detail_rows.items():
-            _insert(conn, _DETAIL_BY_CATEGORY[category], rows)
-        _insert(conn, models.raw_content_table, raw_rows)
+        _insert(conn, models.report_table, report_rows)
+        _insert(conn, models.report_body_table, raw_rows)
 
         # 감시목록: 앱에 키가 있으면 그것이 원천, 없으면(구앱) 서버 것을 유지.
         if WATCHLIST_META_KEY in meta:
             conn.execute(models.watchlist_table.delete())
             _insert(conn, models.watchlist_table, [{"신고번호": n} for n in dict.fromkeys(watchlist)])
-
-        # entry_value(감사 SOL-03): 앱에 열이 있으면 앱 값이 원천 — 빈 문자열도 그대로 쓰고, NULL(모름)은 서버 행 없음.
-        # 열이 없는 구앱이면 서버 값을 유지한다. 사라진 신고의 행은 삭제.
-        if "entry_value" in snapshot.report_columns:
-            # 행마다 지우고 넣던 것을 묶음으로(기술일지 B-09). 의미는 같다: 앱의 모든 신고 ID 행을 지우고,
-            # 값이 NULL 이 아닌 것(빈 문자열 포함)만 넣는다.
-            ids = [r["ID"] for r in snapshot.reports]
-            for i in range(0, len(ids), BATCH):
-                conn.execute(models.entry_value_table.delete().where(models.entry_value_table.c.ID.in_(ids[i:i + BATCH])))
-            _insert(conn, models.entry_value_table, [
-                {"ID": r["ID"], "entry_value": r["entry_value"]} for r in snapshot.reports if r.get("entry_value") is not None])
-        existing_ev = [row[0] for row in conn.execute(select(models.entry_value_table.c.ID))]
-        orphan = [i for i in existing_ev if i not in report_ids]
-        for i in range(0, len(orphan), BATCH):
-            conn.execute(models.entry_value_table.delete().where(models.entry_value_table.c.ID.in_(orphan[i:i + BATCH])))
 
         # sync_meta: 서버 런타임 키는 유지, 감시목록 사본은 두지 않음, 나머지는 앱 값(NULL 포함 그대로).
         conn.execute(models.sync_meta_table.delete().where(models.sync_meta_table.c.key.notin_(SERVER_RUNTIME_META_KEYS)))
@@ -330,8 +303,8 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
                 conn.execute(table.delete())
                 _insert(conn, table, [{c: row.get(c) for c in _columns(table)} for row in rows])
 
-    # merge 재생성(중복군도 여기서 재계산) 뒤, 앱의 중복군을 그대로 덮는다.
-    database.merge_final(engine)
+    # 화면용 표 재생성(중복군도 여기서 재계산) 뒤, 앱의 중복군을 그대로 덮는다.
+    database.rebuild_effective(engine)
     if snapshot.duplicate_group is not None:
         mapping = group_id_map
         group_cols = _columns(models.duplicate_group_table)
@@ -485,9 +458,9 @@ def _restore_exclusive(uploaded_path: str, kind: str, dst: str, snapshot: "Mobil
             engine = create_engine(f"sqlite:///{staged}")
             try:
                 database.upgrade_schema(engine)
-                database.repair_stale_merge(engine, raise_on_error=True)
+                database.repair_stale_effective(engine, raise_on_error=True)
                 with engine.connect() as conn:
-                    count = conn.execute(select(func.count()).select_from(models.title_table)).scalar()
+                    count = conn.execute(select(func.count()).select_from(models.report_effective_table)).scalar()
             finally:
                 engine.dispose()
         elif kind == "mobile":

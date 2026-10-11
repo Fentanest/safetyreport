@@ -1,6 +1,6 @@
 {
- "contract_version": 2,
- "updated": "2026-09-25",
+ "contract_version": 3,
+ "updated": "2026-10-11",
  "description": "서버·모바일 저장 계약(PROJECT_RULES §3-1). 두 레포의 같은 경로 contracts/storage-contract.json 에 바이트 동일하게 둔다(scripts/dev/db_roundtrip_check.py 가 sha256 비교). R0 판은 현재 스키마를 그대로 적은 것이고, NULL·기본값 정렬은 R1 에서 한다.",
  "null_rule": "NULL = 모름/아직 안 해 봄. '' = 비어 있음이 확인됨. 정규화는 파서 출력 한 곳에서만 하고 저장·변환·API 는 값을 바꾸지 않는다.",
  "owners": {
@@ -11,21 +11,21 @@
   "server_only": "서버 전용(교환 안 함).",
   "legacy": "옛 열. 새 코드는 쓰지 않는다."
  },
-"schema_version": {
- "server": 5,
- "mobile": 16,
- "note": "서버는 PRAGMA user_version(core/database/database.py SCHEMA_VERSION), 모바일은 openDatabase version."
-},
+ "schema_version": {
+  "server": 6,
+  "mobile": 17,
+  "note": "서버는 PRAGMA user_version(core/database/database.py SCHEMA_VERSION), 모바일은 openDatabase version."
+ },
  "change_tracked": {
-   "columns": [
-    "처리상태",
-    "차량번호",
-    "위반법규",
-    "범칙금_과태료",
-    "벌점",
-    "처리기관",
-    "처리기관코드",
-    "담당자",
+  "columns": [
+   "처리상태",
+   "차량번호",
+   "위반법규",
+   "범칙금_과태료",
+   "벌점",
+   "처리기관",
+   "처리기관코드",
+   "담당자",
    "답변일",
    "발생일자",
    "발생시각",
@@ -44,24 +44,15 @@
    "보완_요청_내용",
    "보완_신고자_의견"
   ],
-  "also": "category 가 바뀌거나, 이전 값이 있는 entry_value·본문 원문(raw_content)·원문 종류(raw_type)가 바뀌면 변경이다.",
+  "also": "category·entry_value·ssnpc_cd·ssnpc_type 가 바뀌거나(이전 값이 있을 때), 본문 원문(raw_content)·원문 종류(raw_type)가 바뀌면 변경이다.",
   "note": "상세 저장 때 이 열 중 하나라도 바뀌면(NULL 과 '' 는 같게) synced_at 을 갱신하고 변경 알림을 남긴다. 서버 core/storage/reports_repo.CHANGE_TRACKED_COLUMNS, 모바일 LocalDbService._syncedAtTrackedKeys 가 이 목록과 같아야 한다(양쪽 테스트)."
  },
  "entities": [
   {
    "entity": "report",
    "server_tables": {
-    "title": "mysafety",
-    "detail": [
-     "mysafetydetail_traffic",
-     "mysafetydetail_parking",
-     "mysafetydetail_other"
-    ],
-    "merge": [
-     "mysafetymerge_traffic",
-     "mysafetymerge_parking",
-     "mysafetymerge_other"
-    ]
+    "report": "mysafety_report",
+    "effective": "mysafety_report_effective"
    },
    "mobile_table": "reports",
    "columns": [
@@ -70,9 +61,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "title",
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true,
@@ -83,8 +73,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "title",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -94,8 +84,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "title",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -105,8 +95,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "title",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -116,8 +106,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "title",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -127,8 +117,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "title",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true,
@@ -139,8 +129,8 @@
      "type": "integer",
      "owner": "site",
      "server": [
-      "title",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true,
@@ -151,8 +141,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "title",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true,
@@ -163,8 +153,8 @@
      "type": "text",
      "owner": "derived",
      "server": [
-      "title",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true,
@@ -175,8 +165,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -186,8 +176,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -197,8 +187,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -208,8 +198,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -219,8 +209,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -230,8 +220,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -241,8 +231,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -252,8 +242,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -263,8 +253,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -274,8 +264,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -285,8 +275,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -296,8 +286,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -307,8 +297,8 @@
      "type": "text",
      "owner": "derived",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -318,8 +308,8 @@
      "type": "text",
      "owner": "derived",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -329,8 +319,8 @@
      "type": "real",
      "owner": "derived",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -340,8 +330,8 @@
      "type": "real",
      "owner": "derived",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -351,8 +341,8 @@
      "type": "text",
      "owner": "derived",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -362,8 +352,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -373,8 +363,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -384,8 +374,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -395,8 +385,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -406,8 +396,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -417,8 +407,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -427,21 +417,49 @@
      "name": "category",
      "type": "text",
      "owner": "derived",
-     "server": [],
+     "server": [
+      "report",
+      "effective"
+     ],
      "mobile": true,
      "exchange": true,
-     "server_via": "표 이름(mysafety*_traffic|parking|other)",
-     "note": "traffic|parking|other. 서버는 merge/detail 표 이름으로 표현."
+     "note": "traffic|parking|safety|living|other. services/report_category.resolve(ssnpc_cd, ssnpc_type, entry_value) 결과(contracts/report-categories.json)."
     },
     {
      "name": "entry_value",
      "type": "text",
      "owner": "site",
-     "server": [],
+     "server": [
+      "report",
+      "effective"
+     ],
      "mobile": true,
      "exchange": true,
-     "server_via": "mysafety_entry_value.entry_value",
-     "note": "서버는 mysafety_entry_value 표, 모바일은 reports 열."
+     "note": "본문의 접수 메뉴 문구('메뉴-소분류'). 코드가 없을 때 분류의 근거."
+    },
+    {
+     "name": "ssnpc_cd",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "report",
+      "effective"
+     ],
+     "mobile": true,
+     "exchange": true,
+     "note": "상세 응답 SSNPC_CD(대분류 코드, 대문자). NULL=응답에 없음·아직 안 받음."
+    },
+    {
+     "name": "ssnpc_type",
+     "type": "text",
+     "owner": "site",
+     "server": [
+      "report",
+      "effective"
+     ],
+     "mobile": true,
+     "exchange": true,
+     "note": "상세 응답 SSNPC_TYPE(소분류 코드, 두 자리)."
     },
     {
      "name": "raw_content",
@@ -457,8 +475,8 @@
      "type": "integer",
      "owner": "derived",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true,
@@ -469,8 +487,8 @@
      "type": "integer",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -480,8 +498,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -491,8 +509,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -502,8 +520,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -513,8 +531,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -524,8 +542,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -535,8 +553,8 @@
      "type": "text",
      "owner": "site",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -546,8 +564,8 @@
      "type": "text",
      "owner": "derived",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -557,8 +575,8 @@
      "type": "text",
      "owner": "derived",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true
@@ -568,18 +586,19 @@
      "type": "integer",
      "owner": "derived",
      "server": [
-      "detail",
-      "merge"
+      "report",
+      "effective"
      ],
      "mobile": true,
      "exchange": true,
      "note": "NULL=아직 시도 안 함, 0=받았지만 촬영 시각 없음."
     }
-   ]
+   ],
+   "note": "서버 스키마 6(2026-10-11): 신고 한 건 = mysafety_report 한 행(목록+상세+분류). 화면용 mysafety_report_effective = report + 수정값 + 감시목록 + 6개월 첨부 가림. 카테고리는 열 값이다(표 이름 아님)."
   },
   {
    "entity": "raw_content",
-   "server_table": "mysafety_raw_content",
+   "server_table": "mysafety_report_body",
    "mobile_table": "report_raw",
    "columns": [
     {
@@ -924,31 +943,6 @@
     }
    ],
    "note": "모바일은 sync_meta 키 'watchlist'(쉼표 구분 신고번호)로 표현. 교환은 변환기가 담당."
-  },
-  {
-   "entity": "entry_value",
-   "server_table": "mysafety_entry_value",
-   "mobile_table": null,
-   "columns": [
-    {
-     "name": "ID",
-     "type": "text",
-     "owner": "site",
-     "server": true,
-     "mobile": false,
-     "exchange": false,
-     "pk": true
-    },
-    {
-     "name": "entry_value",
-     "type": "text",
-     "owner": "site",
-     "server": true,
-     "mobile": false,
-     "exchange": false
-    }
-   ],
-   "note": "모바일은 reports.entry_value 열."
   },
   {
    "entity": "admin_users",

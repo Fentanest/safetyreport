@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 
 import settings.settings as settings
-from core.database.database import category_from_entry_value
+from services import report_category
 from core.utils import logger
 
 
@@ -123,7 +123,9 @@ def build_detail_result(
     satisfaction_fetcher,
 ):
     entry_value = details.get("entry_value", "")
-    category = category_from_entry_value(entry_value)
+    # 분류: 상세 응답의 SSNPC 코드가 있으면 코드로, 없으면 접수 메뉴 문구로(services/report_category.py)
+    ssnpc_cd, ssnpc_type = details.get("ssnpc_cd"), details.get("ssnpc_type")
+    category = report_category.category_of(ssnpc_cd, ssnpc_type, entry_value)
     raw_content = details.get("raw_content", "")
     raw_type = details.get("raw_type", "")
     title_fields = enrich_title_fields_with_satisfaction(
@@ -139,4 +141,6 @@ def build_detail_result(
         title_fields,
         raw_content,
         raw_type,
+        ssnpc_cd,
+        ssnpc_type,
     )

@@ -134,16 +134,16 @@ def pending_photo_rows(engine, *, limit: int | None = None) -> list[tuple[str, s
     from core.database import models
     from core.storage import reports_repo
 
-    detail, title = models.detail_parking_table, models.title_table
+    report = models.report_table
     query = (
-        select(detail.c.ID, detail.c["첨부사진"], title.c["신고번호"])
-        .select_from(detail.join(title, title.c.ID == detail.c.ID))
+        select(report.c.ID, report.c["첨부사진"], report.c["신고번호"])
         .where(
-            detail.c["사진_촬영수"].is_(None),
-            detail.c["첨부사진"].like("http%"),
-            title.c["신고일"] >= reports_repo._attachment_cutoff(),
+            report.c.category == "parking",
+            report.c["사진_촬영수"].is_(None),
+            report.c["첨부사진"].like("http%"),
+            report.c["신고일"] >= reports_repo._attachment_cutoff(),
         )
-        .order_by(detail.c.ID.desc())
+        .order_by(report.c.ID.desc())
     )
     if limit is not None:
         query = query.limit(limit)
@@ -161,7 +161,7 @@ def fill_one(engine, record_id: str, photos, *, fetch=None) -> bool:
     collected = collect(photos, fetch=fetch)
     if collected is None:
         return False
-    detail = models.detail_parking_table
+    detail = models.report_table
     with engine.begin() as conn:
         # 읽은 첨부가 지금도 같을 때만 쓴다. 네트워크를 기다리는 동안 DB 복원·재크롤링으로 첨부가 바뀌었으면
         # 다른 사진의 촬영 정보를 저장하게 되므로 버린다(기술일지 A2-02). 다음 훑기에서 새 첨부로 다시 시도한다.
@@ -170,7 +170,7 @@ def fill_one(engine, record_id: str, photos, *, fetch=None) -> bool:
         ).values(**collected))
         if not result.rowcount:
             return False
-        reports_repo.refresh_merge_rows(conn, [record_id])
+        reports_repo.refresh_effective_rows(conn, [record_id])
     return True
 
 

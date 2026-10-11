@@ -20,9 +20,12 @@ from services.crawl_state_store import (
 from services.report_query_service import (
     get_all_records,
     get_all_watchlist,
+    get_category_records,
     get_duplicate_records,
+    get_living_records,
     get_other_records,
     get_parking_records,
+    get_safety_records,
     get_traffic_records,
     get_unrated_records,
     resolve_to_report_numbers,

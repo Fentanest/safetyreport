@@ -4,44 +4,24 @@
 캡처 재시도는 sidecar 로 읽고, 읽지 못하면 기록을 남기고 그 축만 비운다(core/utils/fallback).
 """
 import pandas as pd
-from sqlalchemy import exists, func, select
+from sqlalchemy import func, select
 
-from core.database.models import detail_other_table, detail_parking_table, detail_traffic_table, title_table
+from core.database.models import report_table
 from core.utils import logger
 from core.utils.fallback import note_fallback
 
 
 def _get_title_ids_for_scan(conn, *, message: str):
     logger.LoggerFactory.logbot.info(message)
-    query = select(title_table.c.ID)
-    return pd.read_sql_query(query, conn)
+    return pd.read_sql_query(select(report_table.c.ID), conn)
 
 def _get_new_and_incomplete_ids(conn):
+    """상세가 아직 없는 신고(category NULL — 목록에서만 봄)와 미종결 신고."""
     logger.LoggerFactory.logbot.info("신규, 미종결 신고 건 스캔 시작")
-    query_new = select(title_table.c.ID).where(
-        ~exists().where(title_table.c.ID == detail_traffic_table.c.ID)
-    ).where(
-        ~exists().where(title_table.c.ID == detail_parking_table.c.ID)
-    ).where(
-        ~exists().where(title_table.c.ID == detail_other_table.c.ID)
-    )
-
-    incomplete_queries = [
-        # 종결여부 NULL(모름)도 미종결로 본다. `!= 'Y'` 만 쓰면 NULL 행이 영영 빠진다(S-19).
-        select(t.c.ID).where(func.coalesce(t.c.종결여부, '') != 'Y')
-        for t in (detail_traffic_table, detail_parking_table, detail_other_table)
-    ]
-
-    df_new = pd.read_sql_query(query_new, conn)
-    df_incomplete = pd.concat(
-        [pd.read_sql_query(q, conn) for q in incomplete_queries],
-        ignore_index=True,
-    )
-
-    merged = pd.concat([
-        df_new, df_incomplete,
-    ]).drop_duplicates()
-    return merged
+    # 종결여부 NULL(모름)도 미종결로 본다. `!= 'Y'` 만 쓰면 NULL 행이 영영 빠진다(S-19).
+    query = select(report_table.c.ID).where(
+        report_table.c.category.is_(None) | (func.coalesce(report_table.c.종결여부, '') != 'Y'))
+    return pd.read_sql_query(query, conn).drop_duplicates()
 
 def _labels_differ(left, right) -> bool:
     """목록 라벨 비교. None 을 != 로 직접 비교하지 않는다(계약 list-refetch-v1)."""
@@ -57,8 +37,8 @@ def should_refetch_list_item(*, in_personal_detail: bool, list_label,
                              failed_list_label=None) -> bool:
     """contracts/community-ingest/vectors/list_refetch.json 규칙 그대로.
 
-    closed/supplement_open 은 detail 표 원본(사용자 override 무시 — 호출자가
-    detail 표에서 읽어 넘긴다). 처리상태 canonical 은 비교하지 않는다.
+    closed/supplement_open 은 신고 행 원본(사용자 override 무시 — 호출자가
+    mysafety_report 에서 읽어 넘긴다). 처리상태 canonical 은 비교하지 않는다.
     """
     if not in_personal_detail:
         return True
@@ -122,15 +102,14 @@ def _community_capture_retry_ids() -> set:
 
 
 def _list_refetch_extra_ids(conn) -> set:
-    """list_refetch 벡터로 다시 읽을 ID. detail 표 원본만 본다(override 무시)."""
-    title_rows = conn.execute(select(title_table.c.ID, title_table.c.상태)).fetchall()
+    """list_refetch 벡터로 다시 읽을 ID. 신고 행 원본만 본다(override 무시)."""
+    title_rows = conn.execute(select(report_table.c.ID, report_table.c.상태)).fetchall()
     if not title_rows:
         return set()
     detail_site: dict = {}
-    for table in (detail_traffic_table, detail_parking_table, detail_other_table):
-        for row in conn.execute(
-                select(table.c.ID, table.c.종결여부, table.c.보완_미응답)).fetchall():
-            detail_site.setdefault(str(row[0]), (row[1], row[2]))
+    for row in conn.execute(select(report_table.c.ID, report_table.c.종결여부, report_table.c.보완_미응답)
+                            .where(report_table.c.category.is_not(None))).fetchall():
+        detail_site[str(row[0])] = (row[1], row[2])
     status_labels = _community_detail_status_labels()
     permanent_labels = _community_rebuild_permanent_labels()
     retry_ids = _community_capture_retry_ids()
@@ -155,11 +134,9 @@ def get_pending_detail_ids(engine, force=False):
         if force:
             df = _get_title_ids_for_scan(conn, message="전체 신고 건을 다시 스캔합니다.")
         else:
-            detail_rows = sum(
-                conn.execute(select(func.count()).select_from(t)).scalar()
-                for t in (detail_traffic_table, detail_parking_table, detail_other_table)
-            )
-            if detail_rows == 0:  # 주정차 표도 센다(S-19)
+            detail_rows = conn.execute(select(func.count()).select_from(report_table)
+                                       .where(report_table.c.category.is_not(None))).scalar()
+            if detail_rows == 0:  # 상세가 하나도 없으면 전체 스캔(S-19)
                 df = _get_title_ids_for_scan(conn, message="detail 테이블 비어 있어 전체 스캔 시작")
             else:
                 df = _get_new_and_incomplete_ids(conn)

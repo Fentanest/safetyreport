@@ -27,16 +27,16 @@ if __name__ == "__main__":
     engine = create_sqlite_engine(db_path=db_path, connect_args={})
 
     try:
-        print("Calling items.merge_final()...")
-        database.merge_final(engine=engine)
-        print("items.merge_final() executed successfully.")
+        print("Calling items.rebuild_effective()...")
+        database.rebuild_effective(engine=engine)
+        print("items.rebuild_effective() executed successfully.")
 
-        # Verify if merge_traffic_table has data now
+        # Verify if report_effective_table has data now
         with engine.connect() as conn:
-            row_count_merge = conn.execute(select(func.count()).select_from(database.merge_traffic_table)).scalar()
-            print(f"Verification: The final merge_traffic_table now contains {row_count_merge} rows.")
+            row_count_merge = conn.execute(select(func.count()).select_from(database.report_effective_table)).scalar()
+            print(f"Verification: The final report_effective_table now contains {row_count_merge} rows.")
 
     except Exception as e:
-        print(f"An error occurred during merge_final: {e}")
+        print(f"An error occurred during rebuild_effective: {e}")
 
     print("--- Merge Debug Script Finished ---")

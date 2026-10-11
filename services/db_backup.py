@@ -65,7 +65,7 @@ def export_clean_db() -> str:
 def detect_db_kind(db_path: str) -> DbKind:
     """업로드된 DB 파일의 종류 판별.
 
-    - 서버: mysafety, mysafetymerge_traffic 등 다중 테이블 보유
+    - 서버: mysafety_report(스키마 6) 또는 mysafety + mysafetymerge_*(이전 버전 — 버전 검사가 거절한다)
     - 모바일: 단일 reports 테이블 + sync_meta + category 컬럼
     """
     try:
@@ -75,12 +75,14 @@ def detect_db_kind(db_path: str) -> DbKind:
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )
             tables = {row[0] for row in cur.fetchall()}
-            if "reports" in tables and "sync_meta" in tables and "mysafety" not in tables:
+            if "reports" in tables and "sync_meta" in tables and "mysafety" not in tables and "mysafety_report" not in tables:
                 # 모바일: reports 테이블에 category 컬럼 존재 여부 확인
                 cur = conn.execute("PRAGMA table_info(reports)")
                 cols = {row[1] for row in cur.fetchall()}
                 if "category" in cols:
                     return "mobile"
+            if "mysafety_report" in tables:
+                return "server"
             if "mysafety" in tables and any(
                 t.startswith("mysafetymerge_") for t in tables
             ):

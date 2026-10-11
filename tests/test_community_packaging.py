@@ -63,7 +63,7 @@ class CommunityPackagingTest(unittest.TestCase):
         docker = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("python scripts/build/write_community_public.py --out /app/community_public.json", docker)
         build = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
-        self.assertIn("COMMUNITY_SUPABASE_PUBLISHABLE_KEY=${{ vars.COMMUNITY_SUPABASE_PUBLISHABLE_KEY }}", build)
+        self.assertIn("COMMUNITY_SUPABASE_PUBLISHABLE_KEY=${{ vars.LOCAL_SUPABASE_PUBLISHABLE_KEY }}", build)
         self.assertIn("COMMUNITY_CONFIG_REQUIRED=1", build)
         ignore = (ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines()
         self.assertNotIn("scripts/build/", ignore)
@@ -81,9 +81,9 @@ class CommunityPackagingTest(unittest.TestCase):
             text = wf.read_text(encoding="utf-8")
             if "scripts/build/build_exe.py" not in text:
                 continue
-            self.assertIn("COMMUNITY_SUPABASE_URL: ${{ vars.COMMUNITY_SUPABASE_URL }}", text, wf.name)
+            self.assertIn("COMMUNITY_SUPABASE_URL: ${{ vars.LOCAL_SUPABASE_URL }}", text, wf.name)
             # 정본 이름(Android·지도·저장소 Variables 와 같음). 옛 이름으로 읽으면 값이 비어 배포 빌드가 멈춘다.
-            self.assertIn("COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.COMMUNITY_SUPABASE_PUBLISHABLE_KEY }}", text, wf.name)
+            self.assertIn("COMMUNITY_SUPABASE_PUBLISHABLE_KEY: ${{ vars.LOCAL_SUPABASE_PUBLISHABLE_KEY }}", text, wf.name)
             self.assertNotIn("vars.COMMUNITY_PUBLISHABLE_KEY", text, wf.name)
             self.assertIn("COMMUNITY_CONFIG_REQUIRED: '1'", text, wf.name)
             self.assertNotRegex(text, r"COMMUNITY_[A-Z_]+: \$\{\{ secrets\.", wf.name)

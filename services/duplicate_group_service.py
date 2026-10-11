@@ -215,31 +215,15 @@ def _load_inventory(conn, report_ids=None) -> pd.DataFrame:
         frames = [_safe_read(conn, table, select(table).where(table.c.ID.in_(identifiers[offset:offset + 500])))
                   for offset in range(0, len(identifiers), 500)]
         return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=[c.name for c in table.c])
-    frames = []
-    for table_obj, category in [
-        (models.merge_traffic_table, "traffic"),
-        (models.merge_parking_table, "parking"),
-        (models.merge_other_table, "other"),
-    ]:
-        df = read(table_obj)
-        if df.empty:
-            continue
-        df["category"] = category
-        frames.append(df)
-
+    # 화면용 표에 category·entry_value 가 같이 있다(스키마 6).
+    df_all = read(models.report_effective_table)
     # 빈 신고 목록도 정상적으로 읽은 전체 원천인지 확인한다. 읽기 실패를
     # 빈 자료로 처리하면 아래 refresh의 DELETE가 기존 그룹을 지워 버린다.
-    df_entry = read(models.entry_value_table)
-    df_raw = read(models.raw_content_table)
-    if not frames:
+    df_raw = read(models.report_body_table)
+    if df_all.empty:
         return pd.DataFrame()
 
-    df_all = pd.concat(frames, ignore_index=True).fillna("")
-
-    if not df_entry.empty:
-        df_all = df_all.merge(df_entry[["ID", "entry_value"]], on="ID", how="left")
-    else:
-        df_all["entry_value"] = ""
+    df_all = df_all.fillna("")
 
     if not df_raw.empty:
         df_all = df_all.merge(df_raw[["ID", "raw_content", "raw_type", "saved_at"]], on="ID", how="left")

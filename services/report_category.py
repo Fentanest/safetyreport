@@ -73,6 +73,7 @@ ENTRY_MENUS: dict[str, tuple[tuple[str, ...], str]] = {
 # 이름이 바뀌어 정규화로는 못 찾는 옛 소분류 (대분류 후보, 정규화 소분류) → 코드
 ENTRY_ALIASES: dict[tuple[tuple[str, ...], str], tuple[str, str]] = {
     (("TV",), "버스전용차로위반(일반도로)"): ("TV", "05"),
+    (("CM",), "쓰레기,폐기물"): ("CM", "05"),
 }
 
 _SPACE = re.compile(r"\s+")
@@ -155,3 +156,19 @@ def code_name(code: str | None) -> str:
     cd, _, type_ = code.partition("-")
     known = CODES.get((cd, type_))
     return known[0] if known else ""
+
+
+#: 5분류 이전 화면·통계·공유 계약이 쓰던 3분류. safety·living 은 예전 '기타'에 들어 있었다.
+LEGACY_CATEGORIES = ("traffic", "parking", "other")
+
+
+def legacy_category(category) -> str:
+    """5분류 → 예전 3분류(traffic·parking·other). 구앱 API 호환과 3분류 화면이 쓴다."""
+    return category if category in ("traffic", "parking") else "other"
+
+
+def expand_legacy(category) -> tuple[str, ...]:
+    """예전 3분류 값 → 그에 해당하는 5분류 묶음. 'other' 는 safety·living·other."""
+    if category == "other":
+        return ("safety", "living", "other")
+    return (category,)

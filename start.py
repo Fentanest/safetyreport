@@ -69,22 +69,16 @@ def _prepare_database(engine, reset=False):
     if reset:
         logger.LoggerFactory.logbot.warning("--reset 옵션이 사용되어 크롤링 데이터 테이블을 초기화합니다.")
         # 관리자 계정(admin_users), API 키(api_keys), 감시 목록(watchlist)은 보존.
-        # 신고 ID 에 매여 있는 사이드카(entry_value, raw_content, duplicate_*)도 같이 비운다.
+        # 신고 ID 에 매여 있는 사이드카(본문, duplicate_*)도 같이 비운다.
         # 과거 주소 좌표 캐시(mysafety_geocode_cache)는 DB 교환 호환 때문에 보존한다. 새 지도에는 쓰지 않는다.
         # 중간 실험 빌드에서 잠시 존재했던 보완 history 테이블도 reset 시 함께 정리한다.
         data_tables = [
             # 중복 멤버는 group 보다 먼저 — 의미상 group 의 부속이므로
             database.duplicate_member_table,
             database.duplicate_group_table,
-            database.entry_value_table,
-            database.raw_content_table,
-            database.title_table,
-            database.detail_traffic_table,
-            database.detail_parking_table,
-            database.detail_other_table,
-            database.merge_traffic_table,
-            database.merge_parking_table,
-            database.merge_other_table,
+            database.report_body_table,
+            database.report_effective_table,
+            database.report_table,
         ]
         logger.LoggerFactory.logbot.info(
             "--reset에서도 mysafety_geocode_cache는 호환용으로 유지합니다. 재크롤링은 공식 좌표를 새로 반영합니다."
@@ -548,7 +542,7 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False) -> C
 
 def _save_details_as_they_arrive(engine, detail_stream, saved_ids=None, *, result=None):
     """상세를 받는 즉시 1건씩 저장한다(저장 계층 재설계 R2, S-9). 크롤러가 중간에 멈춰도 받은 만큼은 남는다.
-    중복군 재계산은 뒤의 merge_final 에서 한 번만 한다."""
+    중복군 재계산은 뒤의 rebuild_effective 에서 한 번만 한다."""
     from core.storage import reports_repo
 
     changed, failed, saved = [], [], 0
@@ -595,7 +589,7 @@ def _retry_photo_capture_times(engine) -> None:
 def _merge_and_mark_done(engine, changed_item_ids, successful: bool) -> None:
     """화면용 표 재생성(중복군 변경 추적) → 성공이면 last_sync → 모바일 변경 목록·완료 마커."""
     logger.LoggerFactory.logbot.info("최종 데이터 병합 및 저장 시작")
-    duplicate_refresh = database.merge_final(engine=engine, track_duplicate_changes=True) or {}  # 6개월 첨부 가림도 여기서 적용
+    duplicate_refresh = database.rebuild_effective(engine=engine, track_duplicate_changes=True) or {}  # 6개월 첨부 가림도 여기서 적용
     duplicate_changes = list(duplicate_refresh.get("changes") or [])
     total_changed_count = len(changed_item_ids) + len(duplicate_changes)
 

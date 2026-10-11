@@ -51,20 +51,28 @@ def get_summary(request: Request, dedupe: str | None = None, _: str = Depends(_r
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+def _report_categories(request: Request, category: str):
+    """요청 분류 → (실제 분류 묶음, 행에 보일 category). 5분류를 모르는 앱의 'other' 는 예전 '기타' 묶음(safety·living·other)."""
+    from core.utils import taxonomy_compat
+    from services import report_category
+
+    if category not in report_category.CATEGORIES:
+        raise HTTPException(status_code=400, detail="Invalid category")
+    if category == "other" and not taxonomy_compat.wants_five(request):
+        return report_category.expand_legacy("other"), "other"
+    return (category,), None
+
+
 @router.get("/reports/{category}")
-def get_reports(category: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
+def get_reports(request: Request, category: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
         dedupe_mode = normalize_dedupe_mode(dedupe)
-        if category == "traffic":
-            records = data_service.get_traffic_records(engine, mode=dedupe_mode, exact_values=True)
-        elif category == "parking":
-            records = data_service.get_parking_records(engine, mode=dedupe_mode, exact_values=True)
-        elif category == "other":
-            records = data_service.get_other_records(engine, mode=dedupe_mode, exact_values=True)
-        elif category == "duplicates":
+        if category == "duplicates":
             records = data_service.get_duplicate_records(engine, mode=dedupe_mode)
         else:
-            raise HTTPException(status_code=400, detail="Invalid category")
+            categories, label = _report_categories(request, category)
+            records = data_service.get_category_records(engine, categories, mode=dedupe_mode, exact_values=True,
+                                                        label=label)
         return {"status": "success", "category": category, "count": len(records), "data": records}
     except HTTPException:
         raise
@@ -73,12 +81,13 @@ def get_reports(category: str, dedupe: str | None = None, _: str = Depends(_requ
 
 
 @router.get('/reports/{category}/page')
-def get_reports_page(category: str, offset: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=1000),
+def get_reports_page(request: Request, category: str, offset: int = Query(0, ge=0), limit: int = Query(200, ge=1, le=1000),
                      dedupe: str | None = None, _: str = Depends(_require_api_key)):
-    if category not in {'traffic','parking','other'}:
-        raise HTTPException(status_code=400, detail='Invalid category')
+    categories, label = _report_categories(request, category)
     from services.report_query_service import get_report_page
-    return {'status':'success', **get_report_page(engine,category,offset=offset,limit=limit,mode=normalize_dedupe_mode(dedupe))}
+    page = get_report_page(engine, categories, offset=offset, limit=limit, mode=normalize_dedupe_mode(dedupe),
+                           label=label or category)
+    return {'status':'success', **page}
 
 
 @router.get("/vehicle/{vehicle_number}")
@@ -315,9 +324,18 @@ def get_editor_schema(_: str = Depends(_require_api_key)):
     return {"status": "success", "data": db_editor_service.get_editor_schema()}
 
 
+def _editor_categories(category: str):
+    """편집기는 ID 로 찾으므로 'other' 를 예전 '기타' 묶음까지 넓혀도 다른 신고가 섞이지 않는다(구앱 호환)."""
+    from services import report_category
+
+    if category not in report_category.CATEGORIES:
+        return ()
+    return report_category.expand_legacy(category)
+
+
 @router.get("/editor/{category}/{record_id}")
 def get_editor_record(category: str, record_id: str, _: str = Depends(_require_api_key)):
-    record = db_editor_service.get_record(engine, category, record_id)
+    record = db_editor_service.get_record(engine, _editor_categories(category), record_id)
     if not record:
         raise HTTPException(status_code=404, detail="수정 대상을 찾을 수 없습니다.")
     return {
@@ -328,7 +346,7 @@ def get_editor_record(category: str, record_id: str, _: str = Depends(_require_a
             "record": record,
             **db_editor_service.get_editor_schema(),
             # 추가 필드(구앱은 무시): 사용자가 고친 필드와 사이트 원본 값(저장 계층 재설계 R4)
-            **db_editor_service.get_edit_state(engine, category, record_id),
+            **db_editor_service.get_edit_state(engine, _editor_categories(category), record_id),
         },
     }
 
@@ -338,7 +356,8 @@ async def save_editor_record(category: str, record_id: str, request: Request, _:
     body = await json_object(request)
     values = body.get("values") if isinstance(body.get("values"), dict) else body
     try:
-        updated = await run_in_threadpool(db_editor_service.update_record, engine, category, record_id, values or {})
+        updated = await run_in_threadpool(db_editor_service.update_record, engine, _editor_categories(category), record_id,
+                                          values or {})
     except db_editor_service.InvalidEditorValue as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from None
     if not updated:
@@ -469,6 +488,8 @@ def get_server_version(_: str = Depends(_require_api_key)):
         "version": current,
         "latest_version": latest,
         "up_to_date": up_to_date,
+        # 5분류 지원(스키마 6). 아는 앱은 X-SR-Taxonomy: 5 를 보낸다(core/utils/taxonomy_compat.py).
+        "report_taxonomy": 5,
         **selfhost_compat.metadata(),
     }
 
