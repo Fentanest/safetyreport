@@ -4,8 +4,9 @@ import re
 from services.report_category import normalize_code
 
 
+# 확인된 코드만 둔다. 13 은 실사용자 응답에서 봤지만 뜻을 확인하지 못해 매핑하지 않는다(2026-10-12 사용자 지시 —
+# 근거 없이 답변완료로 붙이지 않는다). 모르는 코드는 숫자 그대로 두고, 답변 내용으로 판정한다(_final_status).
 _C_NOW_STATUS = {0: "진행", 10: "답변완료", 11: "일부수용", 12: "검토중",
-                 13: "답변완료",  # 2026-10: 실사용자 응답에서 발견, 실제 라벨 미확인 — 원본 샘플로 확인되면 교정할 임시값.
                  14: "불수용", 15: "기타", 20: "취하", 30: "이송"}
 _CANONICAL_DONE_STATUSES = {"수용", "일부수용", "불수용", "기타", "답변완료", "취하", "이송"}
 _FULLWIDTH_TRANSLATION = str.maketrans('０１２３４５６７８９，', '0123456789,')
@@ -280,7 +281,7 @@ def _attachments(result_data) -> dict:
 def _final_status(processing_status: str, raw_status: str, supplement_open: bool, answered_band: bool = False) -> str:
     """3단계: 표시 상태(canonical). 취하·이송은 진행 상태가 정하고, 답변이 끝난 상태가 아니면 진행 상태 → 보완요청 → 처리중.
     answered_band: 답변이 있고 C_NOW 가 10~19(답변완료 계열)인데 선택한 답변 상태도, raw_status 도 모르는 값일 때
-    '처리중'으로 떨어뜨리지 않는 안전망(2026-10, C_NOW=13 미확인 라벨 버그 — 새 canonical 값은 만들지 않고 '답변완료'로만 닫는다)."""
+    '처리중'으로 떨어뜨리지 않는 안전망(2026-10, 답변완료인데 진행중으로 보이던 버그 — 새 canonical 값은 만들지 않고 '답변완료'로만 닫는다)."""
     processing_status = (processing_status or "").strip()
     if raw_status in ("취하", "이송"):
         return raw_status
@@ -321,7 +322,7 @@ def _title_fields(result_data, raw_status: str) -> dict:
         stsfdg = 0
     if stsfdg > 0:
         poll_status = '참여 완료'
-    elif c_now_int in (10, 11, 13, 14, 15):
+    elif c_now_int in (10, 11, 14, 15):
         poll_status = '참여 가능'
     elif c_now_int in (20, 30):
         poll_status = '참여 불가'
