@@ -19,7 +19,7 @@ from unittest import mock
 from services import community_auth_service as cas
 from services import community_gate
 from services.community_store import CommunityStore
-from test_community_auth import USER_A, USER_B, CommunityTestBase, wait_for
+from test_community_auth import USER_A, USER_B, CommunityTestBase, wait_for, fake_jwt
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 동의 정책은 앱에 넣어 두지 않는다 — 가짜 중앙이 이 본문을 `policy` 로 내려준다(2026-09-27, account-api.md)
@@ -306,6 +306,36 @@ class DecideTests(unittest.TestCase):
 
 
 class GateServiceTests(GateTestBase):
+    def test_foreign_session_goes_to_reauthentication(self):
+        self.open_gate()
+        st = self.state()
+        st['current']['access_token'] = fake_jwt({'iss': 'https://old.example/auth/v1'})
+        self.service.store.save(st)
+        self.assertEqual(community_gate.refresh_now()['state'], 'kakao_reauth_required')
+
+    def test_router_401_refreshes_once_then_reauth_on_rejected_refresh(self):
+        self.connect()
+        self.fake.account_handler = lambda *args: (401, {'code': 'UNAUTHORIZED_INVALID_JWT_FORMAT'})
+        self.fake.refresh_mode = 'invalid'
+        before = self.fake.count('/auth/v1/token')
+        self.assertEqual(community_gate.refresh_now()['state'], 'kakao_reauth_required')
+        self.assertEqual(self.fake.count('/auth/v1/token'), before + 1)
+
+    def test_router_401_refresh_success_retries_status(self):
+        self.connect()
+        self.account.grant(USER_A)
+        calls = []
+        def handler(*args):
+            calls.append(args[0])
+            if len(calls) == 1:
+                return 401, {'code': 'UNAUTHORIZED_INVALID_JWT_FORMAT'}
+            return self.account(*args)
+        self.fake.account_handler = handler
+        before = self.fake.count('/auth/v1/token')
+        self.assertEqual(community_gate.refresh_now()['state'], 'ok')
+        self.assertEqual(self.fake.count('/auth/v1/token'), before + 1)
+        self.assertEqual(calls[:2], ['status', 'status'])
+
     def test_not_connected_never_calls_network(self):
         result = community_gate.refresh_now()
         self.assertEqual(result["state"], "kakao_required")
@@ -378,12 +408,14 @@ class GateServiceTests(GateTestBase):
         self.assertEqual(self.store.context()["state"], "inactive")
         self.assertEqual(self.store.context()["inactive_reason"], "consent_required")
 
-    def test_auth_rejection_invalidates_immediately(self):
+    def test_auth_rejection_after_one_refresh_invalidates_immediately(self):
         self.open_gate()
-        self.account.fail = [(401, "auth_required")]
+        self.account.fail = [(401, "auth_required"), (401, "auth_required")]
+        before = self.fake.count('/auth/v1/token')
         result = community_gate.refresh_now()
         self.assertEqual(result["state"], "verification_required")
         self.assertIn("auth_required", result["reasons"])
+        self.assertEqual(self.fake.count('/auth/v1/token'), before + 1)
 
     def test_policy_outdated_and_suspended(self):
         self.open_gate()

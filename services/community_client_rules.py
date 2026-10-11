@@ -65,6 +65,8 @@ def classify_response(http_status: int, text: str | None, headers=None) -> Accou
     # 본문에 코드가 없어 server_error 로 채운 경우는 HTTP 상태로만 판단한다(401·400·깨진 200 을 재시도하지 않게).
     transient = retryable if isinstance(retryable, bool) else (http_status == 429 or body_code in _TRANSIENT_CODES or http_status >= 500)
     transient = transient or http_status == 429 or http_status >= 500
+    if http_status == 401:
+        transient = False  # 함수 라우터의 본문 형식과 무관하게 인증 갱신 경로로 보낸다.
     from services.community_cloud import retry_after as parse_hint
     retry_after = parse_hint(headers, data) or None
     extra = {k: v for k, v in err.items() if k in ("active_writer", "required_version")}

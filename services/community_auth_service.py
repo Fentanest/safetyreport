@@ -108,6 +108,30 @@ class CommunityAuthService:
         except StoreUnreadable:
             raise CommunityAuthError("store_unreadable") from None
 
+    def retire_foreign_session(self) -> bool:
+        """발급처가 다른 저장 세션을 재로그인 상태로 옮긴다. 서명 검증이나 인증 허용 판정은 아니다."""
+        from services.community_auth_client import jwt_claims_unverified
+
+        cfg = self.config()
+        expected = (cfg.supabase_url or "").rstrip("/") + "/auth/v1"
+        if not cfg.supabase_url:
+            return False
+        with self.store.locked():
+            st = self._load()
+            cur = st.get("current")
+            if not cur:
+                return False
+            issuer = jwt_claims_unverified(cur.get("access_token") or "").get("iss")
+            if not isinstance(issuer, str) or not issuer or issuer.rstrip("/") == expected:
+                return False
+            st["reauth"] = {k: cur.get(k) for k in ("display_name", "connected_at", "has_email", "user_id", "kakao_id")}
+            st["current"] = None
+            from services.community_auth_errors import iso
+            st["last_error"] = {"code": "reauth_required", "at": iso(self._now())}
+            self.store.save(st)
+        _log.warning("[community] 커뮤니티 서버가 바뀌어(이전 발급처의 로그인) 다시 로그인이 필요합니다.")
+        return True
+
     @staticmethod
     def _relay_failure(exc: CommunityHttpError) -> CommunityAuthError:
         if exc.code in ("rate_limited", "too_many_pending") or exc.status == 429:

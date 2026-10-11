@@ -489,6 +489,30 @@ class HelperTests(unittest.TestCase):
 # ── 서비스 흐름 (가짜 Supabase) ─────────────────────────────────────────────────
 
 class ServiceFlowTests(CommunityTestBase):
+    def test_foreign_issuer_retires_tokens_and_keeps_account(self):
+        self.connect()
+        st = self.state()
+        st['current']['access_token'] = fake_jwt({'iss': 'https://old.example/auth/v1'})
+        self.service.store.save(st)
+        with self.assertRaises(cas.CommunityAuthError) as raised:
+            self.service.get_access_token()
+        self.assertEqual(raised.exception.code, 'reauth_required')
+        self.assertIsNone(self.state()['current'])
+        self.assertEqual(self.state()['reauth']['user_id'], USER_A['id'])
+        self.assertEqual(self.fake.count('/auth/v1/token'), 1)  # 최초 로그인만
+
+    def test_current_or_missing_issuer_preserves_session(self):
+        self.connect()
+        for claims in ({'iss': self.cfg.supabase_url + '/auth/v1'},
+                       {'iss': self.cfg.supabase_url + '/auth/v1/'}, {}, {'iss': ''}):
+            with self.subTest(claims=claims):
+                st = self.state()
+                token = fake_jwt(claims)
+                st['current']['access_token'] = token
+                self.service.store.save(st)
+                self.assertFalse(self.service.retire_foreign_session())
+                self.assertEqual(self.service.get_access_token(), token)
+
     def test_start_poll_exchange_once_then_confirm(self):
         dto = self.service.start()
         self.assertEqual(dto["state"], "pending")

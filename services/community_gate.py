@@ -27,7 +27,7 @@ from core.utils.fallback import note_fallback
 from services.community_client_rules import is_current_response, normalize_status
 from services import community_auth_service as cas
 from services import community_cloud as cloud
-from services.community_account_client import AccountApiError, CommunityAccountClient
+from services.community_account_client import AccountApiError, CommunityAccountClient, authenticated_call
 
 _log = logging.getLogger("safetyreport.core.community_gate")
 
@@ -154,8 +154,9 @@ class _Gate:
     @staticmethod
     def _session_state(service: cas.CommunityAuthService) -> tuple[str, dict | None]:
         try:
+            service.retire_foreign_session()
             st = service.store.load()
-        except cas.StoreUnreadable:
+        except (cas.StoreUnreadable, cas.CommunityAuthError):
             return "unreadable", None
         if st.get("current"):
             return "valid", st["current"]
@@ -265,18 +266,17 @@ class _Gate:
         user_id = current.get("user_id")
         with self._lock:
             generation = self._generation
+        client = CommunityAccountClient(cfg.supabase_url, cfg.publishable_key)
+        writer = self._load_writer(service)
+        own = writer if writer and writer.get("user_id") == current.get("user_id") else None
         try:
-            token = service.get_access_token()
+            raw, token = authenticated_call(service, lambda t: client.status(t, own.get("connection_id") if own else None))
+            status = normalize_status(raw)
         except cas.CommunityAuthError as exc:
             self._last_error = "cloud_unavailable" if exc.code == "auth_unavailable" else exc.code
             if exc.code != "auth_unavailable":
                 self._mark_invalid()
             return
-        client = CommunityAccountClient(cfg.supabase_url, cfg.publishable_key)
-        writer = self._load_writer(service)
-        own = writer if writer and writer.get("user_id") == current.get("user_id") else None
-        try:
-            status = normalize_status(client.status(token, own.get("connection_id") if own else None))
         except AccountApiError as exc:
             cloud.observe(service, kind="unknown", source="status_failed")
             self._last_error = "cloud_unavailable" if exc.transient else exc.code
@@ -319,8 +319,15 @@ class _Gate:
             if config_state(cfg) != "ok":
                 raise BindingError("config_invalid")
             try:
-                status = normalize_status(CommunityAccountClient(cfg.supabase_url, cfg.publishable_key).status(service.get_access_token()))
-            except (AccountApiError, cas.CommunityAuthError):
+                client = CommunityAccountClient(cfg.supabase_url, cfg.publishable_key)
+                raw, _ = authenticated_call(service, client.status)
+                status = normalize_status(raw)
+            except cas.CommunityAuthError as exc:
+                state = "kakao_reauth_required" if exc.code == "reauth_required" else "cloud_unavailable"
+                self._last_error = state
+                self._deactivate(state)
+                raise BindingError(state) from None
+            except AccountApiError:
                 self._last_error = "cloud_unavailable"
                 self._deactivate("cloud_unavailable")
                 raise BindingError("cloud_unavailable") from None

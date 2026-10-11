@@ -91,6 +91,15 @@
         return fetch('/settings/community/rebuild' + path, opts).then(function (r) {
             return r.json().catch(function () { return {}; }).then(function (data) {
                 if (r.status === 401) { window.location.href = '/login?next=/onboarding/rebuild'; throw new Error('login'); }
+                if (r.status === 403 && (data.code === 'COMMUNITY_ONBOARDING_REQUIRED' || data.detail === 'COMMUNITY_ONBOARDING_REQUIRED')) {
+                    var state = (data.gate || {}).state;
+                    var target = '/onboarding/community?next=/onboarding/rebuild';
+                    if (['official_account_mismatch', 'official_account_taken', 'official_account_change_pending'].indexOf(state) >= 0) target = '/settings/';
+                    else if (['cloud_unavailable', 'official_account_protocol_required'].indexOf(state) >= 0) target = '/onboarding/cloud';
+                    disposed = true; clearTimeout(timer);
+                    window.location.href = target;
+                    throw new Error('login');
+                }
                 if (!r.ok && !(r.status === 409 && data.data)) { var e = new Error(data.detail || ('요청 실패 (' + r.status + ')')); throw e; }
                 return data;
             });

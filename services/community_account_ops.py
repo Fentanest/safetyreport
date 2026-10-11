@@ -13,7 +13,7 @@ from core.utils.fallback import note_fallback
 from services import community_auth_service as cas
 from services import community_gate
 from services import community_cloud as cloud
-from services.community_account_client import AccountApiError, CommunityAccountClient
+from services.community_account_client import AccountApiError, CommunityAccountClient, authenticated_call
 from services.community_auth_service import CommunityAuthError
 
 logger = logging.getLogger("services.community_account_ops")
@@ -118,9 +118,10 @@ def account_call(fn):
     """커뮤니티 세션 토큰으로 community-account 를 부른다. 실패는 CommunityAuthError 로 바꾼다."""
     service = cas.get_service()
     cfg = service.config()
-    token = service.get_access_token()  # CommunityAuthError(not_connected/reauth_required/...)
+    client = CommunityAccountClient(cfg.supabase_url, cfg.publishable_key)
     try:
-        return fn(CommunityAccountClient(cfg.supabase_url, cfg.publishable_key), token)
+        result, _ = authenticated_call(service, lambda t: fn(client, t))
+        return result
     except AccountApiError as exc:
         status, message = _ACCOUNT_ERRORS.get(exc.code, (503 if exc.transient else 502, None))
         err = CommunityAuthError("account_" + exc.code if exc.code not in _ACCOUNT_ERRORS else exc.code,

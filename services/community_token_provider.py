@@ -26,6 +26,7 @@ class CommunityTokenProvider:
         service = self._service
         cfg = service.config()
         service._require_ready(cfg)
+        service.retire_foreign_session()  # 다른 Supabase 에서 받은 세션이면 아래에서 reauth_required 가 된다
         with service.store.locked():
             st = service._load()  # 락을 잡은 뒤 다시 읽는다 → 다른 호출자가 이미 갱신했으면 그 값을 쓴다
             cur = st.get("current")

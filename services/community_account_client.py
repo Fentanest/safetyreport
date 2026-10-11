@@ -21,6 +21,23 @@ FUNCTION = "community-account"
 TIMEOUT_SECONDS = 25
 
 
+def authenticated_call(service, call):
+    """401 이면 거절된 토큰을 한 번 강제 갱신한다. 회전된 토큰도 호출자에게 돌려준다."""
+    token = service.get_access_token()
+    try:
+        return call(token), token
+    except AccountApiError as exc:
+        if exc.status != 401:
+            raise
+    token = service.get_access_token(rejected=token)
+    try:
+        return call(token), token
+    except AccountApiError as exc:
+        if exc.status == 401:
+            raise AccountApiError("auth_required", 401, transient=False, auth=True) from None
+        raise
+
+
 class AccountApiError(RuntimeError):
     def __init__(self, code: str, status: int | None = None, retry_after: float | None = None, extra: dict | None = None,
                  *, transient: bool | None = None, auth: bool | None = None):
