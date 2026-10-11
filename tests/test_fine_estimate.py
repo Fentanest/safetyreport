@@ -1,5 +1,6 @@
 """추정 과태료 규칙(services/fine_estimate.py) — 공유 테스트 벡터(tests/fixtures/fine_estimate_vectors.json)로 검증한다.
 같은 파일을 모바일 레포도 가진다. 규칙을 바꾸면 벡터와 RULE_VERSION 을 양쪽에서 함께 바꾼다."""
+import copy
 import json
 import pathlib
 import unittest
@@ -22,9 +23,13 @@ class FineEstimateVectorTest(unittest.TestCase):
     def test_estimate_cases(self):
         for case in VECTORS["cases"]:
             with self.subTest(case=case["name"]):
+                original = copy.deepcopy(case["record"])
                 self.assertEqual(fine_estimate.classify(case["record"]), case["rule"])
                 result = fine_estimate.estimate(case["record"])
                 self.assertEqual(result["amount"] if result else None, case["amount"])
+                if "basis" in case:
+                    self.assertEqual(result["basis"], case["basis"])
+                self.assertEqual(case["record"], original, "추정은 확정 원문과 입력 레코드를 바꾸지 않는다")
 
 
 if __name__ == "__main__":
