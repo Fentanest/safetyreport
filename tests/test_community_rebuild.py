@@ -87,7 +87,7 @@ class RebuildEnv:
 
     def add_report(self, report_id):
         with self.engine.begin() as conn:
-            conn.execute(database.title_table.insert().values(ID=report_id, 신고번호=f"SPP-{report_id}"))
+            conn.execute(database.report_table.insert().values(ID=report_id, 신고번호=f"SPP-{report_id}"))
 
     def mark_legacy_reset(self, backup="/tmp/legacy_v0_x.db"):
         import json

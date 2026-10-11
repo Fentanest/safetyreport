@@ -768,7 +768,7 @@ class GateAppTests(GateTestBase):
         self.assertEqual(r.json()["data"]["state"], "official_account_taken")
         self.assertEqual(account_data.db_owner(), "910002")
         with get_engine().connect() as conn:
-            self.assertEqual(conn.execute(select(func.count()).select_from(models.title_table)).scalar(), 0)
+            self.assertEqual(conn.execute(select(func.count()).select_from(models.report_table)).scalar(), 0)
         self.assertEqual(self.post("/settings/community/db-owner/adopt", {"confirm": "DELETE_OTHER_ACCOUNT_REPORTS"},
                                    token=token).status_code, 403, "공식 계정 선점 장벽도 유지된다")
 
