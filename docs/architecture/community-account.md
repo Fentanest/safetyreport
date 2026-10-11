@@ -61,11 +61,11 @@
 
 배포 입력은 `supabase_url` 과 `publishable_key` 두 공개값뿐이다. 앱에는 비밀(service_role, 중계 pepper/암호화 키)이 들어가지 않는다.
 
-공개 설정의 경로(2026-09-27 정리 — 이름은 Android·지도와 같은 `COMMUNITY_SUPABASE_URL`·`COMMUNITY_SUPABASE_PUBLISHABLE_KEY` 가 정본):
+공개 설정의 경로: GitHub 저장소 Variables는 `LOCAL_SUPABASE_URL`·`LOCAL_SUPABASE_PUBLISHABLE_KEY`를 쓰고, 빌드 환경변수는 `COMMUNITY_SUPABASE_URL`·`COMMUNITY_SUPABASE_PUBLISHABLE_KEY`로 전달한다.
 
 | 산출물 | 입력 | 번들 결과 | 누락 시 |
 |---|---|---|---|
-| PyInstaller(Windows·Linux·macOS, `build.yml`·수동 빌드) | 저장소 Variables `COMMUNITY_SUPABASE_URL`·`COMMUNITY_SUPABASE_PUBLISHABLE_KEY`(선택 `COMMUNITY_SITE_URL`) → 빌드 env | `scripts/build/build_exe.py` → `community_public.json`(`--add-data`) | `COMMUNITY_CONFIG_REQUIRED=1` 이라 빌드 실패 |
+| PyInstaller(Windows·Linux·macOS, `build.yml`·수동 빌드) | 저장소 Variables `LOCAL_SUPABASE_URL`·`LOCAL_SUPABASE_PUBLISHABLE_KEY`(선택 `COMMUNITY_SITE_URL`) → 빌드 env `COMMUNITY_SUPABASE_URL`·`COMMUNITY_SUPABASE_PUBLISHABLE_KEY` | `scripts/build/build_exe.py` → `community_public.json`(`--add-data`) | `COMMUNITY_CONFIG_REQUIRED=1` 이라 빌드 실패 |
 | Docker 이미지(`build.yml` build-docker) | 같은 Variables → `build-args` | `Dockerfile` → `scripts/build/write_community_public.py` → `/app/community_public.json` | 같은 검증으로 빌드 실패 |
 | source·로컬·공식 dev 빌드 | 검증된 저장소 `community_public.json`(저장소 공개 Variables와 동일) | source 기본값 및 PyInstaller/Docker 공개 번들 | 기본값까지 없거나 관리자 키/자리표시자면 실제 빌드 실패 |
 실행 때 우선순위: 환경변수(정식·별칭) > `config.ini [COMMUNITY]` > 번들 파일. 공개 키 이름은 `COMMUNITY_SUPABASE_PUBLISHABLE_KEY`, 옛 이름
