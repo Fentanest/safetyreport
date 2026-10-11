@@ -8,6 +8,18 @@
 
 ---
 
+## 2026-10-11 — Astra 리뷰 #3 수정: C_NOW=12(검토중) 답변이 답변완료로 조기 종결되던 결함
+
+- `services/parser.py`: 답변완료 대역 안전망(`answered_band`, C_NOW 10~19 + 답변 있음)이 C_NOW 가 명시적으로 비종결 상태
+  (진행·처리중·검토중)로 매핑된 경우까지 답변완료로 덮어쓰고 있었다 — 예를 들어 C_NOW=12 는 코드표상 검토중인데 답변이 있으면
+  답변완료/종결여부=Y 로 바뀌었다. `raw_status not in _NOT_FINAL_ANSWER_STATUSES` 조건을 추가해 12 는 이 안전망을 타지 않고
+  (검토중 답변 → 처리중, 불수용 답변 → 그대로 불수용) 13(답변완료로 매핑)과 16~19(매핑 없음, 숫자 그대로)는 기존 대역 동작을 유지한다.
+- `contracts/parser-vectors.json`(모바일과 바이트 동일): C_NOW 12 + 검토중 답변(처리중/미종결로 유지), C_NOW 12 + 불수용 답변
+  (불수용/종결 그대로), C_NOW 16 + 진행 답변(답변완료/종결 유지, 미확인 코드 대역 그대로) 3건 추가.
+- 서버 unittest 전체(903개, skip 6) 통과.
+
+---
+
 ## 2026-10-11 — 4단계(Sonnet) PC 웹 UI 후속: Stage 4A 통계·지도 집계 병합
 
 - `feat/report-taxonomy`(Stage 4A `054e408`, 통계·지도 5분류 집계 — `services/stats/*`, `web/routers/stats.py`·`filters.py`,
