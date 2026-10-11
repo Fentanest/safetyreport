@@ -8,6 +8,33 @@
 
 ---
 
+## 2026-10-11 — Astra 리뷰 #3 수정: C_NOW=12(검토중) 답변이 답변완료로 조기 종결되던 결함
+
+- `services/parser.py`: 답변완료 대역 안전망(`answered_band`, C_NOW 10~19 + 답변 있음)이 C_NOW 가 명시적으로 비종결 상태
+  (진행·처리중·검토중)로 매핑된 경우까지 답변완료로 덮어쓰고 있었다 — 예를 들어 C_NOW=12 는 코드표상 검토중인데 답변이 있으면
+  답변완료/종결여부=Y 로 바뀌었다. `raw_status not in _NOT_FINAL_ANSWER_STATUSES` 조건을 추가해 12 는 이 안전망을 타지 않고
+  (검토중 답변 → 처리중, 불수용 답변 → 그대로 불수용) 13(답변완료로 매핑)과 16~19(매핑 없음, 숫자 그대로)는 기존 대역 동작을 유지한다.
+- `contracts/parser-vectors.json`(모바일과 바이트 동일): C_NOW 12 + 검토중 답변(처리중/미종결로 유지), C_NOW 12 + 불수용 답변
+  (불수용/종결 그대로), C_NOW 16 + 진행 답변(답변완료/종결 유지, 미확인 코드 대역 그대로) 3건 추가.
+- 서버 unittest 전체(903개, skip 6) 통과.
+
+---
+
+## 2026-10-11 — Astra 리뷰 #7 수정: 모르는 소분류(EP-99 등)를 '소분류 없음'으로 오인해 밤샘주차로 추정하던 결함
+
+- `services/fine_estimate.py`: `classify()` 의 밤샘주차(`overnight_truck`) 분기가 `code in (None, "EP-02")` 로 "코드 없음"과
+  "코드는 있지만 모르는 값"(`report_category.resolve()` 도 이 경우 `code=None` 을 돌려준다)을 구분하지 못해, EP-99 처럼 코드표에
+  없는 SSNPC 코드나 메뉴의 못 알아보는 소분류까지 전부 밤샘주차 대상에 들어갔다. `EP-02` 이거나, SSNPC 코드가 전혀 없고
+  `entry_value` 에 '-소분류' 부분도 없는(메뉴만 있는) 진짜 "소분류 없음"일 때만 밤샘주차를 적용하도록 `_no_subcategory_info()` 를
+  추가했다. 코드가 있지만 모르는 값이거나 메뉴는 있지만 못 알아보는 소분류는 일반 주정차(parking)로 떨어진다.
+- `RULE_VERSION` 2026-10-11.1 → .2.
+- `tests/fixtures/fine_estimate_vectors.json`(모바일과 바이트 동일): 기존 "소분류 미상 주정차"(IP-99) 벡터가 이 버그를 그대로
+  기대값으로 두고 있어 교정했다(overnight_truck/50,000원 → parking/40,000원, 2시간 가산과 겹치지 않게 사진 간격도 90분으로 줄임).
+  EP-99, 코드 없이 메뉴만(소분류 없음 — 그대로 밤샘주차), 코드 없이 메뉴-못 알아보는 소분류(일반 주정차) 3건 추가.
+- 서버 unittest 전체(903개, skip 6) 통과.
+
+---
+
 ## 2026-10-11 — 4단계(Sonnet) PC 웹 UI 후속: Stage 4A 통계·지도 집계 병합
 
 - `feat/report-taxonomy`(Stage 4A `054e408`, 통계·지도 5분류 집계 — `services/stats/*`, `web/routers/stats.py`·`filters.py`,
