@@ -50,7 +50,7 @@ main()
           → 발견 즉시 detaillist 추가, 모두 찾으면 조기 종료
       → database.detail_to_sql()   # 기존 deatil_to_sql alias 유지
   → _process_and_save_results()
-      → database.merge_final()
+      → database.rebuild_effective()  (스키마 6: 화면용 표 mysafety_report_effective 재생성 + 중복군)
       → crawl_state_store.save_crawl_done()    # crawl_done.json 저장 → 모바일 폴링용
       → crawl_state_store.save_crawl_changes() # 변경 목록 저장
       → export_service.export_results()        # auto_export_* 설정 반영

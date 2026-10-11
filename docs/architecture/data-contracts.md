@@ -52,9 +52,28 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
 
 2026-09-24 에 기존 루트 `CLAUDE.md`(725줄)에서 옮겼다. 아래 '이관 원문' 은 문구를 바꾸지 않고 옮긴 것이며, 원본 전체는 [legacy-claude-reference.md](legacy-claude-reference.md)에 있다.
 
+## 2026-10-11 서버 스키마 6 / 모바일 17 — 신고 한 건 한 행, 5분류 (현재 기준)
+
+이 절이 아래 모든 표 설명보다 우선한다. 계획·결정: `docs/plans/2026-10-11-report-taxonomy.md`.
+
+| 표 | 내용 |
+|---|---|
+| `mysafety_report` | 신고 한 건 한 행: 목록 열(`상태` `신고번호` `신고명` `신고일` `만족도조사여부` `별점` `별점사유` `감시목록`) + 상세 열(처리상태 … 사진_촬영수) + `category` `entry_value` `ssnpc_cd` `ssnpc_type`. **`category` NULL = 목록에서만 본 신고(상세 미저장)** — 수집 대상 선정(`collection_policy`)이 쓴다. |
+| `mysafety_report_effective` | 화면용 = category 가 있는 신고 + 수정값(`mysafety_report_override`) + 감시목록(계산) + 6개월 지난 첨부 가림. 바뀐 ID 만 갱신(`reports_repo.refresh_effective_rows`), 전체는 `database.rebuild_effective`. 통계·API·내보내기·검색은 이 표를 읽는다. |
+| `mysafety_report_body` | 본문 원문(`raw_content` `raw_type` `saved_at`). 중복군 판정·차량번호 복구. |
+| 그대로 | `mysafety_report_override` `mysafety_watchlist` `mysafety_duplicate_group/member/decision` `mysafety_change_log/cursor` `mysafety_geocode_cache` `mysafety_sync_meta` `admin_users` `api_keys` |
+| 없어짐 | `mysafety` `mysafetydetail_{traffic,parking,other}` `mysafetymerge_{traffic,parking,other}` `mysafety_entry_value` `mysafety_raw_content` |
+
+- **분류**: `services/report_category.resolve(ssnpc_cd, ssnpc_type, entry_value)` — 코드가 있으면 코드, 없으면 접수 메뉴. 정본 `contracts/report-categories.json`(두 레포 바이트 동일, 43개 코드). 값은 `traffic` `parking` `safety` `living` `other`.
+- **업그레이드**: 버전 5 → 6 은 서버 시작의 `database.migrate_schema`(백업 `before_schema_v5_*.db` → 한 쓰기 트랜잭션에서 옮기기 → 행 수·값 해시 대조 → 커밋). 5 미만은 기존 `reset_legacy_database`(백업 뒤 비우기). 크롤러 단독 실행은 서버가 먼저 올리기 전에는 멈춘다.
+- **교환·복원**: 같은 스키마 버전끼리만(서버 6 ↔ 모바일 17). 모바일 `reports` 는 `mysafety_report` 와 같은 열(+ legacy `raw_content`), 서버 DB 가져오기는 category 있는 행만.
+- **모바일 API 호환**: `X-SR-Taxonomy: 5`(또는 `?taxonomy=5`, WS 는 `/ws/events?taxonomy=5`)를 보내지 않는 앱에는 JSON 의 `category`·`previous_category` 의 safety·living 을 other 로 접는다(`core/utils/taxonomy_compat.py`). `/reports/other` 는 구앱에 safety+living+other. `/server/version` 의 `report_taxonomy: 5`.
+- **상세 저장 튜플**: `(df, category, entry_value, progress_status, title_fields, raw_content, raw_type, ssnpc_cd, ssnpc_type)`.
+- 아래 "DB 컬럼명"·"DB 테이블" 절의 `mysafety*` 다중 표 설명은 스키마 5 까지의 기록이다.
+
 ## 코드 대조 정정 (기준 17df6cb)
 
-현재 dev 기준은 아래 **2026-09-27 이전 버전 DB 처리** 절이다. 이 문서의 2026-09-24 R1 절과 이관 원문의 자동 업그레이드 설명은 당시 기록이며 현재 값이 아니다. 현재 서버 스키마는 `core/database/database.py`의 `SCHEMA_VERSION=5`; 이전 버전 DB는 서버 시작 때 백업 후 초기화한다. 현재 모바일 스키마는 `contracts/storage-contract.json`의 `schema_version.mobile=16`이다. 제품 VERSION 및 self-host protocol 3과 별개다.
+현재 dev 기준은 아래 **2026-09-27 이전 버전 DB 처리** 절이다. 이 문서의 2026-09-24 R1 절과 이관 원문의 자동 업그레이드 설명은 당시 기록이며 현재 값이 아니다. 현재 서버 스키마는 `core/database/database.py`의 `SCHEMA_VERSION=6`(2026-10-11, 위 절); 버전 5 는 제자리 변환, 그 미만은 서버 시작 때 백업 후 초기화한다. 현재 모바일 스키마는 `contracts/storage-contract.json`의 `schema_version.mobile=17`이다. 제품 VERSION 및 self-host protocol 3과 별개다.
 
 | 원문 절 | 현재 코드 | 조치 |
 |---|---|---|

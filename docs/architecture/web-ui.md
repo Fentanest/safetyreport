@@ -59,7 +59,7 @@
   - 3. 외부 연동: 텔레그램 → 구글 시트 URL → 구글 JSON 인증 파일 업로드 (fetch 방식)
 - **관리자 계정 변경 (/settings/admin)**: 아이디/비밀번호 변경 전용 페이지
 - **기기 연동 (/devices)**: API 키 생성/삭제 + 현재 WebSocket 연결 기기 목록
-- **데이터 수정 (/db-editor)**: mysafetymerge 테이블 조회·수정 → mysafety + mysafetydetail 역동기화 (교통/주정차/기타 탭)
+- **데이터 수정 (/db-editor)**: 화면용 표(`mysafety_report_effective`) 조회, 수정값은 `mysafety_report_override` 에 저장(사이트 원본 `mysafety_report` 는 그대로, 스키마 6) (교통/주정차/기타 탭)
 
 ### 세션 인증 미들웨어
 - `_PUBLIC_PATHS`: `/login`, `/setup`, `/logout`, `/health` 세션 우회
