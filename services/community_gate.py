@@ -557,7 +557,9 @@ class _Gate:
         return self.verify_client_user_token_detail(token) == "match"
 
     def verify_client_user_token_detail(self, token: str | None) -> str:
-        """'match' | 'mismatch' | 'unavailable'.
+        """'match' | 'mismatch' | 'server_login_required' | 'unavailable'.
+
+        서버 세션 부재·재로그인 필요는 'server_login_required'. 설정 미완료는 기존 'mismatch' 를 유지한다.
 
         'unavailable' = 쿨다운 중이거나(`cloud.CloudDeferred`) 네트워크·429/5xx·응답 해석 실패로 확인 자체를
         못한 경우 — 계정이 다른 게 아니라 재시도하면 되는 상태다(이전에는 모두 False→account_mismatch 로 보여
@@ -568,8 +570,10 @@ class _Gate:
         service = cas.get_service()
         cfg = service.config()
         _, current = self._session_state(service)
-        if config_state(cfg) != "ok" or not current or not current.get("user_id"):
+        if config_state(cfg) != "ok":
             return "mismatch"
+        if not current or not current.get("user_id"):
+            return "server_login_required"
         if urlsplit(cfg.supabase_url).hostname != "127.0.0.1" and runtime_mode.is_fixture_mode():
             return "mismatch"
         try:

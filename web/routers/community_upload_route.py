@@ -85,6 +85,8 @@ def _check_client_user(token: str, required: bool = True) -> str | None:
         return None
     if detail == "unavailable":
         return "cloud_unavailable"
+    if detail == "server_login_required":
+        return detail
     return "account_mismatch"
 
 
@@ -127,6 +129,10 @@ async def web_upload_reshare(request: Request):
 
 
 def _mismatch(code: str = "account_mismatch") -> JSONResponse:
+    if code == "server_login_required":
+        message = "PC 서버의 커뮤니티 계정 로그인이 필요합니다. PC 설정의 커뮤니티 계정에서 카카오로 다시 로그인해 주세요."
+        return JSONResponse({"code": code, "detail": message, "message": message},
+                            status_code=409, headers=_NO_STORE)
     if code == "cloud_unavailable":
         from services import community_cloud as cloud
         headers = dict(_NO_STORE)

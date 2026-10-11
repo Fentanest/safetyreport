@@ -713,6 +713,22 @@ class RouterTest(unittest.TestCase):
             verify.assert_not_called()
             self.assertEqual(self.env.launches, [])
 
+    def test_start_and_resume_auth_recovery_responses_do_not_launch(self):
+        from web.routers import community_rebuild_route as route
+        for action in ("start", "resume"):
+            for verified, status, code in (("server_login_required", 409, "server_login_required"),
+                                            ("mismatch", 403, "user_token_required"),
+                                            ("unavailable", 503, "cloud_unavailable")):
+                with self.subTest(action=action, verified=verified), \
+                     mock.patch.object(route, "_verify_client_user_token", return_value=verified), \
+                     mock.patch.object(rebuild, action) as run:
+                    r = self.client.post("/api/v1/community/rebuild/" + action, json={},
+                                         headers={"X-Community-User-Token": "fixture-token"})
+                    self.assertEqual((r.status_code, r.json()["code"]), (status, code))
+                    if status == 409:
+                        self.assertEqual(r.json()["detail"], r.json()["message"])
+                    run.assert_not_called()
+
     def test_status_still_requires_valid_api_key(self):
         from web.routers.api_route import _require_api_key
         from web.routers import api_route

@@ -544,6 +544,17 @@ class GateServiceTests(GateTestBase):
         # bool 호환 API 는 여전히 False 로 뭉뚱그린다(호출부가 detail 을 안 쓰면 안전하게 거부).
         self.assertFalse(community_gate.verify_client_user_token(mine))
 
+    def test_client_token_without_server_session_requires_server_login(self):
+        mine = self.fake.issue_session(USER_A)["access_token"]
+        for session in ({}, {"reauth": {"user_id": USER_A["id"]}}):
+            with self.subTest(session_state="reauth" if session else "none"):
+                self.service.store.save(session)
+                self.assertEqual(community_gate.verify_client_user_token_detail(mine), "server_login_required")
+                self.assertFalse(community_gate.verify_client_user_token(mine))
+                self.assertEqual(community_gate.verify_client_user_token_detail(None), "mismatch")
+        self.cfg = cas.CommunityConfig(site_url=self.cfg.site_url)
+        self.assertEqual(community_gate.verify_client_user_token_detail(mine), "mismatch")
+
     def test_change_listener_fires_on_loss(self):
         seen = []
         community_gate.on_change(lambda r: seen.append(r["state"]))
@@ -690,8 +701,11 @@ class GateAppTests(GateTestBase):
             if route_path.startswith("/api/v1/"):
                 headers["X-API-Key"] = self.key
             r = self.client.request(method, path, headers=headers, follow_redirects=False)
-            self.assertEqual(r.status_code, 403, f"{method} {route_path} → {r.status_code}")
-            self.assertEqual(r.json().get("code"), "COMMUNITY_ONBOARDING_REQUIRED", f"{method} {route_path}")
+            server_login = (method, route_path) in {("GET", "/api/v1/community/upload/status"),
+                                                   ("POST", "/api/v1/community/upload/run")}
+            self.assertEqual(r.status_code, 409 if server_login else 403, f"{method} {route_path} → {r.status_code}")
+            self.assertEqual(r.json().get("code"), "server_login_required" if server_login else "COMMUNITY_ONBOARDING_REQUIRED",
+                             f"{method} {route_path}")
             checked += 1
         self.assertGreater(checked, 60)
 
@@ -935,6 +949,46 @@ class GateAppTests(GateTestBase):
             self.assertEqual(run.call_count, 1)
         r = self.client.post("/api/v1/community/rebuild/start", headers=h, json={})
         self.assertEqual((r.status_code, r.json()["code"]), (403, "user_token_required"))
+
+    def test_server_login_recovery_through_real_middleware(self):
+        self.login()
+        self.cfg = cas.CommunityConfig(**{**self.cfg.__dict__, "api_key_managers": frozenset({cas.hash_api_key(self.key)})})
+        mine = self.fake.issue_session(USER_A)["access_token"]
+        headers = {"X-API-Key": self.key, "X-Community-User-Token": mine}
+        message = "PC 서버의 커뮤니티 계정 로그인이 필요합니다. PC 설정의 커뮤니티 계정에서 카카오로 다시 로그인해 주세요."
+        for session in ({}, {"reauth": {"user_id": USER_A["id"]}}):
+            self.service.store.save(session)
+            community_gate.invalidate("test-session")
+            for method, path in (("POST", "/api/v1/community/rebuild/start"),
+                                 ("POST", "/api/v1/community/rebuild/resume"),
+                                 ("GET", "/api/v1/community/upload/status"),
+                                 ("POST", "/api/v1/community/upload/run")):
+                with self.subTest(path=path, reauth=bool(session)):
+                    r = self.client.request(method, path, headers=headers)
+                    self.assertEqual(r.status_code, 409, r.text)
+                    self.assertEqual(r.json(), {"code": "server_login_required", "detail": message, "message": message})
+                    self.assertEqual(r.headers["Cache-Control"], "no-store")
+                    invalid = self.client.request(method, path, headers={"X-API-Key": "invalid-fixture-key"})
+                    self.assertEqual(invalid.status_code, 401)
+            page = self.client.get("/onboarding/rebuild", follow_redirects=False)
+            self.assertEqual(page.status_code, 302)
+            self.assertEqual(page.headers["location"], "/onboarding/community?next=/onboarding/rebuild")
+
+    def test_upload_routes_preserve_server_login_required(self):
+        from web.routers import community_upload_route as route
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from web.routers.api_route import _require_api_key
+        app = FastAPI()
+        app.include_router(route.api_router)
+        app.dependency_overrides[_require_api_key] = lambda: self.key
+        mine = self.fake.issue_session(USER_A)["access_token"]
+        with TestClient(app) as client:
+            for method, path in (("GET", "/api/v1/community/upload/status"),
+                                 ("POST", "/api/v1/community/upload/run")):
+                r = client.request(method, path, headers={"X-Community-User-Token": mine})
+                self.assertEqual((r.status_code, r.json()["code"]), (409, "server_login_required"))
+                self.assertEqual(r.json()["detail"], r.json()["message"])
 
     def test_client_sensitive_controls_report_cloud_unavailable_not_account_mismatch_during_cooldown(self):
         # 2026-10-11 cloud-retry 조사 결과: GoTrue /auth/v1/user 가 일시 장애면 토큰 확인 자체를 못한다.

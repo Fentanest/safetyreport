@@ -97,6 +97,13 @@ capture 재시도 ID(T4 `capture_retry_ids()`, 없으면 빈 집합 — 파일 �
   GET 은 유효한 API 키로 조회. POST 는 관리 허용 API 키 + `X-Community-User-Token` 을
   `community_gate.verify_client_user_token` 으로 확인하며 토큰 누락·검증 실패는 거부).
 - 응답 `no-store`, 토큰·비밀 없음.
+- 사용자 토큰 검증은 서버 세션 부재·재로그인 필요를 `409 server_login_required`로 구분하며,
+  `detail`과 `message`에 같은 PC 로그인 안내를 보낸다. 휴대폰 토큰 누락·무효·사용자 불일치는
+  `403 user_token_required`, 검증 중 일시 장애는 `503 cloud_unavailable`이다.
+  서버 설정 미완료는 로그인만으로 해결되지 않으므로 기존 `mismatch` 판정을 유지한다.
+  bool 호환 함수는 `match`만 참이다. 업로드 status/run도 서버 로그인 필요를 같은 409로 안내하며,
+  공용 게이트가 먼저 막는 경우에도 작업을 실행하지 않고 같은 안내를 반환한다.
+  업로드의 기존 토큰 누락 `user_token_required`·사용자 불일치 `account_mismatch` 구분은 유지한다.
 
 ## 코드 대조 정정
 

@@ -122,7 +122,7 @@ def _can_manage(api_key: str) -> bool:
 
 
 def _verify_client_user_token(token: str) -> str:
-    """폰 사용자 access token 확인: 'match' | 'mismatch' | 'unavailable'(쿨다운·클라우드 장애로 확인 자체를 못함).
+    """폰 사용자 access token 확인: 'match' | 'mismatch' | 'server_login_required' | 'unavailable'.
     토큰이 없거나 예기치 못한 오류면 'mismatch'."""
     from services import community_gate as gate
     if not token:
@@ -154,6 +154,9 @@ async def _api_action(request: Request, api_key: str, allowed: set[str], action)
     verified = await run_in_threadpool(_verify_client_user_token, (request.headers.get(_USER_TOKEN_HEADER) or "").strip())
     if verified == "unavailable":
         return _cloud_unavailable()
+    if verified == "server_login_required":
+        message = "PC 서버의 커뮤니티 계정 로그인이 필요합니다. PC 설정의 커뮤니티 계정에서 카카오로 다시 로그인해 주세요."
+        return _ok({"code": verified, "detail": message, "message": message}, 409)
     if verified != "match":
         return _ok({"detail": "사용자 확인이 필요합니다.", "code": "user_token_required"}, 403)
     body = await _json_body(request)

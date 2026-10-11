@@ -384,6 +384,12 @@ def _community_gate_state() -> dict:
 def _gate_blocked_response(request: Request, gate: dict):
     from fastapi.responses import RedirectResponse, JSONResponse
     path = request.url.path
+    # 업로드는 공용 게이트가 먼저 막으므로 라우트와 같은 서버 로그인 복구 신호를 보낸다.
+    # 게이트를 통과시키거나 업로드를 실행하지 않는다. API 키 검증은 미들웨어에서 이미 끝났다.
+    if ((request.method, path) in {("GET", "/api/v1/community/upload/status"),
+                                   ("POST", "/api/v1/community/upload/run")}
+            and gate.get("state") in {"kakao_required", "kakao_reauth_required", "session_unreadable"}):
+        return community_upload_route._mismatch("server_login_required")
     if (request.method == "GET" and not _is_ajax(request)
             and not path.startswith(("/api/", "/media/", "/community/", "/settings/community/"))):
         from urllib.parse import quote
