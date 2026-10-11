@@ -32,25 +32,25 @@ def main():
     engine = get_engine()
     database.upgrade_schema(engine)
     with engine.begin() as c:
-        n = c.execute(text('SELECT count(*) FROM mysafetymerge_traffic')).scalar()
+        # 스키마 6: 신고 한 건 = mysafety_report 한 행. 화면용 mysafety_report_effective 도 같은 값으로 직접 채운다
+        # (실제 저장 경로의 override·감시목록·첨부 가림 계산은 건너뛴다 — 대량 합성 자료 삽입 속도를 위해).
+        n = c.execute(text('SELECT count(*) FROM mysafety_report')).scalar()
         if n != args.count:
             if n:
                 raise RuntimeError('Use a new fixture directory for each population')
             for start in range(0, args.count, 5000):
                 rows = []
-                titles = []
                 for i in range(start, min(start + 5000, args.count)):
                     rid = str(800000000 + i)
-                    titles.append(dict(ID=rid, 신고번호='FIXTURE-' + rid, 신고명='합성 신고', 신고일='2026-01-01'))
-                    rows.append(dict(ID=rid, 신고번호='FIXTURE-' + rid, 신고명='합성 신고', 신고일='2026-01-01',
+                    rows.append(dict(ID=rid, 신고번호='FIXTURE-' + rid, 신고명='합성 신고', 신고일='2026-01-01', category='traffic',
                         답변일='2026-01-03', 처리상태=['수용','일부수용','불수용','처리중'][i % 4],
                         범칙금_과태료='과태료 40,000원' if i % 4 < 2 else '',
                         처리기관='합성 경찰서 ' + str(i % 20), 담당자='합성 담당 ' + str(i % 100),
                         위반법규='도로교통법 제5조' if i % 2 else '', 위반장소='합성 주소 ' + str(i % 3000),
                         주소정규화='합성 주소 ' + str(i % 3000), 위도=33 + (i % 3000) / 1000,
                         경도=126 + (i % 3000) / 1000))
-                c.execute(models.title_table.insert(), titles)
-                c.execute(models.merge_traffic_table.insert(), rows)
+                c.execute(models.report_table.insert(), rows)
+                c.execute(models.report_effective_table.insert(), rows)
     calls = []
     sql_times = []
     def sql(*a):

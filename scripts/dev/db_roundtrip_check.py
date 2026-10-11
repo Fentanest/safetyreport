@@ -21,11 +21,9 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SERVER_TABLES_BY_ID = [
-    "mysafety", "mysafetydetail_traffic", "mysafetydetail_parking", "mysafetydetail_other",
-    "mysafetymerge_traffic", "mysafetymerge_parking", "mysafetymerge_other",
-    "mysafety_entry_value", "mysafety_raw_content",
-]
+# 스키마 6: 신고 한 건 = mysafety_report 한 행(목록+상세+분류). 본문은 mysafety_report_body.
+# 화면용 mysafety_report_effective 는 mysafety_report 에서 다시 만드는 값이라 왕복 비교 대상이 아니다.
+SERVER_TABLES_BY_ID = ["mysafety_report", "mysafety_report_body"]
 MOBILE_TABLES = {"reports": "ID", "report_raw": "ID", "sync_meta": "key", "geocode_cache": "주소정규화"}
 # 가져오기·복원은 주인(카카오 회원번호)이 지금 로그인한 계정과 같은 DB 만 받는다(2026-09-27). 이 검사는 fixture 계정으로 로그인한 것으로 둔다.
 KAKAO_ID = "910001"
@@ -52,13 +50,12 @@ logger.LoggerFactory.create_logger()
 engine = get_engine()
 fixture_server.seed_engine(engine)
 with engine.begin() as conn:
-    for t in ("mysafetydetail_parking",):
-        conn.execute(text(f"UPDATE {t} SET 사진_첫촬영='2026-09-22 01:00:00', 사진_끝촬영='2026-09-22 02:30:00', 사진_촬영수=3 WHERE ID='90000101'"))
-        conn.execute(text(f"UPDATE {t} SET 사진_촬영수=0 WHERE ID='90000102'"))
-        conn.execute(text(f"UPDATE {t} SET 위도=37.56012345678901, 경도=126.83012345678901, 주소정규화='서울특별시 강서구 등촌동 101', 지오코딩상태='ok' WHERE ID='90000103'"))
-    conn.execute(text("UPDATE mysafetydetail_other SET 처리내용='첫 줄\n둘째 줄\n“따옴표”' WHERE ID='90000201'"))
-    conn.execute(text("UPDATE mysafetydetail_traffic SET 벌점=NULL WHERE ID='90000003'"))
-    conn.execute(text("UPDATE mysafety SET 별점사유='' WHERE ID='90000001'"))
+    conn.execute(text("UPDATE mysafety_report SET 사진_첫촬영='2026-09-22 01:00:00', 사진_끝촬영='2026-09-22 02:30:00', 사진_촬영수=3 WHERE ID='90000101'"))
+    conn.execute(text("UPDATE mysafety_report SET 사진_촬영수=0 WHERE ID='90000102'"))
+    conn.execute(text("UPDATE mysafety_report SET 위도=37.56012345678901, 경도=126.83012345678901, 주소정규화='서울특별시 강서구 등촌동 101', 지오코딩상태='ok' WHERE ID='90000103'"))
+    conn.execute(text("UPDATE mysafety_report SET 처리내용='첫 줄\n둘째 줄\n“따옴표”' WHERE ID='90000201'"))
+    conn.execute(text("UPDATE mysafety_report SET 벌점=NULL WHERE ID='90000003'"))
+    conn.execute(text("UPDATE mysafety_report SET 별점사유='' WHERE ID='90000001'"))
     # R1b: NULL 보존(sync_meta 값, 캐시 error_message)과 새 사용자 표(수정값·중복 판단) 교환
     conn.execute(text("INSERT OR REPLACE INTO mysafety_sync_meta(key, value) VALUES ('rt_null_probe', NULL)"))
     conn.execute(text("INSERT OR REPLACE INTO mysafety_geocode_cache(주소정규화, 원본주소, 행정구역, 위도, 경도, 상태, source, error_message, updated_at) "
@@ -68,14 +65,14 @@ with engine.begin() as conn:
     conn.execute(text("INSERT INTO mysafety_duplicate_decision(group_id, status, representative_mode, representative_id, apply_globally, note, updated_at) "
                       "VALUES ('deadbeef', 'not_duplicate', 'manual', NULL, 0, NULL, 1790000000997)"))
     # 사용자 데이터 시나리오(R0): 별점·사유, 중복 수동 판단(상태·대표건·메모)
-    conn.execute(text("UPDATE mysafety SET 만족도조사여부='참여 완료', 별점=5, 별점사유='친절하고 빠름' WHERE ID='90000002'"))
-    conn.execute(text("UPDATE mysafety SET 만족도조사여부='참여 완료', 별점=1, 별점사유='' WHERE ID='90000003'"))
+    conn.execute(text("UPDATE mysafety_report SET 만족도조사여부='참여 완료', 별점=5, 별점사유='친절하고 빠름' WHERE ID='90000002'"))
+    conn.execute(text("UPDATE mysafety_report SET 만족도조사여부='참여 완료', 별점=1, 별점사유='' WHERE ID='90000003'"))
     conn.execute(text("INSERT OR REPLACE INTO mysafety_geocode_cache(주소정규화, 원본주소, 행정구역, 위도, 경도, 상태, source, error_message, updated_at) "
                       "VALUES ('서울특별시 강서구 등촌동 101', '서울 강서구 등촌동 101 앞', '서울특별시 강서구', 37.5601234, 126.8301234, 'ok', 'kakao', '', 1790000000123)"))
     conn.execute(text("INSERT OR REPLACE INTO mysafety_geocode_cache(주소정규화, 원본주소, 행정구역, 위도, 경도, 상태, source, error_message, updated_at) "
                       "VALUES ('서울특별시 없는구 1', '서울 없는구 1', '', NULL, NULL, 'failed', 'kakao', 'not found', 1790000000456)"))
 from core.database import database
-database.merge_final(engine)
+database.rebuild_effective(engine)
 database.set_meta(engine, database.KAKAO_MEMBER_META_KEY, sys.argv[1])
 with engine.begin() as conn:
     conn.execute(text("UPDATE mysafety_duplicate_group SET status='not_duplicate', representative_mode='manual', representative_id='90000012', note='사용자 메모: 서로 다른 건'"))
@@ -251,9 +248,8 @@ def main() -> int:
             digests = [hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None for p in contract_paths]
             if digests[0] is None or digests[0] != digests[1]:
                 diffs.append(f"[contract] 서버·모바일 {name} 불일치: {digests}")
-        keys = {"mysafety_entry_value": "ID", "mysafety_raw_content": "ID"}
         for table in SERVER_TABLES_BY_ID:
-            diffs += compare(f"A:{table}", _rows(s0, table, keys.get(table, "ID")), _rows(s2, table, keys.get(table, "ID")))
+            diffs += compare(f"A:{table}", _rows(s0, table, "ID"), _rows(s2, table, "ID"))
         diffs += compare("A:mysafety_watchlist", _rows(s0, "mysafety_watchlist", "신고번호"), _rows(s2, "mysafety_watchlist", "신고번호"))
         # map_backfill_state 는 데이터가 아니라 서버 지도 백필 런타임 상태다. 복원 직후 서버가 새로 기록하고, 모바일 import 는 의도적으로 버린다(기존 회귀 테스트).
         meta0 = {k: v for k, v in _rows(s0, "mysafety_sync_meta", "key").items() if k != "map_backfill_state"}
@@ -292,8 +288,10 @@ def main() -> int:
         diffs += compare("B:duplicate_member", mm1, mm3)
 
         if args.summary_only:
-            server_tables = SERVER_TABLES_BY_ID + ["mysafety_watchlist", "mysafety_sync_meta", "mysafety_geocode_cache", "mysafety_duplicate_group", "mysafety_duplicate_member"]
-            mobile_tables = list(MOBILE_TABLES) + ["duplicate_group", "duplicate_member"]
+            server_tables = SERVER_TABLES_BY_ID + ["mysafety_watchlist", "mysafety_sync_meta", "mysafety_geocode_cache",
+                                                   "mysafety_duplicate_group", "mysafety_duplicate_member",
+                                                   "mysafety_report_override", "mysafety_duplicate_decision"]
+            mobile_tables = list(MOBILE_TABLES) + ["duplicate_group", "duplicate_member", "report_override", "duplicate_decision"]
             report = {"diff_count": len(diffs), "diff_by_table_column": summarize(diffs),
                       "rows": {"S0": table_counts(s0, server_tables), "S2": table_counts(s2, server_tables),
                                "M1": table_counts(m1, mobile_tables), "M3": table_counts(m3, mobile_tables)},

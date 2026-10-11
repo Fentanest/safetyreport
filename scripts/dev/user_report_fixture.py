@@ -46,8 +46,9 @@ def main():
     version,dataset,namespace=rebuild._scope()
     rebuild._record_fresh_baseline(version,dataset,namespace)
     with get_engine().begin() as c:
-        for table in (models.merge_traffic_table,models.merge_parking_table):
-            c.execute(update(table).where(table.c.ID.in_(['90000001','90000011','90000012','90000101'])).values(위도=37.56, 경도=126.83))
+        c.execute(update(models.report_effective_table)
+                 .where(models.report_effective_table.c.ID.in_(['90000001','90000011','90000012','90000101']))
+                 .values(위도=37.56, 경도=126.83))
     for name,version in [('legacy.db',4),('future.db',6)]:
         path=root/name
         connection=sqlite3.connect(path)

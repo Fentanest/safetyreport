@@ -73,8 +73,17 @@ def main() -> int:
         src.close()
         before = snapshot(target)
         env = dict(os.environ, SAFETYREPORT_DATA_DIR=str(data_dir), SAFETYREPORT_FIXTURE_MODE="1", PYTHONPATH=str(REPO_ROOT))
-        code = ("from core.database.engine import get_engine\nfrom core.database import database\nfrom core.utils import logger\n"
-                "logger.LoggerFactory.create_logger()\ndatabase.upgrade_schema(get_engine())\n")
+        backup_dir = str(data_dir / "backups")
+        # main.py 와 같은 기동 순서(스키마 6): 제자리 변환(버전 5) → 이전 버전 비우기(버전 5 미만) → 표 만들기 → 화면용 표 검사.
+        code = (
+            "from core.database.engine import get_engine\nfrom core.database import database\nfrom core.utils import logger\n"
+            "logger.LoggerFactory.create_logger()\n"
+            "engine = get_engine()\n"
+            f"database.migrate_schema(engine, {backup_dir!r})\n"
+            f"database.reset_legacy_database(engine, {backup_dir!r})\n"
+            "database.upgrade_schema(engine)\n"
+            "database.repair_stale_effective(engine)\n"
+        )
         out = subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, cwd=REPO_ROOT)
         if out.returncode != 0:
             print(json.dumps({"error": "upgrade_schema failed", "stderr_tail": out.stderr[-2000:]}, ensure_ascii=False))
