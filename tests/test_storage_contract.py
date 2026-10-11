@@ -20,14 +20,13 @@ def _server_columns(table_name):
 
 class StorageContractServerTests(unittest.TestCase):
     def test_report_tables_match_contract(self):
+        """신고 = mysafety_report 한 행(스키마 6). report·effective 두 표가 같은 열 모양이다."""
         report = next(e for e in CONTRACT["entities"] if e["entity"] == "report")
         tables = report["server_tables"]
-        placements = {"title": [tables["title"]], "detail": tables["detail"], "merge": tables["merge"]}
-        for placement, names in placements.items():
+        for placement, name in tables.items():
             expected = {c["name"]: (c["type"], bool(c.get("pk"))) for c in report["columns"] if placement in c["server"]}
-            for name in names:
-                with self.subTest(table=name):
-                    self.assertEqual(_server_columns(name), expected)
+            with self.subTest(table=name):
+                self.assertEqual(_server_columns(name), expected)
 
     def test_other_entities_match_contract(self):
         for entity in CONTRACT["entities"]:
@@ -41,8 +40,7 @@ class StorageContractServerTests(unittest.TestCase):
         covered = set()
         for entity in CONTRACT["entities"]:
             if entity["entity"] == "report":
-                t = entity["server_tables"]
-                covered |= {t["title"], *t["detail"], *t["merge"]}
+                covered |= set(entity["server_tables"].values())
             elif entity.get("server_table"):
                 covered.add(entity["server_table"])
         self.assertEqual(set(models.metadata.tables), covered)
