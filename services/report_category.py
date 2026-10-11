@@ -95,7 +95,7 @@ def _norm_name(name: str) -> str:
 
 
 def _norm_sub(sub: str) -> str:
-    return _norm(sub).removesuffix("불법주차")
+    return _norm(sub).removeprefix("(구)").removesuffix("불법주차")
 
 
 def normalize_code(ssnpc_cd, ssnpc_type) -> tuple[str | None, str | None]:
@@ -143,6 +143,11 @@ def resolve(ssnpc_cd=None, ssnpc_type=None, entry_value=None) -> Resolved:
         known = CODES.get((cd, type_ or ""))
         if known:
             return Resolved(cd, type_, f"{cd}-{type_}", known[1])
+        if type_ is None:
+            # 대분류만 오고 소분류가 빠졌으면 접수 메뉴의 소분류를 같은 대분류 안에서만 쓴다(최종 감사 #3).
+            found_cd, found_type, category = _from_entry_value(entry_value)
+            if found_cd == cd:
+                return Resolved(found_cd, found_type, f"{found_cd}-{found_type}", category)
         return Resolved(cd, type_, None, GROUP_CATEGORY.get(cd, "other"))
     found_cd, found_type, category = _from_entry_value(entry_value)
     if found_cd:

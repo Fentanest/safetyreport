@@ -13,7 +13,7 @@ from datetime import datetime
 
 from services import report_category
 
-RULE_VERSION = "2026-10-11.3"
+RULE_VERSION = "2026-10-11.4"
 
 # 차량 구분 → 과태료 표의 차종 구분 (도로교통법 시행령 별표6 비고)
 PASSENGER = "승용등"   # 승용자동차 + 4톤 이하 화물자동차
@@ -129,6 +129,9 @@ def _no_subcategory_info(resolved: report_category.Resolved, entry_value) -> boo
     '메뉴-소분류'에서 '-' 뒤가 비어 있는지로 판단한다.
     """
     if resolved.ssnpc_type:
+        return False
+    if resolved.ssnpc_cd not in (None, "EP"):
+        # 대분류가 IP(소화전·교차로 등 지정 구역)면 '기타 불법주정차'가 아니다 — 밤샘주차는 EP(일반)만(최종 감사 #3).
         return False
     _menu, _sep, sub = str(entry_value or "").strip().partition("-")
     return not sub.strip()

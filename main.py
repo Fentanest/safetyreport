@@ -126,7 +126,15 @@ async def lifespan(app: FastAPI):
     engine = get_engine()
     backup_dir = os.path.join(settings.datapath, "backups")
     # 버전 5 DB 는 제자리 변환(백업 → 변환 → 행 수·값 대조 → 교체)으로 신고·수정값·중복 판단·별점을 그대로 둔다(스키마 6, 2026-10-11).
-    database.migrate_schema(engine, backup_dir)
+    try:
+        database.migrate_schema(engine, backup_dir)
+    except database.MigrationVerifyFailed as exc:
+        # 옮기면 값이 사라지는 DB 는 바꾸지 않고 멈춘다(최종 감사 #4) — 사용자가 따를 안내를 남긴다.
+        logger.LoggerFactory.logbot.critical(
+            f"[schema] DB 를 새 구조(스키마 {database.SCHEMA_VERSION})로 옮기지 못해 서버를 시작하지 않습니다: {exc} "
+            f"지금 DB 는 바뀌지 않았고, 변환 전 백업은 {backup_dir} 에 있습니다. 이전 버전으로 되돌려 쓰거나, "
+            f"이 로그와 함께 문의해 주세요(DB 파일을 지우면 다음 시작 때 초기화 크롤링으로 다시 채웁니다).")
+        raise
     database.reset_legacy_database(engine, backup_dir, before_reset=_rotate_community_dataset)
     database.upgrade_schema(engine, backup_dir=backup_dir)
     database.repair_stale_effective(engine)

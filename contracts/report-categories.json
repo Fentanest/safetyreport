@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "source": "안전신문고 safeSingoStatistics 응답의 MAIN_ID/SUB_ID/SUB_NM (2026-09 조회, 43개). 상세 응답 SSNPC_CD/SSNPC_TYPE/SSNPC_2 와 같은 값.",
   "note": "두 레포 바이트 동일. 서버 services/report_category.py, 모바일 lib/services/report_category.dart 가 이 파일의 codes·groups·aliases·vectors 로 같은 결과를 내는지 테스트한다. 분류 규칙을 코드에 따로 쓰지 않는다.",
   "categories": [
@@ -62,7 +62,7 @@
     {"cd": "DR", "type": "08", "name": "불법 숙박", "category": "living"}
   ],
   "entry_value": {
-    "rule": "코드(SSNPC_CD+SSNPC_TYPE)가 있으면 코드로만 정한다. 코드가 없을 때만 entry_value('메뉴-소분류')로 찾는다. 비교 전 정규화: 모든 공백 제거, 소분류 끝의 '불법주차' 제거, 코드 이름 앞의 '(구)' 제거. 메뉴는 menus 로 대분류 후보를 고르고, 소분류는 그 후보 안에서 정규화 이름 또는 aliases 로 찾는다. 메뉴만 알고 소분류를 못 찾으면 code 없이 그 메뉴의 category. '-' 앞부분이 아는 메뉴와 정확히 같지 않으면, 정규화한 전체 문구가 아는 메뉴 이름으로 시작할 때 그중 가장 긴 메뉴를 쓴다(소분류 모름, code 없음). 그래도 모르면 other.",
+    "rule": "코드(SSNPC_CD+SSNPC_TYPE)가 있으면 코드로만 정한다. 대분류만 있고 소분류(SSNPC_TYPE)가 비었으면 entry_value 의 소분류가 같은 대분류의 코드일 때만 그 코드를 쓰고, 아니면 code 없이 대분류의 category. 코드가 없을 때만 entry_value('메뉴-소분류')로 찾는다. 비교 전 정규화: 모든 공백 제거, 소분류 앞의 '(구)'·끝의 '불법주차' 제거, 코드 이름 앞의 '(구)' 제거. 메뉴는 menus 로 대분류 후보를 고르고, 소분류는 그 후보 안에서 정규화 이름 또는 aliases 로 찾는다. 메뉴만 알고 소분류를 못 찾으면 code 없이 그 메뉴의 category. '-' 앞부분이 아는 메뉴와 정확히 같지 않으면, 정규화한 전체 문구가 아는 메뉴 이름으로 시작할 때 그중 가장 긴 메뉴를 쓴다(소분류 모름, code 없음). 그래도 모르면 other.",
     "menus": [
       {"menu": "불법주정차신고", "cds": ["IP", "EP"], "category": "parking"},
       {"menu": "자동차·교통위반", "cds": ["TV"], "category": "traffic"},
@@ -105,6 +105,10 @@
     {"name": "코드 없음 · 메뉴는 알고 소분류 모름", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "생활불편 신고-새로 생긴 소분류", "expect": {"code": null, "category": "living"}},
     {"name": "코드 없음 · 모르는 메뉴", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "해양 안전신고-해양오염", "expect": {"code": null, "category": "other"}},
     {"name": "아무것도 없음", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": null, "expect": {"code": null, "category": "other"}},
-    {"name": "소분류에 '-' 가 들어 있어도 첫 '-' 로만 나눔", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "자동차·교통위반 신고-불법 튜닝, 해체, 조작", "expect": {"code": "TV-08", "category": "traffic"}}
+    {"name": "소분류에 '-' 가 들어 있어도 첫 '-' 로만 나눔", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "자동차·교통위반 신고-불법 튜닝, 해체, 조작", "expect": {"code": "TV-08", "category": "traffic"}},
+    {"name": "대분류만(소분류 빠짐) · 메뉴 소분류가 같은 대분류면 그 코드", "ssnpc_cd": "EP", "ssnpc_type": null, "entry_value": "불법주정차신고-소방차전용구역", "expect": {"code": "EP-03", "category": "parking"}},
+    {"name": "대분류만(소분류 빠짐) · 메뉴 소분류가 다른 대분류면 쓰지 않음", "ssnpc_cd": "EP", "ssnpc_type": null, "entry_value": "불법주정차신고-소화전", "expect": {"code": null, "category": "parking"}},
+    {"name": "모르는 소분류 코드는 메뉴로 메우지 않음", "ssnpc_cd": "EP", "ssnpc_type": "99", "entry_value": "불법주정차신고-소방차전용구역", "expect": {"code": null, "category": "parking"}},
+    {"name": "소분류 앞 '(구)' 는 지우고 찾는다", "ssnpc_cd": null, "ssnpc_type": null, "entry_value": "안전신고-(구)쓰레기, 폐기물", "expect": {"code": "CM-05", "category": "living"}}
   ]
 }
