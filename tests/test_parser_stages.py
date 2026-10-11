@@ -44,6 +44,9 @@ class ParserStagesTest(unittest.TestCase):
         self.assertEqual(parser._final_status("처리중", "답변완료", False), "답변완료")
         self.assertEqual(parser._final_status("", "진행", True), "보완요청")
         self.assertEqual(parser._final_status("", "진행", False), "처리중")
+        # 답변완료 대역(C_NOW 10~19) 안전망: C_NOW 자체가 안 알려진 값이어도(raw_status="16") 답변이 있으면 처리중으로 떨어지지 않는다.
+        self.assertEqual(parser._final_status("처리완료", "16", False, answered_band=True), "답변완료")
+        self.assertEqual(parser._final_status("", "진행", False, answered_band=False), "처리중")
 
     def test_completed_supplement_replaces_location_with_its_own_coordinates_only(self):
         data = {"RN_ADRES": "원래 주소", "C_A_LAT": "37.1", "C_A_LOT": "127.1", "SPLMNT_CMPTN_DT": "2026-09-01",

@@ -30,7 +30,7 @@
 3. 이전 자료를 비웠거나 중앙 공유 자료를 다시 채워야 하면 초기화 수집 안내를 거친다. 실제 수집은 `services/crawl_manager.py`가 `start.py`를 별도 프로세스로 실행한다([community-rebuild.md](community-rebuild.md), [crawling-and-processing.md](crawling-and-processing.md)).
 4. Android Client는 `web/routers/api_route.py`의 인증된 `/api/v1/server/version`에서 PC v3 이상을 확인한 뒤 연결한다. 앱 v2 이상 필요 안내는 `web/templates/devices.html`의 사용자 문구이며, 서버 API 전체가 앱 버전을 강제로 검증한다는 뜻은 아니다. 양쪽 변경 시 앱의 저장 설정 재진입·WebSocket 연결도 함께 확인한다.
 
-`VERSION`은 PC 프로그램 버전이고 SQLite의 `SCHEMA_VERSION`(현재 5, contracts/storage-contract.json 의 schema_version.server)과 별개다. 모바일 앱 버전·빌드 번호도 별개이며, 현재 dev 앱은 `2.0.0+31`이다.
+`VERSION`은 PC 프로그램 버전이고 SQLite의 `SCHEMA_VERSION`(현재 6, contracts/storage-contract.json 의 schema_version.server)과 별개다. 모바일 앱 버전·빌드 번호도 별개이며, 현재 dev 앱은 `2.0.0+31`이다.
 
 ## 이관 원문
 

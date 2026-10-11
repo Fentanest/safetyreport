@@ -118,7 +118,12 @@ def _from_entry_value(entry_value) -> tuple[str | None, str | None, str]:
     menu, _, sub = text.partition("-")
     found = ENTRY_MENUS.get(_norm(menu))
     if found is None:
-        return None, None, "other"
+        # '-' 가 아닌 구분자 등: 문구가 아는 메뉴 이름으로 시작하면 그중 가장 긴 메뉴(소분류는 모름)
+        whole = _norm(text)
+        prefixes = [name for name in ENTRY_MENUS if whole.startswith(name)]
+        if not prefixes:
+            return None, None, "other"
+        return None, None, ENTRY_MENUS[max(prefixes, key=len)][1]
     cds, category = found
     key = _norm_sub(sub)
     if key:

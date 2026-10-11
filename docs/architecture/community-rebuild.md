@@ -13,7 +13,7 @@
 
 ## 새 설치·이전 버전 DB (2026-09-27)
 
-- 새 설치(`_is_fresh_install`: 개인 DB `mysafety` 0건 ∧ `sync_meta[legacy_reset]` 없음)는 초기화가 필요 없다. `required()` 가 공식 계정이 있으면
+- 새 설치(`_is_fresh_install`: 개인 DB 신고(`mysafety_report`, 스키마 5 이전은 `mysafety`) 0건 ∧ `sync_meta[legacy_reset]` 없음)는 초기화가 필요 없다. `required()` 가 공식 계정이 있으면
   완료 기준선 행(`state=completed`, `confirmed_at='fresh_install'`, `counts_json={"baseline":"fresh_install"}`)을 한 번 적는다 — 첫 일반 크롤로 신고가 생겨도
   다시 필요해지지 않는다. 공식 계정이 없으면 적지 않고 `status()` 가 `state=not_required`. 개인 DB 를 읽지 못하면 새 설치로 보지 않는다.
   첫 수집은 일반 크롤이 하고 capture 는 평소대로 `report_latest` 에 쓴다. 배너·크롤 409 가 나오지 않는다.

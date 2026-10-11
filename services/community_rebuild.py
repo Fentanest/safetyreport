@@ -16,7 +16,8 @@ import uuid
 from functools import wraps
 from datetime import datetime, timezone
 
-REQUIRED_VERSION = "source-rebuild-2026-09-26.1"
+# 2026-10-11: 신고 분류 5분류·SSNPC 코드·차량번호(VHRNO) 를 기존 신고에도 채우려고 한 번 더 다시 불러온다(서버 스키마 6).
+REQUIRED_VERSION = "source-rebuild-2026-10-11.1"
 
 #: unique index rebuild_one_active 에 걸리지 않는 종결 상태.
 TERMINAL_STATES = ("completed", "completed_with_gaps", "abandoned")

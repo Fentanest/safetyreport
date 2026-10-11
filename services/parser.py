@@ -1,8 +1,11 @@
 import math
 import re
 
+from services.report_category import normalize_code
+
 
 _C_NOW_STATUS = {0: "진행", 10: "답변완료", 11: "일부수용", 12: "검토중",
+                 13: "답변완료",  # 2026-10: 실사용자 응답에서 발견, 실제 라벨 미확인 — 원본 샘플로 확인되면 교정할 임시값.
                  14: "불수용", 15: "기타", 20: "취하", 30: "이송"}
 _CANONICAL_DONE_STATUSES = {"수용", "일부수용", "불수용", "기타", "답변완료", "취하", "이송"}
 _FULLWIDTH_TRANSLATION = str.maketrans('０１２３４５６７８９，', '0123456789,')
@@ -120,6 +123,12 @@ def _apply_completed_supplement(result_data, body: dict) -> dict:
         location = str(result_data.get("C_A_ADDR_HEAD") or "") + " " + str(result_data.get("C_A_ADDR_TAIL") or "")
     out = dict(body, violation_location=location.strip())
     out["violation_latitude"], out["violation_longitude"] = _official_coordinates(result_data)
+
+    # 차량번호 우선순위(2026-10): 완료된 보완의 SPLMNT_VHRNO(아래) > 상세 응답의 VHRNO(공식 값) > 본문 정규식(기본값).
+    # 실샘플: 교통위반 12건은 VHRNO 가 늘 있고 본문과 같았고, 주정차 11건은 VHRNO 가 늘 비어 있어 본문 값을 그대로 썼다.
+    vhrno = re.sub(r'\s+', '', str(result_data.get('VHRNO') or ''))
+    if vhrno:
+        out["car_number"] = vhrno
 
     if result_data.get('SPLMNT_CMPTN_DT') and result_data.get('SPLMNT_CMPTN_YN') != 'N':
         if result_data.get('SPLMNT_VHRNO'):
@@ -268,8 +277,10 @@ def _attachments(result_data) -> dict:
     return {"map_image": map_image, "attached_photos": "\n".join(img_links), "attachment_files": "\n".join(other_links)}
 
 
-def _final_status(processing_status: str, raw_status: str, supplement_open: bool) -> str:
-    """3단계: 표시 상태(canonical). 취하·이송은 진행 상태가 정하고, 답변이 끝난 상태가 아니면 진행 상태 → 보완요청 → 처리중."""
+def _final_status(processing_status: str, raw_status: str, supplement_open: bool, answered_band: bool = False) -> str:
+    """3단계: 표시 상태(canonical). 취하·이송은 진행 상태가 정하고, 답변이 끝난 상태가 아니면 진행 상태 → 보완요청 → 처리중.
+    answered_band: 답변이 있고 C_NOW 가 10~19(답변완료 계열)인데 선택한 답변 상태도, raw_status 도 모르는 값일 때
+    '처리중'으로 떨어뜨리지 않는 안전망(2026-10, C_NOW=13 미확인 라벨 버그 — 새 canonical 값은 만들지 않고 '답변완료'로만 닫는다)."""
     processing_status = (processing_status or "").strip()
     if raw_status in ("취하", "이송"):
         return raw_status
@@ -279,6 +290,8 @@ def _final_status(processing_status: str, raw_status: str, supplement_open: bool
         return raw_status
     if supplement_open:
         return "보완요청"
+    if answered_band:
+        return "답변완료"
     return "처리중"
 
 
@@ -307,7 +320,7 @@ def _title_fields(result_data, raw_status: str) -> dict:
         stsfdg = 0
     if stsfdg > 0:
         poll_status = '참여 완료'
-    elif c_now_int in (10, 11, 14, 15):
+    elif c_now_int in (10, 11, 13, 14, 15):
         poll_status = '참여 가능'
     elif c_now_int in (20, 30):
         poll_status = '참여 불가'
@@ -346,6 +359,8 @@ def parse_json_details(result_data):
         and c_now == 0
     )
     raw_status = _C_NOW_STATUS.get(c_now, str(c_now) if c_now > 0 else "진행")
+    # 답변완료 대역(C_NOW 10~19)에 답변이 있는데 상태를 못 알아보면 '처리중'으로 떨어지지 않게 한다.
+    answered_band = bool(answers) and 10 <= c_now <= 19
 
     answer = _select_answer(answers, raw_status)
     processing_content = answer["processing_content"]
@@ -355,14 +370,19 @@ def parse_json_details(result_data):
                                    penalty_amount, penalty_points, located["entry_value"], processing_content)
     attachments = _attachments(result_data)
 
-    processing_status = _final_status(processing_status, raw_status, supplement_open)
+    processing_status = _final_status(processing_status, raw_status, supplement_open, answered_band)
     processing_finish = "Y" if processing_status in _CANONICAL_DONE_STATUSES else "N"
     if processing_status == "취하":
         penalty_amount = ""
         penalty_points = ""
 
+    # 분류용 원시 코드. report_category.normalize_code 로 정규화(대문자·두 자리·빈 값은 None)만 하고 분류 자체는 하지 않는다.
+    ssnpc_cd, ssnpc_type = normalize_code(result_data.get("SSNPC_CD"), result_data.get("SSNPC_TYPE"))
+
     return {
         "entry_value": located["entry_value"],
+        "ssnpc_cd": ssnpc_cd,
+        "ssnpc_type": ssnpc_type,
         "car_number": located["car_number"],
         "occurrence_date": located["occurrence_date"],
         "occurrence_time": located["occurrence_time"],

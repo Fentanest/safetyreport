@@ -12,8 +12,11 @@
 </head>
 <body class="sr-auth-body">
 <main class="container onboarding-wrap py-4 py-md-5" id="rbRoot" data-csrf="{{ csrf_token }}" data-next="{{ next }}">
-    <h1 class="h4 fw-bold mb-1">초기화 크롤링 (1회)</h1>
-    <p class="text-muted small">커뮤니티 공유를 위해 지금까지의 내 신고를 안전신문고에서 한 번 다시 읽어 공유용 사본을 만듭니다.</p>
+    <h1 class="h4 fw-bold mb-1">신고 내역을 한 번 다시 불러옵니다</h1>
+    <p class="small mb-1" id="rbNotice">이번 버전부터 신고 분류가 안전신문고 공식 분류 기준으로 바뀌었습니다. 기타 탭이 안전신고·생활불편·기타로 나뉘고,
+        차량번호도 안전신문고에 등록된 값을 먼저 씁니다. 바뀐 기준을 반영하기 위해 저장된 신고를 한 번 다시 불러옵니다.
+        화면 아래 작업 표시줄에서 진행 상황을 볼 수 있습니다.</p>
+    <p class="small fw-bold mb-3" id="rbApology">서버 사양 개선에 따른 추가적인 불가피한 조치입니다. 불편을 드려 죄송합니다.</p>
 
     <div class="card card-custom mb-3">
         <div class="card-body small">
