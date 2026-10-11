@@ -543,25 +543,46 @@ class _Gate:
 
     # -- 모바일 Client 위임 ------------------------------------------------------------------------------
     def verify_client_user_token(self, token: str | None) -> bool:
-        """모바일 Client 가 보낸 자기 access token 이 이 서버에 연결된 커뮤니티 사용자와 같은지 GoTrue /user 로 확인."""
+        """모바일 Client 가 보낸 자기 access token 이 이 서버에 연결된 커뮤니티 사용자와 같은지 GoTrue /user 로 확인.
+
+        bool 호환 API — "unavailable"(쿨다운·클라우드 장애)도 False 로 뭉뚱그린다. 호출부가 account_mismatch 와
+        재시도 가능한 cloud_unavailable 을 구분해야 하면 `verify_client_user_token_detail` 을 쓴다(2026-10-11)."""
+        return self.verify_client_user_token_detail(token) == "match"
+
+    def verify_client_user_token_detail(self, token: str | None) -> str:
+        """'match' | 'mismatch' | 'unavailable'.
+
+        'unavailable' = 쿨다운 중이거나(`cloud.CloudDeferred`) 네트워크·429/5xx·응답 해석 실패로 확인 자체를
+        못한 경우 — 계정이 다른 게 아니라 재시도하면 되는 상태다(이전에는 모두 False→account_mismatch 로 보여
+        403 을 영구적인 오류처럼 노출했다, cloud-retry 조사 결과 §PC). 토큰 누락·형식 오류·GoTrue 401(모르는
+        토큰)·사용자 불일치는 여전히 'mismatch' — 실제로 다른 계정이거나 확인할 수 없는 토큰이다."""
         if not token or len(token) > 8192:
-            return False
+            return "mismatch"
         service = cas.get_service()
         cfg = service.config()
         _, current = self._session_state(service)
         if config_state(cfg) != "ok" or not current or not current.get("user_id"):
-            return False
+            return "mismatch"
         if urlsplit(cfg.supabase_url).hostname != "127.0.0.1" and runtime_mode.is_fixture_mode():
-            return False
+            return "mismatch"
         try:
             resp = cloud.run(cfg.supabase_url, lambda: requests.get(f"{cfg.supabase_url}/auth/v1/user", timeout=10, allow_redirects=False,
                                 headers={"apikey": cfg.publishable_key, "Authorization": f"Bearer {token}"}))
-            if resp.status_code != 200:
-                return False
+        except cloud.CloudDeferred:
+            return "unavailable"  # 영속 쿨다운 중 — 실제 GoTrue 호출을 시도하지도 않았다
+        except requests.RequestException:
+            return "unavailable"  # 네트워크 장애
+        if resp.status_code == 429 or resp.status_code >= 500:
+            return "unavailable"  # GoTrue 자체가 일시 장애
+        if resp.status_code != 200:
+            return "mismatch"  # 401 등: 이 토큰 자체가 유효하지 않음(장애가 아니라 토큰 문제)
+        try:
             user = resp.json()
-        except (requests.RequestException, cloud.CloudDeferred, ValueError):
-            return False
-        return isinstance(user, dict) and user.get("id") == current.get("user_id") and not user.get("is_anonymous")
+        except ValueError:
+            return "unavailable"  # 200인데 본문이 깨짐 — 클라우드 쪽 이상, 사용자 불일치로 볼 근거가 없다
+        if isinstance(user, dict) and user.get("id") == current.get("user_id") and not user.get("is_anonymous"):
+            return "match"
+        return "mismatch"
 
     # -- 화면·API 요약 -----------------------------------------------------------------------------------
     def status_view(self) -> dict:
@@ -627,6 +648,10 @@ def on_change(callback: Callable[[dict], None]) -> None:
 
 def verify_client_user_token(token: str | None) -> bool:
     return _gate.verify_client_user_token(token)
+
+
+def verify_client_user_token_detail(token: str | None) -> str:
+    return _gate.verify_client_user_token_detail(token)
 
 
 def request_takeover() -> dict:

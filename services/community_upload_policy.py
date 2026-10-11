@@ -7,7 +7,10 @@
   request_too_large / payload_invalid. 오류 envelope 가 없는 4xx 는 payload 오류로 보지 않는다(서버 이상 → 재시도).
 - 대기: 로컬 백오프 min(300, 5·2^(n-1))·(0.5+0.5u), 서버 지시(Retry-After 초·HTTP-date, 본문 retry_after_seconds)는 최댓값,
   실제 대기 = max(서버 지시, 로컬 백오프). HTTP-date 는 응답 `Date` 헤더가 있으면 그 시각 기준(기기 시계가 틀려도 조기 재전송 없음).
-  PC 긴급 정책: 실제 재시도는 최소 300초, 더 긴 서버 지시는 상한 없이 존중한다.
+  역할 구분(2026-10-11, cloud-retry): 이 대기는 scope(service/account) 단위 로컬 재시도 간격이다. Supabase 접속
+  자체를 300~1800초(점증+지터)로 멈추는 전역 서킷브레이커는 `services/community_cloud.py` `run()` 이 맡는다.
+  과거 "PC 긴급 정책: 실제 재시도는 최소 300초" 바닥은 전역 쿨다운과 중복이면서 이 지터·점증을 항상 300초로
+  뭉갰다(`backoff_seconds` 상한이 300이라 `max(300, backoff)`는 사실상 상수) — 전역 서킷브레이커가 점증을 맡게 되어 철회했다.
 """
 from __future__ import annotations
 
@@ -51,8 +54,12 @@ def backoff_seconds(n: int, u: float) -> float:
 
 
 def retry_delay_seconds(n: int, u: float, hint: int | None) -> float:
-    """서버 지시보다 일찍 보내지 않고, 서버 지시를 로컬 상한으로 줄이지 않는다."""
-    local = max(300.0, backoff_seconds(n, u))
+    """서버 지시보다 일찍 보내지 않고, 서버 지시를 로컬 상한으로 줄이지 않는다.
+
+    2026-10-11: 여기 바닥을 300초로 두지 않는다 — `backoff_seconds` 는 이미 자체 지터·점증(상한 300초)을
+    가지며, Supabase 전체 접속을 멈추는 더 큰 쿨다운은 `community_cloud.run()` 의 전역 서킷브레이커가 맡는다.
+    이 함수에 300초 바닥을 다시 두면 `backoff_seconds` 가 300 을 넘지 않아 항상 상수 300이 되어 지터가 사라진다."""
+    local = backoff_seconds(n, u)
     return float(max(local, hint)) if hint else local
 
 

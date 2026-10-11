@@ -494,6 +494,24 @@ class GateServiceTests(GateTestBase):
         self.assertFalse(community_gate.verify_client_user_token(None))
         self.assertFalse(community_gate.verify_client_user_token("x" * 9000))
 
+    def test_verify_client_user_token_detail_distinguishes_mismatch_from_unavailable(self):
+        # 2026-10-11 cloud-retry 조사 결과: 쿨다운 중이면 confirm 자체를 못 했을 뿐 계정이 다른 게 아니다.
+        # 이전 코드는 이 구분이 없어 호출부가 전부 account_mismatch 로 보고했다.
+        self.open_gate(USER_A)
+        mine = self.fake.issue_session(USER_A)["access_token"]
+        other = self.fake.issue_session(USER_B)["access_token"]
+        self.assertEqual(community_gate.verify_client_user_token_detail(mine), "match")
+        self.assertEqual(community_gate.verify_client_user_token_detail(other), "mismatch")
+        self.assertEqual(community_gate.verify_client_user_token_detail("not-a-token"), "mismatch")
+        self.assertEqual(community_gate.verify_client_user_token_detail(None), "mismatch")
+        self.assertEqual(community_gate.verify_client_user_token_detail("x" * 9000), "mismatch")
+        from services import community_cloud as cloud
+        cloud.run(self.cfg.supabase_url, lambda: (503, b'', {}))  # 전역 쿨다운 시작(이 base 의 모든 호출이 막힌다)
+        self.assertEqual(community_gate.verify_client_user_token_detail(mine), "unavailable")
+        self.assertEqual(community_gate.verify_client_user_token_detail(other), "unavailable")
+        # bool 호환 API 는 여전히 False 로 뭉뚱그린다(호출부가 detail 을 안 쓰면 안전하게 거부).
+        self.assertFalse(community_gate.verify_client_user_token(mine))
+
     def test_change_listener_fires_on_loss(self):
         seen = []
         community_gate.on_change(lambda r: seen.append(r["state"]))
@@ -885,6 +903,23 @@ class GateAppTests(GateTestBase):
             self.assertEqual(run.call_count, 1)
         r = self.client.post("/api/v1/community/rebuild/start", headers=h, json={})
         self.assertEqual((r.status_code, r.json()["code"]), (403, "user_token_required"))
+
+    def test_client_sensitive_controls_report_cloud_unavailable_not_account_mismatch_during_cooldown(self):
+        # 2026-10-11 cloud-retry 조사 결과: GoTrue /auth/v1/user 가 일시 장애면 토큰 확인 자체를 못한다.
+        # 이전에는 이것도 항상 account_mismatch(403, 영구적인 오류처럼 보임)로 나왔다 — 재시도 가능한
+        # cloud_unavailable(503)이어야 한다. 전역 서킷브레이커를 미리 열지 않는다 — 그러면 공용 미들웨어
+        # (`community_gate_middleware`)가 요청 전체를 COMMUNITY_ONBOARDING_REQUIRED 로 먼저 막아 버려
+        # 이 경로(계정 확인 자체의 장애)를 시험할 수 없다. 이 요청의 /auth/v1/user 호출만 처음으로 503을
+        # 내는 상황을 직접 흉내 낸다.
+        self.cfg = cas.CommunityConfig(**{**self.cfg.__dict__, "api_key_managers": frozenset({cas.hash_api_key(self.key)})})
+        self.open_gate(USER_A)
+        mine = self.fake.issue_session(USER_A)["access_token"]
+        h = {"X-API-Key": self.key}
+        fake_resp = mock.Mock(status_code=503, text='{"error":{"code":"server_error"}}', headers={})
+        with mock.patch.object(community_gate.requests, "get", return_value=fake_resp):
+            r = self.client.post("/api/v1/community/upload/run", headers={**h, "X-Community-User-Token": mine}, json={})
+        self.assertEqual((r.status_code, r.json()["code"]), (503, "cloud_unavailable"))
+        self.assertIn("Retry-After", r.headers)
 
     def test_gate_loss_closes_event_websockets(self):
         with mock.patch("services.ws_manager.ws_manager.close_all_from_thread") as close_all:

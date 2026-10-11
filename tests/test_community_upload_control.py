@@ -178,7 +178,10 @@ class UploadControlTest(unittest.TestCase):
     def test_attempt_count_and_backoff_grow_with_each_real_request(self):
         res = self.capture("R1")
         self.responder = lambda env, h: err_body(503, "busy")
-        expected_row = [300.0, 300.0, 300.0]  # Emergency minimum, including row retries.
+        # 2026-10-11: PC 전용 "최소 300초" 바닥을 철회했다 — 이 행 재시도는 자체 지터·점증(backoff_seconds,
+        # u=0 하한)만 쓴다. Supabase 접속 자체를 멈추는 더 큰 쿨다운은 community_cloud 의 전역 서킷브레이커가 맡는다
+        # (이 시험은 community_cloud.run 을 통과만 시키는 mock 이라 그 쪽 쿨다운은 관여하지 않는다).
+        expected_row = [2.5, 5.0, 10.0]
         for n, delay in enumerate(expected_row, start=1):
             self.assertEqual(self.upload("recovery")["result"], "cooldown")
             row = self.row(res.event_id)
@@ -223,7 +226,9 @@ class UploadControlTest(unittest.TestCase):
         self.assertEqual(self.upload()["result"], "cooldown")
         account = self.control("account")
         self.assertEqual(account["state"], "cooling_down")
-        self.assertEqual(self.at(account["next_attempt_at"]) - self.now, timedelta(seconds=300))
+        # 2026-10-11: 서버 지시(헤더 Retry-After: 60)가 로컬 백오프 하한(2.5초)보다 크므로 그 값을 따른다 —
+        # PC 전용 300초 바닥은 철회했다(이 바닥이 서버 지시보다 짧을 때도 300으로 늘려 버리는 건 UC-1 규칙 위반이었다).
+        self.assertEqual(self.at(account["next_attempt_at"]) - self.now, timedelta(seconds=60))
         self.capture("R2")  # 새 수집은 로컬에만 쌓인다
         for trigger in ("realtime", "manual", "midnight", "recovery", "reshare"):
             self.assertEqual(self.upload(trigger)["result"], "cooldown", trigger)
@@ -232,7 +237,7 @@ class UploadControlTest(unittest.TestCase):
         self.store = CommunityStore.open(self.tmp)
         self.assertEqual(self.upload("manual")["result"], "cooldown")
         self.assertEqual(len(self.requests), 1)
-        self.now = T0 + timedelta(seconds=301)
+        self.now = T0 + timedelta(seconds=61)
         self.responder = lambda env, h: ack_body(env["events"])
         self.assertEqual(self.upload("recovery")["result"], "sent")
         self.assertEqual(len(self.requests[1][1]["events"]), 1, "복구 확인은 1건짜리 요청 하나")
@@ -241,12 +246,13 @@ class UploadControlTest(unittest.TestCase):
 
     def test_retry_after_header_date_body_and_plain_text(self):
         res = self.capture("R1")
+        # 2026-10-11: PC 전용 300초 바닥을 철회했다 — 실제 대기는 max(로컬 백오프(u=0 하한=2.5초), 서버 지시) 다.
         cases = [
             (lambda env, h: (503, {"Retry-After": format_datetime(self.now + timedelta(seconds=300), usegmt=True)},
                              b'{"error":{"code":"busy","message":"m","request_id":"r","retryable":true}}'), 300),
-            (lambda env, h: (429, {"retry-after": "120"}, b"slow down"), 300),
-            (lambda env, h: err_body(503, "busy", retry_after=45, header="90"), 300),
-            (lambda env, h: (503, {}, b"<html>busy</html>"), 300),
+            (lambda env, h: (429, {"retry-after": "120"}, b"slow down"), 120),
+            (lambda env, h: err_body(503, "busy", retry_after=45, header="90"), 90),
+            (lambda env, h: (503, {}, b"<html>busy</html>"), 2.5),
         ]
         for responder, wait in cases:
             with self.subTest(wait=wait):
@@ -727,7 +733,9 @@ class UploadControlTest(unittest.TestCase):
         status = up.upload_status(self.tmp)
         self.assertEqual(status["control"]["state"], "cooling_down")
         self.assertEqual(status["control"]["reason"], "rate_limited")
-        self.assertEqual(status["next_retry_kst"], "2026-09-27 09:05")
+        # 2026-10-11: 서버 지시(Retry-After: 60) 가 로컬 백오프 하한(2.5초)보다 커서 60초 뒤(09:01) — PC 전용
+        # 300초 바닥(09:05)을 철회했다.
+        self.assertEqual(status["next_retry_kst"], "2026-09-27 09:01")
         self.assertIsNotNone(status["oldest_unsent_kst"])
         self.assertIsNone(status["last_central_ack_kst"])
         self.assertEqual(status["last_result"], "deferred", "API 소비자 호환 값")

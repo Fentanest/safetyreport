@@ -45,16 +45,46 @@ class OfflinePolicyTests(GateTestBase):
         cloud.run(self.cfg.supabase_url, lambda: (200, b'{}', {}))
         self.assertEqual(cloud.remaining(), 0)
 
-    def test_timeout_503_and_http_date_have_minimum_five_minutes(self):
+    def test_consecutive_failures_escalate_with_jitter_and_reset_on_success(self):
+        # 2026-10-11 cloud-retry: 연속 실패마다 300·2^(n-1)(상한 1800초)로 늘고 ±20% 지터가 섞인다.
+        # 지터를 결정적으로 고정(배율 정확히 1.0)해 점증·초기화를 정확한 값으로 확인한다.
         self.open_gate()
-        for response in ((503, b'bad gateway', {}), (429, b'', {})):
-            cloud.run(self.cfg.supabase_url, lambda: response)
-            self.assertGreaterEqual(cloud.remaining(), 300)
+        with mock.patch.object(cloud, '_rand', lambda: 0.5):
+            cloud.run(self.cfg.supabase_url, lambda: (503, b'bad gateway', {}))
+            self.assertEqual(cloud.remaining(), 300, "첫 실패(n=1)=300초")
             self.wall += 301
-        with self.assertRaises(cloud.CloudDeferred):
-            cloud.run(self.cfg.supabase_url, lambda: (_ for _ in ()).throw(TimeoutError()))
-        self.assertEqual(cloud.remaining(), 300)
+            cloud.run(self.cfg.supabase_url, lambda: (429, b'', {}))
+            self.assertEqual(cloud.remaining(), 600, "같은 base 의 두 번째 연속 실패(n=2)=600초")
+            self.wall += 601
+            with self.assertRaises(cloud.CloudDeferred):
+                cloud.run(self.cfg.supabase_url, lambda: (_ for _ in ()).throw(TimeoutError()))
+            self.assertEqual(cloud.remaining(), 1200, "세 번째 연속 실패(n=3)=1200초")
+            self.wall += 1201
+            cloud.run(self.cfg.supabase_url, lambda: (200, b'{}', {}))
+            self.assertEqual(cloud.remaining(), 0, "성공하면 연속 실패 횟수가 0으로 돌아간다")
+            cloud.run(self.cfg.supabase_url, lambda: (503, b'bad gateway', {}))
+            self.assertEqual(cloud.remaining(), 300, "성공 뒤 재실패는 다시 n=1(300초)부터")
         self.assertEqual(cloud.retry_after({'Date':'Wed, 07 Oct 2026 00:00:00 GMT', 'Retry-After':'Wed, 07 Oct 2026 00:10:00 GMT'}, {'error':{'retryAfterSeconds':5}}), 600)
+
+    def test_jitter_spreads_the_first_failure_within_plus_minus_20_percent(self):
+        # 2026-10-11 cloud-retry: 같은 장애에도 지터가 있어 모든 PC 가 정확히 같은 시각에 다시 몰리지 않는다.
+        self.open_gate()
+        with mock.patch.object(cloud, '_rand', lambda: 0.0):
+            cloud.run(self.cfg.supabase_url, lambda: (503, b'bad gateway', {}))
+            self.assertAlmostEqual(cloud.remaining(), 240.0, places=3, msg="u=0 → 300*0.8(하한)")
+        self.wall += 241
+        cloud.run(self.cfg.supabase_url, lambda: (200, b'{}', {}))  # 성공으로 되돌려 다시 n=1 부터 비교한다
+        self.assertEqual(cloud.remaining(), 0)
+        with mock.patch.object(cloud, '_rand', lambda: 0.999999):
+            cloud.run(self.cfg.supabase_url, lambda: (503, b'bad gateway', {}))
+            self.assertAlmostEqual(cloud.remaining(), 359.99988, places=2, msg="u≈1 → 300*1.2(상한)")
+
+    def test_server_retry_after_longer_than_the_jittered_floor_always_wins(self):
+        # 2026-10-11 cloud-retry: 서버 지시가 점증+지터 바닥보다 길면 절대 줄이지 않는다.
+        self.open_gate()
+        with mock.patch.object(cloud, '_rand', lambda: 1.0):
+            cloud.run(self.cfg.supabase_url, lambda: (503, b'', {'Retry-After': '900'}))
+            self.assertEqual(cloud.remaining(), 900)
 
     def test_concurrent_failures_coalesce_at_http_boundary(self):
         self.open_gate()
@@ -81,7 +111,7 @@ class OfflinePolicyTests(GateTestBase):
         gate.refresh_now()
         with mock.patch.object(gate, '_gate', gate._Gate(clock=self.clock)):
             self.assertTrue(gate.refresh_now()['can_local'])
-        self.wall += 301
+        self.wall += 361  # 2026-10-11: 전역 쿨다운에 ±20% 지터가 붙어 n=1 최대값(360초)보다 크게 넘긴다
         self.account.contributor[USER_A['id']]='suspended'
         self.assertFalse(gate.refresh_now()['can_local'])
         self.account.fail=[(503,'server_error')]
@@ -120,7 +150,7 @@ class OfflinePolicyTests(GateTestBase):
         second=capture.capture(INPUT,source_report_id='offline-fixture-2',trigger='test',data_dir=self.data)
         self.assertEqual(self.store.connect().execute('SELECT COUNT(*) FROM outbox').fetchone()[0],2)
         self.assertIsNone(capture.capture(INPUT,source_report_id='offline-fixture-2',trigger='test',data_dir=self.data).event_id)
-        self.wall+=301
+        self.wall+=361  # 2026-10-11: 전역 쿨다운에 ±20% 지터가 붙어 n=1 최대값(360초)보다 크게 넘긴다
         self.assertTrue(gate.refresh_now()['can_enter'])
         sent=[]
         def send(envelope, **kwargs):
@@ -188,7 +218,7 @@ class OfflinePolicyTests(GateTestBase):
         cloud.run(self.cfg.supabase_url, lambda: (503, b'', {}))
         saved = capture.capture(INPUT, source_report_id='restored-fixture', trigger='test', data_dir=self.data)
         self.assertEqual(self.store.connect().execute('SELECT blocked_reason FROM source_journal WHERE event_id=?', (saved.event_id,)).fetchone()[0], 'consent:unknown')
-        self.wall += 301
+        self.wall += 361  # 2026-10-11: 전역 쿨다운에 ±20% 지터가 붙어 n=1 최대값(360초)보다 크게 넘긴다
         self.assertTrue(gate.refresh_now()['can_enter'])
         sent = []
         def send(envelope, **kwargs):
@@ -275,7 +305,7 @@ class OfflinePolicyTests(GateTestBase):
             self.assertFalse(gate.refresh_now()['can_local'])
             cloud.consent_accepted(self.service)
             self.assertFalse(gate.evaluate()['can_local'])
-            self.wall += 301
+            self.wall += 361  # 2026-10-11: 전역 쿨다운에 ±20% 지터가 붙어 n=1 최대값(360초)보다 크게 넘긴다
             self.account.contributor[USER_A['id']] = 'none'
             self.assertFalse(gate.refresh_now()['can_local'])
             self.account.contributor[USER_A['id']] = 'active'

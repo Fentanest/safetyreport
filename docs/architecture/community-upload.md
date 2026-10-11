@@ -85,6 +85,8 @@
     판정(다른 이벤트가 저장되면 그 건만 dead_letter, 모두 거절이면 버리지 않고 보류).
   - 대기: 로컬 백오프 `min(300, 5·2^(n-1))·(0.5+0.5u)`, 서버 지시(헤더 Retry-After 초·HTTP-date — 응답 Date 기준, 본문
     `retry_after_seconds`) 최댓값, 실제 = max(둘). 24시간 초과 지시는 24시간. 첫 일시 장애 뒤 남은 배치를 보내지 않는다.
+    이 대기는 scope(service/account) 단위 로컬 재시도 간격이며 300초 바닥을 더 두지 않는다(2026-10-11, §쿨다운 지터·점증 참조 —
+    그 바닥을 다시 두면 이 지터·점증이 항상 300초로 뭉개진다).
   - 영속 제어 `upload_control`: cooling_down 이면 모든 트리거(실시간·수동·자정·복구·재공유)가 보내지 않고 `cooldown`,
     시각이 지나면 1건짜리 확인(probing) → 성공이면 ready 로 이어서 보낸다. 재시작·연타로 풀리지 않는다.
   - `attempt_count` 는 실제 HTTP 요청마다 그 요청의 이벤트만 +1(게이트·cooldown·lease·토큰 없음·로컬 초과는 세지 않음).
@@ -121,6 +123,11 @@
   그날 key 는 결과가 `sent`/`no_pending` 일 때만 succeeded. `not_due`·`cooldown`·`busy_other_run`·`needs_*`·`blocked_gate`·
   `more_pending` 은 deferred(사유 저장), 그 밖은 failed. 자정 성공과 무관하게 미전송 복구는 재시도 실행기가 따로 한다.
   cron `misfire_grace_time` 6시간·coalesce, 시작 보충(`catch_up_on_start`)은 백그라운드 스레드(시작을 막지 않음).
+  자정 동시 기동 분산(2026-10-11, cloud-retry): 실제 CronTrigger 기동 시각은 정확히 00:00:00 이 아니라
+  설치(기기)별 영속 오프셋 0~1800초(`community_schedule.midnight_offset_seconds`, 첫 호출 때 무작위로 정해 community.db
+  meta 에 저장하고 이후 고정)를 더한다. `due_key`/`next_due_at`(어느 날짜 몫인지, 모바일과 공유하는 계약)은 바꾸지 않고
+  misfire_grace_time·coalesce 의미도 그대로다 — 모든 PC 가 정각에 동시 기동해 Supabase 를 몰아치지 않게 하는 운영상
+  분산일 뿐이다.
 - 파일 200MB 초과 시 경고만 하고 자동 삭제하지 않는다(`outbox_size_warning`).
 - `personal_save_state='pending'` 이고 10분 지난 행의 시작 시 정리는 미구현이다
   (표시용 reconcilation — T3 또는 후속 작업에서 `local-store.md` 규칙대로 추가한다).
@@ -180,7 +187,7 @@
 | 종전 설명 | 현재 코드 |
 |---|---|
 | active status의 grant면 최초 관측에도 보충 작업 등록 | 최초 관측은 baseline. 명시적 동의 성공 또는 기록된 상태·grant 전환 뒤 confirmed active에서만 등록 |
-| 첫 실패 대기 2.5~5초 | 실제 재시도 최소300초 |
+| ~~첫 실패 대기 2.5~5초~~ → ~~실제 재시도 최소300초~~ | 2026-10-11 cloud-retry 로 "실제 재시도 최소300초" 긴급 정책을 철회했다 — `retry_delay_seconds` 는 다시 원래 지터·점증(2.5~300초, 서버 지시가 더 크면 그 값)만 쓴다. Supabase 접속 자체를 300~1800초(점증+지터)로 멈추는 전역 서킷브레이커는 `community_cloud.run()` 이 맡는다(쿨다운 지터·점증, `docs/architecture/community-gate.md` §3.0.0.3) — 이 둘을 중복으로 적용한 것이 지터를 뭉갰던 원인이었다 |
 | 서버 Retry-After 최대24시간 제한 | 더 긴 유효 서버 지시는 상한 없이 존중 |
 | 이전 업로드 완료 뒤 수집 시작 | background uploader를 깨우고 로컬 수집 시작 |
 | reshare는 지도 버튼만 | 실제 동의 전이가 같은 계정 소급 공유를 승인; grant별 보충 및 복구 대기열 재개 |

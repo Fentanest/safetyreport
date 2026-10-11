@@ -355,6 +355,7 @@ by_law (법규별, 같은 필드 + law)
 | 게이트 미충족 | `/api/v1/**`(allowlist 제외)·관리자 화면 AJAX → 403 `{"detail":"COMMUNITY_ONBOARDING_REQUIRED","code":…,"gate":{state,reasons}}`. 키가 틀리면 여전히 401 이 먼저 |
 | allowlist(API 키) | `GET /api/v1/app/config`, `/api/v1/community-auth/*`, `GET /api/v1/community/gate`, `GET/POST /api/v1/community/rebuild[/start|/resume]` |
 | 새 API | `GET /api/v1/community/gate`(서버 게이트 요약, 토큰·UUID 없음), `/api/v1/community/upload/{status,run}`, `/api/v1/community/rebuild[...]` — 실행·시작은 manager 키 + `X-Community-User-Token`(폰 사용자 = 서버 연결 사용자) |
+| `X-Community-User-Token` 검증 결과(2026-10-11, cloud-retry) | `/api/v1/community/upload/{status,run}`: 토큰 없음 403 `user_token_required`, 실제로 다른 계정 403 `account_mismatch`, 쿨다운·GoTrue 일시 장애로 확인 자체를 못하면 **503 `cloud_unavailable`**(Retry-After 포함, 재시도 가능 — 이전에는 이 경우도 항상 403 `account_mismatch` 였다). `/api/v1/community/rebuild/*` 는 아직 bool 호환 API(`verify_client_user_token`)만 써서 같은 상황이 403 `user_token_required` 로 보인다(계정 불일치로는 안 보이지만 재시도 신호는 아님 — 후속 과제, `community-gate.md` §3.0.0.3 참조) |
 | 크롤 시작 | `/api/v1/crawl/start`·`/crawl/enqueue`: 게이트 60초 재검증 실패 403 `detail=COMMUNITY_ONBOARDING_REQUIRED`, 초기화 필요·진행 중 409 `detail=COMMUNITY_REBUILD_REQUIRED` |
 | WebSocket | `/ws/events` 게이트 미충족·상실 시 4403(인증 실패는 기존 4001). **`/crawl/ws/logs`·`/rating/ws/rating_logs` 는 이제 API 키(`?api_key=`/`X-API-Key`) 또는 관리자 세션 필요** |
 | `/media/*` | 이제 관리자 세션 또는 API 키 + 게이트(이전: 인증 없음) |

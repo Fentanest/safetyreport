@@ -8,6 +8,43 @@
 
 ---
 
+## 2026-10-12 — Supabase 접속 장애 때 반복 요청 줄이기(cloud-retry, PC 부분)
+
+사용자 조사 결과(`cloud-retry-brief.md`)의 PC(safetyreport) 항목 4가지를 반영했다. push·배포 없음, 하위 에이전트 없음.
+
+- `services/community_cloud.py` `run()`: 전역 서킷브레이커에 연속 실패 점증 `300·2^(n-1)`초(상한 1800초=30분) + ±20%(균등) 지터를
+  추가했다(`_consecutive_wait`, `_rand`=시험에서 고정하는 지점). 성공하면(비일시 장애 응답) 그 base 의 행을 지워 연속 실패 횟수를
+  0으로 되돌린다. 서버 Retry-After 가 더 길면 그 값을 쓴다(절대 줄이지 않음). 이전에는 실패마다 항상 정확히 300초 고정이라 같은
+  장애를 겪은 모든 PC 가 정확히 300초 뒤 한꺼번에 다시 몰려왔다.
+- `services/community_upload_policy.py` `retry_delay_seconds()`: PC 전용 "최소 300초" 바닥을 철회했다. `backoff_seconds` 의 상한이
+  300초라 `max(300, backoff_seconds(...))` 는 사실상 항상 상수 300이어서 그 함수의 지터·점증이 전혀 드러나지 않았다(역할 중복:
+  전역 쿨다운이 이제 위에서 300~1800초를 맡으므로 이 scope(service/account) 단위 로컬 재시도는 자체 지터·점증 2.5~300초만
+  쓰면 된다). `tests/test_upload_policy_vectors.py::test_retry_delay` 를 공유 벡터(`contracts/upload-control/vectors.json`)
+  값과 직접 비교하도록 되돌렸다(이전에는 테스트가 300초 바닥을 재구현해 벡터와의 불일치를 가려 왔다).
+- `services/community_schedule.py`: 자정 업로드 `CronTrigger` 가 매일 정확히 00:00:00 KST 에 기동해 모든 PC 가 동시에 Supabase 를
+  두드리던 것을, 설치(기기)별 영속 오프셋 0~1800초(`midnight_offset_seconds` — 첫 호출 때 무작위로 정해 community.db meta 에
+  저장, 이후 고정)를 더해 분산했다. `due_key`/`should_run`/`next_due_at`(모바일과 공유하는 계약)과 misfire_grace_time 6시간·
+  coalesce 의미는 바꾸지 않았다. `services/community_upload_status.py` 의 "다음 자정" 표시도 같은 오프셋을 반영한다.
+- `services/community_gate.py` `verify_client_user_token`: 쿨다운 중이거나 GoTrue `/auth/v1/user` 자체가 네트워크·429/5xx·응답
+  해석 실패면 False(→ 호출부에서 403 `account_mismatch`)를 주던 것을, 'match'/'mismatch'/'unavailable' 세 가지를 구분하는
+  `verify_client_user_token_detail()` 로 나눴다. `web/routers/community_upload_route.py`(`/api/v1/community/upload/{status,run}`)
+  는 'unavailable' 을 403 `account_mismatch` 대신 **503 `cloud_unavailable`**(Retry-After 포함, 재시도 가능)로 돌려준다. bool
+  호환 API(`verify_client_user_token`)는 그대로 둬 `community_rebuild_route.py`(`/api/v1/community/rebuild/*`, 모바일이 실제로
+  부르는 경로)는 영향받지 않는다 — 이 경로는 여전히 403 `user_token_required` 로 보인다(계정 불일치로는 안 보이지만 재시도
+  신호는 아니다, 후속 과제로 남김).
+- 문서: `docs/architecture/community-gate.md`(쿨다운 지터·점증, verify_client_user_token_detail, 코드 대조 정정 2건),
+  `docs/architecture/community-upload.md`(로컬 백오프 역할 구분, 자정 오프셋, 코드 대조 정정 — 긴급 정책 철회),
+  `docs/architecture/data-contracts.md`(X-Community-User-Token 검증 결과 코드).
+- 시험: 각 변경 전 실패를 확인한 회귀 테스트를 추가·보강했다 — `tests/test_community_offline.py`(지터·점증·초기화,
+  `_rand` 결정적 고정), `tests/test_community_upload_control.py`·`tests/test_upload_policy_vectors.py`(바닥 철회),
+  `tests/test_community_schedule.py`(설치별 오프셋 영속), `tests/test_community_gate.py`(cloud_unavailable 구분, 라우트 응답).
+  기존 `self.wall += 301` margin(300초 고정 가정)들은 지터 상한(360초)을 넘는 361초로 올렸다(`tests/test_community_offline.py`,
+  `tests/test_community_consent_catchup.py`). 전체 `tests/` 920여 개(신규분 포함) 4회 연속 통과, 회귀 없음.
+- 모바일과 맞춰야 할 값: 전역 쿨다운 점증 `300·2^(n-1)`·상한 1800초·±20% 지터(`cloud_availability.dart`), 자정 오프셋
+  0~1800초(설치별 영속, `community_schedule.dart`). 모바일 쪽 결함(복구 지연 버그 등)은 이 작업 범위 밖 — 별도 에이전트.
+
+---
+
 ## 2026-10-11 — 최종 감사(Opus) 반영: 분류 가장자리 3건, 변환 거절 안내
 
 - `services/report_category.py` + `contracts/report-categories.json` v2(모바일과 바이트 동일): ① 대분류만 오고 소분류가 빠지면

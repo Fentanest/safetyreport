@@ -95,6 +95,14 @@ MANIFEST 해시 확인)이 정하고 서버 `services/community_client_rules.py`
 모바일 Client 의 민감 제어(초기화 시작·수동 업로드)는 `X-Community-User-Token`(폰의 access token)을 `verify_client_user_token` 이 GoTrue `/user` 로 확인해
 이 서버에 연결된 사용자와 같을 때만 허용한다.
 
+`verify_client_user_token_detail`(2026-10-11, cloud-retry 조사 결과)은 'match' / 'mismatch' / 'unavailable' 세 가지를 구분한다.
+'unavailable' = 쿨다운(`community_cloud.CloudDeferred`) 또는 GoTrue 자체의 네트워크·429/5xx·응답 해석 실패로 확인 자체를 못한 경우 — 계정이
+다른 게 아니라 재시도하면 되는 상태다. `services/web/routers/community_upload_route.py`(`/api/v1/community/upload/run`,
+`/api/v1/community/upload/status`)는 이를 403 `account_mismatch`가 아니라 503 `cloud_unavailable`(Retry-After 포함)로 돌려준다
+(이전에는 쿨다운 중이면 항상 `verify_client_user_token`이 False를 반환해 영구적인 계정 불일치처럼 보였다). `verify_client_user_token`
+bool API는 호환을 위해 'unavailable'도 여전히 False로 뭉뚱그린다 — `community_rebuild_route.py`(`/api/v1/community/rebuild/*`)는 아직
+이 bool API만 쓰므로 같은 상황에서 403 `user_token_required`로 보인다(계정 불일치로 잘못 보이진 않지만 재시도 가능 신호는 아니다 — 후속 작업 후보).
+
 ## 설정·비밀
 공개 설정 우선순위: 환경변수(`SAFETYREPORT_COMMUNITY_*` = `COMMUNITY_*` 별칭, 둘 다 있고 다르면 `config_conflict`) > `config.ini [COMMUNITY]` >
 빌드가 넣은 `community_public.json`(supabase_url·publishable_key·site_url). 비밀 키(`sb_secret_`·service_role)는 어느 경로로도 거부.
@@ -151,7 +159,13 @@ Supabase 무료 플랜의 반복적인 장애·사용량 제한 때문에 `BLOCK
 
 `can_enter`는 서버 업로드 권한이고, `can_local`/`can_browse`는 로컬 작업 권한이다. 로그인된 카카오 회원과 DB 주인이 일치해야 하며, 저장된 공식 계정 바인딩 불일치·변경 미완료·정지는 우회하지 않는다. 신규 미로그인 사용자에게 기존 사용자 권한을 만들지 않는다. 같은 계정의 미동의·철회 기록은 이번 긴급 정책에서 로컬 사용을 막지 않는다.
 
-로컬 HTTP/WS/예약 수집은 `require_local()`을 쓴다. 조회 중 확인이 필요하면 한 백그라운드 작업이 status를 갱신한다. 업로드는 `require_fresh(60)`을 유지한다. `community_cloud.run`이 인증·계정·업로드 모든 실제 HTTP를 직렬화하고, timeout/429/5xx 뒤 최소300초를 `auth/community_cloud.db`에 저장한다. Retry-After 초/HTTP-date/본문 값의 최댓값이 더 길면 그대로 따른다. 재시작·버튼·다른 요청으로 남은 대기를 줄이지 않는다. 정상 OAuth poll 간격에는 이 하한을 적용하지 않는다.
+로컬 HTTP/WS/예약 수집은 `require_local()`을 쓴다. 조회 중 확인이 필요하면 한 백그라운드 작업이 status를 갱신한다. 업로드는 `require_fresh(60)`을 유지한다. `community_cloud.run`이 인증·계정·업로드 모든 실제 HTTP를 직렬화하고, timeout/429/5xx 뒤 연속 실패 쿨다운을 `auth/community_cloud.db`에 저장한다. Retry-After 초/HTTP-date/본문 값의 최댓값이 더 길면 그대로 따른다. 재시작·버튼·다른 요청으로 남은 대기를 줄이지 않는다. 정상 OAuth poll 간격에는 이 하한을 적용하지 않는다.
+
+**쿨다운 지터·점증(2026-10-11, cloud-retry)**: 연속 실패 n(1부터, base 성공 시 0으로 초기화)마다 기본값 `300·2^(n-1)`초, 상한
+1800초(30분)이고 ±20%(균등) 지터를 곱한다(`community_cloud._consecutive_wait`, `_rand`=시험에서 결정적으로 고정하는 지점).
+여러 PC 가 같은 장애에서 똑같이 300초 뒤 다시 한꺼번에 몰아치지 않게 한다. 서버 Retry-After 가 이 값보다 길면 그것을 따른다
+(절대 줄이지 않음) — `max(점증+지터, 서버 지시)`. 이전에는 지터·점증이 전혀 없어 실패마다 항상 정확히 300초였다(연속 실패 횟수를
+저장하지도 않았다).
 
 상단 배너는 `/settings/community/gate`의 대기 시각과 실제 로컬 미전송 건수를 받는다. 숫자는 브라우저 타이머로 매초 갱신하며, 로컬 상태 GET은 최대30초마다 수행한다. 이 GET이 중앙 장애 대기를 무시하지 않는다.
 
@@ -162,4 +176,4 @@ Supabase 무료 플랜의 반복적인 장애·사용량 제한 때문에 `BLOCK
 | 조회 GET만 장애 우회, 변경·수집·WS 차단 | 소유자 확인된 로컬 작업 허용, 업로드는 서버 검증 유지 |
 | 새 수집마다 60초 이내 서버 검증 | 로컬 소유권/바인딩 확인, 상태 재검증은 백그라운드 |
 | 공유 초기화 미실행도 일반 수집 차단 | 진행 중 작업만 직렬화; 동의 보충은 파괴적 초기화 없이 전체 수집 |
-| 화면 재시도 2/5/10초와 버튼 | 서버 공통 최소5분, 로컬 카운트다운 배너 |
+| 화면 재시도 2/5/10초와 버튼 | 서버 공통 쿨다운 300·2^(n-1)초(상한 1800초) ±20% 지터, 로컬 카운트다운 배너(2026-10-11: 더 이상 "최소5분" 고정이 아니다 — 지터로 n=1도 240~360초 사이) |
