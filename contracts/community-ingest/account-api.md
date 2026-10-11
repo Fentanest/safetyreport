@@ -1,4 +1,4 @@
-# community-account API v1 (정본: safetyreport PC 레포, auth 레포 구현, 사용자 전용)
+# community-account API v1 (auth 레포 구현, 사용자 전용)
 
 `POST {COMMUNITY_SUPABASE_URL}/functions/v1/community-account/{action}`
 헤더: `apikey: <publishable key>`, `Authorization: Bearer <사용자 access token>`, `Content-Type: application/json`.
@@ -62,6 +62,13 @@ status 응답:
 `status.official_account`는 호출한 사용자 본인의 바인딩만 반환한다. 미바인딩은 실제 JSON null 두 개다.
 원문 ID·다른 사용자 식별자·상대 바인딩 정보는 반환하지 않는다.
 
+| 오류 코드 | HTTP / retryable | message (정확한 서버 문구) |
+|---|---|---|
+| `official_account_mismatch` | 409 / false | `This community account is bound to another official account. Delete shared reports before changing accounts.` |
+| `official_account_taken` | 409 / false | `This official account is already bound. Please contact an operator (운영자에게 문의해 주세요).` |
+
+앱 화면 문구는 아래 각 경우의 한국어 안내를 쓴다(서버 문구를 그대로 보이지 않는다).
+
 `connections`는 등록과 같은 트랜잭션에서 다음 조건을 검사한다.
 - 사용자와 dataset 모두 미바인딩: 바인딩 생성 후 연결 등록.
 - 같은 사용자와 dataset: 기존 writer 규칙 적용(takeover는 같은 사용자/같은 dataset에만 적용).
@@ -75,10 +82,21 @@ status 응답:
 삭제 fence·연결 폐기·바인딩 해제는 함께 적용한다. `consent-revoke`, 로그아웃, writer revoke만으로 바인딩을 해제하지 않는다.
 
 클라이언트는 시작·포그라운드 복귀·약 5분마다 config의 정규화 dataset과 대조한다. 불일치는 설정에 가두고
-크롤링·업로드를 중지한다. status 연결 실패는 성공 캐시가 있어도 “클라우드에 연결할 수 없습니다. 잠시 후 이용해 주세요” 화면,
-25초 HTTP timeout, 증가 간격 자동 재시도 3회와 수동 재시도를 제공한다.
-PC의 기존 60초 게이트 poll은 유지하며 탐색 때도 300초를 넘긴 바인딩은 재확인한다.
+크롤링·업로드를 중지한다. PC의 기존 60초 게이트 poll은 유지하며 탐색 때도 300초를 넘긴 바인딩은 재확인한다.
 카카오 미연동 사용자는 본인 status 토큰이 없으므로 기존 필수 연결 화면을 사용한다.
+
+클라우드 일시 장애는 계정 불일치와 구분한다(2026-10-07 로컬 사용 정책, 2026-10-11 재시도 개선).
+저장된 로그인 계정과 개인 DB 주인이 일치하고 바인딩 불일치·계정 변경 미완료·이용정지 제한이 없으면
+로컬 조회·수집을 유지한다. 공유 업로드는 서버의 현재 인증·동의·연결 검증을 통과해야 한다.
+장애 대기는 상단 배너에서 안내하며 수동 재시도로 대기시간을 우회하지 않는다. 연속 실패 n의 공통 대기는
+기본 300·2^(n-1)초(기본값 상한 1800초)에 ±20% 지터를 적용하고, 서버 Retry-After가 더 길면 그 값을 따른다.
+재시작·화면 복귀로 남은 대기를 줄이지 않으며, 정상 응답을 받으면 연속 실패 횟수를 초기화한다.
+
+### 코드 대조 정정
+| 이전 설명 | 현행 동작 |
+|---|---|
+| status 연결 실패면 성공 캐시가 있어도 전체 화면 차단 | 계정·DB 주인이 확인된 로컬 이용은 유지하고 공유 업로드를 별도로 검증 |
+| 2/5/10초 자동 재시도 3회와 수동 재시도 | 영속 공통 쿨다운·점증·지터와 남은 시간 배너, 재시작·수동 우회 없음 |
 
 ### PC·모바일 구서버 정책과 로컬 DB 교환
 `official_account` 필드가 **없으면 원격 바인딩 대조만 생략**하고 기존 카카오 인증·동의·writer 연결 규칙으로 정상 동작한다.
@@ -99,3 +117,8 @@ DB 가져오기·복원의 주인 검사는 **기존 카카오 주인 검사만*
 함수 이름·호출법·검증 절차는 auth 구현의 운영 런북에 명시한다. 이 PC 변경은 운영 호출이나 migration을 실행하지 않는다.
 map ingest는 연결 dataset과 사용자 바인딩 불일치를 방어적으로 거절한다. 신고가 다른 dataset에 이미 있으면
 `report_owned_elsewhere`로 거절하고 감사 기록을 남기며 상대 정보를 반환하지 않는다.
+
+운영자 수동 선점 해제는 선점자의 해당 dataset 공유 fact 삭제·identity tombstone·사용자/dataset 삭제 fence·
+해당 dataset 연결 폐기·바인딩 해제를 원자적으로 수행한다. 삭제 건수와 운영자/사유/시각은 private 감사에 남긴다.
+삭제 증거는 선점자 사용자 범위이므로 진짜 주인은 같은 dataset과 같은 신고를 새로 연결·업로드할 수 있다.
+운영자 함수·감사·backfill·적용 순서는 지도 레포 `docs/implementation/official-account-binding-20261006/MIGRATION.md` 참조.

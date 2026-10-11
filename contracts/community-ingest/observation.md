@@ -114,7 +114,7 @@ writer 전환·재설치 뒤 첫 비적격 관측도 이벤트 없음이 된다.
   적격이 아닌 payload 의 `location_supplement`(구버전 잔여 포함)는 위 개별 거절로 처리하고 배치 전체를 422로 만들지 않는다(Sol 2026-09-28).
   `reshare` 이벤트는 envelope `trigger="reshare"` 에서만 허용.
 - 서버가 `source_report_key = sha256(utf8("safetyreport|" + source_report_id))` 를 계산한다(클라이언트 값 받지 않음). fact 키는 (contributor, 연결의 dataset_key, source_report_key).
-- 계정별 기여와 전역 중복 제거(2026-09-28 사용자 규칙 — 소유 이전 대체): 같은 신고를 다른 카카오 계정이 올려도 먼저 올린 계정의 fact·연결을 지우거나 옮기지 않는다. 업로더의 fact만 만들거나 갱신하고 `accepted`(또는 변경 없음 `no_change`)로 수신한다. 기관명만 달라도 정상 수신이며, 신고번호가 다르거나 없어도 거절하지 않는다(구 `cross_account_mismatch`·`report_identity_mismatch`·`ambiguous_existing_owners`·`transferred`는 폐기 — errors.md).
+- 공식 계정 바인딩(2026-10-06, 이전 계정별 무제한 기여 규칙 대체): 연결 dataset과 사용자의 현재 바인딩이 다르거나 바인딩이 없으면 요청 전체를 `official_account_mismatch`로 거절한다. 기존 fact 중 다른 dataset에서 source_report_key **또는** report_number가 같으면 이벤트를 `report_owned_elsewhere`로 거절하고 비공개 감사를 기록한다. 숨겨진/동의 철회 fact도 검사한다. 상대 계정 정보는 응답하지 않는다. 같은 dataset의 기존 업로드·멱등·재공유는 유지하며, 아래 projection 규칙은 기존 이력의 집계에 계속 적용한다.
   신고번호 격리(2026-09-28 REVIEW2 높음-1): `report_identity = source_report_key || '|' || coalesce(자기 번호, 키의 최초 번호, 'legacy')`.
   둘 다 번호가 있는데 다르면 별도 identity 로 격리해 각각 공개 집계한다(서로 다른 실제 신고). 번호가 없는 구버전 관측은 같은 키의 최초 번호 그룹에 붙고, 번호가 하나도 없는 키는 `legacy` 그룹 하나로 묶는다.
   키의 번호(최초 번호)는 동의 유효 행의 전체 이력에서 확정하므로 조회 기간과 무관하다(조회 창 안의 키만 번호를 매겨 창을 넓혀도 기존 키의 번호가 바뀌지 않음 — REVIEW3 중간-3).
