@@ -8,6 +8,25 @@
 
 ---
 
+## 2026-10-11 — 4단계(Sonnet) PC 웹 UI: '기타' 세분류(안전신고·생활불편·기타) (미배포)
+
+- 사용자 지시(`docs/plans/2026-10-11-report-taxonomy.md` 4단계)로 "기타" 한 칸을 **안전신고·생활불편·기타** 세 칸으로 나눴다. 라벨:
+  교통위반·주정차위반·안전신고·생활불편·기타("기타위반" → "기타"). 데이터/통계 집계 계층(Stage 4A)은 별도 worktree(`sr-s4data`)에서 병행 작업 중이라
+  services/stats/*·web/routers/stats.py 의 3분류 집계는 손대지 않았다 — 템플릿·JS 는 `records_safety_*`/`records_living_*` 이름으로 미리 대비하고,
+  키가 없으면(`is defined` 검사·`cat in dict`) 빈 상태로 보이게만 했다.
+  - 사이드바(`web/templates/base.html`): 안전신고 조회(`/data/safety`)·생활불편 조회(`/data/living`) 추가, 기타 위반 조회 → 기타 조회.
+  - `web/routers/data.py`: `/data/safety`·`/data/living` 라우트를 `/data/other` 와 같은 꼴로 추가(이미 구현된 `data_service.get_safety_records`/`get_living_records` 사용 — 병합 시 Stage 4A 변경과 중복 여부 확인 필요).
+  - 통계(`web/templates/stats.html`, `stats.js`, `stats-loader.js`, `stats.css`): 분류 세그먼트·상세표 5개, `CAT_LABELS`·법규 목록 안전 기본값.
+  - 지도(`report_map.html`, `report-map.js`, `report-map-calc.js`): 분류 필터 5개, 카테고리 묶음 라벨·목록 경로 5분류(서버 `services/stats/map.py` 집계는 아직 3분류라 안전신고·생활불편 선택 시 '전체'로 내려간다).
+  - 데이터 수정(`db_editor.html`): 분류 탭 5개(`services/db_editor_service.categories_for` 는 이미 5분류 지원).
+  - `report-detail.js`: 이미 category 값을 그대로 라우트에 쓰는 구조라 변경 없음.
+  - 색 토큰(`tokens.css`): `--sr-cat-safety`/`--sr-cat-living` 추가(라이트 surface 대비 5.47:1·6.29:1, 다크 9.98:1·6.23:1).
+  - `scripts/dev/fixture_server.py`: '기타' 묶음 6건이 전부 안전신고로 풀리던 한계(entry_value 공통)를 깨고 생활불편 1건·기타 1건 예시를 추가했다(총 24건 유지, 상태/답변일 등 나머지 값은 그대로).
+  - Playwright: `tools/web-tests/specs/category-split.spec.ts` 신규(사이드바 3개 조회 메뉴, 통계 분류 세그먼트 5개), 게이트를 통과하는 `scripts/dev/user_report_fixture.py` 로 `tools/web-tests/category-split.config.ts` 전용 설정에서 실행(기본 `playwright.config.ts` 는 로컬 통합 스택 없이는 커뮤니티 게이트에 막힌다).
+- Python 전체 회귀 890개 통과(fixture 변경 포함, 재실행 확인). Chromium 3개 신규 Playwright 통과(사이드바·통계 세그먼트·캡처). `node tests/js/stats_calc_check.js` 통과.
+
+---
+
 ## 2026-10-07 — 3.0.0.4 기존 동의 첫 확인의 불필요한 전체 수집 수정
 
 - 기존 활성 동의를 처음 확인한 경우 이력만 저장하고 전체 수집을 예약하지 않도록 수정했다. grant ID 보충과 같은 상태 재확인도 새 동의로 처리하지 않는다.
