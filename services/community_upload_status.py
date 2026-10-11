@@ -89,9 +89,13 @@ def upload_status(data_dir=None) -> dict:
     }
 
 
-def _next_midnight_label() -> str:
+def _next_midnight_label(now=None, offset_seconds=None) -> str:
+    """다음 자정 업로드 실제 실행 시각(KST). 실행은 '자정 + 설치별 오프셋'이라, 오늘 자정을 지났어도 오프셋 전이면
+    오늘 실행이 다음이다(Astra 2차 #7) — (지금 − 오프셋) 다음 자정에 오프셋을 더한다."""
     from services.community_schedule import midnight_offset_seconds, next_due_at as _next_midnight
-    due = _next_midnight(up._now()) + timedelta(seconds=midnight_offset_seconds())
+    offset = timedelta(seconds=midnight_offset_seconds() if offset_seconds is None else offset_seconds)
+    now = up._now() if now is None else now
+    due = _next_midnight(now - offset) + offset
     kst = due + timedelta(hours=9)
     return kst.strftime("%Y-%m-%d %H:%M")
 

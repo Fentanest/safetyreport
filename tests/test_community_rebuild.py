@@ -678,11 +678,17 @@ class RouterTest(unittest.TestCase):
         self.assertEqual((denied.status_code, denied.json()["code"]), (403, "user_token_required"))
         import services  # 이 테스트의 게이트는 install() 이 넣은 가짜 모듈이다
 
-        with mock.patch.object(services.community_gate, "verify_client_user_token", create=True,
-                               side_effect=lambda t: t == "phone-token"):
+        with mock.patch.object(services.community_gate, "verify_client_user_token_detail", create=True,
+                               side_effect=lambda t: {"phone-token": "match", "cloud-down": "unavailable"}.get(t, "mismatch")):
             wrong = self.client.post("/api/v1/community/rebuild/start", json={},
                                      headers={"X-Community-User-Token": "other"})
-            self.assertEqual(wrong.status_code, 403)
+            self.assertEqual((wrong.status_code, wrong.json()["code"]), (403, "user_token_required"))
+            # 쿨다운·클라우드 장애로 확인을 못한 것은 '다시 로그인'(403)이 아니라 재시도 가능한 503(Astra 2차 뒤 정리)
+            down = self.client.post("/api/v1/community/rebuild/start", json={},
+                                    headers={"X-Community-User-Token": "cloud-down"})
+            self.assertEqual((down.status_code, down.json()["code"]), (503, "cloud_unavailable"))
+            self.assertTrue(down.json()["message"])
+            self.assertEqual(self.env.launches, [])
             started = self.client.post("/api/v1/community/rebuild/start", json={},
                                        headers={"X-Community-User-Token": "phone-token"})
         self.assertEqual(started.status_code, 200)

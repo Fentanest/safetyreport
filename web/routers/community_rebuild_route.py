@@ -121,23 +121,40 @@ def _can_manage(api_key: str) -> bool:
         return False
 
 
-def _verify_client_user_token(token: str) -> bool:
-    """폰 사용자 access token 이 서버 연결 사용자와 같을 때만 True. 토큰이 없거나 확인 실패면 False."""
+def _verify_client_user_token(token: str) -> str:
+    """폰 사용자 access token 확인: 'match' | 'mismatch' | 'unavailable'(쿨다운·클라우드 장애로 확인 자체를 못함).
+    토큰이 없거나 예기치 못한 오류면 'mismatch'."""
     from services import community_gate as gate
     if not token:
-        return False
+        return "mismatch"
     try:
-        return bool(gate.verify_client_user_token(token))
+        return gate.verify_client_user_token_detail(token)
     except Exception as exc:
         note_fallback("rebuild_route.verify_client_user_token", exc)
-        return False
+        return "mismatch"
+
+
+def _cloud_unavailable() -> JSONResponse:
+    """사용자 확인을 클라우드 장애로 못했다 — '다시 로그인'이 아니라 잠시 뒤 재시도(업로드 경로 _mismatch 와 같은 응답)."""
+    import math
+    from services import community_cloud as cloud
+    headers = dict(_NO_STORE)
+    remaining = cloud.remaining()
+    if remaining > 0:
+        headers["Retry-After"] = str(max(1, math.ceil(remaining)))
+    message = "클라우드에 연결할 수 없어 사용자를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."
+    return JSONResponse({"detail": message, "message": message, "code": "cloud_unavailable"},
+                        status_code=503, headers=headers)
 
 
 async def _api_action(request: Request, api_key: str, allowed: set[str], action):
     if not _can_manage(api_key):
         return _ok({"detail": "커뮤니티 관리 권한이 없는 키입니다.",
                      "code": "permission_required"}, 403)
-    if not await run_in_threadpool(_verify_client_user_token, (request.headers.get(_USER_TOKEN_HEADER) or "").strip()):
+    verified = await run_in_threadpool(_verify_client_user_token, (request.headers.get(_USER_TOKEN_HEADER) or "").strip())
+    if verified == "unavailable":
+        return _cloud_unavailable()
+    if verified != "match":
         return _ok({"detail": "사용자 확인이 필요합니다.", "code": "user_token_required"}, 403)
     body = await _json_body(request)
     rejected = _only(body, allowed)

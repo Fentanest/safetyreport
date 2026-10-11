@@ -8,6 +8,15 @@
 
 ---
 
+## 2026-10-12 — Astra 2차 검수 반영(PC): 다음 자정 표시, 다시 불러오기 API 의 클라우드 장애 구분, 계약 Retry-After
+
+- `services/community_upload_status.py`: '다음 자정 업로드' 표시가 오프셋 전(예: 00:05, 오프셋 15분)에도 내일로 나오던 것 — (지금 − 오프셋) 다음 자정 + 오프셋.
+- `web/routers/community_rebuild_route.py`: 모바일 Client 의 다시 불러오기 시작·재개가 쿨다운·클라우드 장애로 사용자 확인을 못하면 403 `user_token_required`
+  ('다시 로그인') 대신 503 `cloud_unavailable` + Retry-After(업로드 경로와 같은 응답, `message` 키도 함께).
+- `contracts/community-ingest/errors.md`(+MANIFEST): busy·service_unavailable 503 Retry-After 기본 30초, server_error 500 기본 10초 — 지도 사본과 같은 문장.
+
+---
+
 ## 2026-10-12 — Supabase 접속 장애 때 반복 요청 줄이기(cloud-retry, PC 부분)
 
 사용자 조사 결과(`cloud-retry-brief.md`)의 PC(safetyreport) 항목 4가지를 반영했다. push·배포 없음, 하위 에이전트 없음.

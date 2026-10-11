@@ -133,3 +133,25 @@ class ScheduleJobsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NextMidnightLabelTest(unittest.TestCase):
+    """화면의 '다음 자정 업로드' 는 실제 실행 시각(자정 + 설치별 오프셋)과 같아야 한다(Astra 2차 #7)."""
+
+    def test_before_todays_offset_shows_today(self):
+        from datetime import datetime, timezone
+        from services.community_upload_status import _next_midnight_label
+        now = datetime(2026, 10, 11, 15, 5, tzinfo=timezone.utc)  # KST 2026-10-12 00:05
+        self.assertEqual(_next_midnight_label(now=now, offset_seconds=900), "2026-10-12 00:15")
+
+    def test_after_todays_offset_shows_tomorrow(self):
+        from datetime import datetime, timezone
+        from services.community_upload_status import _next_midnight_label
+        now = datetime(2026, 10, 11, 15, 20, tzinfo=timezone.utc)  # KST 2026-10-12 00:20
+        self.assertEqual(_next_midnight_label(now=now, offset_seconds=900), "2026-10-13 00:15")
+
+    def test_daytime_shows_next_midnight_plus_offset(self):
+        from datetime import datetime, timezone
+        from services.community_upload_status import _next_midnight_label
+        now = datetime(2026, 10, 12, 3, 0, tzinfo=timezone.utc)  # KST 2026-10-12 12:00
+        self.assertEqual(_next_midnight_label(now=now, offset_seconds=0), "2026-10-13 00:00")

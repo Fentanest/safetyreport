@@ -14,8 +14,8 @@
 | `writer_superseded` | 403 | no | blocked, UI: 다른 기기로 전환됨 |
 | `contributor_suspended` | 403 | no | 게이트 무효화, blocked |
 | `rate_limited` | 429 | yes(Retry-After) | retry_wait |
-| `busy` | 503 | yes | 백오프 |
-| `server_error` / `service_unavailable` | 500 / 503 | yes | 백오프 |
+| `busy` / `service_unavailable` | 503 | yes(Retry-After, 기본 30초) | 백오프 |
+| `server_error` | 500 | yes(Retry-After, 기본 10초) | 백오프 |
 | 이벤트 `conflict`(`event_id_conflict`) | (200 안) | no | dead_letter, 원본 불변 |
 | 이벤트 `rejected`(`writer_epoch_mismatch` / `deleted`) | (200 안) | no | blocked 보존 |
 | 이벤트 `quarantined`(`status_mapping_mismatch`) | (200 안) | — | durable, outbox 정리, 확인 필요 표시 |
