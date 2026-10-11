@@ -11,7 +11,9 @@ from __future__ import annotations
 import re
 from datetime import datetime
 
-RULE_VERSION = "2026-09-24.1"
+from services import report_category
+
+RULE_VERSION = "2026-10-11.1"
 
 # 차량 구분 → 과태료 표의 차종 구분 (도로교통법 시행령 별표6 비고)
 PASSENGER = "승용등"   # 승용자동차 + 4톤 이하 화물자동차
@@ -77,6 +79,7 @@ _RULES = {
     "school_zone": ("도로교통법 시행령 별표7 1(어린이보호구역 주정차, 08~20시)", {VAN: 130000, PASSENGER: 120000}, {VAN: 140000, PASSENGER: 130000}),
     "ev_charging": ("친환경자동차법 시행령 별표 제2호 가목(충전구역 주차)", {None: 100000}, None),
     "disabled_parking": ("장애인등편의법 제17조제4항(장애인전용주차구역)", {None: 100000}, None),
+    "fire_lane": ("소방기본법 시행령 별표3 제2호 아목(소방차 전용구역 주차·진입 방해, 1차)", {None: 500000}, None),
     "waste": ("폐기물관리법 시행령 별표8 1)가)(휴대 생활폐기물 투기)", {None: 50000}, None),
     "overnight_truck": ("화물자동차 운수사업법 시행규칙 별표3 제2호(밤샘주차, 개인 1.5톤 이하)", {None: 50000}, None),
 }
@@ -120,28 +123,33 @@ def _occur_hour(occur_time) -> int | None:
 def classify(record: dict) -> str | None:
     """추정 규칙 id. 과태료 대상이 아니거나 판별 불가면 None."""
     category = _text(record.get("category"))
-    entry = _text(record.get("entry_value"))
+    resolved = report_category.resolve(record.get("ssnpc_cd"), record.get("ssnpc_type"), record.get("entry_value"))
+    code = resolved.code
     name = _text(record.get("신고명"))
     law = _text(record.get("위반법규"))
     plate = record.get("차량번호")
     first, last = record.get("사진_첫촬영"), record.get("사진_끝촬영")
 
-    if "불법주정차신고" in entry or category == "parking":
-        if is_commercial_truck(plate) and is_overnight_window(first, last):
-            return "overnight_truck"
-        if "충전" in entry:
+    if resolved.category == "parking" or category == "parking":
+        if code in (None, "EP-02"):
+            if is_commercial_truck(plate) and is_overnight_window(first, last):
+                return "overnight_truck"
+            return "parking"
+        if code == "EP-04":
             return "ev_charging"
-        if "장애인" in entry:
+        if code == "EP-01":
             return "disabled_parking"
-        if "소화전" in entry:
+        if code == "EP-03":
+            return "fire_lane"
+        if code == "IP-01":
             return "hydrant"
-        if "어린이" in entry:
+        if code == "IP-05":
             hour = _occur_hour(record.get("발생시각"))
             return "school_zone" if hour is not None and 8 <= hour < 20 else "parking"
         return "parking"
-    if "쓰레기, 폐기물" in entry:
+    if code in ("DR-06", "CM-05"):
         return "waste"
-    if category == "traffic" and (("버스" in name and "차로" in name) or "제15조" in law):
+    if (resolved.category == "traffic" or category == "traffic") and (code == "TV-05" or ("버스" in name and "차로" in name) or "제15조" in law):
         return "bus_lane"
     return None
 
