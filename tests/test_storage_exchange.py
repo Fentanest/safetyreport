@@ -204,6 +204,41 @@ class ExchangeRestoreTests(unittest.TestCase):
         self.assertEqual(rows["msafe1"], ("safety", "안전신고-생활안전", "안전관리과"))
         self.assertEqual(rows["mlive1"], ("living", "생활불편신고-쓰레기, 폐기물", "환경과"))
 
+    def test_server_list_only_rows_survive_a_mobile_restore(self):
+        """목록에서만 본 서버 신고(category NULL)는 앱 DB 에 없으므로 복원이 지우지 않는다(Astra 2026-10-11 지적 1).
+        앱에 같은 ID 가 있으면 앱 행으로 바뀌고, 앱에 없는 상세 신고는 지금처럼 지운다(앱이 원천)."""
+        with get_engine().begin() as conn:
+            conn.execute(models.report_table.insert().values(ID="L1", 상태="진행", 신고번호="SPP-L-1", 신고명="목록만", 신고일="2026-10-01"))
+            conn.execute(models.report_table.insert().values(ID="msafe1", 상태="진행", 신고번호="SPP-SAFE-1", 신고명="목록만(앱엔 상세)",
+                                                               신고일="2026-09-01"))
+            detailed_before = {r[0] for r in conn.execute(select(models.report_table.c.ID).where(models.report_table.c.category.is_not(None)))}
+        con = sqlite3.connect(self.upload)
+        con.execute(f"PRAGMA user_version = {exchange.MOBILE_SCHEMA_VERSION}")
+        con.executescript(
+            """
+            CREATE TABLE reports (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT, 만족도조사여부 TEXT, 별점 INTEGER,
+              별점사유 TEXT, 감시목록 TEXT, 처리상태 TEXT, 처리기관 TEXT, 담당자 TEXT, 위반장소 TEXT, 종결여부 TEXT, category TEXT, entry_value TEXT,
+              raw_content TEXT, synced_at INTEGER);
+            CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
+            """
+        )
+        con.execute("INSERT INTO reports VALUES ('msafe1','수용','SPP-SAFE-1','안전신고','2026-09-01','',NULL,NULL,'N',"
+                    "'수용','안전관리과','김담당','서울 강서구 안전 1','Y','safety','안전신고-생활안전','',NULL)")
+        con.commit()
+        con.close()
+        exchange.restore(str(self.upload), "mobile")
+        with get_engine().connect() as conn:
+            rows = {r.ID: r for r in conn.execute(select(models.report_table))}
+            effective = {r[0] for r in conn.execute(select(models.report_effective_table.c.ID))}
+        self.assertIn("L1", rows)  # 목록 전용 행은 남는다
+        self.assertIsNone(rows["L1"].category)
+        self.assertEqual(rows["L1"].신고명, "목록만")
+        self.assertNotIn("L1", effective)  # 화면에는 여전히 안 보인다
+        self.assertEqual(rows["msafe1"].category, "safety")  # 앱의 상세 행으로 바뀐다
+        self.assertEqual(rows["msafe1"].처리기관, "안전관리과")
+        for gone in detailed_before - {"msafe1"}:
+            self.assertNotIn(gone, rows)  # 앱에 없는 상세 신고는 지운다(예전과 같음)
+
     def test_v16_mobile_db_is_refused_as_legacy(self):
         """스키마 17 전(v16) 모바일 DB 는 가져오지 않고 거절한다(복원 뒤 초기화 크롤링 전제, 2026-10-11 결정)."""
         _mobile_db(self.upload, version=16)

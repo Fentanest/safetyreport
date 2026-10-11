@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from core.database import database
 from core.utils.fallback import note_fallback
-from services import report_category, report_policy
+from services import report_policy
 import settings.settings as app_settings
 from services import duplicate_group_service
 from services.report_cache import cached
@@ -71,7 +71,8 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
             table_obj.c.synced_at.desc(), table_obj.c['답변일'].desc(), table_obj.c['신고번호'].desc()).limit(200)
         for row in conn.execute(recent_query):
             item = _row_to_dict(row._mapping)
-            item['category'] = report_category.legacy_category(item.get('category'))
+            # 실제 분류(5분류)를 보낸다. 구앱은 API 미들웨어(core/utils/taxonomy_compat)가 3분류로 접는다(Astra 2026-10-11 지적 6).
+            item['category'] = row._mapping.get('category') or ''
             recent_answers.append(item)
 
         try:
@@ -90,7 +91,7 @@ def get_dashboard_stats(engine, mode: str = "canonical"):
                 df_watch_part = pd.DataFrame()
             for _, row in df_watch_part.iterrows():
                 item = _row_to_dict(row)
-                item["category"] = report_category.legacy_category(item.get("category"))
+                item["category"] = row.get("category") or ""
                 watchlist_items.append(item)
 
     combined_df = pd.concat(combined_frames, ignore_index=True) if combined_frames else pd.DataFrame()

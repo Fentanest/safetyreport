@@ -413,6 +413,61 @@ def _v5_rows(conn) -> list[dict]:
     return list(rows.values())
 
 
+def _v5_preflight(conn) -> dict:
+    """변환 전에 손실 위험을 본다(Astra 2026-10-11 지적 2). 멈춰야 하는 것은 MigrationVerifyFailed:
+    - 값이 든 모르는 열(옮길 자리가 없어 사라진다)
+    - 같은 ID 가 두 상세 표에 있음(한쪽 값이 다른 쪽을 덮는다)
+    신고가 없는 entry_value 행(고아)은 옮길 신고가 없으므로 건수만 돌려준다(결과·로그에 남김)."""
+    from .models import DETAIL_COLUMN_NAMES, TITLE_COLUMN_NAMES
+
+    expected = {
+        "mysafety": {"ID", *TITLE_COLUMN_NAMES},
+        **{t: {"ID", *DETAIL_COLUMN_NAMES} for t in _V5_DETAIL_TABLES},
+        "mysafety_entry_value": {"ID", "entry_value"},
+        "mysafety_raw_content": {"ID", "raw_content", "raw_type", "saved_at"},
+    }
+    unknown = []
+    for table, known in expected.items():
+        for col in [r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')]:
+            if col in known:
+                continue
+            n = conn.execute(f'SELECT count(*) FROM "{table}" WHERE "{col}" IS NOT NULL').fetchone()[0]
+            if n:
+                unknown.append(f"{table}.{col}({n}행)")
+    union = " UNION ALL ".join(f'SELECT ID FROM "{t}"' for t in _V5_DETAIL_TABLES)
+    dup = [r[0] for r in conn.execute(f"SELECT ID FROM ({union}) GROUP BY ID HAVING count(*) > 1 LIMIT 5")]
+    problems = []
+    if unknown:
+        problems.append("값이 든 모르는 열 " + ", ".join(unknown))
+    if dup:
+        problems.append("두 분류 상세 표에 같은 신고 " + ", ".join(map(str, dup)))
+    if problems:
+        raise MigrationVerifyFailed(f"스키마 5→6 변환 전 검사 실패(옮기면 값이 사라짐): {'; '.join(problems)}. DB 는 그대로입니다.")
+    orphan = conn.execute(
+        f"SELECT count(*) FROM mysafety_entry_value WHERE entry_value IS NOT NULL AND ID NOT IN "
+        f"(SELECT ID FROM mysafety UNION {union})").fetchone()[0]
+    return {"orphan_entry_values": orphan}
+
+
+def _v5_source_checks(conn, new_by_id: dict) -> list[str]:
+    """원본 표마다(목록·상세 3개·메뉴) 그 표의 행이 새 표의 같은 ID 행과 값까지 같은지. 어긋난 표 이름 목록."""
+    from .models import DETAIL_COLUMN_NAMES, TITLE_COLUMN_NAMES
+
+    sources = [("mysafety", ("ID", *TITLE_COLUMN_NAMES))] + [(t, ("ID", *DETAIL_COLUMN_NAMES)) for t in _V5_DETAIL_TABLES]
+    bad = []
+    for table, columns in sources:
+        cols = ", ".join(f'"{c}"' for c in columns)
+        old = [dict(r) for r in conn.execute(f'SELECT {cols} FROM "{table}"')]
+        new = [new_by_id.get(r["ID"]) for r in old]
+        if any(n is None for n in new) or _digest(old, columns) != _digest(new, columns):
+            bad.append(table)
+    old_ev = [dict(r) for r in conn.execute("SELECT ID, entry_value FROM mysafety_entry_value")
+              if r["ID"] in new_by_id]
+    if _digest(old_ev, ("ID", "entry_value")) != _digest([new_by_id[r["ID"]] for r in old_ev], ("ID", "entry_value")):
+        bad.append("mysafety_entry_value")
+    return bad
+
+
 def _digest(rows, columns) -> str:
     import hashlib
     import json
@@ -455,6 +510,7 @@ def migrate_schema(engine, backup_dir: str) -> dict | None:
             _backup_file_db(db_path, backup)
             logger.LoggerFactory.logbot.info(f"[schema] 버전 {from_version} → {SCHEMA_VERSION} 변환 전 DB 백업: {backup}")
 
+            pre = _v5_preflight(conn)
             old_rows = _v5_rows(conn)
             old_body = [dict(r) for r in conn.execute("SELECT ID, raw_content, raw_type, saved_at FROM mysafety_raw_content")]
             moved = 0
@@ -479,20 +535,22 @@ def migrate_schema(engine, backup_dir: str) -> dict | None:
             conn.execute("UPDATE mysafety_duplicate_member SET category = COALESCE("
                          "(SELECT category FROM mysafety_report r WHERE r.ID = mysafety_duplicate_member.report_id), category)")
 
-            # 대조: 행 수와 옛 값(분류 열 제외) 해시가 같아야 한다.
-            carried = ("ID", *TITLE_COLUMN_NAMES, *DETAIL_COLUMN_NAMES, "entry_value")
+            # 대조: 원본 표마다 그 행이 새 표에 값까지 그대로 있어야 하고(합친 결과끼리가 아니라 원본 기준), 행 수·본문도 같아야 한다.
             new_rows = [dict(r) for r in conn.execute(f"SELECT {cols} FROM mysafety_report")]
+            new_by_id = {r["ID"]: r for r in new_rows}
             new_body = [dict(r) for r in conn.execute("SELECT ID, raw_content, raw_type, saved_at FROM mysafety_report_body")]
-            detailed_old = sum(1 for r in old_rows if r["category"] is not None)
+            source_ids = {r[0] for r in conn.execute(
+                "SELECT ID FROM mysafety UNION " + " UNION ".join(f'SELECT ID FROM "{t}"' for t in _V5_DETAIL_TABLES))}
+            detail_ids = {r[0] for r in conn.execute(" UNION ".join(f'SELECT ID FROM "{t}"' for t in _V5_DETAIL_TABLES))}
+            detailed_old = len(detail_ids)
             detailed_new = sum(1 for r in new_rows if r["category"] is not None)
             checks = {
-                "reports": (len(old_rows), len(new_rows)),
+                "reports": (len(source_ids), len(new_rows)),
                 "detailed": (detailed_old, detailed_new),
-                "values": (_digest(old_rows, carried), _digest(new_rows, carried)),
                 "body": (_digest(old_body, ("ID", "raw_content", "raw_type", "saved_at")),
                          _digest(new_body, ("ID", "raw_content", "raw_type", "saved_at"))),
             }
-            bad = [name for name, (a, b) in checks.items() if a != b]
+            bad = [name for name, (a, b) in checks.items() if a != b] + _v5_source_checks(conn, new_by_id)
             if bad:
                 raise MigrationVerifyFailed(f"스키마 {from_version}→{SCHEMA_VERSION} 변환 대조 실패: {', '.join(bad)}. DB 는 그대로입니다.")
 
@@ -512,7 +570,7 @@ def migrate_schema(engine, backup_dir: str) -> dict | None:
         conn.close()
     rebuild_effective(engine)
     info = {"from_version": from_version, "backup": backup, "reports": len(old_rows), "detailed": detailed_old,
-            "moved_categories": moved}
+            "moved_categories": moved, "orphan_entry_values": pre["orphan_entry_values"]}
     logger.LoggerFactory.logbot.warning(f"[schema] DB 스키마 {from_version} → {SCHEMA_VERSION} 제자리 변환 완료: {info}")
     return info
 

@@ -262,9 +262,16 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
             row["감시목록"] = "Y" if r.get("신고번호") in watch_set else "N"
             report_rows.append(row)
 
-        for table in (models.report_effective_table, models.report_table, models.report_body_table,
+        for table in (models.report_effective_table, models.report_body_table,
                       models.duplicate_member_table, models.duplicate_group_table):
             conn.execute(table.delete())
+        # 목록에서만 본 신고(category NULL — 상세 미저장)는 모바일 DB 에 없다(모바일 가져오기도 옮기지 않음).
+        # 앱에 같은 ID 가 없는 그 행은 지우지 않고 남겨, 서버→모바일→서버 왕복에서 목록 값이 사라지지 않게 한다(Astra 2026-10-11 지적 1).
+        report = models.report_table
+        conn.execute(report.delete().where(report.c.category.is_not(None)))
+        snapshot_ids = [r["ID"] for r in report_rows]
+        for i in range(0, len(snapshot_ids), BATCH):
+            conn.execute(report.delete().where(report.c.ID.in_(snapshot_ids[i:i + BATCH])))
         _insert(conn, models.report_table, report_rows)
         _insert(conn, models.report_body_table, raw_rows)
 

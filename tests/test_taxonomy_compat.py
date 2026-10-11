@@ -110,5 +110,24 @@ class TaxonomyCompatTests(unittest.TestCase):
         self.assertEqual(response_five.json()["data"]["record"]["category"], "safety")
 
 
+    def test_summary_watchlist_keeps_safety_for_five_aware_clients_and_folds_for_old_ones(self):
+        """대시보드(/summary)는 실제 분류를 보내고 구앱에만 미들웨어가 접는다(Astra 2026-10-11 지적 6)."""
+        with self.engine.begin() as conn:
+            number = conn.execute(select(models.report_table.c["신고번호"]).where(
+                models.report_table.c.ID == self.safety_id)).scalar_one()
+            conn.execute(models.watchlist_table.insert().values(신고번호=number))
+        database.rebuild_effective(self.engine)
+        from services import report_cache
+        report_cache.clear()
+
+        def category_of(response):
+            self.assertEqual(response.status_code, 200)
+            items = response.json()["data"]["watchlist"]
+            return next(item["category"] for item in items if item["신고번호"] == number)
+
+        self.assertEqual(category_of(self._get("/api/v1/summary", five=True)), "safety")
+        self.assertEqual(category_of(self._get("/api/v1/summary")), "other")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -601,7 +601,7 @@ class MigrateSchemaTests(unittest.TestCase):
     def test_verification_mismatch_rolls_back_and_keeps_the_backup(self):
         before_tables = self._tables()
         before_rows = self._q("SELECT ID FROM mysafety ORDER BY ID")
-        with mock.patch.object(database, "_digest", side_effect=["old-값", "다른-값", "본문-같음", "본문-같음"]):
+        with mock.patch.object(database, "_v5_source_checks", return_value=["mysafetydetail_traffic"]):
             with self.assertRaises(database.MigrationVerifyFailed):
                 database.migrate_schema(self.engine, str(self.backups))
         # DB 는 그대로: 버전 5, 옛 표·행 그대로
@@ -612,6 +612,72 @@ class MigrateSchemaTests(unittest.TestCase):
         backups = list(self.backups.glob("*.db"))
         self.assertEqual(len(backups), 1)
         self.assertEqual(self._q("SELECT ID FROM mysafety ORDER BY ID", str(backups[0])), before_rows)
+
+    def _assert_untouched_after(self, before_tables, before_rows):
+        self.assertEqual(self._version(), 5)
+        self.assertEqual(self._tables(), before_tables)
+        self.assertEqual(self._q("SELECT ID FROM mysafety ORDER BY ID"), before_rows)
+
+    def test_source_value_lost_in_conversion_is_caught_by_the_original_table_check(self):
+        """합친 결과끼리가 아니라 원본 표 기준으로 대조한다(Astra 2026-10-11 지적 2): 변환 중 상세 값이 바뀌면 되돌린다."""
+        before_tables, before_rows = self._tables(), self._q("SELECT ID FROM mysafety ORDER BY ID")
+        real_rows = database._v5_rows
+
+        def corrupt(conn):
+            rows = real_rows(conn)
+            for row in rows:
+                if row.get("_old_category") == "traffic":
+                    row["처리내용"] = "변환 중 바뀐 값"
+                    break
+            return rows
+
+        with mock.patch.object(database, "_v5_rows", side_effect=corrupt):
+            with self.assertRaises(database.MigrationVerifyFailed) as ctx:
+                database.migrate_schema(self.engine, str(self.backups))
+        self.assertIn("mysafetydetail_traffic", str(ctx.exception))
+        self._assert_untouched_after(before_tables, before_rows)
+
+    def test_same_id_in_two_detail_tables_stops_before_converting(self):
+        con = sqlite3.connect(self.path)
+        traffic_id = con.execute("SELECT ID FROM mysafetydetail_traffic LIMIT 1").fetchone()[0]
+        cols = [r[1] for r in con.execute('PRAGMA table_info("mysafetydetail_parking")')]
+        con.execute(f'INSERT INTO mysafetydetail_parking ({", ".join(chr(34)+c+chr(34) for c in cols)}) '
+                    f'SELECT {", ".join(chr(34)+c+chr(34) for c in cols)} FROM mysafetydetail_traffic WHERE ID = ?', (traffic_id,))
+        con.commit()
+        con.close()
+        before_tables, before_rows = self._tables(), self._q("SELECT ID FROM mysafety ORDER BY ID")
+        with self.assertRaises(database.MigrationVerifyFailed) as ctx:
+            database.migrate_schema(self.engine, str(self.backups))
+        self.assertIn("두 분류 상세 표에 같은 신고", str(ctx.exception))
+        self._assert_untouched_after(before_tables, before_rows)
+
+    def test_unknown_column_with_values_stops_but_an_all_null_one_does_not(self):
+        con = sqlite3.connect(self.path)
+        con.execute('ALTER TABLE mysafetydetail_other ADD COLUMN "옛_열" TEXT')
+        con.commit()
+        con.close()
+        # 값이 모두 NULL 인 모르는 열은 잃을 값이 없으므로 통과
+        self.assertIsNotNone(database.migrate_schema(self.engine, str(self.backups)))
+
+    def test_unknown_column_holding_a_value_stops_before_converting(self):
+        con = sqlite3.connect(self.path)
+        con.execute('ALTER TABLE mysafetydetail_other ADD COLUMN "옛_열" TEXT')
+        con.execute('UPDATE mysafetydetail_other SET "옛_열" = \'남은 값\'')
+        con.commit()
+        con.close()
+        before_tables, before_rows = self._tables(), self._q("SELECT ID FROM mysafety ORDER BY ID")
+        with self.assertRaises(database.MigrationVerifyFailed) as ctx:
+            database.migrate_schema(self.engine, str(self.backups))
+        self.assertIn("mysafetydetail_other.옛_열", str(ctx.exception))
+        self._assert_untouched_after(before_tables, before_rows)
+
+    def test_orphan_menu_rows_are_counted_in_the_result(self):
+        con = sqlite3.connect(self.path)
+        con.execute("INSERT INTO mysafety_entry_value (ID, entry_value) VALUES ('ORPHAN-1', '생활불편 신고-쓰레기, 폐기물')")
+        con.commit()
+        con.close()
+        info = database.migrate_schema(self.engine, str(self.backups))
+        self.assertEqual(info["orphan_entry_values"], 1)
 
     def test_v4_db_is_reset_but_v5_is_left_for_migrate_schema(self):
         """버전 5 미만은 reset_legacy_database(백업 뒤 비움) 대상, 버전 5는 그 대상이 아니다(migrate_schema 가 처리)."""

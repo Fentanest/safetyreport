@@ -56,6 +56,8 @@ with engine.begin() as conn:
     conn.execute(text("UPDATE mysafety_report SET 처리내용='첫 줄\n둘째 줄\n“따옴표”' WHERE ID='90000201'"))
     conn.execute(text("UPDATE mysafety_report SET 벌점=NULL WHERE ID='90000003'"))
     conn.execute(text("UPDATE mysafety_report SET 별점사유='' WHERE ID='90000001'"))
+    # 스키마 6: 목록에서만 본 신고(category NULL)는 앱에 가지 않지만 서버로 복원할 때 남아야 한다(Astra 2026-10-11 지적 1)
+    conn.execute(text("INSERT INTO mysafety_report(ID, 상태, 신고번호, 신고명, 신고일, 감시목록) VALUES ('90000999', '진행', 'SPP-2610-9000999', '목록만 본 신고', '2026-10-01', 'N')"))
     # R1b: NULL 보존(sync_meta 값, 캐시 error_message)과 새 사용자 표(수정값·중복 판단) 교환
     conn.execute(text("INSERT OR REPLACE INTO mysafety_sync_meta(key, value) VALUES ('rt_null_probe', NULL)"))
     conn.execute(text("INSERT OR REPLACE INTO mysafety_geocode_cache(주소정규화, 원본주소, 행정구역, 위도, 경도, 상태, source, error_message, updated_at) "
@@ -139,7 +141,8 @@ def table_counts(db: Path, tables) -> dict:
     return result
 
 
-def restore_mobile_into_server(mobile_db: Path, data_dir: Path) -> Path:
+def restore_mobile_into_server(mobile_db: Path, data_dir: Path, base_server_db: Path | None = None) -> Path:
+    """실제 복원처럼 지금 서버 DB(base_server_db)의 사본 위에 모바일 DB 를 적용한다. 없으면 빈 서버에."""
     code = r'''
 import sys
 from services import db_backup
@@ -150,6 +153,14 @@ exchange._current_kakao_id = lambda: sys.argv[2]  # 로그인한 카카오 계�
 db_backup.restore_from_mobile_db(sys.argv[1])
 '''
     data_dir.mkdir(parents=True, exist_ok=True)
+    if base_server_db is not None:
+        src = sqlite3.connect(f"file:{base_server_db}?mode=ro", uri=True)
+        dst = sqlite3.connect(data_dir / "data.db")
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
     out = subprocess.run([sys.executable, "-c", code, str(mobile_db), KAKAO_ID], env=_server_env(data_dir), capture_output=True, text=True, cwd=REPO_ROOT)
     if out.returncode != 0:
         raise SystemExit("server restore failed:\n" + out.stderr[-3000:])
@@ -236,7 +247,7 @@ def main() -> int:
     try:
         s0 = prepare_server_copy(args.server_db.resolve(), work / "s0") if args.server_db else build_server_db(work / "s0")
         m1 = mobile_import(s0, work / "m1.db", args.mobile_repo.resolve(), args.flutter)
-        s2 = restore_mobile_into_server(m1, work / "s2")
+        s2 = restore_mobile_into_server(m1, work / "s2", base_server_db=s0)
         m3 = mobile_import(s2, work / "m3.db", args.mobile_repo.resolve(), args.flutter)
 
         diffs = []
