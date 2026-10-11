@@ -8,6 +8,22 @@
 
 ---
 
+## 2026-10-11 — Astra 재검수 반영: 목록 전용 행 가져오기 거절, 고아 메뉴 행 보존, 미확인 C_NOW 검토중, 대분류만 있는 밤샘주차
+
+- 목록 전용 행(지적 1 잔여): 모바일이 category NULL 행을 조용히 빼고 가져오던 것을 예전 앱처럼 명시적 거절로 되돌렸다(모바일 레포).
+  `scripts/dev/db_roundtrip_check.py` 는 기본 왕복에서 목록 전용 행을 빼고, 별도 시나리오로 ① 그런 서버 DB 가져오기가 거절되는지
+  ② 모바일 DB 를 목록 전용 행이 있는 서버에 복원해도 그 행이 값까지 그대로 남는지 확인한다.
+- `core/database/database.py` 스키마 5→6(지적 2 잔여): 목록·상세 어디에도 신고가 없는 옛 `mysafety_entry_value` 행을 건수만 세고
+  지우던 것을, `mysafety_sync_meta` 의 `legacy_orphan_entry_values` 키에 JSON([[ID, entry_value], …])으로 보존하고 같은 트랜잭션의
+  대조 항목에 넣었다. 신고 행을 지어내지 않는다. 고아가 없으면 키를 만들지 않는다.
+- `services/parser.py`(지적 3 잔여): 매핑이 없는 C_NOW(16~19)라도 선택한 답변 상태가 진행·처리중·검토중이면 답변완료 대역으로
+  닫지 않는다(빈 값·모르는 라벨만 닫는다). `contracts/parser-vectors.json` .3: C_NOW 16 진행 → 처리중/N 로 정정, 18 검토중 → 처리중/N,
+  17 상태 라벨 없음 → 답변완료/Y 추가.
+- `services/fine_estimate.py`(지적 7 회귀): 대분류(SSNPC_CD)만 있고 소분류(SSNPC_TYPE)가 비면 '소분류 없음'으로 보고 밤샘주차 판정
+  대상에 다시 넣었다(EP-99 같은 모르는 소분류는 계속 제외). `RULE_VERSION` .2 → .3, 벡터 2건 추가.
+
+---
+
 ## 2026-10-11 — Astra 리뷰 #3 수정: C_NOW=12(검토중) 답변이 답변완료로 조기 종결되던 결함
 
 - `services/parser.py`: 답변완료 대역 안전망(`answered_band`, C_NOW 10~19 + 답변 있음)이 C_NOW 가 명시적으로 비종결 상태

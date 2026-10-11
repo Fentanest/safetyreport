@@ -56,8 +56,6 @@ with engine.begin() as conn:
     conn.execute(text("UPDATE mysafety_report SET 처리내용='첫 줄\n둘째 줄\n“따옴표”' WHERE ID='90000201'"))
     conn.execute(text("UPDATE mysafety_report SET 벌점=NULL WHERE ID='90000003'"))
     conn.execute(text("UPDATE mysafety_report SET 별점사유='' WHERE ID='90000001'"))
-    # 스키마 6: 목록에서만 본 신고(category NULL)는 앱에 가지 않지만 서버로 복원할 때 남아야 한다(Astra 2026-10-11 지적 1)
-    conn.execute(text("INSERT INTO mysafety_report(ID, 상태, 신고번호, 신고명, 신고일, 감시목록) VALUES ('90000999', '진행', 'SPP-2610-9000999', '목록만 본 신고', '2026-10-01', 'N')"))
     # R1b: NULL 보존(sync_meta 값, 캐시 error_message)과 새 사용자 표(수정값·중복 판단) 교환
     conn.execute(text("INSERT OR REPLACE INTO mysafety_sync_meta(key, value) VALUES ('rt_null_probe', NULL)"))
     conn.execute(text("INSERT OR REPLACE INTO mysafety_geocode_cache(주소정규화, 원본주소, 행정구역, 위도, 경도, 상태, source, error_message, updated_at) "
@@ -165,6 +163,31 @@ db_backup.restore_from_mobile_db(sys.argv[1])
     if out.returncode != 0:
         raise SystemExit("server restore failed:\n" + out.stderr[-3000:])
     return data_dir / "data.db"
+
+
+LIST_ONLY_ID = "90000999"
+
+
+def add_list_only_row(server_db: Path, target: Path) -> Path:
+    """서버 DB 사본에 목록에서만 본 신고(category NULL) 한 건을 더한다(Astra 재검수 #1 시나리오)."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    src = sqlite3.connect(f"file:{server_db}?mode=ro", uri=True)
+    dst = sqlite3.connect(target)
+    src.backup(dst)
+    src.close()
+    dst.execute("INSERT INTO mysafety_report(ID, 상태, 신고번호, 신고명, 신고일, 감시목록) "
+                "VALUES (?, '진행', 'SPP-2610-9000999', '목록만 본 신고', '2026-10-01', 'N')", (LIST_ONLY_ID,))
+    dst.commit()
+    dst.close()
+    return target
+
+
+def mobile_import_refused(server_db: Path, mobile_out: Path, mobile_repo: Path, flutter: str) -> bool:
+    try:
+        mobile_import(server_db, mobile_out, mobile_repo, flutter)
+    except SystemExit as exc:
+        return "목록만 있는 신고" in str(exc)
+    return False
 
 
 def mobile_import(server_db: Path, mobile_out: Path, mobile_repo: Path, flutter: str) -> Path:
@@ -293,6 +316,15 @@ def main() -> int:
                   "M3": _rows(m3, "sync_meta", "key").get(KAKAO_META_KEY, {}).get("value")}
         if set(owners.values()) != {KAKAO_ID}:
             diffs.append(f"[owner] 카카오 회원번호 표시가 왕복에서 달라짐: {sorted(k for k, v in owners.items() if v != KAKAO_ID)}")
+        # 목록에서만 본 신고(category NULL)는 앱에 둘 자리가 없다: 그런 서버 DB 가져오기는 거절되고(조용히 빼지 않음),
+        # 모바일 DB 를 그 서버에 복원하면 서버의 목록 행은 그대로 남는다(Astra 재검수 #1).
+        s0l = add_list_only_row(s0, work / "s0l" / "data.db")
+        if not mobile_import_refused(s0l, work / "m1l.db", args.mobile_repo.resolve(), args.flutter):
+            diffs.append("[list-only] 목록만 있는 신고가 있는 서버 DB 를 앱이 거절하지 않음")
+        s2l = restore_mobile_into_server(m1, work / "s2l", base_server_db=s0l)
+        before_l, after_l = _rows(s0l, "mysafety_report", "ID"), _rows(s2l, "mysafety_report", "ID")
+        diffs += compare("L:mysafety_report", before_l, after_l)
+
         mg1, mm1 = _dup_meta(m1, "duplicate_group", "duplicate_member")
         mg3, mm3 = _dup_meta(m3, "duplicate_group", "duplicate_member")
         diffs += compare("B:duplicate_group", mg1, mg3)

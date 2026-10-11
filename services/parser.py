@@ -290,7 +290,8 @@ def _final_status(processing_status: str, raw_status: str, supplement_open: bool
         return raw_status
     if supplement_open:
         return "보완요청"
-    if answered_band:
+    if answered_band and processing_status not in _NOT_FINAL_ANSWER_STATUSES:
+        # 답변이 스스로 진행·처리중·검토중이라고 밝히면 모르는 C_NOW(16~19)라도 종결하지 않는다(Astra 재검수 #3).
         return "답변완료"
     return "처리중"
 
@@ -361,8 +362,8 @@ def parse_json_details(result_data):
     raw_status = _C_NOW_STATUS.get(c_now, str(c_now) if c_now > 0 else "진행")
     # 답변완료 대역(C_NOW 10~19)에 답변이 있는데 상태를 못 알아보면 '처리중'으로 떨어지지 않게 한다.
     # 단, C_NOW 가 명시적으로 비종결 상태(진행·처리중·검토중, 예: 12=검토중)로 매핑되면 이 안전망이
-    # 그 상태를 덮어 '답변완료'로 조기 종결시키지 않는다(Astra #3). 13처럼 종결 코드로 매핑되거나
-    # 16~19처럼 매핑 자체가 없는 코드는 그대로 대역 동작을 유지한다.
+    # 그 상태를 덮어 '답변완료'로 조기 종결시키지 않는다(Astra #3). 16~19처럼 매핑이 없는 코드는
+    # 선택한 답변의 상태도 비종결이 아닐 때(빈 값·모르는 라벨)만 닫는다 — `_final_status` 참고.
     answered_band = bool(answers) and 10 <= c_now <= 19 and raw_status not in _NOT_FINAL_ANSWER_STATUSES
 
     answer = _select_answer(answers, raw_status)

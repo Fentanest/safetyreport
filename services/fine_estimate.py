@@ -13,7 +13,7 @@ from datetime import datetime
 
 from services import report_category
 
-RULE_VERSION = "2026-10-11.2"
+RULE_VERSION = "2026-10-11.3"
 
 # 차량 구분 → 과태료 표의 차종 구분 (도로교통법 시행령 별표6 비고)
 PASSENGER = "승용등"   # 승용자동차 + 4톤 이하 화물자동차
@@ -123,11 +123,12 @@ def _occur_hour(occur_time) -> int | None:
 def _no_subcategory_info(resolved: report_category.Resolved, entry_value) -> bool:
     """진짜 '소분류 없음'(메뉴만 있고 세부가 없음)일 때만 True.
 
-    SSNPC 코드가 있으면(모르는 코드라도) 소분류가 있는데 못 알아본 것이므로 False —
+    소분류 코드(SSNPC_TYPE)가 있으면(모르는 코드라도) 소분류가 있는데 못 알아본 것이므로 False —
     EP-99 처럼 코드표에 없는 코드는 밤샘주차가 아니라 일반 주정차로 떨어져야 한다(Astra #7).
-    코드가 전혀 없을 때만 entry_value 의 '메뉴-소분류'에서 '-' 뒤가 비어 있는지로 판단한다.
+    대분류(SSNPC_CD)만 있고 소분류가 비면 소분류 없음이다(Astra 재검수 #6). 그때는 entry_value 의
+    '메뉴-소분류'에서 '-' 뒤가 비어 있는지로 판단한다.
     """
-    if resolved.ssnpc_cd:
+    if resolved.ssnpc_type:
         return False
     _menu, _sep, sub = str(entry_value or "").strip().partition("-")
     return not sub.strip()

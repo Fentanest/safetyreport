@@ -671,13 +671,24 @@ class MigrateSchemaTests(unittest.TestCase):
         self.assertIn("mysafetydetail_other.옛_열", str(ctx.exception))
         self._assert_untouched_after(before_tables, before_rows)
 
-    def test_orphan_menu_rows_are_counted_in_the_result(self):
+    def test_orphan_menu_rows_are_preserved_in_sync_meta(self):
+        """신고가 없는 옛 메뉴 행은 옮길 신고 행이 없지만 버리지 않는다 — sync_meta 에 그대로 남는다(Astra 재검수 #2)."""
         con = sqlite3.connect(self.path)
         con.execute("INSERT INTO mysafety_entry_value (ID, entry_value) VALUES ('ORPHAN-1', '생활불편 신고-쓰레기, 폐기물')")
+        con.execute("INSERT INTO mysafety_entry_value (ID, entry_value) VALUES ('ORPHAN-2', '안전신고-기타 안전신고')")
         con.commit()
         con.close()
         info = database.migrate_schema(self.engine, str(self.backups))
-        self.assertEqual(info["orphan_entry_values"], 1)
+        self.assertEqual(info["orphan_entry_values"], 2)
+        kept = self._q(f"SELECT value FROM mysafety_sync_meta WHERE key = '{database.ORPHAN_ENTRY_VALUES_META_KEY}'")
+        self.assertEqual(json.loads(kept[0][0]), [["ORPHAN-1", "생활불편 신고-쓰레기, 폐기물"], ["ORPHAN-2", "안전신고-기타 안전신고"]])
+        self.assertEqual(self._q("SELECT count(*) FROM mysafety_report WHERE ID LIKE 'ORPHAN-%'")[0][0], 0,
+                         "신고 행을 지어내지 않는다")
+
+    def test_no_orphans_leaves_sync_meta_untouched(self):
+        database.migrate_schema(self.engine, str(self.backups))
+        self.assertEqual(self._q(f"SELECT count(*) FROM mysafety_sync_meta "
+                                 f"WHERE key = '{database.ORPHAN_ENTRY_VALUES_META_KEY}'")[0][0], 0)
 
     def test_v4_db_is_reset_but_v5_is_left_for_migrate_schema(self):
         """버전 5 미만은 reset_legacy_database(백업 뒤 비움) 대상, 버전 5는 그 대상이 아니다(migrate_schema 가 처리)."""

@@ -388,6 +388,11 @@ _V5_DROP = ("mysafety", *_V5_DETAIL_TABLES, "mysafetymerge_traffic", "mysafetyme
             "mysafety_entry_value", "mysafety_raw_content")
 
 
+# 신고가 없는 옛 메뉴(entry_value) 행은 옮길 신고 행이 없다. 버리지 않고 sync_meta 이 키에 JSON([[ID, entry_value], …])으로
+# 보존한다(Astra 재검수 #2, 2026-10-11). sync_meta 는 교환·백업이 그대로 나르는 표라 새 표를 만들지 않는다.
+ORPHAN_ENTRY_VALUES_META_KEY = "legacy_orphan_entry_values"
+
+
 class MigrationVerifyFailed(RuntimeError):
     """옮긴 값이 원본과 달라 변환을 되돌렸다. DB 는 그대로다."""
 
@@ -417,7 +422,7 @@ def _v5_preflight(conn) -> dict:
     """변환 전에 손실 위험을 본다(Astra 2026-10-11 지적 2). 멈춰야 하는 것은 MigrationVerifyFailed:
     - 값이 든 모르는 열(옮길 자리가 없어 사라진다)
     - 같은 ID 가 두 상세 표에 있음(한쪽 값이 다른 쪽을 덮는다)
-    신고가 없는 entry_value 행(고아)은 옮길 신고가 없으므로 건수만 돌려준다(결과·로그에 남김)."""
+    신고가 없는 entry_value 행(고아)은 옮길 신고가 없으므로 sync_meta 에 따로 보존한다(`_v5_orphan_entry_values`)."""
     from .models import DETAIL_COLUMN_NAMES, TITLE_COLUMN_NAMES
 
     expected = {
@@ -443,10 +448,29 @@ def _v5_preflight(conn) -> dict:
         problems.append("두 분류 상세 표에 같은 신고 " + ", ".join(map(str, dup)))
     if problems:
         raise MigrationVerifyFailed(f"스키마 5→6 변환 전 검사 실패(옮기면 값이 사라짐): {'; '.join(problems)}. DB 는 그대로입니다.")
-    orphan = conn.execute(
-        f"SELECT count(*) FROM mysafety_entry_value WHERE entry_value IS NOT NULL AND ID NOT IN "
-        f"(SELECT ID FROM mysafety UNION {union})").fetchone()[0]
-    return {"orphan_entry_values": orphan}
+    return {"orphan_entry_values": len(_v5_orphan_entry_values(conn))}
+
+
+def _v5_orphan_entry_values(conn) -> list[list]:
+    """목록·상세 어디에도 신고가 없는 mysafety_entry_value 행. [[ID, entry_value], …] (ID 순)."""
+    union = " UNION ".join(f'SELECT ID FROM "{t}"' for t in ("mysafety", *_V5_DETAIL_TABLES))
+    return [[r[0], r[1]] for r in conn.execute(
+        f"SELECT ID, entry_value FROM mysafety_entry_value WHERE ID NOT IN ({union}) ORDER BY ID")]
+
+
+def _preserve_orphan_entry_values(conn, orphans: list[list], dialect) -> None:
+    """고아 메뉴 행을 sync_meta 에 쓴다. 같은 키가 이미 있으면 그 목록에 합친다(같은 ID 는 이번 값)."""
+    import json
+    from sqlalchemy.schema import CreateTable
+
+    if not orphans:
+        return
+    conn.execute(str(CreateTable(sync_meta_table, if_not_exists=True).compile(dialect=dialect)))
+    found = conn.execute("SELECT value FROM mysafety_sync_meta WHERE key = ?", (ORPHAN_ENTRY_VALUES_META_KEY,)).fetchone()
+    merged = {row[0]: row for row in (json.loads(found[0]) if found and found[0] else [])}
+    merged.update({row[0]: row for row in orphans})
+    value = json.dumps([merged[k] for k in sorted(merged, key=str)], ensure_ascii=False)
+    conn.execute("INSERT OR REPLACE INTO mysafety_sync_meta (key, value) VALUES (?, ?)", (ORPHAN_ENTRY_VALUES_META_KEY, value))
 
 
 def _v5_source_checks(conn, new_by_id: dict) -> list[str]:
@@ -511,6 +535,7 @@ def migrate_schema(engine, backup_dir: str) -> dict | None:
             logger.LoggerFactory.logbot.info(f"[schema] 버전 {from_version} → {SCHEMA_VERSION} 변환 전 DB 백업: {backup}")
 
             pre = _v5_preflight(conn)
+            orphans = _v5_orphan_entry_values(conn)
             old_rows = _v5_rows(conn)
             old_body = [dict(r) for r in conn.execute("SELECT ID, raw_content, raw_type, saved_at FROM mysafety_raw_content")]
             moved = 0
@@ -532,6 +557,7 @@ def migrate_schema(engine, backup_dir: str) -> dict | None:
             conn.execute("INSERT INTO mysafety_report_body (ID, raw_content, raw_type, saved_at) "
                          "SELECT ID, raw_content, raw_type, saved_at FROM mysafety_raw_content")
             # 중복 멤버의 category 사본도 새 분류로(재계산 전까지 화면이 옛 값을 쓰지 않게)
+            _preserve_orphan_entry_values(conn, orphans, dialect)
             conn.execute("UPDATE mysafety_duplicate_member SET category = COALESCE("
                          "(SELECT category FROM mysafety_report r WHERE r.ID = mysafety_duplicate_member.report_id), category)")
 
@@ -550,6 +576,12 @@ def migrate_schema(engine, backup_dir: str) -> dict | None:
                 "body": (_digest(old_body, ("ID", "raw_content", "raw_type", "saved_at")),
                          _digest(new_body, ("ID", "raw_content", "raw_type", "saved_at"))),
             }
+            if orphans:
+                import json
+                kept = conn.execute("SELECT value FROM mysafety_sync_meta WHERE key = ?",
+                                    (ORPHAN_ENTRY_VALUES_META_KEY,)).fetchone()
+                kept_by_id = {row[0]: row for row in json.loads(kept[0])} if kept and kept[0] else {}
+                checks["orphan_entry_values"] = (orphans, [kept_by_id.get(row[0]) for row in orphans])
             bad = [name for name, (a, b) in checks.items() if a != b] + _v5_source_checks(conn, new_by_id)
             if bad:
                 raise MigrationVerifyFailed(f"스키마 {from_version}→{SCHEMA_VERSION} 변환 대조 실패: {', '.join(bad)}. DB 는 그대로입니다.")

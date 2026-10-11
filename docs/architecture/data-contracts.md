@@ -65,8 +65,8 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
 | 없어짐 | `mysafety` `mysafetydetail_{traffic,parking,other}` `mysafetymerge_{traffic,parking,other}` `mysafety_entry_value` `mysafety_raw_content` |
 
 - **분류**: `services/report_category.resolve(ssnpc_cd, ssnpc_type, entry_value)` — 코드가 있으면 코드, 없으면 접수 메뉴. 정본 `contracts/report-categories.json`(두 레포 바이트 동일, 43개 코드). 값은 `traffic` `parking` `safety` `living` `other`.
-- **업그레이드**: 버전 5 → 6 은 서버 시작의 `database.migrate_schema`(백업 `before_schema_v5_*.db` → 한 쓰기 트랜잭션에서 옮기기 → 행 수·값 해시 대조 → 커밋). 5 미만은 기존 `reset_legacy_database`(백업 뒤 비우기). 크롤러 단독 실행은 서버가 먼저 올리기 전에는 멈춘다.
-- **교환·복원**: 같은 스키마 버전끼리만(서버 6 ↔ 모바일 17). 모바일 `reports` 는 `mysafety_report` 와 같은 열(+ legacy `raw_content`), 서버 DB 가져오기는 category 있는 행만.
+- **업그레이드**: 버전 5 → 6 은 서버 시작의 `database.migrate_schema`(백업 `before_schema_v5_*.db` → 한 쓰기 트랜잭션에서 옮기기 → 행 수·값 해시 대조 → 커밋). 신고가 없는 옛 `mysafety_entry_value` 행(고아)은 `mysafety_sync_meta` 의 `legacy_orphan_entry_values`(JSON `[[ID, entry_value], …]`)에 보존한다. 5 미만은 기존 `reset_legacy_database`(백업 뒤 비우기). 크롤러 단독 실행은 서버가 먼저 올리기 전에는 멈춘다.
+- **교환·복원**: 같은 스키마 버전끼리만(서버 6 ↔ 모바일 17). 모바일 `reports` 는 `mysafety_report` 와 같은 열(+ legacy `raw_content`), 모바일에는 category NULL(목록만 본 신고)을 둘 자리가 없어 그런 행이 있는 서버 DB 가져오기는 **거절**한다(크롤링이 끝난 뒤 다시). 모바일 DB 를 서버에 복원할 때 서버의 목록 전용 행은 그대로 둔다(`exchange.apply_mobile_snapshot`).
 - **모바일 API 호환**: `X-SR-Taxonomy: 5`(또는 `?taxonomy=5`, WS 는 `/ws/events?taxonomy=5`)를 보내지 않는 앱에는 JSON 의 `category`·`previous_category` 의 safety·living 을 other 로 접는다(`core/utils/taxonomy_compat.py`). `/reports/other` 는 구앱에 safety+living+other. `/server/version` 의 `report_taxonomy: 5`.
 - **상세 저장 튜플**: `(df, category, entry_value, progress_status, title_fields, raw_content, raw_type, ssnpc_cd, ssnpc_type)`.
 - 아래 "DB 컬럼명"·"DB 테이블" 절의 `mysafety*` 다중 표 설명은 스키마 5 까지의 기록이다.
