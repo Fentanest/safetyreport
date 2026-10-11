@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from services import report_policy
+from services import report_category, report_policy
 from services.report_cache import cached
 from services.stats.common import _MAP_COLUMNS, _MAP_MISSING_COLUMNS, _first_nonempty_value, _is_finite_number, _normalize_mode, _ratio_item, _row_to_dict, _sanitize_jsonable, _text_or_empty
 from services.stats.reads import _load_map_records_frame
@@ -100,7 +100,7 @@ def apply_pin_basis(frame, basis: str = "coords"):
 
 
 @cached
-def get_report_map_stats(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None, max_points: int | None = None, bounds: tuple | None = None, zoom: int = 7, pin_basis: str | None = None):
+def get_report_map_stats(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None, max_points: int | None = None, bounds: tuple | None = None, zoom: int = 7, pin_basis: str | None = None, taxonomy: int = 3):
     category, available_years, combined_df = _load_map_records_frame(
         engine,
         year=year,
@@ -108,6 +108,7 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
         mode=mode,
         column_names=_MAP_COLUMNS,
         filters=filters,
+        taxonomy=taxonomy,
     )
     basis = normalize_pin_basis(pin_basis)
     combined_df = apply_pin_basis(combined_df, basis)
@@ -143,7 +144,7 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
     if bounds is not None:
         south, west, north, east = bounds
         visible = visible[visible['위도'].between(south, north) & visible['경도'].between(west, east)].copy()
-    points = _aggregate_map_points(visible, max_points=max_points, zoom=zoom)
+    points = _aggregate_map_points(visible, max_points=max_points, zoom=zoom, taxonomy=taxonomy)
 
     points.sort(key=lambda item: item["total"], reverse=True)
     if "_agency_key" in combined_df.columns:
@@ -172,7 +173,7 @@ def get_report_map_stats(engine, *, year: str | None = None, category: str = "al
     })
 
 
-def _aggregate_map_points(frame, *, max_points=None, zoom=7):
+def _aggregate_map_points(frame, *, max_points=None, zoom=7, taxonomy=3):
     if frame.empty:
         return []
     frame = frame.copy()
@@ -242,8 +243,11 @@ def _aggregate_map_points(frame, *, max_points=None, zoom=7):
                          [('_fine','과태료'),('_warning','경고/범칙금'),('_reject','불수용/기타'),('_unknown','미확인')]
                          if dispositions.loc[gid,key] > 0],
                      agency_breakdown=agency,
+                     # taxonomy=5: CATEGORY_LABELS 5개('기타'). taxonomy=3(기본, 구앱·구화면 호환): 예전 라벨
+                     # 그대로('기타위반') — 구버전 모바일 지도 화면이 이 문자열을 그대로 비교해서 찾는다.
                      category_breakdown=[_ratio_item(label,categories_by.get(gid,{}).get(key,0),total) for key,label in
-                         [('traffic','교통위반'),('parking','주정차위반'),('other','기타위반')]])
+                         ([(c, report_category.CATEGORY_LABELS[c]) for c in report_category.CATEGORIES] if taxonomy == 5 else
+                          [('traffic','교통위반'),('parking','주정차위반'),('other','기타위반')])])
         if clustered: point['cluster'] = True
         if clustered: point['address_count'] = int(labels_by_group[gid]["address_count"])
         points.append(point)
@@ -251,11 +255,11 @@ def _aggregate_map_points(frame, *, max_points=None, zoom=7):
 
 
 def get_report_map_missing_summary(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical",
-                                    filters: dict | None = None, pin_basis: str | None = None) -> dict:
+                                    filters: dict | None = None, pin_basis: str | None = None, taxonomy: int = 3) -> dict:
     """지도 첫 화면용: 좌표 없는 신고의 주소 그룹 수·신고 수만. 목록(본문 열 포함)은 모달을 열 때
     /stats/map/missing 으로 받는다(기술일지 B-03). 판정은 get_report_map_missing_groups 와 같다."""
     category, _available_years, combined_df = _load_map_records_frame(
-        engine, year=year, category=category, mode=mode, column_names=_MAP_COLUMNS, filters=filters)
+        engine, year=year, category=category, mode=mode, column_names=_MAP_COLUMNS, filters=filters, taxonomy=taxonomy)
     combined_df = apply_pin_basis(combined_df, normalize_pin_basis(pin_basis))
     if combined_df.empty:
         return {"group_count": 0, "report_count": 0}
@@ -263,7 +267,7 @@ def get_report_map_missing_summary(engine, *, year: str | None = None, category:
     return {"group_count": int(missing["주소키"].nunique(dropna=False)), "report_count": int(len(missing))}
 
 
-def get_report_map_missing_groups(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None, pin_basis: str | None = None):
+def get_report_map_missing_groups(engine, *, year: str | None = None, category: str = "all", mode: str = "canonical", filters: dict | None = None, pin_basis: str | None = None, taxonomy: int = 3):
     category, available_years, combined_df = _load_map_records_frame(
         engine,
         year=year,
@@ -271,6 +275,7 @@ def get_report_map_missing_groups(engine, *, year: str | None = None, category: 
         mode=mode,
         column_names=_MAP_MISSING_COLUMNS,
         filters=filters,
+        taxonomy=taxonomy,
     )
     combined_df = apply_pin_basis(combined_df, normalize_pin_basis(pin_basis))
 

@@ -147,7 +147,8 @@ class StatsPopulationTests(unittest.TestCase):
         engine = _seeded_engine(self)
         # 투영 단계가 모든 행을 뺀 경우(EO R-03 뒤로 투영은 ProjectionContext.project_frame)
         with mock.patch.object(dgs.ProjectionContext, "project_frame", lambda self, df: df.iloc[0:0]):
-            _, df_t, df_p, df_o = rss._load_stats_frames(engine, {}, "canonical")
+            _, frames = rss._load_stats_frames(engine, {}, "canonical", taxonomy=3)
+            df_t, df_p, df_o = frames["traffic"], frames["parking"], frames["other"]
         self.assertEqual((len(df_t), len(df_p), len(df_o)), (0, 0, 0))
 
     def test_a1_06_exclude_police_keeps_reports_without_agency(self):

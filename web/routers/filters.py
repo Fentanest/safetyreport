@@ -13,7 +13,11 @@ def normalize_dedupe_mode(value: str | None, *, default: str | None = None) -> s
     return normalized if normalized in {"raw", "canonical"} else resolved_default
 
 
-def normalize_map_category(value: str | None) -> str:
+def normalize_map_category(value: str | None, taxonomy: int = 3) -> str:
+    """taxonomy=3(기본, 예전과 같음): all·traffic·parking·other. taxonomy=5: all·report_category.CATEGORIES."""
+    from services import report_category
+
     normalized = (value or "all").strip().lower()
-    return normalized if normalized in {"all", "traffic", "parking", "other"} else "all"
+    allowed = {"all", *report_category.CATEGORIES} if taxonomy == 5 else {"all", *report_category.LEGACY_CATEGORIES}
+    return normalized if normalized in allowed else "all"
 

@@ -120,7 +120,8 @@ class ProjectionContextTest(unittest.TestCase):
         self.assertIs(projection.project_frame(frame), frame)
 
     def test_stats_frames_use_the_same_projection(self):
-        _, df_t, df_p, df_o = rss._load_stats_frames(self.engine, None, "canonical")
+        _, frames = rss._load_stats_frames(self.engine, None, "canonical", taxonomy=3)
+        df_t, df_p, df_o = frames["traffic"], frames["parking"], frames["other"]
         ids = set(pd.concat([df_t, df_p, df_o])["ID"].astype(str))
         self.assertNotIn(self.non_rep, ids)
         self.assertIn(self.rep, ids)

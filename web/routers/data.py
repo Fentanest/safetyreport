@@ -110,8 +110,6 @@ def view_safety(
     ratingCause: Optional[str] = Query(None),
     dedupe: str | None = Query(None),
 ):
-    # 2026-10-11 5분류: '기타' 에서 떼어낸 안전신고(services/report_category.py 의 CM 코드) — Stage 4A 가 이 worktree 에
-    # 아직 합치지 않아, 브라우저 검수를 위해 /data/other 와 같은 꼴로 먼저 추가했다(병합 시 Opus 가 중복 여부 확인).
     filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
     filters = _identity_filters(request, filters)
     dedupe_mode = normalize_dedupe_mode(dedupe)
@@ -137,7 +135,6 @@ def view_living(
     ratingCause: Optional[str] = Query(None),
     dedupe: str | None = Query(None),
 ):
-    # 2026-10-11 5분류: '기타' 에서 떼어낸 생활불편(DR 코드). 위 /safety 와 같은 사정.
     filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
     filters = _identity_filters(request, filters)
     dedupe_mode = normalize_dedupe_mode(dedupe)
