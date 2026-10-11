@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import os
+import random
 import sqlite3
 import threading
 import time
@@ -21,9 +22,23 @@ from email.utils import parsedate_to_datetime
 from services.community_auth_store import _FileLock, atomic_write
 
 _now = time.time
+_rand = random.random  # 시험에서 결정적으로 고정하는 지점(0.5 → 지터 배율 정확히 1.0)
 MIN_RETRY_SECONDS = 300
+MAX_RETRY_SECONDS = 1800  # 연속 실패 점증 상한(30분)
+JITTER_RATIO = 0.2  # ±20%
 _locks = {}
 _locks_lock = threading.Lock()
+
+
+def _consecutive_wait(failures: int) -> float:
+    """연속 실패 `failures`(1부터)의 전역 쿨다운 기본값: 300·2^(n-1) 상한 1800초, ±20% 지터(균등).
+
+    여러 PC 가 같은 장애에서 동시에 300초 뒤 다시 몰아치지 않게 한다(2026-10-11 cloud-retry).
+    서버 Retry-After 가 더 길면 호출부에서 `max(base, hint)`로 따로 반영한다(이 함수는 지시를 모른다)."""
+    failures = max(1, int(failures))
+    base = min(MAX_RETRY_SECONDS, MIN_RETRY_SECONDS * (2 ** min(failures - 1, 30)))
+    jitter = (1.0 - JITTER_RATIO) + (2 * JITTER_RATIO) * _rand()
+    return base * jitter
 
 
 class CloudDeferred(RuntimeError):
@@ -168,17 +183,25 @@ def run(base, send):
 
     send returns requests.Response or (status, bytes, headers). No auth/store lock
     is taken here: callers acquire their token before entering this boundary.
+
+    연속 실패마다 쿨다운이 300·2^(n-1)(상한 1800초)로 늘고 ±20% 지터가 섞인다. 성공(비일시 장애 응답)하면
+    이 base 의 행을 지워 연속 실패 횟수를 0으로 되돌린다. 서버 Retry-After 가 점증값보다 길면 그 값을 쓴다
+    (절대 줄이지 않음, 2026-10-11 cloud-retry).
     """
+    deferred_until = None
     with _state() as state:
         key = _scope(base)
         row = state['cloud'].get(key, {})
         until = row.get('next_attempt_at', 0)
         if until > _now():
             raise CloudDeferred(until)
+        failures = int(row.get('consecutive_failures', 0)) + 1
         try:
             response = send()
         except Exception:
-            state['cloud'][key] = {'next_attempt_at': _now() + MIN_RETRY_SECONDS, 'error': 'network_error'}
+            deferred_until = _now() + _consecutive_wait(failures)
+            state['cloud'][key] = {'next_attempt_at': deferred_until, 'error': 'network_error',
+                                  'consecutive_failures': failures}
             # Commit before re-raising outside the context manager.
             failed = True
             response = None
@@ -196,12 +219,14 @@ def run(base, send):
             transient = status == 429 or status >= 500 or (isinstance(err, dict) and
                 (err.get('retryable') is True or err.get('code') in ('rate_limited', 'busy', 'server_error')))
             if transient:
-                state['cloud'][key] = {'next_attempt_at': _now() + max(MIN_RETRY_SECONDS, retry_after(headers, body)),
-                                      'error': 'rate_limited' if status == 429 else 'server_unavailable'}
+                deferred_until = _now() + max(_consecutive_wait(failures), retry_after(headers, body))
+                state['cloud'][key] = {'next_attempt_at': deferred_until,
+                                      'error': 'rate_limited' if status == 429 else 'server_unavailable',
+                                      'consecutive_failures': failures}
             else:
                 state['cloud'].pop(key, None)
     if failed:
-        raise CloudDeferred(_now() + MIN_RETRY_SECONDS)
+        raise CloudDeferred(deferred_until)
     return response
 
 

@@ -90,8 +90,8 @@ def upload_status(data_dir=None) -> dict:
 
 
 def _next_midnight_label() -> str:
-    from services.community_schedule import next_due_at as _next_midnight
-    due = _next_midnight(up._now())
+    from services.community_schedule import midnight_offset_seconds, next_due_at as _next_midnight
+    due = _next_midnight(up._now()) + timedelta(seconds=midnight_offset_seconds())
     kst = due + timedelta(hours=9)
     return kst.strftime("%Y-%m-%d %H:%M")
 

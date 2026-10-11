@@ -68,16 +68,24 @@ def _can_manage(api_key: str) -> bool:
 
 def _check_client_user(token: str, required: bool = True) -> str | None:
     """폰 사용자 토큰(X-Community-User-Token)을 서버 연결 사용자와 비교. 민감 제어(업로드 실행)는 토큰 필수.
-    상태 조회(required=False)는 토큰이 없으면 통과, 있으면 같은 사용자여야 한다."""
+    상태 조회(required=False)는 토큰이 없으면 통과, 있으면 같은 사용자여야 한다.
+
+    쿨다운·클라우드 장애로 확인 자체를 못했으면 account_mismatch(계정이 다르다는 뜻)가 아니라 재시도 가능한
+    cloud_unavailable 을 준다(2026-10-11, cloud-retry 조사 결과 — 전에는 쿨다운 중 항상 account_mismatch 로
+    잘못 보였다)."""
     from services import community_gate as _gate
 
     if not token:
         return "user_token_required" if required else None
     try:
-        ok = bool(_gate.verify_client_user_token(token))
+        detail = _gate.verify_client_user_token_detail(token)
     except Exception:
-        ok = False
-    return None if ok else "account_mismatch"
+        detail = "mismatch"
+    if detail == "match":
+        return None
+    if detail == "unavailable":
+        return "cloud_unavailable"
+    return "account_mismatch"
 
 
 @router.get("/upload/status")
@@ -119,6 +127,14 @@ async def web_upload_reshare(request: Request):
 
 
 def _mismatch(code: str = "account_mismatch") -> JSONResponse:
+    if code == "cloud_unavailable":
+        from services import community_cloud as cloud
+        headers = dict(_NO_STORE)
+        remaining = cloud.remaining()
+        if remaining > 0:
+            headers["Retry-After"] = str(max(1, math.ceil(remaining)))
+        return JSONResponse({"detail": "클라우드에 연결할 수 없어 사용자를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+                             "code": code}, status_code=503, headers=headers)
     detail = ("사용자 확인이 필요합니다. 앱에서 커뮤니티 계정으로 로그인해 주세요." if code == "user_token_required"
               else "서버에 연결된 커뮤니티 계정과 다릅니다.")
     return JSONResponse({"detail": detail, "code": code}, status_code=403, headers=_NO_STORE)

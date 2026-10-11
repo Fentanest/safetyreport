@@ -72,14 +72,36 @@ class ScheduleJobsTest(unittest.TestCase):
     def test_register_is_idempotent(self):
         from apscheduler.schedulers.background import BackgroundScheduler
         scheduler = BackgroundScheduler()
-        sched.register_community_jobs(scheduler)
-        sched.register_community_jobs(scheduler)
+        sched.register_community_jobs(scheduler, data_dir=self.tmp)
+        sched.register_community_jobs(scheduler, data_dir=self.tmp)
         ids = sorted(job.id for job in scheduler.get_jobs())
         self.assertEqual(ids, [sched.GATE_POLL_JOB_ID, sched.MIDNIGHT_JOB_ID])
         midnight = scheduler.get_job(sched.MIDNIGHT_JOB_ID)
         self.assertIsNotNone(midnight)
         self.assertIn("hour='0'", str(midnight.trigger))
-        self.assertIn("minute='0'", str(midnight.trigger))
+        # 2026-10-11 cloud-retry: 00:00 정각이 아니라 설치별 영속 오프셋(분·초)으로 기동한다(동시 기동 분산).
+        offset = sched.midnight_offset_seconds(self.tmp)
+        minute, second = divmod(offset, 60)
+        self.assertIn(f"minute='{minute}'", str(midnight.trigger))
+        self.assertIn(f"second='{second}'", str(midnight.trigger))
+
+    def test_midnight_offset_is_persisted_per_install_and_bounded(self):
+        # 2026-10-11 cloud-retry: 모든 PC 가 정확히 00:00:00 에 기동해 Supabase 를 몰아치지 않도록, 설치(기기)별
+        # 영속 오프셋 0~1800초를 첫 호출 때 정해 저장하고 이후 고정한다(기존 코드는 이 함수가 없어 항상 실패한다).
+        first = sched.midnight_offset_seconds(self.tmp)
+        self.assertGreaterEqual(first, 0)
+        self.assertLessEqual(first, sched.MIDNIGHT_OFFSET_MAX_SECONDS)
+        for _ in range(3):
+            self.assertEqual(sched.midnight_offset_seconds(self.tmp), first, "같은 설치는 재호출해도 같은 오프셋")
+        other_dir = tempfile.mkdtemp()
+        try:
+            other_store = CommunityStore.open(other_dir)
+            other = sched.midnight_offset_seconds(other_dir)
+            self.assertGreaterEqual(other, 0)
+            self.assertLessEqual(other, sched.MIDNIGHT_OFFSET_MAX_SECONDS)
+        finally:
+            other_store.close()
+            CommunityStore._forget(os.path.join(other_dir, "community.db"))
 
     def test_run_midnight_success_records_succeeded(self):
         from services import community_uploader as up

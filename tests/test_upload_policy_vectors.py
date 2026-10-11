@@ -35,9 +35,11 @@ class UploadPolicyVectorTest(unittest.TestCase):
                 self.assertEqual(policy.parse_retry_after(v["headers"], v["body"], NOW), expected)
 
     def test_retry_delay(self):
+        # 2026-10-11: PC 전용 "최소 300초" 바닥을 철회했다(지터·점증을 항상 300으로 뭉갰기 때문 — cloud-retry
+        # 조사 결과·community_upload_policy.retry_delay_seconds 주석 참조). 이제 공유 벡터의 seconds 를 그대로 확인한다.
         for v in VECTORS["retry_delay"]:
             with self.subTest(v=v):
-                self.assertAlmostEqual(policy.retry_delay_seconds(v["n"], v["u"], v["hint"]), max(300, v["hint"] or 0, v["seconds"]), places=6)
+                self.assertAlmostEqual(policy.retry_delay_seconds(v["n"], v["u"], v["hint"]), v["seconds"], places=6)
 
     def test_responses(self):
         for v in VECTORS["responses"]:

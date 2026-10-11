@@ -2,15 +2,22 @@
 
 KST=UTC+9 고정. due_key(t)="midnight:"+kst_date(t), next_due_at(t)=엄격히 다음 자정,
 should_run(t, run)=최신 키 succeeded 면 False, running+유효 lease 면 False, 그 밖 True.
-register_community_jobs(scheduler): community-midnight-upload(CronTrigger 00:00 Asia/Seoul)
+이 둘은 모바일과 공유하는 계약(vectors/schedule.json)이라 지터를 넣지 않는다 — "자정"의 정의는 그대로다.
+register_community_jobs(scheduler): community-midnight-upload(CronTrigger Asia/Seoul, 00:00+설치별 오프셋)
 + community-gate-poll(60초 interval), replace_existing=True 멱등.
 run_midnight/catch_up_on_start 는 schedule_runs 키
 (project_namespace, contributor_fingerprint, local_dataset_id, writer_epoch, schedule_key) 를 쓴다.
+
+자정 동시 기동 분산(2026-10-11 cloud-retry): 모든 설치가 정확히 00:00:00 KST 에 기동해 Supabase 를
+몰아치지 않도록, 설치(기기)별 영속 오프셋 0~1800초(`midnight_offset_seconds`)를 첫 호출 때 무작위로
+정해 community.db meta 에 저장하고 이후 고정한다. 실제 CronTrigger 의 minute/second 에만 반영하고
+due_key/next_due_at(어느 날짜 몫인지)은 바꾸지 않는다 — misfire_grace_time 6시간·coalesce 의미도 그대로다.
 """
 from __future__ import annotations
 
 import json
 import logging
+import random
 import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -21,6 +28,8 @@ MIDNIGHT_JOB_ID = "community-midnight-upload"
 GATE_POLL_JOB_ID = "community-gate-poll"
 SEOUL = ZoneInfo("Asia/Seoul")
 _KST = timedelta(hours=9)
+MIDNIGHT_OFFSET_MAX_SECONDS = 1800  # 설치별 영속 오프셋 상한(30분)
+_MIDNIGHT_OFFSET_META_KEY = "midnight_offset_seconds"
 
 
 def _utc(value: datetime) -> datetime:
@@ -103,7 +112,26 @@ def _key_parts(store) -> dict | None:
     }
 
 
-def register_community_jobs(scheduler) -> None:
+def midnight_offset_seconds(data_dir=None) -> int:
+    """설치(기기)별로 한 번 정해 영속 저장한 자정 분산 오프셋(초, 0~MIDNIGHT_OFFSET_MAX_SECONDS).
+
+    첫 호출 때 무작위로 정해 community.db meta 에 저장하고, 이후 호출은 같은 값을 돌려준다
+    (기기 재시작·재배포에도 고정 — 2026-10-11 cloud-retry, 모든 PC 가 정확히 00:00:00 에 동시 기동하지 않게)."""
+    store = _store(data_dir)
+    raw = store.meta(_MIDNIGHT_OFFSET_META_KEY)
+    if raw is not None:
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            value = None
+        if value is not None and 0 <= value <= MIDNIGHT_OFFSET_MAX_SECONDS:
+            return value
+    value = random.SystemRandom().randint(0, MIDNIGHT_OFFSET_MAX_SECONDS)
+    store.set_meta(_MIDNIGHT_OFFSET_META_KEY, str(value))
+    return value
+
+
+def register_community_jobs(scheduler, data_dir=None) -> None:
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.triggers.interval import IntervalTrigger
     for job_id in (MIDNIGHT_JOB_ID, GATE_POLL_JOB_ID):
@@ -111,8 +139,11 @@ def register_community_jobs(scheduler) -> None:
             scheduler.remove_job(job_id)
         except Exception:
             pass
-    # 잠자기·바쁜 풀로 00:00 을 놓쳐도 6시간 안이면 한 번 실행(coalesce — 여러 번 밀려도 1회). 기본 misfire 1초면 버려졌다.
-    scheduler.add_job(run_midnight, CronTrigger(hour=0, minute=0, timezone=SEOUL),
+    offset = midnight_offset_seconds(data_dir)
+    minute, second = divmod(offset, 60)
+    # 잠자기·바쁜 풀로 00:00+오프셋을 놓쳐도 6시간 안이면 한 번 실행(coalesce — 여러 번 밀려도 1회). 기본 misfire 1초면 버려졌다.
+    # 오프셋(0~1800초, 설치별 영속)으로 모든 PC 가 정확히 00:00:00 KST 에 동시 기동해 Supabase 를 몰아치지 않게 분산한다.
+    scheduler.add_job(run_midnight, CronTrigger(hour=0, minute=minute, second=second, timezone=SEOUL),
                       id=MIDNIGHT_JOB_ID, replace_existing=True, max_instances=1, coalesce=True,
                       misfire_grace_time=6 * 3600)
 

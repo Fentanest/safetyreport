@@ -91,7 +91,7 @@ class ConsentCatchupTests(GateTestBase):
         self.restart()
         gate.refresh_now()
         self.assertEqual(self.account_row(), row)
-        self.wall += 301
+        self.wall += 361  # 2026-10-11: 전역 쿨다운에 ±20% 지터가 붙어 n=1 최대값(360초)보다 크게 넘긴다
         self.assertTrue(gate.refresh_now()['can_enter'])
         job = cloud.current_job()
         self.assertIsNotNone(job)
@@ -161,7 +161,7 @@ class ConsentCatchupTests(GateTestBase):
         self.account.fail.append((503, 'server_error'))
         gate.refresh_now()
         self.assertEqual(self.account_row(), before)
-        self.wall += 301
+        self.wall += 361  # 2026-10-11: 전역 쿨다운에 ±20% 지터가 붙어 n=1 최대값(360초)보다 크게 넘긴다
         gate.refresh_now()
         self.assertEqual(self.account_row(), before)
         self.assertIsNone(cloud.current_job())
