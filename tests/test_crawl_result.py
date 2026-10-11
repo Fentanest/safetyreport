@@ -27,7 +27,7 @@ class CrawlResultTest(unittest.TestCase):
                 os.remove(settings.db_path + ext)
         fixture_server.seed_engine(get_engine())
         with get_engine().connect() as conn:
-            self.ids = [str(r[0]) for r in conn.execute(select(models.title_table.c.ID).order_by(models.title_table.c.ID))][:2]
+            self.ids = [str(r[0]) for r in conn.execute(select(models.report_table.c.ID).order_by(models.report_table.c.ID))][:2]
         from services import crawl_state_store
         crawl_state_store.get_and_clear_crawl_done()
 
@@ -99,8 +99,8 @@ class CrawlResultTest(unittest.TestCase):
         self.assertEqual(state["stream_error"], "ConnectionError")
         self.assertEqual(last_sync, before)
         with get_engine().connect() as conn:
-            saved = {str(r[0]) for r in conn.execute(select(models.detail_traffic_table.c.ID)
-                                                     .where(models.detail_traffic_table.c.처리내용 == "R-07"))}
+            saved = {str(r[0]) for r in conn.execute(select(models.report_table.c.ID)
+                                                     .where(models.report_table.c.처리내용 == "R-07"))}
         self.assertEqual(saved, {self.ids[0]}, "끊기기 전에 받은 1건은 저장된다")
 
     def test_options_and_result_contract(self):

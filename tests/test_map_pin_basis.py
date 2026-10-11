@@ -107,9 +107,9 @@ class PinBasisServiceTest(unittest.TestCase):
         database.upgrade_schema(cls.engine)
         with cls.engine.begin() as conn:
             for index, row in enumerate(VECTORS["rows"]):
-                conn.execute(models.merge_traffic_table.insert().values(
+                conn.execute(models.report_effective_table.insert().values(
                     ID=row["ID"], 상태="수용", 신고번호=f"SN-{row['ID']}", 신고명="핀기준검수",
-                    신고일="2026-01-01", 처리상태="수용", 위반장소=row["위반장소"],
+                    신고일="2026-01-01", category="traffic", 처리상태="수용", 위반장소=row["위반장소"],
                     주소정규화=row["주소정규화"], 행정구역="", 위도=row["위도"], 경도=row["경도"],
                     처리기관="핀기준검수기관", 담당자="핀기준담당",
                     답변일="2026-01-02", 발생일자="2026-01-01", 발생시각="10:00",
@@ -201,8 +201,8 @@ class PinBasisBoundaryTest(unittest.TestCase):
         database.upgrade_schema(engine)
         with engine.begin() as conn:
             for rid, normalized, place, lat, lng in rows:
-                conn.execute(models.merge_traffic_table.insert().values(
-                    ID=rid, 상태="수용", 신고번호=f"SN-{rid}", 신고명="경계", 신고일="2026-01-01",
+                conn.execute(models.report_effective_table.insert().values(
+                    ID=rid, 상태="수용", 신고번호=f"SN-{rid}", 신고명="경계", 신고일="2026-01-01", category="traffic",
                     처리상태="수용", 위반장소=place, 주소정규화=normalized, 행정구역="", 위도=lat, 경도=lng,
                     처리기관="경계기관", 답변일="2026-01-02", 발생일자="2026-01-01", 발생시각="10:00"))
         return engine

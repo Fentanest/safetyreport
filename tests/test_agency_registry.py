@@ -144,10 +144,7 @@ class RegistryStatsWiringTests(unittest.TestCase):
         engine = create_engine(f"sqlite:///{path}")
         try:
             with engine.begin() as conn:
-                models.merge_traffic_table.create(conn)
-                models.merge_parking_table.create(conn)
-                models.merge_other_table.create(conn)
-                models.entry_value_table.create(conn)
+                models.report_effective_table.create(conn)
                 rows = [
                     # 옛 코드·옛 이름·승계 전 답변일 + 새 코드·새 이름: 한 기관으로 묶여야 한다.
                     {"ID": "c1", "신고번호": "SPP-2609-000001", "신고명": "신호위반",
@@ -160,7 +157,7 @@ class RegistryStatsWiringTests(unittest.TestCase):
                      "담당자": "이담당", "처리상태": "수용", "범칙금_과태료": "과태료: 50000원"},
                 ]
                 for row in rows:
-                    conn.execute(models.merge_traffic_table.insert().values(**row))
+                    conn.execute(models.report_effective_table.insert().values(category="traffic", **row))
             got = stats.get_agency_stats(engine, {}, mode="raw")
             by_agency = {r["agency"]: r for r in got["traffic"]["by_agency"]}
             self.assertEqual(set(by_agency), {"광주경찰청 광주동부경찰서"})
@@ -189,10 +186,7 @@ class RegistryStatsWiringTests(unittest.TestCase):
         engine = create_engine(f"sqlite:///{path}")
         try:
             with engine.begin() as conn:
-                models.merge_traffic_table.create(conn)
-                models.merge_parking_table.create(conn)
-                models.merge_other_table.create(conn)
-                models.entry_value_table.create(conn)
+                models.report_effective_table.create(conn)
                 rows = [
                     {"ID": "c2", "신고번호": "SPP-2609-000002", "신고명": "신호위반",
                      "신고일": "2026-08-01 10:00", "답변일": "2026-09-01",
@@ -204,7 +198,7 @@ class RegistryStatsWiringTests(unittest.TestCase):
                      "담당자": "김담당", "처리상태": "수용", "범칙금_과태료": "과태료: 50000원"},
                 ]
                 for row in rows:
-                    conn.execute(models.merge_traffic_table.insert().values(**row))
+                    conn.execute(models.report_effective_table.insert().values(category="traffic", **row))
             got = stats.get_agency_stats(engine, {}, mode="raw")
             by_agency = {r["agency"]: r for r in got["traffic"]["by_agency"]}
             self.assertEqual(set(by_agency), {"광주경찰청 광주동부경찰서"})
@@ -227,12 +221,9 @@ class RegistryStatsWiringTests(unittest.TestCase):
         os.close(fd)
         engine = create_engine(f"sqlite:///{path}")
         with engine.begin() as conn:
-            models.merge_traffic_table.create(conn)
-            models.merge_parking_table.create(conn)
-            models.merge_other_table.create(conn)
-            models.entry_value_table.create(conn)
+            models.report_effective_table.create(conn)
             for row in rows:
-                conn.execute(models.merge_traffic_table.insert().values(**row))
+                conn.execute(models.report_effective_table.insert().values(category="traffic", **row))
         return engine, path, app_settings, stats
 
     def _row(self, rid, code, agency, person="김담당"):

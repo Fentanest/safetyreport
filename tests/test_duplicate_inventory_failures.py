@@ -14,11 +14,9 @@ from services import duplicate_group_service as dgs
 
 
 SOURCES = (
-    models.merge_traffic_table,
-    models.merge_parking_table,
-    models.merge_other_table,
-    models.entry_value_table,
-    models.raw_content_table,
+    # 스키마 6: 화면용 표 하나(category·entry_value 포함)와 본문 표만 원천이다.
+    models.report_effective_table,
+    models.report_body_table,
 )
 DERIVED = (
     models.duplicate_group_table,
@@ -67,16 +65,15 @@ class DuplicateInventoryFailureTests(unittest.TestCase):
                 self.assertIsInstance(caught.exception.__cause__, OperationalError)
             self.assertEqual(self.snapshot(), before)
 
-    def test_empty_reports_still_require_entry_and_raw_reads(self):
+    def test_empty_reports_still_require_the_raw_content_read(self):
+        """화면용 표가 비어도(신고 0건) 본문 읽기가 실패하면 기존 그룹을 지우지 않는다(주석 S-: DELETE 전 확인)."""
         with self.engine.begin() as conn:
-            for table in SOURCES[:3]:
-                conn.execute(table.delete())
+            conn.execute(models.report_effective_table.delete())
         before = self.snapshot()
-        for table in SOURCES[3:]:
-            with self.subTest(source=table.name), self.fail_read(table):
-                with self.assertRaises(RuntimeError):
-                    dgs.refresh_duplicate_groups(self.engine)
-            self.assertEqual(self.snapshot(), before)
+        with self.fail_read(models.report_body_table):
+            with self.assertRaises(RuntimeError):
+                dgs.refresh_duplicate_groups(self.engine)
+        self.assertEqual(self.snapshot(), before)
 
     def test_actual_empty_inventory_removes_derived_groups_but_keeps_decisions(self):
         with self.engine.begin() as conn:
@@ -91,7 +88,7 @@ class DuplicateInventoryFailureTests(unittest.TestCase):
         self.assertEqual(after[models.duplicate_decision_table.name], decisions)
 
     def test_missing_source_table_is_not_a_successful_empty_read(self):
-        models.raw_content_table.drop(self.engine)
+        models.report_body_table.drop(self.engine)
         with self.engine.connect() as conn:
             before = [tuple(r) for r in conn.execute(select(models.duplicate_group_table))]
         with self.assertRaises(RuntimeError):

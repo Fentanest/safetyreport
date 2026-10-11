@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 
 import settings.settings as settings
 from core.database import database, models
@@ -89,23 +89,23 @@ class ExchangeRestoreTests(unittest.TestCase):
 
     def test_server_restore_repairs_stale_merge_in_staging(self):
         with get_engine().begin() as conn:
-            conn.execute(models.detail_traffic_table.update().values(처리기관코드="fixture-code"))
-            conn.execute(models.merge_traffic_table.update().values(처리기관코드=""))
+            conn.execute(models.report_table.update().values(처리기관코드="fixture-code"))
+            conn.execute(models.report_effective_table.update().values(처리기관코드=""))
         exchange._copy_sqlite(settings.db_path, str(self.upload))
         original = self.upload.read_bytes()
         exchange.restore(str(self.upload), "server")
         with get_engine().connect() as conn:
-            codes = set(conn.execute(select(models.merge_traffic_table.c.처리기관코드)).scalars())
+            codes = set(conn.execute(select(models.report_effective_table.c.처리기관코드)).scalars())
         self.assertEqual(codes, {"fixture-code"})
         self.assertEqual(self.upload.read_bytes(), original)
 
     def test_refused_while_crawling_and_live_db_untouched(self):
         _mobile_db(self.upload)
-        before = self._count(models.title_table)
+        before = self._count(models.report_table)
         with mock.patch("services.crawl_manager.crawl_manager.is_crawling", return_value=True):
             with self.assertRaises(exchange.RestoreRefused):
                 exchange.restore(str(self.upload), "mobile")
-        self.assertEqual(self._count(models.title_table), before)
+        self.assertEqual(self._count(models.report_table), before)
 
     def test_broken_upload_leaves_live_db_untouched(self):
         con = sqlite3.connect(self.upload)
@@ -113,10 +113,10 @@ class ExchangeRestoreTests(unittest.TestCase):
         con.execute("CREATE TABLE something_else (x)")
         con.commit()
         con.close()
-        before = self._count(models.title_table)
+        before = self._count(models.report_table)
         with self.assertRaises(ValueError):
             exchange.restore(str(self.upload), "mobile")
-        self.assertEqual(self._count(models.title_table), before)
+        self.assertEqual(self._count(models.report_table), before)
         leftovers = [p for p in os.listdir(settings.datapath) if p.startswith(".restore_staging_")]
         self.assertEqual(leftovers, [])
 
@@ -131,8 +131,8 @@ class ExchangeRestoreTests(unittest.TestCase):
         with get_engine().connect() as conn:
             caches = {r[0] for r in conn.execute(select(models.geocode_cache_table.c["주소정규화"]))}
             self.assertTrue({"서버 전용 주소", "앱 주소 1"} <= caches)  # 서버 캐시 유지 + 앱 캐시 합침(S-13)
-            self.assertEqual(conn.execute(select(models.merge_traffic_table.c["감시목록"])).scalar(), "Y")  # 계산값
-            self.assertIsNone(conn.execute(select(models.merge_traffic_table.c["별점사유"])).scalar())  # NULL 보존
+            self.assertEqual(conn.execute(select(models.report_effective_table.c["감시목록"])).scalar(), "Y")  # 계산값
+            self.assertIsNone(conn.execute(select(models.report_effective_table.c["별점사유"])).scalar())  # NULL 보존
             keys_meta = {r[0] for r in conn.execute(select(models.sync_meta_table.c.key))}
             self.assertNotIn("watchlist", keys_meta)  # 서버에는 감시목록 사본을 두지 않음
             self.assertEqual(conn.execute(select(models.report_override_table.c.value)).scalar(), "앱에서 고침")
@@ -142,17 +142,17 @@ class ExchangeRestoreTests(unittest.TestCase):
         with get_engine().begin() as conn:
             conn.execute(models.report_override_table.insert().values(ID="m1", column_name="처리내용", value="서버에서 고침", updated_at=1))
         _mobile_db(self.upload, with_override=False, version=11)
-        before = self._count(models.title_table)
+        before = self._count(models.report_table)
         with self.assertRaises(exchange.LegacyDatabaseRefused) as ctx:
             exchange.restore(str(self.upload), "mobile")
         self.assertIn("이전 버전 모바일 앱 DB(스키마 11)", str(ctx.exception))
         self.assertIsInstance(ctx.exception, exchange.RestoreRefused)  # 라우트가 409 문장으로 보여 준다
-        self.assertEqual(self._count(models.title_table), before)
+        self.assertEqual(self._count(models.report_table), before)
         with get_engine().connect() as conn:
             self.assertEqual(conn.execute(select(models.report_override_table.c.value)).scalar(), "서버에서 고침")
 
     def test_every_older_or_newer_db_version_is_refused_before_touching_live_db(self):
-        before = self._count(models.title_table)
+        before = self._count(models.report_table)
         for version in (0, 1, 10, exchange.MOBILE_SCHEMA_VERSION - 1, exchange.MOBILE_SCHEMA_VERSION + 1):
             with self.subTest(kind="mobile", version=version):
                 path = Path(self._tmp.name) / f"mobile_v{version}.db"
@@ -170,13 +170,48 @@ class ExchangeRestoreTests(unittest.TestCase):
                 with self.assertRaises(exchange.LegacyDatabaseRefused) as ctx:
                     exchange.restore(str(path), "server")
                 self.assertIn(f"이전 버전 서버 DB(스키마 {version})", str(ctx.exception))
-        self.assertEqual(self._count(models.title_table), before)
+        self.assertEqual(self._count(models.report_table), before)
         self.assertEqual([p for p in os.listdir(settings.datapath) if p.startswith(".restore_staging_")], [])
 
     def test_mobile_schema_version_matches_the_contract(self):
         import json
         contract = json.loads((Path(__file__).resolve().parents[1] / "contracts" / "storage-contract.json").read_text(encoding="utf-8"))
         self.assertEqual(exchange.MOBILE_SCHEMA_VERSION, contract["schema_version"]["mobile"])
+
+    def test_mobile_v17_snapshot_with_safety_and_living_categories_round_trips(self):
+        """스키마 6/모바일 17: 5분류 중 safety·living 도 다른 분류와 똑같이 옮겨진다(구버전 3분류 가정이 남지 않았는지)."""
+        con = sqlite3.connect(self.upload)
+        con.execute(f"PRAGMA user_version = {exchange.MOBILE_SCHEMA_VERSION}")
+        con.executescript(
+            """
+            CREATE TABLE reports (ID TEXT PRIMARY KEY, 상태 TEXT, 신고번호 TEXT, 신고명 TEXT, 신고일 TEXT, 만족도조사여부 TEXT, 별점 INTEGER,
+              별점사유 TEXT, 감시목록 TEXT, 처리상태 TEXT, 처리기관 TEXT, 담당자 TEXT, 위반장소 TEXT, 종결여부 TEXT, category TEXT, entry_value TEXT,
+              raw_content TEXT, synced_at INTEGER);
+            CREATE TABLE sync_meta (key TEXT PRIMARY KEY, value TEXT);
+            """
+        )
+        con.execute("INSERT INTO reports VALUES ('msafe1','수용','SPP-SAFE-1','안전신고','2026-09-01','',NULL,NULL,'N',"
+                    "'수용','안전관리과','김담당','서울 강서구 안전 1','Y','safety','안전신고-생활안전','',NULL)")
+        con.execute("INSERT INTO reports VALUES ('mlive1','수용','SPP-LIVE-1','생활불편','2026-09-02','',NULL,NULL,'N',"
+                    "'수용','환경과','이담당','서울 강서구 생활 1','Y','living','생활불편신고-쓰레기, 폐기물','',NULL)")
+        con.execute("INSERT INTO sync_meta VALUES ('last_sync','2026-09-24T10:00:00')")
+        con.commit()
+        con.close()
+        _, count = exchange.restore(str(self.upload), "mobile")
+        self.assertEqual(count, 2)
+        with get_engine().connect() as conn:
+            rows = {r.ID: (r.category, r.entry_value, r.처리기관) for r in conn.execute(select(models.report_table))}
+        self.assertEqual(rows["msafe1"], ("safety", "안전신고-생활안전", "안전관리과"))
+        self.assertEqual(rows["mlive1"], ("living", "생활불편신고-쓰레기, 폐기물", "환경과"))
+
+    def test_v16_mobile_db_is_refused_as_legacy(self):
+        """스키마 17 전(v16) 모바일 DB 는 가져오지 않고 거절한다(복원 뒤 초기화 크롤링 전제, 2026-10-11 결정)."""
+        _mobile_db(self.upload, version=16)
+        before = self._count(models.report_table)
+        with self.assertRaises(exchange.LegacyDatabaseRefused) as ctx:
+            exchange.restore(str(self.upload), "mobile")
+        self.assertEqual(ctx.exception.code, "DB_LEGACY_UNSUPPORTED")
+        self.assertEqual(self._count(models.report_table), before)
 
     def _add_legacy_duplicate(self, *, decisions=True):
         """앱 DB 에 같은 본문 신고 2건 + 옛(레거시) id 중복군 + 그 id 로 남긴 사용자 판단."""
@@ -232,10 +267,10 @@ class ExchangeRestoreTests(unittest.TestCase):
         con.execute(f"PRAGMA user_version = {database.SCHEMA_VERSION + 1}")
         con.commit()
         con.close()
-        before = self._count(models.title_table)
+        before = self._count(models.report_table)
         with self.assertRaises(RuntimeError):
             exchange.restore(str(newer), "server")
-        self.assertEqual(self._count(models.title_table), before)
+        self.assertEqual(self._count(models.report_table), before)
 
     # ── 2026-09-26 감사 SOL-02·03·04 ──────────────────────────────────────────
 
@@ -253,12 +288,12 @@ class ExchangeRestoreTests(unittest.TestCase):
         con.execute("UPDATE reports SET 미래열 = '' WHERE ID = 'm1'")  # 빈 문자열도 값이다
         con.commit()
         con.close()
-        before = self._count(models.title_table)
+        before = self._count(models.report_table)
         with self.assertRaises(exchange.UnknownColumns) as ctx:
             exchange.restore(str(self.upload), "mobile")
         self.assertIn("reports.미래열(1행)", str(ctx.exception))
         self.assertIsInstance(ctx.exception, exchange.RestoreRefused)  # 라우트가 409 문장으로 보여 준다
-        self.assertEqual(self._count(models.title_table), before)
+        self.assertEqual(self._count(models.report_table), before)
 
     def test_unknown_column_that_is_all_null_loses_nothing_and_restores(self):
         _mobile_db(self.upload)
@@ -271,13 +306,12 @@ class ExchangeRestoreTests(unittest.TestCase):
 
     def _entry_value(self, report_id="m1"):
         with get_engine().connect() as conn:
-            rows = conn.execute(select(models.entry_value_table.c.entry_value).where(models.entry_value_table.c.ID == report_id)).fetchall()
-        return [r[0] for r in rows]
+            return conn.execute(select(models.report_table.c.entry_value)
+                                .where(models.report_table.c.ID == report_id)).scalar()
 
     def _set_server_entry(self, value):
         with get_engine().begin() as conn:
-            conn.execute(models.entry_value_table.delete().where(models.entry_value_table.c.ID == "m1"))
-            conn.execute(models.entry_value_table.insert().values(ID="m1", entry_value=value))
+            conn.execute(update(models.report_table).where(models.report_table.c.ID == "m1").values(entry_value=value))
 
     def test_entry_value_follows_the_app_exactly_empty_null_and_old_app(self):
         # 앱의 빈 문자열은 서버의 이전 값을 덮는다
@@ -288,15 +322,15 @@ class ExchangeRestoreTests(unittest.TestCase):
         con.commit()
         con.close()
         exchange.restore(str(self.upload), "mobile")
-        self.assertEqual(self._entry_value(), [""])
-        # 앱의 NULL(모름)은 서버 행 없음
+        self.assertEqual(self._entry_value(), "")
+        # 앱의 NULL(모름)도 그대로 NULL — 스키마 6은 entry_value 가 열 값이라 "행 없음"을 따로 표현하지 않는다
         self._set_server_entry("이전 값")
         con = sqlite3.connect(self.upload)
         con.execute("UPDATE reports SET entry_value = NULL WHERE ID = 'm1'")
         con.commit()
         con.close()
         exchange.restore(str(self.upload), "mobile")
-        self.assertEqual(self._entry_value(), [])
+        self.assertIsNone(self._entry_value())
         # 열이 없는 구앱 DB 는 이번 릴리스에서 가져오지 않는다(거절, 서버 값 유지)
         self._set_server_entry("이전 값")
         old = Path(self._tmp.name) / "old.db"
@@ -310,7 +344,7 @@ class ExchangeRestoreTests(unittest.TestCase):
         con.close()
         with self.assertRaises(exchange.LegacyDatabaseRefused):
             exchange.restore(str(old), "mobile")
-        self.assertEqual(self._entry_value(), ["이전 값"])
+        self.assertEqual(self._entry_value(), "이전 값")
 
     def test_write_committed_while_restore_waits_is_kept(self):
         """SOL-04: 복원이 시작될 때 이미 연결을 빌려 쓰던 요청의 커밋은 새 DB 에 남는다(장벽이 반납을 기다린다)."""
@@ -400,7 +434,7 @@ class ExchangeRestoreTests(unittest.TestCase):
         t = threading.Thread(target=holder)
         t.start()
         holding.wait(5)
-        before = self._count(models.title_table)
+        before = self._count(models.report_table)
         try:
             with mock.patch.object(write_barrier, "DRAIN_WAIT_SECONDS", 0.3):
                 with self.assertRaises(exchange.RestoreRefused):
@@ -408,7 +442,7 @@ class ExchangeRestoreTests(unittest.TestCase):
         finally:
             release.set()
             t.join(10)
-        self.assertEqual(self._count(models.title_table), before)
+        self.assertEqual(self._count(models.report_table), before)
 
     # ── Sol 재검증 SOL-04: 복원 ↔ 크롤러 시작 경쟁 ─────────────────────────────
 
@@ -490,12 +524,12 @@ class ExchangeRestoreTests(unittest.TestCase):
         running = mock.MagicMock()
         running.poll.return_value = None
         crawl_manager._active_process = running
-        before = self._count(models.title_table)
+        before = self._count(models.report_table)
         # ensure_restore_allowed 의 사전 검사를 지나도(가짜로 False) hold 가 같은 잠금에서 다시 막는다
         with mock.patch.object(crawl_manager, "is_crawling", return_value=False):
             with self.assertRaises(exchange.RestoreRefused):
                 exchange.restore(str(self.upload), "mobile")
-        self.assertEqual(self._count(models.title_table), before)
+        self.assertEqual(self._count(models.report_table), before)
         self.assertFalse(crawl_manager.restore_in_progress())
 
     def test_a_stopped_crawler_that_is_still_alive_keeps_blocking_restore(self):
@@ -529,10 +563,10 @@ class ExchangeRestoreTests(unittest.TestCase):
         self.assertEqual((state["terminated"], state["killed"]), (1, 1))
         self.assertIs(crawl_manager.get_process(), proc, "살아 있으면 참조를 지우지 않는다")
         self.assertTrue(crawl_manager.is_crawling())
-        before = self._count(models.title_table)
+        before = self._count(models.report_table)
         with self.assertRaises(exchange.RestoreRefused):
             exchange.restore(str(self.upload), "mobile")
-        self.assertEqual(self._count(models.title_table), before)
+        self.assertEqual(self._count(models.report_table), before)
         # 실제로 끝나면 복원할 수 있다
         state["alive"] = False
         _, count = exchange.restore(str(self.upload), "mobile")
@@ -833,7 +867,7 @@ class ExchangeRestoreTests(unittest.TestCase):
 
     def _db_numbers(self):
         with get_engine().connect() as conn:
-            return conn.execute(select(models.title_table.c.ID, models.title_table.c["신고번호"])).all()
+            return conn.execute(select(models.report_table.c.ID, models.report_table.c["신고번호"])).all()
 
     def test_the_real_crawler_reports_saved_and_missing_numbers_only(self):
         """감사 R5-01·R6-01·R7-01: 실제 crawl_titles 로 목록 전체를 받은 뒤 — 저장까지 끝난 번호와 목록 어디에도 없는 번호만 보고한다.

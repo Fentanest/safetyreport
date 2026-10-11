@@ -18,12 +18,14 @@ from core.database import database, models
 from core.utils import logger
 from scripts.dev import fixture_server
 from services import duplicate_group_service as dgs
+from services import report_category
 from services import report_query_service as rqs
 from services import report_stats_service as rss
 
-TABLES = {"traffic": database.merge_traffic_table, "parking": database.merge_parking_table,
-          "other": database.merge_other_table}
-GETTERS = {"traffic": rqs.get_traffic_records, "parking": rqs.get_parking_records, "other": rqs.get_other_records}
+# 스키마 6: 화면용 표 하나(mysafety_report_effective)에 모든 분류가 있다. category 열로 거른다.
+EFFECTIVE = database.report_effective_table
+GETTERS = {"traffic": rqs.get_traffic_records, "parking": rqs.get_parking_records,
+          "safety": rqs.get_safety_records, "living": rqs.get_living_records, "other": rqs.get_other_records}
 META = ("duplicate_group_id", "duplicate_member_count", "is_duplicate_representative", "감시목록")
 
 
@@ -38,19 +40,19 @@ class ProjectionContextTest(unittest.TestCase):
         with self.engine.connect() as conn:
             group = conn.execute(select(models.duplicate_group_table)).mappings().one()
             members = sorted(r[0] for r in conn.execute(select(models.duplicate_member_table.c.report_id)))
-            self.category = next(name for name, table in TABLES.items()
-                                 if conn.execute(select(table.c.ID).where(table.c.ID == members[0])).first())
+            self.category = conn.execute(select(EFFECTIVE.c.category).where(EFFECTIVE.c.ID == members[0])).scalar_one()
             others = [(r[0], r[1]) for r in conn.execute(
-                select(TABLES[self.category].c.ID, TABLES[self.category].c.신고번호)
-                .where(TABLES[self.category].c.ID.not_in(members)).order_by(TABLES[self.category].c.ID))]
+                select(EFFECTIVE.c.ID, EFFECTIVE.c.신고번호)
+                .where(EFFECTIVE.c.category == self.category, EFFECTIVE.c.ID.not_in(members))
+                .order_by(EFFECTIVE.c.ID))]
         # 수동 대표건: 원래 대표가 아닌 쪽을 대표로 고르고, 원래 대표(이제 비대표)만 감시한다.
         self.group_id = group["group_id"]
         self.rep, self.non_rep = members[1], members[0]
         self.assertTrue(dgs.update_duplicate_group(self.engine, self.group_id, duplicate_status="confirmed_duplicate",
                                                    representative_mode="manual", representative_id=self.rep))
         with self.engine.begin() as conn:
-            number = conn.execute(select(TABLES[self.category].c.신고번호)
-                                  .where(TABLES[self.category].c.ID == self.non_rep)).scalar_one()
+            number = conn.execute(select(EFFECTIVE.c.신고번호)
+                                  .where(EFFECTIVE.c.ID == self.non_rep)).scalar_one()
             conn.execute(models.watchlist_table.delete())
             conn.execute(models.watchlist_table.insert().values(신고번호=number))
             # not_duplicate 그룹: 두 신고 모두 canonical 에도 남아야 한다.
@@ -63,21 +65,21 @@ class ProjectionContextTest(unittest.TestCase):
                     group_id="loose", report_id=rid, report_number=number, category=self.category,
                     is_representative=1 if i == 0 else 0))
 
-    def _frame(self, conn, table):
+    def _frame(self, conn, categories):
         # 목록과 같은 기본 조건(취하 제외 설정 포함)
-        frame = pd.read_sql_query(rqs._build_records_query(table), conn)
+        frame = pd.read_sql_query(rqs._build_records_query(EFFECTIVE, categories=categories), conn)
         watch = {r[0] for r in conn.execute(select(models.watchlist_table.c.신고번호))}
         frame["감시목록"] = frame["신고번호"].map(lambda n: "Y" if n in watch else "N")
         return frame
 
     def test_sql_frame_records_and_pages_agree(self):
         for mode in ("raw", "canonical"):
-            for category, table in TABLES.items():
+            for category in report_category.CATEGORIES:
                 with self.subTest(mode=mode, category=category), self.engine.connect() as conn:
                     projection = dgs.ProjectionContext.load(conn, mode)
                     sql_ids = sorted(str(r.ID) for r in conn.execute(
-                        dgs.canonical_sql(table, rqs._build_records_query(table), mode)))
-                    frame = projection.project_frame(self._frame(conn, table))
+                        dgs.canonical_sql(EFFECTIVE, rqs._build_records_query(EFFECTIVE, categories=(category,)), mode)))
+                    frame = projection.project_frame(self._frame(conn, (category,)))
                     self.assertEqual(sorted(frame["ID"].astype(str)), sql_ids)
                     records = GETTERS[category](self.engine, mode=mode)
                     self.assertEqual(sorted(str(r["ID"]) for r in records), sql_ids)
@@ -94,10 +96,9 @@ class ProjectionContextTest(unittest.TestCase):
                                              row["ID"])
 
     def test_canonical_keeps_representative_with_inherited_watch_and_not_duplicate_members(self):
-        table = TABLES[self.category]
         with self.engine.connect() as conn:
             projection = dgs.ProjectionContext.load(conn, "canonical")
-            frame = projection.project_frame(self._frame(conn, table))
+            frame = projection.project_frame(self._frame(conn, (self.category,)))
         self.assertEqual(projection.excluded_ids, {self.non_rep})
         self.assertNotIn(self.non_rep, set(frame["ID"]))
         self.assertEqual(frame.loc[frame["ID"] == self.rep, "감시목록"].tolist(), ["Y"])
@@ -110,12 +111,11 @@ class ProjectionContextTest(unittest.TestCase):
         self.assertEqual(rep["감시목록"], "Y")
 
     def test_raw_record_projection_adds_meta_but_frame_projection_does_not(self):
-        table = TABLES[self.category]
         records = {str(r["ID"]): r for r in GETTERS[self.category](self.engine, mode="raw")}
         self.assertIn(self.non_rep, records)
         with self.engine.connect() as conn:
             projection = dgs.ProjectionContext.load(conn, "raw")
-            frame = self._frame(conn, table)
+            frame = self._frame(conn, (self.category,))
         self.assertEqual(projection.members, {})
         self.assertIs(projection.project_frame(frame), frame)
 
@@ -128,12 +128,11 @@ class ProjectionContextTest(unittest.TestCase):
 
     def test_page_order_is_report_number_then_id_descending(self):
         # Insertion/ID order disagrees with report number; ties span boundaries.
-        table = TABLES['traffic']
         with self.engine.begin() as conn:
-            conn.execute(table.delete())
+            conn.execute(EFFECTIVE.delete().where(EFFECTIVE.c.category == 'traffic'))
             for rid, number in [('z', 'SPP-2601-1'), ('a', 'SPP-2610-1'),
                                 ('b', 'SPP-2610-1'), ('c', 'SPP-2609-1')]:
-                conn.execute(table.insert().values(ID=rid, 신고번호=number, 처리상태='수용'))
+                conn.execute(EFFECTIVE.insert().values(ID=rid, 신고번호=number, 처리상태='수용', category='traffic'))
         for mode in ('raw', 'canonical'):
             for size in (1, 2, 3):
                 rows, offset = [], 0

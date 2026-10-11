@@ -87,8 +87,10 @@ class RestoreImmutability(unittest.TestCase):
             connection=sqlite3.connect(path)
             try: return tuple(connection.iterdump())
             finally: connection.close()
+        from core.database import database as db
+
         personal=dump(env.personal_db); community=dump(str(Path(env.tmp)/'community.db'))
-        for version,code in [(4,'DB_LEGACY_UNSUPPORTED'),(6,'DB_SCHEMA_UNSUPPORTED')]:
+        for version,code in [(4,'DB_LEGACY_UNSUPPORTED'),(db.SCHEMA_VERSION+1,'DB_SCHEMA_UNSUPPORTED')]:
             upload=Path(env.tmp)/f'v{version}.db'
             connection=sqlite3.connect(upload)
             connection.execute('CREATE TABLE mysafety(ID TEXT)'); connection.execute(f'PRAGMA user_version={version}')

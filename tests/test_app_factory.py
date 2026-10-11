@@ -51,7 +51,7 @@ class AppFactoryTest(unittest.TestCase):
         self.assertEqual(after["dirs"], ["auth", "logs", "results"])
         self.assertEqual(after["middleware"][0], "_WebSocketSafeSessionMiddleware")
         self.assertEqual(after["middleware"][1:], ["auth_middleware", "request_timings", "community_gate_middleware",
-                                                   "inject_version_middleware"])
+                                                   "inject_version_middleware", "taxonomy_compat_middleware"])
 
     def test_subprocess_modes_are_dispatched_before_router_imports(self):
         source = (ROOT / "main.py").read_text(encoding="utf-8")

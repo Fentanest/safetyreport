@@ -72,10 +72,9 @@ class StatsPageAndMapTest(unittest.TestCase):
         coords = {"90000001": (37.561, 126.825), "90000011": (37.5605, 126.83), "90000012": (37.5605, 126.83),
                   "90000101": (37.558, 126.86)}
         with cls.engine.begin() as conn:
-            for table in (models.detail_traffic_table, models.detail_parking_table):
-                for rid, (lat, lng) in coords.items():
-                    conn.execute(update(table).where(table.c.ID == rid).values(위도=lat, 경도=lng))
-        database.merge_final(cls.engine)
+            for rid, (lat, lng) in coords.items():
+                conn.execute(update(models.report_table).where(models.report_table.c.ID == rid).values(위도=lat, 경도=lng))
+        database.rebuild_effective(cls.engine)
         cls._saved = app_settings._instance.exclude_withdraw
         app_settings._instance.exclude_withdraw = True
 

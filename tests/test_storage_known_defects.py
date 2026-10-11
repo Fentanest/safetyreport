@@ -44,16 +44,16 @@ class ServerKnownDefectTests(_SeededDb):
         """S-1(R2c 고침, 결정 D-1): 편집기로 고친 처리내용은 수정값 표에 남아 재크롤링 뒤에도 화면에 보인다. 원본은 원본대로."""
         from services import db_editor_service
 
-        before = self.merge_row(models.merge_traffic_table, "90000001")
+        before = self.merge_row(models.report_effective_table, "90000001")
         fields = {k: before.get(k) or "" for k in db_editor_service._DETAIL_FIELDS}
         fields["처리내용"] = "내가 고친 처리내용"
         self.assertTrue(db_editor_service.update_record(self.engine, "traffic", "90000001", fields))
-        self.assertEqual(self.merge_row(models.merge_traffic_table, "90000001")["처리내용"], "내가 고친 처리내용")
+        self.assertEqual(self.merge_row(models.report_effective_table, "90000001")["처리내용"], "내가 고친 처리내용")
 
         self.crawl("90000001", 처리상태=before["처리상태"], 처리내용=before["처리내용"], 위반장소=before["위반장소"], 종결여부=before["종결여부"])
-        database.merge_final(self.engine)
-        self.assertEqual(self.merge_row(models.merge_traffic_table, "90000001")["처리내용"], "내가 고친 처리내용")
-        self.assertEqual(self.detail_row(models.detail_traffic_table, "90000001")["처리내용"], before["처리내용"])
+        database.rebuild_effective(self.engine)
+        self.assertEqual(self.merge_row(models.report_effective_table, "90000001")["처리내용"], "내가 고친 처리내용")
+        self.assertEqual(self.detail_row(models.report_table, "90000001")["처리내용"], before["처리내용"])
         with self.engine.connect() as conn:  # 다른 필드는 원본과 같아 수정값을 만들지 않는다
             overrides = conn.execute(select(models.report_override_table.c.column_name)).scalars().all()
         self.assertEqual(overrides, ["처리내용"])
@@ -62,10 +62,10 @@ class ServerKnownDefectTests(_SeededDb):
         """S-2(R2c 고침): 일부 필드만 보낸 편집은 그 필드만 바꾼다."""
         from services import db_editor_service
 
-        before = self.merge_row(models.merge_traffic_table, "90000001")
+        before = self.merge_row(models.report_effective_table, "90000001")
         self.assertTrue(before["처리기관"])
         db_editor_service.update_record(self.engine, "traffic", "90000001", {"처리내용": "일부만 수정"})
-        after = self.merge_row(models.merge_traffic_table, "90000001")
+        after = self.merge_row(models.report_effective_table, "90000001")
         self.assertEqual(after["처리내용"], "일부만 수정")
         self.assertEqual(after["처리기관"], before["처리기관"])
         # 원본과 같은 값으로 다시 고치면 수정값이 사라진다(되돌리기)
@@ -75,48 +75,49 @@ class ServerKnownDefectTests(_SeededDb):
 
     def test_S5_null_vs_empty_is_not_a_change(self):
         """S-5(R2b 고침): 내용이 같으면 DB 의 NULL 과 새 값 '' 를 같게 본다(가짜 변경 알림·synced_at 오염 없음)."""
-        base = self.detail_row(models.detail_traffic_table, "90000002")
+        base = self.detail_row(models.report_table, "90000002")
         fields = dict(처리상태=base["처리상태"], 처리내용=base["처리내용"], 위반장소=base["위반장소"], 종결여부=base["종결여부"], 벌점="")
         self.crawl("90000002", **fields)
         self.assertEqual(self.crawl("90000002", **fields), [])  # 같은 값 두 번째 저장 → 변경 없음(정상)
         with self.engine.begin() as conn:
-            conn.execute(update(models.detail_traffic_table).where(models.detail_traffic_table.c.ID == "90000002").values(벌점=None))
+            conn.execute(update(models.report_table).where(models.report_table.c.ID == "90000002").values(벌점=None))
         self.assertEqual(self.crawl("90000002", **fields), [])
-        self.assertEqual(self.crawl("90000002", **{**fields, "처리내용": "실제로 바뀐 내용"}), [{"id": "90000002", "change_type": "변경"}])
+        self.assertEqual(self.crawl("90000002", **{**fields, "처리내용": "실제로 바뀐 내용"}),
+                         [{"id": "90000002", "change_type": "변경", "category": "traffic"}])
 
     def test_S19_null_closed_flag_is_recrawled(self):
         """S-19(R2a 고침): 종결여부 NULL(모름) 인 신고도 재크롤링 대상이다."""
         with self.engine.connect() as conn:
-            open_id = conn.execute(select(models.detail_traffic_table.c.ID).where(models.detail_traffic_table.c.종결여부 == "N")).scalars().first()
+            open_id = conn.execute(select(models.report_table.c.ID).where(models.report_table.c.종결여부 == "N")).scalars().first()
         self.assertIsNotNone(open_id)
         self.assertIn(open_id, database.get_pending_detail_ids(self.engine))
         with self.engine.begin() as conn:
-            conn.execute(update(models.detail_traffic_table).where(models.detail_traffic_table.c.ID == open_id).values(종결여부=None))
+            conn.execute(update(models.report_table).where(models.report_table.c.ID == open_id).values(종결여부=None))
         self.assertIn(open_id, database.get_pending_detail_ids(self.engine))
 
     def test_S26_list_save_keeps_completed_poll_status(self):
         """S-26(R2a 고침, 결정 D-3): 목록 저장은 '참여 완료' 를 되돌리지 않는다(확정 미참여 재분류는 상세 저장만)."""
         with self.engine.begin() as conn:
-            conn.execute(update(models.title_table).where(models.title_table.c.ID == "90000001").values(만족도조사여부="참여 완료"))
-        title = self.merge_row(models.title_table, "90000001")
+            conn.execute(update(models.report_table).where(models.report_table.c.ID == "90000001").values(만족도조사여부="참여 완료"))
+        title = self.merge_row(models.report_table, "90000001")
         frame = pd.DataFrame([{k: title[k] for k in ("ID", "상태", "신고번호", "신고명", "신고일")} | {"만족도조사여부": "참여 가능"}])
         database.title_to_sql([frame], self.engine)
-        self.assertEqual(self.merge_row(models.title_table, "90000001")["만족도조사여부"], "참여 완료")
+        self.assertEqual(self.merge_row(models.report_table, "90000001")["만족도조사여부"], "참여 완료")
         frame2 = frame.assign(만족도조사여부="")  # 빈 값도 기존 유지
         database.title_to_sql([frame2], self.engine)
-        self.assertEqual(self.merge_row(models.title_table, "90000001")["만족도조사여부"], "참여 완료")
+        self.assertEqual(self.merge_row(models.report_table, "90000001")["만족도조사여부"], "참여 완료")
 
     def test_list_upsert_keeps_identity_when_list_value_is_empty(self):
         """2026-09-25 동등성 검수: 목록의 빈 식별 값(상태·신고번호·신고명·신고일)은 기존 값을 덮지 않는다(모바일 updateTitlesFromList 와 같음)."""
-        before = self.merge_row(models.title_table, "90000001")
+        before = self.merge_row(models.report_table, "90000001")
         frame = pd.DataFrame([{"ID": "90000001", "상태": "", "신고번호": "", "신고명": "", "신고일": "", "만족도조사여부": ""}])
         database.title_to_sql([frame], self.engine)
-        after = self.merge_row(models.title_table, "90000001")
+        after = self.merge_row(models.report_table, "90000001")
         for col in ("상태", "신고번호", "신고명", "신고일"):
             self.assertEqual(after[col], before[col], col)
         frame2 = frame.assign(신고명="새 신고명")
         database.title_to_sql([frame2], self.engine)
-        self.assertEqual(self.merge_row(models.title_table, "90000001")["신고명"], "새 신고명")
+        self.assertEqual(self.merge_row(models.report_table, "90000001")["신고명"], "새 신고명")
 
     def test_S17_change_payload_sends_empty_text_for_null(self):
         """S-17(R1c 고침): 알림 payload 가 NULL 을 "None" 글자로 보내지 않는다(표시용이라 '' — Kotlin optString 이 null 을 "null" 로 바꿈)."""
@@ -124,10 +125,10 @@ class ServerKnownDefectTests(_SeededDb):
         from services import crawl_state_store
 
         with self.engine.begin() as conn:
-            conn.execute(update(models.merge_traffic_table).where(models.merge_traffic_table.c.ID == "90000001").values(담당자=None))
+            conn.execute(update(models.report_effective_table).where(models.report_effective_table.c.ID == "90000001").values(담당자=None))
         crawl_state_store.save_crawl_changes(self.engine, [{"id": "90000001", "change_type": "변경"}])
         payload = json.loads((Path(app_settings.datapath) / "crawl_changes.json").read_text(encoding="utf-8"))
-        item = next(p for p in payload if p.get("신고번호") == self.merge_row(models.merge_traffic_table, "90000001")["신고번호"])
+        item = next(p for p in payload if p.get("신고번호") == self.merge_row(models.report_effective_table, "90000001")["신고번호"])
         self.assertEqual(item["담당자"], "")
         crawl_state_store.clear_crawl_changes()
 
@@ -136,8 +137,8 @@ class ServerKnownDefectTests(_SeededDb):
         from services import report_query_service
 
         with self.engine.begin() as conn:
-            conn.execute(update(models.merge_traffic_table).where(models.merge_traffic_table.c.ID == "90000001").values(담당자=None, 별점=None))
-            conn.execute(update(models.merge_traffic_table).where(models.merge_traffic_table.c.ID == "90000002").values(별점=3))
+            conn.execute(update(models.report_effective_table).where(models.report_effective_table.c.ID == "90000001").values(담당자=None, 별점=None))
+            conn.execute(update(models.report_effective_table).where(models.report_effective_table.c.ID == "90000002").values(별점=3))
         api = {r["ID"]: r for r in report_query_service.get_traffic_records(self.engine, exact_values=True)}
         self.assertIsNone(api["90000001"]["담당자"])
         self.assertIsNone(api["90000001"]["별점"])
@@ -153,8 +154,8 @@ class ServerKnownDefectTests(_SeededDb):
         old = "경찰청 광주광역시경찰청 광주동부경찰서"
         current = "광주경찰청 광주동부경찰서"
         with self.engine.begin() as conn:
-            conn.execute(update(models.merge_traffic_table)
-                         .where(models.merge_traffic_table.c.ID == "90000001")
+            conn.execute(update(models.report_effective_table)
+                         .where(models.report_effective_table.c.ID == "90000001")
                          .values(처리기관=old, 처리기관코드="1812314"))
         raw = report_query_service.get_traffic_records(self.engine, exact_values=True)
         self.assertEqual(next(r for r in raw if r["ID"] == "90000001")["처리기관"], old)
@@ -166,15 +167,15 @@ class ServerKnownDefectTests(_SeededDb):
         from services import db_editor_service
 
         with self.engine.begin() as conn:
-            conn.execute(update(models.detail_traffic_table).where(models.detail_traffic_table.c.ID == "90000001")
+            conn.execute(update(models.report_table).where(models.report_table.c.ID == "90000001")
                          .values(위도=37.56, 경도=126.83, 지오코딩상태="ok"))
-        database.merge_final(self.engine)
+        database.rebuild_effective(self.engine)
         address = "서울특별시 중구 세종대로 110"
         with self.engine.begin() as conn:
             conn.execute(models.geocode_cache_table.insert().values(
                 주소정규화=address, 위도=37.5663, 경도=126.9779, 상태="ok", source="kakao"))
         db_editor_service.update_record(self.engine, "traffic", "90000001", {"위반장소": address})
-        merged = self.merge_row(models.merge_traffic_table, "90000001")
+        merged = self.merge_row(models.report_effective_table, "90000001")
         self.assertEqual((merged["위반장소"], merged["위도"], merged["경도"]),
                          (address, 37.56, 126.83))
         self.assertNotEqual(merged["위도"], 37.5663)
@@ -185,9 +186,10 @@ class ServerKnownDefectTests(_SeededDb):
         from unittest import mock
         from services import photo_capture_time
 
-        detail, title = models.detail_parking_table, models.title_table
+        detail, title = models.report_table, models.report_table
         with self.engine.connect() as conn:
-            ids = conn.execute(select(detail.c.ID).order_by(detail.c.ID)).scalars().all()[:2]
+            ids = conn.execute(select(detail.c.ID).where(detail.c.category == "parking")
+                               .order_by(detail.c.ID)).scalars().all()[:2]
         self.assertEqual(len(ids), 2, "fixture 에 주정차 신고 2건 이상 필요")
         recent, old = ids
         today = datetime.now()
@@ -200,7 +202,7 @@ class ServerKnownDefectTests(_SeededDb):
         with mock.patch.object(photo_capture_time, "fetch_capture_time", return_value="2026-09-14 08:01:02") as fetch:
             self.assertEqual(photo_capture_time.backfill_missing(self.engine), 1)
         fetch.assert_called_once_with(f"https://x/{recent}.jpg")
-        self.assertEqual(self.merge_row(models.merge_parking_table, recent)["사진_촬영수"], 1)
+        self.assertEqual(self.merge_row(models.report_effective_table, recent)["사진_촬영수"], 1)
         self.assertEqual(self.detail_row(detail, recent)["사진_첫촬영"], "2026-09-14 08:01:02")
         self.assertIsNone(self.detail_row(detail, old)["사진_촬영수"])  # 6개월 지난 첨부는 시도 안 함
 
@@ -212,18 +214,18 @@ class ServerKnownDefectTests(_SeededDb):
         from unittest import mock
         from web.routers import watchlist_route
 
-        report_number = self.merge_row(models.merge_traffic_table, "90000001")["신고번호"]
+        report_number = self.merge_row(models.report_effective_table, "90000001")["신고번호"]
         with mock.patch.object(watchlist_route, "engine", self.engine):
             watchlist_route.add_to_watchlist(watchlist_route.WatchlistReq(rnums=["90000001"]))
             with self.engine.begin() as conn:
                 conn.execute(models.watchlist_table.insert().values(신고번호="SPP-GONE"))
-            self.assertEqual(self.merge_row(models.merge_traffic_table, "90000001")["감시목록"], "Y")
+            self.assertEqual(self.merge_row(models.report_effective_table, "90000001")["감시목록"], "Y")
             result = watchlist_route.remove_from_watchlist(watchlist_route.WatchlistReq(rnums=["90000001", "SPP-GONE"]))
         with self.engine.connect() as conn:
             remaining = set(conn.execute(select(models.watchlist_table.c.신고번호)).scalars())
         self.assertFalse({report_number, "SPP-GONE"} & remaining)
         self.assertTrue(remaining)  # 다른 감시 항목은 그대로
-        self.assertEqual(self.merge_row(models.merge_traffic_table, "90000001")["감시목록"], "N")
+        self.assertEqual(self.merge_row(models.report_effective_table, "90000001")["감시목록"], "N")
         self.assertIn("2건", result["message"])
 
 if __name__ == "__main__":

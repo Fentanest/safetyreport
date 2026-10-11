@@ -25,10 +25,10 @@ class ReadSnapshotTests(unittest.TestCase):
         before = load()
         changed = []
         def during_read(conn, cursor, statement, parameters, context, executemany):
-            if not changed and statement.lstrip().upper().startswith('SELECT') and 'mysafetymerge_traffic' in statement:
+            if not changed and statement.lstrip().upper().startswith('SELECT') and 'mysafety_report_effective' in statement:
                 changed.append(True)
                 with sqlite3.connect(self.path) as writer:
-                    writer.execute('UPDATE mysafetymerge_parking SET 위반장소=?', ('동시 수정된 장소',))
+                    writer.execute("UPDATE mysafety_report_effective SET 위반장소=? WHERE category='parking'", ('동시 수정된 장소',))
         event.listen(self.engine, 'after_cursor_execute', during_read)
         try:
             result = load()

@@ -75,15 +75,10 @@ class DuplicateDecisionTests(unittest.TestCase):
             after = {r.report_id: r.created_at for r in conn.execute(select(models.duplicate_member_table))}
         self.assertEqual(before, after)
 
-    def test_migration_copies_existing_group_decisions(self):
-        with self.engine.begin() as conn:
-            conn.execute(models.duplicate_decision_table.delete())
-            conn.execute(models.duplicate_group_table.update().values(status="not_duplicate", note="옛 판단"))
-            database._migration_3_duplicate_decisions(conn)
-        with self.engine.connect() as conn:
-            row = conn.execute(select(models.duplicate_decision_table)).mappings().one()
-        self.assertEqual((row["status"], row["note"]), ("not_duplicate", "옛 판단"))
-
+    # 옛 "그룹 상태를 판단 표로 한 번 복사"(_migration_3_duplicate_decisions, 버전 1~4 번호 붙은 마이그레이션)는
+    # 스키마 6 에서 _apply_versioned_migrations 와 함께 제거됐다 — mysafety_duplicate_decision 은 버전 5 부터도
+    # 이미 있던 표라 더 옮길 옛 상태가 없다. 판단이 버전 5→6 제자리 변환에서 그대로 남는지는
+    # tests/test_storage_migration.py 의 migrate_schema 테스트(중복 판단 보존)가 대신 본다.
 
 if __name__ == "__main__":
     unittest.main()

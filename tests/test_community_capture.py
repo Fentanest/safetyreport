@@ -284,7 +284,7 @@ class CaptureTest(unittest.TestCase):
 
         recs = [CrawledDetail(id=f"F{i}", category="other", detail={"ID": f"F{i}"},
                               title_fields={"신고일": "2026-09-01"}) for i in range(3)]
-        with mock.patch.object(repo, "_find_existing", return_value=(None, None)), \
+        with mock.patch.object(repo, "_find_row", return_value=None), \
                 mock.patch.object(repo, "_prefetch_derived", return_value={}), \
                 mock.patch("services.community_capture.capture", side_effect=RuntimeError("db locked")), \
                 mock.patch.object(repo.logger.LoggerFactory, "logbot", create=True):

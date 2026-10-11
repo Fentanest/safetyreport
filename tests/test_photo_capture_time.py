@@ -82,7 +82,7 @@ class DetailToSqlPhotoTest(unittest.TestCase):
         self.engine = create_engine(f"sqlite:///{self.db_path}")
         database.upgrade_schema(self.engine)
         with self.engine.begin() as conn:
-            conn.execute(models.title_table.insert().values(ID="P1", 상태="수용", 신고번호="SPP-P1", 신고명="불법주정차신고", 신고일="2026-09-22"))
+            conn.execute(models.report_table.insert().values(ID="P1", 상태="수용", 신고번호="SPP-P1", 신고명="불법주정차신고", 신고일="2026-09-22"))
 
     def tearDown(self):
         self.engine.dispose()
@@ -96,7 +96,7 @@ class DetailToSqlPhotoTest(unittest.TestCase):
 
     def _row(self):
         with self.engine.connect() as conn:
-            return dict(conn.execute(select(models.detail_parking_table).where(models.detail_parking_table.c.ID == "P1")).first()._mapping)
+            return dict(conn.execute(select(models.report_table).where(models.report_table.c.ID == "P1")).first()._mapping)
 
     def test_collects_once_and_carries_over_without_touching_synced_at(self):
         times = iter(["2026-09-22 13:19:43", "2026-09-22 15:30:00"])
@@ -120,15 +120,17 @@ class DetailToSqlPhotoTest(unittest.TestCase):
     def test_merge_carries_photo_columns(self):
         with mock.patch.object(photo_capture_time, "fetch_capture_time", return_value="2026-09-22 01:00:00"):
             self._save(self._frame())
-        database.merge_final(self.engine)
+        database.rebuild_effective(self.engine)
         with self.engine.connect() as conn:
-            merged = dict(conn.execute(select(models.merge_parking_table)).first()._mapping)
+            merged = dict(conn.execute(select(models.report_effective_table)).first()._mapping)
         self.assertEqual((merged["사진_첫촬영"], merged["사진_촬영수"]), ("2026-09-22 01:00:00", 2))
 
 
 class UpgradeSchemaPhotoColumnsTest(unittest.TestCase):
     def test_old_db_is_not_altered_and_the_reset_db_has_photo_columns(self):
-        """2026-09-26 초기화 크롤링 릴리스: 이전 DB 에 열을 더하지 않는다(업데이트 비활성). 비운 뒤 새로 만든 표에 사진 열이 있다."""
+        """2026-09-26 초기화 크롤링 릴리스: 이전 DB 에 열을 더하지 않는다(업데이트 비활성).
+        스키마 6: 비운 DB 에는 옛 상세 표(mysafetydetail_parking)가 없다(옮기는 코드 없음) — 사진 열은
+        mysafety_report 한 표에 있다."""
         logger.LoggerFactory.create_logger(mode="crawl")
         tmp = tempfile.mkdtemp()
         path = os.path.join(tmp, "old.db")
@@ -144,7 +146,10 @@ class UpgradeSchemaPhotoColumnsTest(unittest.TestCase):
             self.assertEqual(cols, {"ID", "처리상태"})
             database.reset_legacy_database(engine, os.path.join(tmp, "backups"))
             with engine.connect() as conn:
-                cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mysafetydetail_parking)")}
+                tables = {row[0] for row in conn.exec_driver_sql(
+                    "SELECT name FROM sqlite_master WHERE type='table'")}
+                self.assertNotIn("mysafetydetail_parking", tables)
+                cols = {row[1] for row in conn.exec_driver_sql("PRAGMA table_info(mysafety_report)")}
             self.assertTrue({"사진_첫촬영", "사진_끝촬영", "사진_촬영수"} <= cols)
         finally:
             engine.dispose()

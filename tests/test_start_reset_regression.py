@@ -38,10 +38,11 @@ class StartResetRegressionTest(unittest.TestCase):
                 )
             )
             conn.execute(
-                models.merge_traffic_table.insert().values(
+                models.report_effective_table.insert().values(
                     ID="id-1",
                     신고번호="r-1",
                     위반장소="서울특별시 강서구 테스트 1",
+                    category="traffic",
                 )
             )
             conn.execute(models.sync_meta_table.insert().values(key="watchlist", value="1,2"))
@@ -54,7 +55,7 @@ class StartResetRegressionTest(unittest.TestCase):
                 select(func.count()).select_from(models.geocode_cache_table)
             ).scalar_one()
             merge_count = conn.execute(
-                select(func.count()).select_from(models.merge_traffic_table)
+                select(func.count()).select_from(models.report_effective_table)
             ).scalar_one()
             meta_rows = conn.execute(
                 select(models.sync_meta_table.c.key, models.sync_meta_table.c.value).order_by(

@@ -219,7 +219,7 @@ class PcLiveStackTest(unittest.TestCase):
         fixture_server.seed_engine(engine)
         with engine.begin() as conn:
             conn.exec_driver_sql("DELETE FROM mysafety_sync_meta WHERE key=?", (account_data.KAKAO_MEMBER_META_KEY,))
-        count = lambda: engine.connect().execute(select(func.count()).select_from(models.title_table)).scalar()
+        count = lambda: engine.connect().execute(select(func.count()).select_from(models.report_table)).scalar()
         self.assertGreater(count(), 0)
 
         a = self.login("A")  # 세션에 kakao_id 없음(이 기능 전 세션과 같음) → 게이트가 /auth/v1/user 로 채운다

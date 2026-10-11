@@ -12,7 +12,7 @@ class WithdrawPopulationTests(unittest.TestCase):
     def test_sql_and_frame_filters_keep_unknown_and_empty_status(self):
         engine = create_engine('sqlite:///:memory:')
         self.addCleanup(engine.dispose)
-        table = models.merge_traffic_table
+        table = models.report_effective_table
         table.create(engine)
         rows = [{'ID': str(i), '처리상태': value} for i, value in enumerate([None, '', '수용', '취하'])]
         with engine.begin() as conn:

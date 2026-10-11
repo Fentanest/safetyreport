@@ -61,21 +61,25 @@ class ExchangeIntegrityTests(unittest.TestCase):
         self.assertEqual((read(first), read(second)), ("A", "B"))
 
     def test_b09_entry_value_restore_keeps_null_and_empty_meaning(self):
+        """스키마 6: entry_value 는 별도 표가 아니라 mysafety_report 의 열이다 — 옛 배치 삭제·삽입(entry_value_table)은
+        사라졌고 신고 행 전체를 옮기는 apply_mobile_snapshot 한 번이 그 자리를 대신한다. 세 신고의 NULL·빈 문자열·
+        값 구분이 그대로 보존되는지 직접 본다(단일 행 왕복의 같은 사례는 test_storage_exchange.py 가 따로 본다)."""
         engine = _seeded_engine(self)
+        base = {c: None for c in models.REPORT_COLUMN_NAMES}
+        rows = []
+        for i, entry_value in enumerate(("자동차·교통위반-신호위반", "", None)):
+            rows.append({**base, "ID": f"techlog-b09-{i}", "신고번호": f"SPP-B09-{i}", "category": "traffic",
+                        "entry_value": entry_value, "감시목록": "N"})
+        snapshot = exchange.MobileSnapshot(
+            report_columns=set(models.REPORT_COLUMN_NAMES) | {"raw_content"}, reports=rows, raw=None,
+            sync_meta=[], geocode_cache=None, duplicate_group=None, duplicate_member=None,
+            report_override=None, duplicate_decision=None,
+        )
+        exchange.apply_mobile_snapshot(engine, snapshot)
         with engine.connect() as conn:
-            ids = [r[0] for r in conn.execute(select(models.title_table.c.ID)).fetchall()][:3]
-        snapshot = mock.Mock(report_columns={"entry_value"}, reports=[
-            {"ID": ids[0], "entry_value": "자동차·교통위반-신호위반"}, {"ID": ids[1], "entry_value": ""},
-            {"ID": ids[2], "entry_value": None}])
-        with engine.begin() as conn:
-            # 복원 함수의 entry_value 부분과 같은 순서로 실행(교체 의미 확인)
-            for i in range(0, len(ids), exchange.BATCH):
-                conn.execute(models.entry_value_table.delete().where(models.entry_value_table.c.ID.in_(ids[i:i + exchange.BATCH])))
-            exchange._insert(conn, models.entry_value_table, [
-                {"ID": r["ID"], "entry_value": r["entry_value"]} for r in snapshot.reports if r.get("entry_value") is not None])
-            rows = dict(conn.execute(select(models.entry_value_table.c.ID, models.entry_value_table.c.entry_value)
-                                     .where(models.entry_value_table.c.ID.in_(ids))).fetchall())
-        self.assertEqual(rows, {ids[0]: "자동차·교통위반-신호위반", ids[1]: ""})
+            got = dict(conn.execute(select(models.report_table.c.ID, models.report_table.c.entry_value)
+                                    .where(models.report_table.c.ID.like("techlog-b09-%"))).fetchall())
+        self.assertEqual(got, {"techlog-b09-0": "자동차·교통위반-신호위반", "techlog-b09-1": "", "techlog-b09-2": None})
 
 
 class PhotoBackfillTests(unittest.TestCase):
@@ -84,12 +88,12 @@ class PhotoBackfillTests(unittest.TestCase):
 
         engine = _seeded_engine(self)
         with engine.begin() as conn:
-            conn.execute(models.detail_parking_table.insert().values(ID="PX1", 처리상태="수용", 첨부사진="https://x/new.jpg"))
+            conn.execute(models.report_table.insert().values(ID="PX1", 처리상태="수용", 첨부사진="https://x/new.jpg"))
         times = lambda url: "2026-09-22 13:19:43"  # noqa: E731
         self.assertFalse(photo_capture_time.fill_one(engine, "PX1", "https://x/old.jpg", fetch=times))
         with engine.connect() as conn:
-            row = conn.execute(select(models.detail_parking_table.c["사진_촬영수"]).where(
-                models.detail_parking_table.c.ID == "PX1")).scalar()
+            row = conn.execute(select(models.report_table.c["사진_촬영수"]).where(
+                models.report_table.c.ID == "PX1")).scalar()
         self.assertIsNone(row, "복원·재크롤링으로 바뀐 첨부에 이전 사진 정보를 쓰지 않는다")
         self.assertTrue(photo_capture_time.fill_one(engine, "PX1", "https://x/new.jpg", fetch=times))
 
@@ -150,9 +154,9 @@ class StatsPopulationTests(unittest.TestCase):
         from services import report_stats_service as rss
 
         engine = _seeded_engine(self)
-        table = database.merge_other_table
+        table = database.report_effective_table
         with engine.begin() as conn:
-            conn.execute(table.insert().values(ID="NOAGENCY1", 신고번호="SPP-NA-1", 처리상태="수용", 처리기관=None))
+            conn.execute(table.insert().values(ID="NOAGENCY1", 신고번호="SPP-NA-1", 처리상태="수용", 처리기관=None, category="other"))
         query = rss._build_stats_query(table, {"excludePolice": True}, column_names=["ID"])
         with engine.connect() as conn:
             ids = {r[0] for r in conn.execute(query)}
@@ -201,7 +205,7 @@ class StatsPopulationTests(unittest.TestCase):
         from services import report_stats_service as rss
 
         engine = _seeded_engine(self)
-        table = database.merge_traffic_table
+        table = database.report_effective_table
         filters = {"responseDateStart": "2026-01-01", "responseDateEnd": "2026-08-31"}
         with engine.connect() as conn:
             got = {r[0] for r in conn.execute(rss._build_stats_query(table, filters, column_names=["ID"]))}
@@ -225,7 +229,8 @@ class EditorAndSetupTests(unittest.TestCase):
 
         engine = _seeded_engine(self)
         with engine.connect() as conn:
-            record_id = conn.execute(select(models.detail_traffic_table.c.ID)).scalar()
+            record_id = conn.execute(select(models.report_table.c.ID)
+                                     .where(models.report_table.c.category == "traffic")).scalar()
         for bad in ({"x": 1}, [1], True):
             with self.subTest(bad=bad), self.assertRaises(db_editor_service.InvalidEditorValue):
                 db_editor_service.update_record(engine, "traffic", record_id, {"처리기관": bad})

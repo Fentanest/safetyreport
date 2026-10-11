@@ -326,7 +326,7 @@ class FixtureDbTests(unittest.TestCase):
         from core.database import models
 
         with self.engine.connect() as conn:
-            every = [r[0] for r in conn.execute(select(models.title_table.c["신고번호"]))]
+            every = [r[0] for r in conn.execute(select(models.report_table.c["신고번호"]))]
         others = database.get_merged_records_by_report_numbers(self.engine, [n for n in every if n not in numbers])
         self.assertTrue(others)
         for row in others:

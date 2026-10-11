@@ -105,7 +105,7 @@ class OwnerTests(_DbCase):
 class WipeTests(_DbCase):
     def test_logout_wipe_empties_reports_only_and_clears_the_owner(self):
         account_data.check_owner("910001")
-        self.assertGreater(self.count(models.title_table), 0)
+        self.assertGreater(self.count(models.report_table), 0)
         admins, keys = self.count(models.admin_users_table), self.count(models.api_keys_table)
         watch, geo = self.count(models.watchlist_table), self.count(models.geocode_cache_table)
         self.assertGreater(watch, 0)
@@ -114,8 +114,8 @@ class WipeTests(_DbCase):
         with mock.patch("services.community_store.CommunityStore.rotate_dataset", lambda self, reason: rotated.append(reason)):
             info = account_data.wipe_report_data("kakao_logout")
         self.assertEqual(rotated, ["kakao_logout"], "지운 자료의 공유 대기 사본이 다음 계정으로 가지 않게 먼저 선회전")
-        self.assertEqual(self.count(models.title_table), 0)
-        self.assertEqual(self.count(models.merge_traffic_table), 0)
+        self.assertEqual(self.count(models.report_table), 0)
+        self.assertEqual(self.count(models.report_effective_table), 0)
         self.assertEqual((self.count(models.admin_users_table), self.count(models.api_keys_table)), (admins, keys))
         self.assertEqual((self.count(models.watchlist_table), self.count(models.geocode_cache_table)), (watch, geo))
         self.assertIsNone(account_data.db_owner(), "비운 DB 는 다음 로그인 계정이 주인이 된다")
@@ -128,31 +128,31 @@ class WipeTests(_DbCase):
         account_data.check_owner("910001")
         with mock.patch("services.community_store.CommunityStore.rotate_dataset", lambda self, reason: None):
             account_data.wipe_report_data("db_owner_adopt", then_owner="910002")
-        self.assertEqual(self.count(models.title_table), 0)
+        self.assertEqual(self.count(models.report_table), 0)
         self.assertEqual(account_data.db_owner(), "910002")
 
     def test_a_failure_while_emptying_keeps_every_report(self):
         # 선회전 뒤 표를 다시 만들다 실패하면 신고 DB 는 통째로 되돌아간다(공유 대기 사본만 새 데이터셋으로 — 다음 계정으로 가지 않는 쪽)
         account_data.check_owner("910001")
-        before = self.count(models.title_table)
+        before = self.count(models.report_table)
         rotated = []
         with mock.patch("services.community_store.CommunityStore.rotate_dataset", lambda self, reason: rotated.append(reason)), \
                 mock.patch.object(database, "_index_statements", side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
                 account_data.wipe_report_data("kakao_logout")
         self.assertEqual(rotated, ["kakao_logout"])
-        self.assertEqual(self.count(models.title_table), before)
+        self.assertEqual(self.count(models.report_table), before)
         self.assertEqual(account_data.db_owner(), "910001")
         with get_engine().connect() as conn:
             self.assertEqual(conn.execute(text("PRAGMA integrity_check")).scalar(), "ok")
 
     def test_nothing_is_wiped_while_crawling(self):
         account_data.check_owner("910001")
-        before = self.count(models.title_table)
+        before = self.count(models.report_table)
         with mock.patch("services.crawl_manager.crawl_manager.is_crawling", return_value=True):
             with self.assertRaises(exchange.RestoreRefused):
                 account_data.wipe_report_data("kakao_logout")
-        self.assertEqual(self.count(models.title_table), before)
+        self.assertEqual(self.count(models.report_table), before)
         self.assertEqual(account_data.db_owner(), "910001")
 
 
@@ -178,7 +178,7 @@ class ImportRefusalTests(_DbCase):
     def setUp(self):
         super().setUp()
         account_data.check_owner("910001")
-        self.before = self.count(models.title_table)
+        self.before = self.count(models.report_table)
 
     def _restore(self, path, kind, current="910001"):
         with mock.patch("core.storage.exchange._current_kakao_id", return_value=current):
@@ -190,7 +190,7 @@ class ImportRefusalTests(_DbCase):
             _mobile_db(path, owner)
             with self.assertRaises(account_data.ForeignDatabaseRefused, msg=f"{owner}/{current}"):
                 self._restore(path, "mobile", current)
-            self.assertEqual(self.count(models.title_table), self.before)
+            self.assertEqual(self.count(models.report_table), self.before)
             self.assertEqual(account_data.db_owner(), "910001")
 
     def test_mobile_db_of_the_same_account_is_restored_and_keeps_the_owner(self):
@@ -219,7 +219,7 @@ class ImportRefusalTests(_DbCase):
                         backup, count = self._restore(path, kind)
                     self.assertTrue(Path(backup).is_file())
                     self.assertEqual(count, 1)
-                    self.assertEqual(self.count(models.title_table), 1)
+                    self.assertEqual(self.count(models.report_table), 1)
                     self.assertEqual(account_data.db_owner(), "910001")
                     # Legacy arbitrary metadata remains lossless, but is never an owner check.
                     self.assertEqual(database.get_meta(get_engine(), "official_account_dataset_key"), value)

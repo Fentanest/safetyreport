@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, update
 
 import settings.settings as app_settings
 from core.database import database, models
@@ -90,14 +90,14 @@ class SelectionIntegrationTest(unittest.TestCase):
             "c7": ("parking", "Y", "Y"),
             "c8": ("traffic", "N", "N"),
         }
-        tables = {"traffic": models.detail_traffic_table, "parking": models.detail_parking_table,
-                  "other": models.detail_other_table}
         with self.engine.begin() as conn:
             for rid, label in titles:
-                conn.execute(models.title_table.insert().values(
-                    ID=rid, 상태=label, 신고번호=f"SPP-{rid}", 신고명="t", 신고일="2026-09-01"))
+                conn.execute(models.report_table.insert().values(
+                    ID=rid, 상태=label, 신고번호=f"SPP-{rid}", 신고명="t", 신고일="2026-09-01", 감시목록="N"))
             for rid, (cat, closed, supp) in details.items():
-                conn.execute(tables[cat].insert().values(ID=rid, 종결여부=closed, 보완_미응답=supp))
+                # 스키마 6: category 는 표가 아니라 열 값. NULL 아닌 category 가 "상세 있음"을 뜻한다.
+                conn.execute(update(models.report_table).where(models.report_table.c.ID == rid)
+                             .values(category=cat, 종결여부=closed, 보완_미응답=supp))
             # 사용자 override: c8 종결여부=Y 로 바꿨다고 주장해도 선정은 무시한다.
             conn.execute(models.report_override_table.insert().values(
                 ID="c8", column_name="종결여부", value="Y", updated_at=1))
