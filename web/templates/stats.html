@@ -50,8 +50,7 @@
                 <div class="sr-seg" id="statsCatGroup" role="group" aria-label="분류">
                     <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="traffic"><i class="fas fa-road me-1"></i>교통위반</button>
                     <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="parking"><i class="fas fa-parking me-1"></i>주정차위반</button>
-                    <!-- 2026-10-11: '기타' 를 안전신고·생활불편·기타로 세분화. 서버 집계(records_safety_*/records_living_*)는
-                         Stage 4A 가 이 worktree 에 아직 합치지 않아, 선택해도 요약·상세표는 자료가 올 때까지 빈 상태로 보인다. -->
+                    <!-- 2026-10-11: '기타' 를 안전신고·생활불편·기타로 세분화(서버 집계 records_safety_*/records_living_*). -->
                     <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="safety"><i class="fas fa-triangle-exclamation me-1"></i>안전신고</button>
                     <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="living"><i class="fas fa-trash me-1"></i>생활불편</button>
                     <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="other"><i class="fas fa-circle-minus me-1"></i>기타</button>
@@ -306,8 +305,8 @@
             {% set agency_tfoot %}<tr class="table-secondary fw-bold"><td>합계</td><td class="sr-n"></td><td class="sr-n"></td>{{ foot_metrics }}</tr>{% endset %}
             {% set person_tfoot %}<tr class="table-secondary fw-bold"><td>합계</td><td></td><td class="sr-n"></td><td class="sr-n"></td>{{ foot_metrics }}</tr>{% endset %}
 
-            {#- 2026-10-11: 5분류(안전신고·생활불편 추가). pane_rows 는 아직 traffic·parking·other 만 채워 올 수 있어
-                 (Stage 4A 가 집계를 합치는 중) 분류가 없으면 빈 표로 보인다 — cat in pane_rows 로 KeyError 대신 빈 목록. -#}
+            {#- 2026-10-11: 5분류(안전신고·생활불편 추가, services/stats/agency.py 가 5분류 모두 채운다).
+                 cat in pane_rows 가드는 구버전 응답·단위 테스트의 더 작은 더미 컨텍스트에서도 KeyError 대신 빈 표로 넘어간다. -#}
             {% for cat, cat_label in [('traffic', 'Traffic'), ('parking', 'Parking'), ('safety', 'Safety'), ('living', 'Living'), ('other', 'Other')] %}
             {% set base_url = '/data/' ~ cat %}
             {% set cat_rows = pane_rows[cat] if cat in pane_rows else {} %}
@@ -448,22 +447,19 @@
 </div>
 </div>
 
-{#- 화면 스크립트가 쓰는 서버 집계 결과(같은 요청 안의 값).
-   safety_available_laws 등은 Stage 4A 가 집계를 5분류로 넓히기 전까지 컨텍스트에 없다 — `is defined` 로 안전하게 비운다. -#}
+{#- 화면 스크립트가 쓰는 서버 집계 결과(같은 요청 안의 값, 5분류 모두 채워진다). -#}
 <script type="application/json" id="statsData">{{ {
     'overview': overview,
     'pending': pending,
     'rows': table_rows,
     'laws': {
         'traffic': traffic_available_laws, 'parking': parking_available_laws,
-        'safety': (safety_available_laws if safety_available_laws is defined else []),
-        'living': (living_available_laws if living_available_laws is defined else []),
+        'safety': safety_available_laws, 'living': living_available_laws,
         'other': other_available_laws,
     },
     'hasEmptyLaw': {
         'traffic': traffic_has_empty_law, 'parking': parking_has_empty_law,
-        'safety': (safety_has_empty_law if safety_has_empty_law is defined else False),
-        'living': (living_has_empty_law if living_has_empty_law is defined else False),
+        'safety': safety_has_empty_law, 'living': living_has_empty_law,
         'other': other_has_empty_law,
     },
     'activeLaw': f.law or None,

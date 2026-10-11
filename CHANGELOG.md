@@ -8,6 +8,18 @@
 
 ---
 
+## 2026-10-11 — 4단계(Sonnet) PC 웹 UI 후속: Stage 4A 통계·지도 집계 병합
+
+- `feat/report-taxonomy`(Stage 4A `054e408`, 통계·지도 5분류 집계 — `services/stats/*`, `web/routers/stats.py`·`filters.py`,
+  `contracts/stats-overview-vectors.json`)를 `sonnet/stage4-ui` 에 병합했다. `web/routers/data.py` 충돌은 내용이 같아 내 임시 주석만 지우고 Stage 4A 쪽을 그대로 받았다.
+- 병합으로 아래 항목의 "Stage 4A 미병합" 단서가 모두 사라졌다(바로 아래 4단계 항목 기록은 당시 시점 그대로 두고 여기 갱신만 적는다):
+  통계 화면이 `records_safety_*`/`records_living_*`·`safety_available_laws`·`safety_has_empty_law`(생활불편도 같은 이름)를 실제로 받아 안전신고·생활불편 요약·상세표·월별 추이가 다른 분류와 똑같이 채워진다.
+  지도 `category_breakdown` 도 taxonomy=5 로 5개 라벨(교통위반·주정차위반·안전신고·생활불편·기타)을 받아 분류 필터·툴팁이 실제로 동작한다(전에는 '전체'로 내려갔다).
+  `stats.html`/`report_map.html`/`report-map.js` 의 관련 주석·가드(`is defined`)를 지우거나 정리했다(가드 자체는 남겨도 해롭지 않아 `pane_rows` 쪽은 방어적으로 유지).
+- 재검증: fixture 재시드 뒤 Playwright `category-split.spec.ts` 3개 재통과, 안전신고·생활불편 탭에서 실제 건수·월별 추이·법규 현황이 보이는 캡처 확보(`stats-safety-light.png` 등). 서버 전체 unittest 903개 통과(병합 전 890 + Stage 4A 13, skip 6).
+
+---
+
 ## 2026-10-11 — 4단계(Sonnet) PC 웹 UI: '기타' 세분류(안전신고·생활불편·기타) (미배포)
 
 - 사용자 지시(`docs/plans/2026-10-11-report-taxonomy.md` 4단계)로 "기타" 한 칸을 **안전신고·생활불편·기타** 세 칸으로 나눴다. 라벨:

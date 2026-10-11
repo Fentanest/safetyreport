@@ -277,8 +277,7 @@
             </div>
             <div>
                 <div class="small text-muted fw-bold mb-2">분류</div>
-                <!-- 2026-10-11 5분류: 선택해도 services/stats/map.py 의 category_breakdown 집계가 아직 3분류라
-                     Stage 4A 가 합치기 전에는 '전체'로 내려간다(web/routers/filters.normalize_map_category). -->
+                <!-- 2026-10-11 5분류(web/routers/filters.normalize_map_category 가 taxonomy=5 로 안전신고·생활불편도 받는다). -->
                 <div class="sr-seg" id="mapCategoryGroup" role="group" aria-label="분류">
                     {% for key, label in [('all', '전체'), ('traffic', '교통위반'), ('parking', '주정차위반'), ('safety', '안전신고'), ('living', '생활불편'), ('other', '기타')] %}
                     <button type="button" class="btn btn-sm {{ 'active' if selected_category == key }}" aria-pressed="{{ 'true' if selected_category == key else 'false' }}" data-category="{{ key }}">{{ label }}</button>
