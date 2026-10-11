@@ -111,30 +111,34 @@ def get_address_reports(q: str, dedupe: str | None = None, _: str = Depends(_req
 
 
 @router.get("/stats")
-def get_stats(_: str = Depends(_require_api_key), year: str = None, law: str = None, dedupe: str | None = None):
+def get_stats(_: str = Depends(_require_api_key), year: str = None, law: str = None, dedupe: str | None = None, request: Request = None):
     try:
+        from core.utils import taxonomy_compat
         filters = {}
         if year and year != "all":
             filters["year"] = year
         if law:
             filters["law"] = law
         dedupe_mode = normalize_dedupe_mode(dedupe)
-        return {"status": "success", "data": data_service.get_agency_stats(engine, filters or None, mode=dedupe_mode)}
+        taxonomy = 5 if request is not None and taxonomy_compat.wants_five(request) else 3
+        return {"status": "success", "data": data_service.get_agency_stats(engine, filters or None, mode=dedupe_mode, taxonomy=taxonomy)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
 
 
 @router.get("/stats/overview")
-def get_stats_overview(_: str = Depends(_require_api_key), year: str = None, law: str = None, dedupe: str | None = None):
+def get_stats_overview(_: str = Depends(_require_api_key), year: str = None, law: str = None, dedupe: str | None = None, request: Request = None):
     try:
+        from core.utils import taxonomy_compat
         filters = {}
         if year and year != "all":
             filters["year"] = year
         if law:
             filters["law"] = law
         dedupe_mode = normalize_dedupe_mode(dedupe)
-        return {"status": "success", "data": data_service.get_stats_overview(engine, filters or None, mode=dedupe_mode)}
+        taxonomy = 5 if request is not None and taxonomy_compat.wants_five(request) else 3
+        return {"status": "success", "data": data_service.get_stats_overview(engine, filters or None, mode=dedupe_mode, taxonomy=taxonomy)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -144,14 +148,18 @@ def get_stats_map(
     year: str | None = None,
     category: str = "all",
     pin_basis: str | None = None,
+    request: Request = None,
 ):
     try:
+        from core.utils import taxonomy_compat
+        taxonomy = 5 if request is not None and taxonomy_compat.wants_five(request) else 3
         payload = data_service.get_report_map_stats(
             engine,
             year=year,
             category=category,
             mode=default_dedupe_mode(),
             pin_basis=pin_basis,
+            taxonomy=taxonomy,
         )
         return {"status": "success", "data": payload}
     except Exception as exc:
@@ -162,8 +170,9 @@ def get_stats_map(
 def get_stats_map_points(_: str = Depends(_require_api_key), year: str | None = None, category: str = 'all',
                          dedupe: str | None = None, max_points: int = Query(1200, ge=1, le=1200),
                          bounds: str | None = None, zoom: int = Query(7, ge=0, le=19), law: str | None = None,
-                         pin_basis: str | None = None):
+                         pin_basis: str | None = None, request: Request = None):
     import math
+    from core.utils import taxonomy_compat
     viewport = None
     if bounds:
         try:
@@ -173,8 +182,10 @@ def get_stats_map_points(_: str = Depends(_require_api_key), year: str | None = 
                 raise ValueError()
         except ValueError:
             raise HTTPException(status_code=400, detail='bounds must be south,west,north,east')
+    taxonomy = 5 if request is not None and taxonomy_compat.wants_five(request) else 3
     payload = data_service.get_report_map_stats(engine,year=year,category=category,mode=normalize_dedupe_mode(dedupe),
-             filters={'law':law} if law else None,max_points=max_points,bounds=viewport,zoom=zoom,pin_basis=pin_basis)
+             filters={'law':law} if law else None,max_points=max_points,bounds=viewport,zoom=zoom,pin_basis=pin_basis,
+             taxonomy=taxonomy)
     return {'status':'success','data':payload}
 
 
@@ -184,14 +195,18 @@ def get_stats_map_missing(
     year: str | None = None,
     category: str = "all",
     pin_basis: str | None = None,
+    request: Request = None,
 ):
     try:
+        from core.utils import taxonomy_compat
+        taxonomy = 5 if request is not None and taxonomy_compat.wants_five(request) else 3
         payload = data_service.get_report_map_missing_groups(
             engine,
             year=year,
             category=category,
             mode=default_dedupe_mode(),
             pin_basis=pin_basis,
+            taxonomy=taxonomy,
         )
         return {"status": "success", "data": payload}
     except Exception as exc:
