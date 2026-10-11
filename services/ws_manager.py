@@ -109,6 +109,10 @@ class WsManager:
         """ping/connected와 이벤트도 한 socket writer를 공유한다."""
         if self._connections.get(client_id) is not ws:
             return False
+        # 5분류를 모르는 앱(연결 주소에 ?taxonomy=5 없음)에는 category 의 safety·living 을 other 로 접는다(HTTP 와 같은 규칙).
+        if (getattr(ws, "query_params", None) or {}).get("taxonomy") != "5":
+            from core.utils.taxonomy_compat import fold
+            message = fold(message)
         payload = json.dumps(message, ensure_ascii=False)
         size = len(payload.encode('utf-8'))
         state = self._deliveries.get(client_id)
