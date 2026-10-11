@@ -12,7 +12,7 @@ window.SrStatsLoader = { start: function (data) {
     };
     var cat = 'traffic';
     try { cat = sessionStorage.getItem('stats_cat') || cat; } catch (e) { /* 저장 불가여도 동작 */ }
-    if (!['traffic','parking','other'].includes(cat)) cat = 'traffic';
+    if (!['traffic','parking','safety','living','other'].includes(cat)) cat = 'traffic';
     var mapCard = document.getElementById('statsMapCard');
     var filters=data.filters || {}, listParams={};
     ['law','reportName','location','reportDateStart','reportDateEnd','occurDateStart','occurDateEnd','occurTimeStart','occurTimeEnd'].forEach(function(k){if(filters[k]) listParams[k]=filters[k];});

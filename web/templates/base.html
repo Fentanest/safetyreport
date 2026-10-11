@@ -131,7 +131,10 @@
                 <a href="/data/all" class="{% if request.url.path == '/data/all' %}active{% endif %}"><i class="fas fa-list fa-fw me-2"></i>전체 신고 내역</a>
                 <a href="/data/traffic" class="{% if request.url.path == '/data/traffic' %}active{% endif %}"><i class="fas fa-car fa-fw me-2"></i>교통위반 내역</a>
                 <a href="/data/parking" class="{% if request.url.path == '/data/parking' %}active{% endif %}"><i class="fas fa-parking fa-fw me-2"></i>주정차위반 내역</a>
-                <a href="/data/other" class="{% if request.url.path == '/data/other' %}active{% endif %}"><i class="fas fa-exclamation-triangle fa-fw me-2"></i>기타 위반 조회</a>
+                <!-- 2026-10-11 사용자 지시: '기타' 한 칸을 안전신고·생활불편·기타 세 칸으로 나눈다 -->
+                <a href="/data/safety" class="{% if request.url.path == '/data/safety' %}active{% endif %}"><i class="fas fa-triangle-exclamation fa-fw me-2"></i>안전신고 조회</a>
+                <a href="/data/living" class="{% if request.url.path == '/data/living' %}active{% endif %}"><i class="fas fa-trash fa-fw me-2"></i>생활불편 조회</a>
+                <a href="/data/other" class="{% if request.url.path == '/data/other' %}active{% endif %}"><i class="fas fa-circle-minus fa-fw me-2"></i>기타 조회</a>
                 <a href="/data/duplicates" class="{% if request.url.path == '/data/duplicates' %}active{% endif %}"><i class="fas fa-clone fa-fw me-2"></i>중복차량 내역</a>
                 <a href="/stats" class="{% if request.url.path == '/stats' %}active{% endif %}"><i class="fas fa-chart-pie fa-fw me-2"></i>통계</a>
                 <a href="/stats/map" class="{% if request.url.path.startswith('/stats/map') %}active{% endif %}"><i class="fas fa-map-location-dot fa-fw me-2"></i>신고 지도</a>

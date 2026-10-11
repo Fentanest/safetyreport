@@ -97,6 +97,59 @@ def view_parking(
     })
 
 
+@router.get("/safety")
+def view_safety(
+    request: Request,
+    status: Optional[str] = Query(None),
+    fine: Optional[str] = Query(None),
+    agency: Optional[str] = Query(None),
+    person: Optional[str] = Query(None),
+    agencyExact: bool = Query(False),
+    law: Optional[str] = Query(None),
+    rating: Optional[str] = Query(None),
+    ratingCause: Optional[str] = Query(None),
+    dedupe: str | None = Query(None),
+):
+    # 2026-10-11 5분류: '기타' 에서 떼어낸 안전신고(services/report_category.py 의 CM 코드) — Stage 4A 가 이 worktree 에
+    # 아직 합치지 않아, 브라우저 검수를 위해 /data/other 와 같은 꼴로 먼저 추가했다(병합 시 Opus 가 중복 여부 확인).
+    filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
+    filters = _identity_filters(request, filters)
+    dedupe_mode = normalize_dedupe_mode(dedupe)
+    records = data_service.get_safety_records(engine, filters, mode=dedupe_mode)
+    title = _filter_title("안전신고 조회", status, fine, agency, person, law, rating, ratingCause)
+    return templates.TemplateResponse(request, "data_table.html", {
+        "title": title,
+        "records": records, "table_id": "safetyTable",
+        "order_col": '[ 4, "desc" ]',
+    })
+
+
+@router.get("/living")
+def view_living(
+    request: Request,
+    status: Optional[str] = Query(None),
+    fine: Optional[str] = Query(None),
+    agency: Optional[str] = Query(None),
+    person: Optional[str] = Query(None),
+    agencyExact: bool = Query(False),
+    law: Optional[str] = Query(None),
+    rating: Optional[str] = Query(None),
+    ratingCause: Optional[str] = Query(None),
+    dedupe: str | None = Query(None),
+):
+    # 2026-10-11 5분류: '기타' 에서 떼어낸 생활불편(DR 코드). 위 /safety 와 같은 사정.
+    filters = _build_filters(status, fine, agency, person, agencyExact, law, rating, ratingCause)
+    filters = _identity_filters(request, filters)
+    dedupe_mode = normalize_dedupe_mode(dedupe)
+    records = data_service.get_living_records(engine, filters, mode=dedupe_mode)
+    title = _filter_title("생활불편 조회", status, fine, agency, person, law, rating, ratingCause)
+    return templates.TemplateResponse(request, "data_table.html", {
+        "title": title,
+        "records": records, "table_id": "livingTable",
+        "order_col": '[ 4, "desc" ]',
+    })
+
+
 @router.get("/other")
 def view_other(
     request: Request,
@@ -114,7 +167,7 @@ def view_other(
     filters = _identity_filters(request, filters)
     dedupe_mode = normalize_dedupe_mode(dedupe)
     records = data_service.get_other_records(engine, filters, mode=dedupe_mode)
-    title = _filter_title("기타 위반 조회", status, fine, agency, person, law, rating, ratingCause)
+    title = _filter_title("기타 조회", status, fine, agency, person, law, rating, ratingCause)
     return templates.TemplateResponse(request, "data_table.html", {
         "title": title,
         "records": records, "table_id": "otherTable",

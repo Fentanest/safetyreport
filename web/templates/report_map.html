@@ -45,6 +45,8 @@
     }
     #mapCategoryGroup .btn[data-category="traffic"] { --sr-seg-accent: var(--sr-primary); }
     #mapCategoryGroup .btn[data-category="parking"] { --sr-seg-accent: var(--sr-status-supplement); }
+    #mapCategoryGroup .btn[data-category="safety"]  { --sr-seg-accent: var(--sr-cat-safety); }
+    #mapCategoryGroup .btn[data-category="living"]  { --sr-seg-accent: var(--sr-cat-living); }
     #mapCategoryGroup .btn[data-category="other"]   { --sr-seg-accent: var(--sr-status-accept); }
 
     /* 커뮤니티 지도(safemap.worklazy.net) 바로가기 — 제목 줄 오른쪽 */
@@ -275,8 +277,10 @@
             </div>
             <div>
                 <div class="small text-muted fw-bold mb-2">분류</div>
+                <!-- 2026-10-11 5분류: 선택해도 services/stats/map.py 의 category_breakdown 집계가 아직 3분류라
+                     Stage 4A 가 합치기 전에는 '전체'로 내려간다(web/routers/filters.normalize_map_category). -->
                 <div class="sr-seg" id="mapCategoryGroup" role="group" aria-label="분류">
-                    {% for key, label in [('all', '전체'), ('traffic', '교통위반'), ('parking', '주정차위반'), ('other', '기타위반')] %}
+                    {% for key, label in [('all', '전체'), ('traffic', '교통위반'), ('parking', '주정차위반'), ('safety', '안전신고'), ('living', '생활불편'), ('other', '기타')] %}
                     <button type="button" class="btn btn-sm {{ 'active' if selected_category == key }}" aria-pressed="{{ 'true' if selected_category == key else 'false' }}" data-category="{{ key }}">{{ label }}</button>
                     {% endfor %}
                 </div>

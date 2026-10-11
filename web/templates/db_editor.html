@@ -55,8 +55,9 @@
   <strong>안내:</strong> 여기서 고친 값은 안전신문고 원본과 따로 저장되어 다시 크롤링해도 유지됩니다. 원본은 지우지 않습니다.
 </div>
 
+<!-- 2026-10-11 5분류: '기타위반' → 안전신고·생활불편·기타. db_editor_service.categories_for 가 이미 5분류를 안다. -->
 <nav class="sr-seg mb-3" id="categoryTab" aria-label="분류">
-  {% for key, label, icon in [('traffic', '교통위반', 'fa-road'), ('parking', '주정차위반', 'fa-parking'), ('other', '기타위반', 'fa-list')] %}
+  {% for key, label, icon in [('traffic', '교통위반', 'fa-road'), ('parking', '주정차위반', 'fa-parking'), ('safety', '안전신고', 'fa-triangle-exclamation'), ('living', '생활불편', 'fa-trash'), ('other', '기타', 'fa-circle-minus')] %}
   <a class="btn btn-sm {{ 'active' if category == key }}" aria-current="{{ 'page' if category == key else 'false' }}" href="/db-editor?category={{ key }}"><i class="fas {{ icon }} me-1"></i>{{ label }}</a>
   {% endfor %}
 </nav>

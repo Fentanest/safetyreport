@@ -27,10 +27,13 @@
         return Number.isFinite(pct) ? pct : 0;
     }
 
+    // 2026-10-11 5분류. report_category.CATEGORIES 와 같은 값(services/report_category.py).
+    var KNOWN_CATEGORIES = ['traffic', 'parking', 'safety', 'living', 'other'];
+
     // options = { category, dedupeMode, listParams }: 통계에서 넘어온 조건(목록이 읽는 이름만)을 이어 준다.
     function addressListUrl(address, options) {
         var category = options.category || 'all';
-        var route = category === 'traffic' || category === 'parking' || category === 'other' ? '/data/' + category : '/data/all';
+        var route = KNOWN_CATEGORIES.indexOf(category) !== -1 ? '/data/' + category : '/data/all';
         var params = new URLSearchParams();
         var listParams = options.listParams || {};
         Object.keys(listParams).forEach(function (key) {

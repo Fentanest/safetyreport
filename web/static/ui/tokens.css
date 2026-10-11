@@ -42,6 +42,11 @@
     --sr-status-penalty: #7c3aed;
     --sr-status-unknown: #64748b;
 
+    /* 2026-10-11 분류 색(5분류): 교통=--sr-primary, 주정차=--sr-status-supplement, 기타=--sr-status-accept(그대로).
+       안전신고·생활불편은 새 토큰 — 라이트 배경(surface #fff) 대비 각각 5.47:1·6.29:1 (모바일 SrColors.category 와 같은 의도) */
+    --sr-cat-safety: #0f766e;
+    --sr-cat-living: #4f46e5;
+
     --sr-radius: 12px;
     --sr-radius-sm: 8px;
 }
@@ -73,4 +78,8 @@
     --sr-status-withdraw: #8b8d92;
     --sr-status-penalty: #a78bfa;
     --sr-status-unknown: #a1a1aa;
+
+    /* 다크 표면(#131314) 대비 각각 9.98:1·6.23:1 */
+    --sr-cat-safety: #2dd4bf;
+    --sr-cat-living: #818cf8;
 }

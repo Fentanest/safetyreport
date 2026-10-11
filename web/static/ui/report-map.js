@@ -337,7 +337,9 @@ function create(element, mapPoints, options) {
                 total
             ),
             category_breakdown: addPercent(
-                sumBreakdownCounts(points, 'category_breakdown', ['교통위반', '주정차위반', '기타위반']),
+                // 2026-10-11 5분류. 서버 집계(services/stats/map.py)가 아직 3분류만 보내므로 안전신고·생활불편은
+                // Stage 4A 가 합칠 때까지 항목 자체가 안 온다(count>0 만 추려 쓰는 로직이라 비어도 안전).
+                sumBreakdownCounts(points, 'category_breakdown', ['교통위반', '주정차위반', '안전신고', '생활불편', '기타']),
                 total
             )
         });

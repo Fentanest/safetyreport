@@ -23,7 +23,8 @@
     var FILTERS = DATA.filters || {};
     var YEAR = DATA.year || 'all';
 
-    var CAT_LABELS = { traffic: '교통위반', parking: '주정차위반', other: '기타위반' };
+    // 2026-10-11: '기타' 를 안전신고·생활불편·기타로 세분화(5분류).
+    var CAT_LABELS = { traffic: '교통위반', parking: '주정차위반', safety: '안전신고', living: '생활불편', other: '기타' };
     var TYPE_LABELS = {
         agency: '기관별', person: '담당자별', 'police-agency': '경찰 기관', 'police-person': '경찰 담당자',
         'other-agency': '비경찰 기관', 'other-person': '비경찰 담당자'
@@ -79,7 +80,7 @@
 
     // 행 자료(상세 패널·CSV): 분류별 기관/담당자 목록을 키로 찾는다
     var rowIndex = {};
-    ['traffic', 'parking', 'other'].forEach(function (cat) {
+    ['traffic', 'parking', 'safety', 'living', 'other'].forEach(function (cat) {
         rowIndex[cat] = { agency: Object.create(null), person: Object.create(null) };
         var rows = (DATA.rows && DATA.rows[cat]) || { agency: [], person: [] };
         (rows.agency || []).forEach(function (r) { rowIndex[cat].agency[rowKey(r, false)] = r; });
@@ -122,6 +123,9 @@
     function renderOverview(cat) {
         var s = overview && overview[cat];
         var $box = $('#statsOverview');
+        // 제목은 overview 자료 유무와 상관없이 먼저 바꾼다 — 집계를 아직 안 보내는 분류(5분류 중 안전신고·생활불편,
+        // 2026-10-11)를 선택해도 "요약 ·" 뒤가 이전 분류로 남지 않게.
+        $('#statsOverviewTitle').text('요약 · ' + (CAT_LABELS[cat] || cat));
         if (!s) {
             $box.find('[data-v]').text('—');
             return;
@@ -159,7 +163,6 @@
             ['confirmedAmount', 'confirmedCount', 'estimated', 'unknownCount'].forEach(function (k) { setText($box, k, '—'); });
             setText($box, 'confirmedAmount', '미지원');
         }
-        $('#statsOverviewTitle').text('요약 · ' + (CAT_LABELS[cat] || cat));
         setKpiLink('total', kpiListUrl(cat));
         setKpiLink('completed', kpiListUrl(cat, { status: '완료' }));
         setKpiLink('fines', kpiListUrl(cat, { fine: '과태료' }));

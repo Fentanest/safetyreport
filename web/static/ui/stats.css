@@ -25,6 +25,8 @@
 .sr-seg-label { font-size: 0.78rem; font-weight: 600; color: var(--sr-text-muted); white-space: nowrap; }
 #statsCatGroup .btn[data-cat="traffic"] { --sr-seg-accent: var(--sr-primary); }
 #statsCatGroup .btn[data-cat="parking"] { --sr-seg-accent: var(--sr-status-supplement); }
+#statsCatGroup .btn[data-cat="safety"]  { --sr-seg-accent: var(--sr-cat-safety); }
+#statsCatGroup .btn[data-cat="living"]  { --sr-seg-accent: var(--sr-cat-living); }
 #statsCatGroup .btn[data-cat="other"]   { --sr-seg-accent: var(--sr-status-accept); }
 #statsCatGroup .btn.active { box-shadow: inset 0 -3px 0 var(--sr-seg-accent), var(--sr-shadow); }
 #statsYearGroup { flex-wrap: nowrap; overflow-x: auto; max-width: min(100%, 36rem); scrollbar-width: thin; }
