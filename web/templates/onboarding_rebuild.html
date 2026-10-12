@@ -74,8 +74,10 @@
         completed_with_gaps: ['완료(일부 제외)', 'text-bg-success'], failed: ['실패', 'text-bg-danger'], abandoned: ['중단됨', 'text-bg-secondary'],
         not_required: ['필요 없음', 'text-bg-success']
     };
-    var REASON = { official_account_missing: '먼저 설정 화면에서 안전신문고 계정을 저장해 주세요.', gate: '카카오 인증·공유 동의 확인이 필요합니다.',
-                   manifest_unavailable: '커뮤니티 서버에서 이미 공유한 목록을 받지 못했습니다. 네트워크를 확인한 뒤 다시 시도해 주세요.' };
+    // 서버 web/routers/community_rebuild_route.py PREREQUISITE_MESSAGES 와 같은 문구.
+    var REASON = { official_account_missing: '먼저 설정 화면에서 안전신문고 계정을 저장해 주세요.', gate: '커뮤니티 계정(카카오 인증)과 신고내용 공유 동의를 먼저 확인해 주세요.',
+                   manifest_unavailable: '커뮤니티 서버에서 이미 공유한 목록을 받지 못했습니다. 잠시 후 다시 시작해 주세요.' };
+    var REASON_FALLBACK = '다시 불러오기를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.';
     function show(id, on) { $(id).classList.toggle('d-none', !on); }
     function alertBox(msg, kind) {
         var box = $('rbAlert');
@@ -120,7 +122,8 @@
         var legacy = last.legacy_reset;
         show('rbLegacyNote', !!legacy); show('rbKeepNote', !legacy);
         if (legacy && legacy.backup) $('rbLegacyBackup').textContent = legacy.backup;
-        $('rbError').textContent = last.last_error || (last.reason ? (REASON[last.reason] || last.reason) : '-');
+        var why = last.reason || last.last_error;  // 시작 도중 실패는 last_error 에만 사유가 있다
+        $('rbError').textContent = why ? (REASON[why] || last.last_error || why) : '-';
         var st = last.state;
         show('rbBackground', ['preparing_backup','running','validating','committing'].indexOf(st) >= 0);
         show('rbStartBtn', st === 'required' || st === 'failed' || st === 'prerequisites_required');
@@ -151,7 +154,10 @@
         if (confirmText && !window.confirm(confirmText)) return;
         busy = true; btn.disabled = true; alertBox('');
         request('POST', path, body).then(function (res) {
-            if (res.code === 'prerequisites_required') alertBox(REASON[(res.data || {}).reason] || '시작 조건을 확인해 주세요.', 'warning');
+            if (res.code === 'prerequisites_required') {
+                var d = res.data || {};
+                alertBox(REASON[d.reason || d.last_error] || res.message || REASON_FALLBACK, 'warning');
+            }
             render(res.data);
         }).catch(function (e) { if (e.message !== 'login') alertBox(e.message, 'danger'); })
           .then(function () { busy = false; btn.disabled = false; });

@@ -62,9 +62,21 @@ def _only(body: dict, allowed: set[str]) -> JSONResponse | None:
     return None
 
 
+# 시작하지 못한 사유 → 사용자가 할 일. 웹 화면(onboarding_rebuild.html REASON)과 같은 문구. 모바일 Client 는 message 를 그대로 보인다.
+PREREQUISITE_MESSAGES = {
+    "official_account_missing": "먼저 설정 화면에서 안전신문고 계정을 저장해 주세요.",
+    "gate": "커뮤니티 계정(카카오 인증)과 신고내용 공유 동의를 먼저 확인해 주세요.",
+    "manifest_unavailable": "커뮤니티 서버에서 이미 공유한 목록을 받지 못했습니다. 잠시 후 다시 시작해 주세요.",
+}
+PREREQUISITE_FALLBACK = "다시 불러오기를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요."
+
+
 def _state_response(payload: dict) -> JSONResponse:
     if payload.get("state") == "prerequisites_required":
-        return _ok({"data": payload, "code": "prerequisites_required"}, 409)
+        # 시작 도중(manifest 등) 실패하면 사유가 reason 이 아니라 last_error 에만 있다.
+        why = payload.get("reason") or payload.get("last_error")
+        message = PREREQUISITE_MESSAGES.get(why, PREREQUISITE_FALLBACK)
+        return _ok({"data": payload, "code": "prerequisites_required", "detail": message, "message": message}, 409)
     return _ok({"data": payload})
 
 
