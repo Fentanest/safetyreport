@@ -277,7 +277,7 @@ def _front_rows(conn, ctx: dict, now: str, limit: int, exclude: set[str]) -> lis
     """신고마다 보낼 수 있는 가장 앞 revision 하나(그 행이 due 일 때만). 앞 revision 이 대기 중이면 그 신고는 건너뛴다."""
     rows = conn.execute(
         "SELECT o.event_id, o.attempt_count, o.state, j.source_report_id, j.source_revision, j.event_type, j.captured_at,"
-        " j.payload_sha256, j.eligible, j.writer_epoch, j.report_number FROM source_journal j JOIN outbox o ON o.event_id=j.event_id"
+        " j.payload_sha256, j.eligible, j.writer_epoch, j.report_number, j.rebuild_run_id FROM source_journal j JOIN outbox o ON o.event_id=j.event_id"
         " JOIN (SELECT j2.source_report_id AS rid, MIN(j2.source_revision) AS rev FROM source_journal j2"
         "       JOIN outbox o2 ON o2.event_id=j2.event_id WHERE o2.state IN ('pending','retry_wait','in_flight','auth_required')"
         + _CTX_FILTER.replace("j.", "j2.") + " GROUP BY j2.source_report_id) f"
@@ -644,6 +644,8 @@ class UploadRunContext:
     probing: bool = False
     counts: dict = field(default_factory=lambda: {"sent": 0, "acked": 0, "dead": 0, "blocked": 0, "retry": 0,
                                                   "quarantined": 0, "requests": 0})
+    # 호출 트리거와 별개로 다시 불러오기에서 캡처한 자료만 집계한다(로그용).
+    rebuild_counts: dict = field(default_factory=lambda: {"sent": 0, "acked": 0, "retry": 0})
     request_ids: list = field(default_factory=list)
     error_code: str | None = None
     next_attempt_at: str | None = None
@@ -673,8 +675,23 @@ class UploadRunContext:
                "error_code": self.error_code, "next_attempt_at": self.next_attempt_at}
         _record_run(self.store, self.run_id, self.trigger, self.started, out)
         c = self.counts
-        self.report(f"결과 {result}: 전송 {c['sent']}건, 확인 {c['acked']}건, 재시도 {c['retry']}건"
+        label = "대기열에 보낼 자료 없음" if result == "no_pending" else result
+        self.report(f"결과 {label}: 전송 {c['sent']}건, 확인 {c['acked']}건, 재시도 {c['retry']}건"
                     + (f" ({self.error_code})" if self.error_code else ""))
+        r = self.rebuild_counts
+        if any(r.values()):
+            message = f"다시 불러오기 공유 전송 {r['sent']}건 (확인 {r['acked']}건, 재시도 {r['retry']}건)"
+            if self.error_code:
+                message += f" ({self.error_code})"
+            if self.progress is not None:
+                self.report(message)
+            else:
+                # 수동·자정 호출과 합류해도 활성 크롤 로그에는 실제 결과를 남긴다.
+                try:
+                    from services.community_crawl_upload import log_background_progress
+                    log_background_progress(message)
+                except Exception:
+                    _log.info("[community] rebuild upload log failed", exc_info=True)
         return out
 
 
@@ -824,6 +841,11 @@ def _drain(run: UploadRunContext) -> dict:
                 interp = ack
             else:
                 _apply_ack(store, batch, ack, counts)
+                rebuild_ids = {r['event_id'] for r in batch if r.get('rebuild_run_id')}
+                run.rebuild_counts['acked'] += sum(
+                    event_id in rebuild_ids and ev.outcome == 'done' and ev.status != 'quarantined'
+                    for event_id, ev in ack.events.items())
+                run.rebuild_counts['retry'] += len(rebuild_ids.intersection(ack.missing))
                 run.report(f"진행: 전송 {counts['sent']}건, 확인 {counts['acked']}건, 재시도 {counts['retry']}건")
                 for scope in run.scopes.values():
                     _control_mark(store, scope, state="ready")
@@ -887,12 +909,15 @@ def _send(run: UploadRunContext, batch, token=None):
     run.outbox.mark_in_flight(batch, run.owner)
     run.counts["requests"] += 1
     run.counts["sent"] += len(batch)
+    rebuild_sent = sum(bool(row.get('rebuild_run_id')) for row in batch)
+    run.rebuild_counts["sent"] += rebuild_sent
     response = client.post_envelope(envelope, token=token, now=_now())
     if response.request_id:
         run.request_ids.append(response.request_id)
     if getattr(response, "not_sent", False):  # 전송 계층이 보내지 않았다 — 집계를 되돌린다
         run.counts["requests"] -= 1
         run.counts["sent"] -= len(batch)
+        run.rebuild_counts["sent"] -= rebuild_sent
         run.outbox.undo_attempt(batch)
     return response, _classify(response)
 
@@ -938,6 +963,7 @@ def _apply_error(run: UploadRunContext, batch, interp) -> str:
     if cls in policy.RETRYABLE_CLASSES:
         run.outbox.retry(batch, code, interp.hint, interp.request_id)
         counts["retry"] += len(batch)
+        run.rebuild_counts["retry"] += sum(bool(row.get('rebuild_run_id')) for row in batch)
         until = _control_mark(run.store, run.scopes[policy.RETRYABLE_CLASSES[cls]], state="cooling_down",
                               error_code=code, hint=interp.hint)
         run.next_attempt_at = _iso(until) if until else None
@@ -945,6 +971,7 @@ def _apply_error(run: UploadRunContext, batch, interp) -> str:
     if cls == "auth_required":
         run.outbox.require_auth(batch, code)
         counts["retry"] += len(batch)
+        run.rebuild_counts["retry"] += sum(bool(row.get('rebuild_run_id')) for row in batch)
         _gate_invalidate(code)
         return "needs_auth"
     # consent_rejected / connection_rejected: 명시적 거절 → blocked(보존), 게이트 무효화

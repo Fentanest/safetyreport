@@ -36,6 +36,7 @@
 
 ## 2026-10-12 — (dev, 미릴리스) 셀프호스트 앞단 Cloudflare 가 PC 업로드를 봇으로 차단하던 문제
 
+- 다시 불러오기 공유 자료의 실제 전송·확인·재시도 건수를 `[Supabase]` 크롤 로그에 추가하고, `no_pending` 문구를 `대기열에 보낼 자료 없음`으로 명확히 했다(전송 동작·순서 유지, 회귀 시험 추가).
 - 증상: 3.1.x PC 에서 다시 불러오기 시작이 409(`prerequisites_required`, 마지막 오류 `manifest_unavailable`), 신고 공유 업로드도 셀프호스트에 닿지 않음.
 - 원인: `services/community_ingest_client.py` 의 `urllib` 요청이 Python 기본 User-Agent(`Python-urllib/…`)를 보내고, `supabase.worklazy.net` 앞단 Cloudflare 가
   이를 차단(403 `error code: 1010`). 로그인 계열은 `requests` 라 통과했다. 이전 클라우드에는 Cloudflare 가 없어 드러나지 않았다.

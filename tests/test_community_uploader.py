@@ -119,6 +119,92 @@ class UploaderTest(unittest.TestCase):
         self.assertEqual(row["ack_status"], "accepted")
         self.assertEqual(row["projection_status"], "published")
 
+    def _capture_rebuild(self, rid):
+        return cap.capture(dict(INPUT), source_report_id=rid, trigger="realtime",
+                           rebuild_run_id="rebuild-log-test", data_dir=self.tmp)
+
+    def test_rebuild_upload_and_empty_queue_results_reach_crawl_log(self):
+        """21건은 두 요청으로 전송되며, 뒤의 빈 대기열 로그와 구분된다."""
+        from services.community_crawl_upload import log_background_progress
+        from services.crawl_manager import crawl_manager
+
+        for n in range(21):
+            self._capture_rebuild(f"R{n}")
+        log_file = os.path.join(self.tmp, "crawl.log")
+        with open(log_file, "w", encoding="utf-8"):
+            pass
+
+        def respond(envelope, **kwargs):
+            self.posts.append(envelope)
+            return ok_resp([ack(event["event_id"]) for event in envelope["events"]])
+
+        with mock.patch.object(crawl_manager, "_active_process", object()), \
+             mock.patch("services.crawl_log_service.get_current_crawl_log_path", return_value=log_file), \
+             mock.patch.object(client, "post_envelope", side_effect=respond):
+            result = up.request_upload("realtime", self.tmp, progress=log_background_progress)
+            empty = up.request_upload("realtime", self.tmp, progress=log_background_progress)
+        self.assertEqual((result["counts"]["sent"], result["counts"]["acked"]), (21, 21))
+        self.assertEqual(empty["result"], "no_pending")
+        self.assertEqual([len(post["events"]) for post in self.posts], [20, 1])
+        self.assertEqual([post["trigger"] for post in self.posts], ["realtime", "realtime"])
+        self.assertTrue(all("rebuild_run_id" not in event for post in self.posts for event in post["events"]))
+        self.assertEqual(self._outbox(), [])
+        with open(log_file, encoding="utf-8") as source:
+            text = source.read()
+        self.assertEqual(text.count("다시 불러오기 공유 전송"), 1)
+        self.assertIn("[Supabase] 다시 불러오기 공유 전송 21건 (확인 21건, 재시도 0건)", text)
+        self.assertIn("[Supabase] 결과 대기열에 보낼 자료 없음: 전송 0건, 확인 0건, 재시도 0건", text)
+
+    def test_rebuild_log_separates_mixed_batch_and_missing_ack(self):
+        first = self._capture_rebuild("R1")
+        self._capture_rebuild("R2")
+        normal = self._capture("R3")
+        messages = []
+        result = self._run_with(ok_resp([ack(first.event_id, status="duplicate"), ack(normal.event_id)]),
+                                progress=messages.append)
+        self.assertEqual(result["result"], "partial")
+        self.assertEqual((result["counts"]["sent"], result["counts"]["acked"], result["counts"]["retry"]), (3, 2, 1))
+        self.assertIn("다시 불러오기 공유 전송 2건 (확인 1건, 재시도 1건)", messages)
+
+    def test_rebuild_log_does_not_count_quarantined_ack_as_confirmed(self):
+        res = self._capture_rebuild("R1")
+        messages = []
+        result = self._run_with(ok_resp([ack(res.event_id, status="quarantined", projection="held")]),
+                                progress=messages.append)
+        self.assertEqual(result["counts"]["quarantined"], 1)
+        self.assertIn("다시 불러오기 공유 전송 1건 (확인 0건, 재시도 0건)", messages)
+
+    def test_rebuild_log_reports_failed_request_retry(self):
+        self._capture_rebuild("R1")
+        messages = []
+        result = self._run_with(err_resp("offline", None), progress=messages.append)
+        self.assertEqual(result["result"], "cooldown")
+        self.assertIn("다시 불러오기 공유 전송 1건 (확인 0건, 재시도 1건) (offline)", messages)
+
+    def test_rebuild_log_does_not_count_unsent_request(self):
+        self._capture_rebuild("R1")
+        messages = []
+        response = err_resp("offline", None)
+        response.not_sent = True
+        result = self._run_with(response, progress=messages.append)
+        self.assertEqual(result["counts"]["sent"], 0)
+        self.assertIn("다시 불러오기 공유 전송 0건 (확인 0건, 재시도 1건) (offline)", messages)
+
+    def test_rebuild_result_reaches_crawl_log_without_progress_callback(self):
+        from services.crawl_manager import crawl_manager
+
+        res = self._capture_rebuild("R1")
+        log_file = os.path.join(self.tmp, "crawl.log")
+        with open(log_file, "w", encoding="utf-8"):
+            pass
+        with mock.patch.object(crawl_manager, "_active_process", None), \
+             mock.patch.object(crawl_manager, "_post_upload_active", True), \
+             mock.patch("services.crawl_log_service.get_current_crawl_log_path", return_value=log_file):
+            result = self._run_with(ok_resp([ack(res.event_id)]), trigger="recovery")
+        self.assertEqual(result["result"], "sent")
+        with open(log_file, encoding="utf-8") as source:
+            self.assertIn("[Supabase] 다시 불러오기 공유 전송 1건 (확인 1건, 재시도 0건)", source.read())
+
     def test_b02_upload_5xx_does_not_stop_capture(self):
         """B02: 업로드 5xx 여도 capture 계속."""
         self._capture("R1")
