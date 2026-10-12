@@ -160,6 +160,26 @@
 - 상세에서 확인한 별점 정수 1..5만 `rating`으로 캡처하고, 없거나 범위 밖이면 null로 보낸다. 별점사유 자유 텍스트는 전송하지 않는다. PC에서 사이트 별점 확인 뒤 capture 재조회 의도(rating_confirmed_refetch)를 기록해 다음 증분 수집의 공식 상세를 다시 읽는다. 점수가 바뀌면 payload SHA-256이 달라져 `completed_observation`이 발급된다.
 - 동의 정책 2026-09-28.3에서 별점 평균·건수를 공개한다. 기존 .1/.2 계보는 별점을 공개하지 않는다. DB 교환 스키마는 그대로다.
 
+## 추정 과태료 공유 (fine_estimate, 2026-10-12, `/home/better0101/projects/worktree/fine-estimate-contract.md`)
+
+- `build_payload`: 로컬 통계가 그 신고를 '추정 과태료'로 세는 조건(과태료 처분인데 금액을 모름 + `services/fine_estimate.estimate()` 가 None 아님)과
+  **같은 입력·같은 판정**일 때만 `fine_estimate{won, rule, rule_version}` 을 싣는다 — 대상이 아니면 키 자체가 없다(null 금지, payload·payload_sha256 불변).
+  판정은 `services/fine_estimate.is_fine_amount_unknown`/`extract_fine_amount`/`estimate_if_unknown`(정본)을 `services/stats/metrics.py` 와 공유한다(중복 구현 없음).
+  입력 레코드는 통계와 같은 8열(`FINE_ESTIMATE_FIELDS`: `category, entry_value, 신고명, 위반법규, 차량번호, 사진_첫촬영, 사진_끝촬영, 발생시각`) — `ssnpc_cd`/`ssnpc_type` 은 넣지 않는다.
+  확정 금액(`amount.confirmed_won`)과는 별도 필드·별도 합계로만 쓴다(PROJECT_RULES §3-2).
+- `build_adapter_input`에 `report_name`/`photo_first_at`/`photo_last_at` 입력이 늘었다(payload 로는 안 나가고 판정에만 쓰임). 크롤 경로(`core/storage/reports_repo._community_capture_for`)가
+  `_prefetch_derived()` 의 사진 촬영 시각과, 이번 응답에 없으면 기존 저장 행의 신고명으로 채워 넘긴다. `발생시각`은 이미 `detail` 에 있어 그대로 쓴다.
+- `contracts/community-ingest/observation.schema.json`·`observation.md`(+MANIFEST, 지도 레포와 같은 정의): `fine_estimate` 선택 필드 추가(additionalProperties false,
+  `rule` enum = `bus_lane|parking|hydrant|school_zone|ev_charging|disabled_parking|fire_lane|waste|overnight_truck`). 스키마 이름·`observation-v5` 는 그대로(가산적·선택 필드라 버전 안 올림).
+- parser_version `pc-parser-6`.
+- **기존 신고 다시 보내기**: `services/community_capture.resend_fine_estimate_updates(engine, data_dir=None)` — `main.py` 시작 때(사진 촬영 시각 한 번 훑기와 같은 자리,
+  `skip_in_fixture("startup fine estimate resend")`) 백그라운드 스레드로 한 번 돈다. 로컬 DB 신고(범칙금_과태료 LIKE '%과태료%'·상세 있음)로 어댑터·payload 를 다시 만들어
+  기존 `capture()` 경로로 보낸다 — payload_sha256 이 바뀐 것(= fine_estimate 신규)만 실제 이벤트가 되고 outbox 에 들어간다. 완료 표시는 community.db
+  `meta['fine_estimate_resend_done']`(규칙 버전 `fine_estimate.RULE_VERSION` + `PARSER_VERSION`) 기준이라 둘 중 하나가 바뀌면 다시 돈다. 삭제 정리가 안 끝났으면
+  (`deletion_cleanup_pending`) 이번 실행은 건너뛰고 완료로 표시하지 않는다. 한 건이라도 실패하면 완료로 표시하지 않되, `capture()` 가 이미 반영된 건은 no-op 이라
+  다음 실행이 전체를 다시 훑어도 실패한 건만 실제로 새로 처리된다. 동의·계정 문맥이 없거나 철회됐으면(기존 규칙) journal 만 쓰고 outbox 에 넣지 않는다.
+  사용자 조작·초기화 크롤링 없음, 기존 outbox 배치·재시도·쿨다운 규칙을 그대로 쓴다(한 번에 몰아치지 않음).
+
 ## 기관코드 전체자료 대조와 통계 키 전환 (registry 2026-09-29.1, 2026-09-29)
 
 - `shared/agency-region-registry`(스키마 v2, 세 레포 바이트 동일): 공식 전체자료 472,175행 대조.

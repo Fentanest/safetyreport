@@ -34,6 +34,26 @@
 
 ---
 
+## 2026-10-12 — (dev, 미릴리스) 커뮤니티 공유에 추정 과태료 추가
+
+- 지도에 내 신고의 추정 과태료가 함께 집계됩니다. 이미 공유한 신고도 업데이트 후 자동으로 반영됩니다.
+- `services/community_capture.py` `build_payload`: 로컬 통계가 '추정 과태료'로 세는 신고(과태료 처분인데 금액을 모르고 `services/fine_estimate.estimate()` 가 있음)만
+  공유 payload 에 `fine_estimate{won, rule, rule_version}` 을 싣는다. 대상이 아니면 키 자체가 없다(null 아님) — 그 신고의 payload·payload_sha256 은 바뀌지 않는다.
+  판정은 `services/fine_estimate.is_fine_amount_unknown`/`estimate_if_unknown`(신규 공용 함수)로 통계(`services/stats/metrics.py`)와 공유해 중복 구현하지 않았다.
+  `build_adapter_input`에 신고명·사진 촬영 시각 입력이 늘었고(판정에만 쓰고 전송하지 않음), 크롤 저장 경로(`core/storage/reports_repo.py`)가 채워 넘긴다. parser_version → `pc-parser-6`.
+- `contracts/community-ingest/observation.schema.json`·`observation.md`(+MANIFEST)에 `fine_estimate` 선택 필드를 계약대로 추가했다(지도 레포와 같은 정의, 가산적 변경이라 버전 이름은 유지).
+- 기존 신고 다시 보내기: `services/community_capture.resend_fine_estimate_updates()` — 앱 업데이트 뒤 한 번, 사용자 조작·초기화 크롤링 없이 `main.py` 시작 때 백그라운드로
+  로컬 DB 기존 신고의 payload 를 다시 만들어 바뀐 것만(= fine_estimate 신규) 기존 capture/journal/outbox 경로로 보낸다. 완료 표시는 (`fine_estimate.RULE_VERSION`, `PARSER_VERSION`)
+  기준이라 규칙이 바뀌면 다시 돈다. 동의·계정 문맥 없음/철회, 중앙 삭제 결과 불명(`deletion_cleanup_pending`)이면 기존 규칙대로 보내지 않거나 이번 실행을 건너뛴다(완료로 표시 안 함).
+  실패해도 완료로 표시하지 않아 다음 실행이 이어서 돈다(`capture()` 가 이미 반영된 건은 그대로 no-op). 기존 outbox 배치·재시도 규칙을 그대로 쓴다(한 번에 몰아치지 않음).
+- 검증: 새 시험 18건(payload 생성·부재·payload_sha256 불변·observation.schema.json 검증·다시 보내기 1회성/재개/동의 없음·삭제 대기 제외 — `tests/fixtures/fine_estimate_vectors.json` 벡터 활용)
+  포함 전체 unittest 978건 통과(건너뜀 6, 변경 전 960건에서 증가). 공유 계약 벡터 `contracts/community-ingest/vectors/observations.json` 중 과태료 금액 미확정 3건
+  (`fine_keyword_without_amount`·`zero_amount_is_not_null`·`amount_man_unit_rejected`)이 이번 기능으로 실제 fine_estimate 를 받게 돼 기대값·해시를 갱신했다(기능 추가에 따른
+  의도된 변경, 버그 은폐 아님).
+- VERSION 변경 없음(dev 확인 후 릴리스). git push·릴리스하지 않았다.
+
+---
+
 ## 2026-10-12 — (dev, 미릴리스) 셀프호스트 앞단 Cloudflare 가 PC 업로드를 봇으로 차단하던 문제
 
 - 다시 불러오기 공유 자료의 실제 전송·확인·재시도 건수를 `[Supabase]` 크롤 로그에 추가하고, `no_pending` 문구를 `대기열에 보낼 자료 없음`으로 명확히 했다(전송 동작·순서 유지, 회귀 시험 추가).

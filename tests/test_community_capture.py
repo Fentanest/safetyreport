@@ -4,7 +4,11 @@ import json
 import os
 import tempfile
 import unittest
+import uuid
+from pathlib import Path
 from unittest import mock
+
+from sqlalchemy import create_engine
 
 from services import community_capture as cap
 from services.community_store import CommunityStore
@@ -457,6 +461,345 @@ class AgencyCodePayloadTests(unittest.TestCase):
         self.assertIsNone(b_row["ack_status"])
         b_out = conn.execute("SELECT state FROM outbox WHERE event_id=?", (second.event_id,)).fetchone()
         self.assertEqual(b_out["state"], "pending")
+
+
+def _parking_adapter(**overrides):
+    """payload 가 fine_estimate 대상(불법주정차·확정 금액 모름)이 되는 기본 adapter_input."""
+    base = {
+        "processing_status": "수용", "penalty_amount": "과태료",
+        "report_date": "2026-09-01", "response_date": "2026-09-10",
+        "processing_agency": "서울특별시 중구청", "person_in_charge": "홍길동",
+        "car_number": "12가3456", "violation_location": "서울특별시 중구 세종대로 110",
+        "entry_value": "불법주정차신고",
+        "geocode": {"status": "ok", "lat": 37.5662952, "lng": 126.9779451},
+    }
+    base.update(overrides)
+    return base
+
+
+class FineEstimateSharedJudgmentTests(unittest.TestCase):
+    """fine_estimate.estimate_if_unknown — build_payload 가 쓰는 판정 그대로를 공유 벡터로 검증한다
+    (tests/fixtures/fine_estimate_vectors.json, services/stats/metrics.py `_metric_unknown_fine` 와 같은 조건)."""
+
+    @classmethod
+    def setUpClass(cls):
+        from services import fine_estimate
+        cls.fine_estimate = fine_estimate
+        path = Path(__file__).resolve().parent / "fixtures" / "fine_estimate_vectors.json"
+        cls.cases = json.loads(path.read_text(encoding="utf-8"))["cases"]
+
+    def test_amount_unknown_cases_match_vector_amount_and_rule(self):
+        """벡터의 음성 case(금액이 표에 없어 amount 가 null)는 payload 에도 fine_estimate 가 없다 — estimate_if_unknown 이 None."""
+        for case in self.cases:
+            with self.subTest(case=case["name"]):
+                result = self.fine_estimate.estimate_if_unknown("과태료", case["record"])
+                if case["amount"] is None:
+                    self.assertIsNone(result, f"{case['name']}: 기대와 달리 금액이 나옴")
+                else:
+                    self.assertIsNotNone(result, f"{case['name']}: estimate_if_unknown 이 None")
+                    self.assertEqual(result["amount"], case["amount"])
+                    self.assertEqual(result["rule"], case["rule"])
+
+    def test_confirmed_or_non_fine_amount_suppresses_estimate(self):
+        record = dict(self.cases[0]["record"])
+        self.assertIsNone(self.fine_estimate.estimate_if_unknown("과태료: 40,000원", record))
+        self.assertIsNone(self.fine_estimate.estimate_if_unknown("범칙금: 40,000원", record))
+        self.assertIsNone(self.fine_estimate.estimate_if_unknown("경고", record))
+        self.assertIsNone(self.fine_estimate.estimate_if_unknown("", record))
+        self.assertIsNone(self.fine_estimate.estimate_if_unknown(None, record))
+
+
+class FineEstimatePayloadTests(unittest.TestCase):
+    """build_payload 의 fine_estimate(v6, fine-estimate-contract.md): 있을 때만, 대상 아니면 payload·sha256 불변."""
+
+    def test_fine_estimate_added_when_eligible(self):
+        from services import fine_estimate
+        payload = cap.build_payload(_parking_adapter())
+        self.assertIn("fine_estimate", payload)
+        self.assertEqual(payload["fine_estimate"],
+                         {"won": 40000, "rule": "parking", "rule_version": fine_estimate.RULE_VERSION})
+
+    def test_fine_estimate_absent_when_amount_confirmed(self):
+        payload = cap.build_payload(_parking_adapter(penalty_amount="과태료: 40,000원"))
+        self.assertNotIn("fine_estimate", payload)
+
+    def test_fine_estimate_absent_when_not_a_fine_disposition(self):
+        payload = cap.build_payload(_parking_adapter(penalty_amount="경고"))
+        self.assertNotIn("fine_estimate", payload)
+
+    def test_fine_estimate_absent_when_rule_does_not_match(self):
+        # '생활불편신고' 는 과태료 추정 규칙에 없는 접수 메뉴 — classify() 가 None.
+        payload = cap.build_payload(_parking_adapter(entry_value="생활불편신고"))
+        self.assertNotIn("fine_estimate", payload)
+
+    def test_payload_sha256_unchanged_for_non_target_report(self):
+        """추정 대상이 아닌 신고는 신고명·사진 촬영 시각 입력이 새로 생겨도 payload·payload_sha256 이 바뀌지 않는다."""
+        confirmed = _parking_adapter(penalty_amount="과태료: 40,000원")
+        before = cap.build_payload(confirmed)
+        after = cap.build_payload(dict(confirmed, report_name="불법주정차", occurrence_time="10:00",
+                                       photo_first_at="2026-09-01 01:00:00", photo_last_at="2026-09-01 02:30:00"))
+        self.assertNotIn("fine_estimate", after)
+        self.assertEqual(before, after)
+        self.assertEqual(cap.payload_sha256(before), cap.payload_sha256(after))
+
+    def test_build_adapter_input_carries_fine_estimate_inputs(self):
+        """fine_estimate 입력은 build_adapter_input 을 거쳐도 payload 로는 나가지 않는다(판정에만 쓰임)."""
+        detail = {"처리상태": "수용", "범칙금_과태료": "과태료", "차량번호": "12가3456", "발생시각": "10:00"}
+        adapter = cap.build_adapter_input(detail, {"신고일": "2026-09-01", "신고번호": "SPP-2609-8000001"},
+                                          "불법주정차신고", {}, None,
+                                          report_name="불법주정차 위반",
+                                          photo_first_at="2026-09-01 01:00:00", photo_last_at="2026-09-01 02:30:00")
+        self.assertEqual(adapter["report_name"], "불법주정차 위반")
+        self.assertEqual(adapter["occurrence_time"], "10:00")
+        self.assertEqual(adapter["photo_first_at"], "2026-09-01 01:00:00")
+        self.assertEqual(adapter["photo_last_at"], "2026-09-01 02:30:00")
+        payload = cap.build_payload(adapter)
+        self.assertIn("fine_estimate", payload)
+        for leaked in ("report_name", "occurrence_time", "photo_first_at", "photo_last_at", "신고명", "사진_첫촬영", "사진_끝촬영", "발생시각"):
+            self.assertNotIn(leaked, payload)
+
+    def test_report_name_falls_back_to_title_fields(self):
+        """호출자가 report_name 을 안 넘기면 title_fields['신고명'] 으로 떨어진다(크롤 경로의 기본 동작)."""
+        detail = {"처리상태": "수용", "범칙금_과태료": "과태료", "차량번호": "12가3456"}
+        adapter = cap.build_adapter_input(detail, {"신고일": "2026-09-01", "신고명": "버스전용차로 위반"},
+                                          "자동차·교통위반 > 신호위반", {})
+        self.assertEqual(adapter["report_name"], "버스전용차로 위반")
+
+
+def _validate_schema(instance, schema):
+    """observation.schema.json 의 부분집합(type/enum/pattern/min·maxLength/minimum/maximum/
+    properties/required/additionalProperties)만 지원하는 가벼운 검증기 — jsonschema 의존성 없이 계약 파일 그대로를 검사한다."""
+    if "enum" in schema:
+        assert instance in schema["enum"], f"{instance!r} not in {schema['enum']!r}"
+        return
+    types = schema.get("type")
+    if types is not None:
+        allowed = [types] if isinstance(types, str) else types
+        pytypes = {"string": str, "integer": int, "number": (int, float), "object": dict, "null": type(None)}
+        ok = any(isinstance(instance, pytypes[t]) and not (t == "integer" and isinstance(instance, bool)) for t in allowed)
+        assert ok, f"{instance!r} not of type {allowed!r}"
+    if instance is None:
+        return
+    if isinstance(instance, str):
+        if "minLength" in schema:
+            assert len(instance) >= schema["minLength"]
+        if "maxLength" in schema:
+            assert len(instance) <= schema["maxLength"]
+        if "pattern" in schema:
+            import re as _re
+            assert _re.match(schema["pattern"], instance), f"{instance!r} !~ {schema['pattern']!r}"
+    if isinstance(instance, (int, float)) and not isinstance(instance, bool):
+        if "minimum" in schema:
+            assert instance >= schema["minimum"]
+        if "maximum" in schema:
+            assert instance <= schema["maximum"]
+    if isinstance(instance, dict) and schema.get("type") == "object":
+        for key in schema.get("required", []):
+            assert key in instance, f"missing required key {key!r}"
+        if schema.get("additionalProperties") is False:
+            extra = set(instance) - set(schema.get("properties", {}))
+            assert not extra, f"additionalProperties: {extra!r}"
+        for key, sub in schema.get("properties", {}).items():
+            if key in instance:
+                _validate_schema(instance[key], sub)
+
+
+class FineEstimateSchemaValidationTests(unittest.TestCase):
+    """build_payload 출력이 contracts/community-ingest/observation.schema.json 과 맞는지(fine_estimate 포함)."""
+
+    @classmethod
+    def setUpClass(cls):
+        schema_path = Path(__file__).resolve().parents[1] / "contracts" / "community-ingest" / "observation.schema.json"
+        cls.schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+    def test_schema_declares_fine_estimate_as_optional(self):
+        self.assertIn("fine_estimate", self.schema["properties"])
+        self.assertNotIn("fine_estimate", self.schema["required"])
+
+    def test_payload_with_fine_estimate_validates(self):
+        payload = cap.build_payload(_parking_adapter())
+        self.assertIn("fine_estimate", payload)
+        _validate_schema(payload, self.schema)
+
+    def test_payload_without_fine_estimate_still_validates(self):
+        payload = cap.build_payload(_parking_adapter(penalty_amount="과태료: 40,000원"))
+        self.assertNotIn("fine_estimate", payload)
+        _validate_schema(payload, self.schema)
+
+    def test_vector_cases_validate_as_fine_estimate_value(self):
+        from services import fine_estimate
+        path = Path(__file__).resolve().parent / "fixtures" / "fine_estimate_vectors.json"
+        cases = json.loads(path.read_text(encoding="utf-8"))["cases"]
+        sub_schema = self.schema["properties"]["fine_estimate"]
+        for case in cases:
+            with self.subTest(case=case["name"]):
+                result = fine_estimate.estimate_if_unknown("과태료", case["record"])
+                if result is None:  # 음성 case: payload 라면 이 키가 없다 — 검증 대상 아님
+                    continue
+                value = {"won": result["amount"], "rule": result["rule"], "rule_version": fine_estimate.RULE_VERSION}
+                _validate_schema(value, sub_schema)
+
+
+class FineEstimateResendTests(unittest.TestCase):
+    """fine-estimate-contract.md "기존 신고 다시 보내기": 1회성·재개·동의 없음/삭제 대기 제외."""
+
+    def setUp(self):
+        from core.database import database, models
+        from core.utils import logger
+        logger.LoggerFactory.create_logger(mode="crawl")
+        self.models = models
+        self._dir = tempfile.TemporaryDirectory()
+        self.engine = create_engine(f"sqlite:///{Path(self._dir.name) / 'data.db'}")
+        database.upgrade_schema(self.engine)
+        context_patch = mock.patch('services.community_cloud.capture_context',
+                                   side_effect=lambda ctx: (ctx, 'active' if ctx and ctx.get('state') == 'active' else 'none'))
+        context_patch.start(); self.addCleanup(context_patch.stop)
+        self.tmp = tempfile.mkdtemp()
+        self.store = CommunityStore.open(self.tmp)
+        self.store.set_context(**CTX)
+
+    def tearDown(self):
+        self.engine.dispose()
+        self._dir.cleanup()
+        self.store.close()
+        CommunityStore._forget(os.path.join(self.tmp, "community.db"))
+
+    def _insert_report(self, rid, **overrides):
+        base = dict(ID=rid, 상태="답변완료", 신고번호=f"SPP-2609-{rid}", 신고명="불법주정차 위반",
+                    신고일="2026-09-01", 처리상태="수용", 차량번호="12가3456", 위반법규="",
+                    범칙금_과태료="과태료", 벌점="", 처리기관="서울특별시 중구청", 담당자="홍길동",
+                    답변일="2026-09-10", 발생일자="2026-09-01", 발생시각="10:00", 위반장소="서울특별시 중구",
+                    종결여부="Y", 신고내용="", 처리내용="", 지도="", 첨부사진="", 첨부파일="",
+                    synced_at=0, 보완횟수=0, 보완_미응답="N",
+                    사진_첫촬영=None, 사진_끝촬영=None, 사진_촬영수=None,
+                    category="parking", entry_value="불법주정차신고")
+        base.update(overrides)
+        with self.engine.begin() as conn:
+            conn.execute(self.models.report_table.insert().values(**base))
+        return base
+
+    def _seed_pre_update_journal(self, source_report_id, row, *, eligible=True):
+        """'이 기능이 생기기 전'을 흉내: 지금 다시 만들면 fine_estimate 가 붙을 payload 에서 그 키를 뺀 모습으로
+        journal 을 먼저 만든다(parser_version pc-parser-5). resend 가 이걸 새 payload(있으면 fine_estimate 포함)로 갈아친다."""
+        adapter = cap._resend_adapter_input(row)
+        payload = cap.build_payload(adapter)
+        payload.pop("fine_estimate", None)
+        sha = cap.payload_sha256(payload)
+        now = cap._now_iso()
+        # resend 가 다시 만들 report_number 와 맞춰 둔다 — 안 맞으면 capture() 의 "번호만 뒤늦게 채워짐" 규칙이
+        # sha 와 무관하게 새 이벤트를 발급해(REVIEW2 높음-1 대응) fine_estimate 변화와 섞인다.
+        report_number = adapter.get("report_number")
+        with self.store.transaction() as tx:
+            revision = self.store.next_revision(tx)
+            tx.execute(
+                "INSERT INTO source_journal(event_id, project_namespace, local_dataset_id, dataset_key,"
+                " source_report_id, report_number, source_revision, event_type, captured_at, capture_trigger,"
+                " schema_version, parser_version, payload_json, payload_sha256, eligible,"
+                " contributor_fingerprint, connection_id, writer_epoch, consent_grant_id, personal_save_state)"
+                " VALUES (?, 'test', ?, ?, ?, ?, ?, 'completed_observation', ?, 'realtime',"
+                " ?, 'pc-parser-5', ?, ?, ?, ?, ?, ?, ?, 'saved')",
+                (str(uuid.uuid4()), self.store.local_dataset_id(), CTX["dataset_key"], source_report_id, report_number,
+                 revision, now, cap.SCHEMA_VERSION, cap.canonical_json(payload), sha, 1 if eligible else 0,
+                 CTX["contributor_fingerprint"], CTX["connection_id"], CTX["writer_epoch"], CTX["consent_grant_id"]))
+        return sha
+
+    def test_resend_sends_only_changed_payloads_once(self):
+        matched = self._insert_report("R1")
+        confirmed = self._insert_report("R2", 범칙금_과태료="과태료: 40,000원")
+        self._seed_pre_update_journal("R1", matched)
+        self._seed_pre_update_journal("R2", confirmed)
+
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(result["state"], "done")
+        self.assertEqual(result["candidates"], 2)
+        self.assertEqual(result["resent"], 1)  # R1 만 바뀜(fine_estimate 신규)
+        self.assertEqual(result["errors"], 0)
+
+        conn = self.store.connect()
+        r1_rows = conn.execute(
+            "SELECT payload_sha256, payload_json FROM source_journal WHERE source_report_id='R1' ORDER BY source_revision").fetchall()
+        self.assertEqual(len(r1_rows), 2)
+        self.assertNotEqual(r1_rows[0]["payload_sha256"], r1_rows[1]["payload_sha256"])
+        self.assertIn("fine_estimate", json.loads(r1_rows[1]["payload_json"]))
+        outbox_r1 = conn.execute(
+            "SELECT COUNT(*) v FROM outbox o JOIN source_journal j ON j.event_id=o.event_id"
+            " WHERE j.source_report_id='R1'").fetchone()["v"]
+        self.assertEqual(outbox_r1, 1)  # 새 이벤트만 outbox 에 들어간다
+
+        r2_count = conn.execute("SELECT COUNT(*) v FROM source_journal WHERE source_report_id='R2'").fetchone()["v"]
+        self.assertEqual(r2_count, 1)  # 안 바뀜 — 다시 보내지 않음
+
+        # 1회성: 완료 표시 뒤에는 다시 돌아도 아무 것도 하지 않는다.
+        total_before = conn.execute("SELECT COUNT(*) v FROM source_journal").fetchone()["v"]
+        again = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(again["state"], "already_done")
+        self.assertEqual(conn.execute("SELECT COUNT(*) v FROM source_journal").fetchone()["v"], total_before)
+
+    def test_rule_version_bump_runs_again(self):
+        from services import fine_estimate
+        matched = self._insert_report("R1")
+        self._seed_pre_update_journal("R1", matched)
+        cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(cap._resend_marker(self.tmp), {"rule_version": fine_estimate.RULE_VERSION, "parser_version": cap.PARSER_VERSION})
+        # 규칙 버전이 바뀐 것처럼 표시를 되돌리면 완료 표시가 더는 맞지 않아 다시 돈다.
+        with self.store.transaction() as tx:
+            self.store.set_meta(cap.RESEND_MARKER_KEY, json.dumps({"rule_version": "old", "parser_version": "old"}), tx)
+        again = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(again["state"], "done")  # 마커가 안 맞아 다시 전체를 훑는다(이미 반영된 건 no-op)
+        self.assertEqual(again["resent"], 0)  # R1 은 이미 최신이라 다시 보낼 필요 없음
+
+    def test_partial_failure_is_not_marked_done_and_resumes_next_run(self):
+        matched = self._insert_report("R1")
+        other = self._insert_report("R3")
+        self._seed_pre_update_journal("R1", matched)
+        self._seed_pre_update_journal("R3", other)
+
+        original_capture = cap.capture
+
+        def flaky_capture(adapter_input, *, source_report_id, trigger, rebuild_run_id=None, data_dir=None):
+            if source_report_id == "R3":
+                raise RuntimeError("boom")
+            return original_capture(adapter_input, source_report_id=source_report_id, trigger=trigger,
+                                    rebuild_run_id=rebuild_run_id, data_dir=data_dir)
+
+        with mock.patch.object(cap, "capture", side_effect=flaky_capture):
+            first = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(first["state"], "partial")
+        self.assertEqual(first["errors"], 1)
+        self.assertEqual(first["resent"], 1)
+        self.assertIsNone(cap._resend_marker(self.tmp))  # 실패가 있으면 완료로 표시하지 않는다
+
+        # 다음 실행: 전체를 다시 훑되 R1 은 이미 반영돼 no-op, R3 만 실제로 새로 처리된다("이어서").
+        second = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(second["state"], "done")
+        self.assertEqual(second["candidates"], 2)
+        self.assertEqual(second["resent"], 1)
+        self.assertIsNotNone(cap._resend_marker(self.tmp))
+
+    def test_resend_without_active_context_writes_journal_but_not_outbox(self):
+        """동의·계정 문맥이 없으면(기존 규칙) journal 만 기록하고 outbox 에 넣지 않는다 — 보내지 않는다."""
+        matched = self._insert_report("R1")
+        self._seed_pre_update_journal("R1", matched)
+        self.store.deactivate_context("consent_revoked")
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(result["state"], "done")
+        self.assertEqual(result["resent"], 1)
+        conn = self.store.connect()
+        self.assertEqual(conn.execute("SELECT COUNT(*) v FROM outbox").fetchone()["v"], 0)
+        row = conn.execute(
+            "SELECT blocked_reason FROM source_journal WHERE source_report_id='R1' ORDER BY source_revision DESC LIMIT 1").fetchone()
+        self.assertEqual(row["blocked_reason"], "consent:none")
+
+    def test_resend_skips_while_deletion_cleanup_is_pending(self):
+        """중앙 삭제 결과가 아직 불명(prepared)이면 이번 실행은 건너뛰고 완료로 표시하지 않는다."""
+        matched = self._insert_report("R1")
+        self._seed_pre_update_journal("R1", matched)
+        cap.begin_deletion(self.tmp)
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(result["state"], "deletion_pending")
+        self.assertIsNone(cap._resend_marker(self.tmp))
+        conn = self.store.connect()
+        self.assertEqual(conn.execute("SELECT COUNT(*) v FROM source_journal WHERE source_report_id='R1'").fetchone()["v"], 1)
 
 
 if __name__ == "__main__":

@@ -147,6 +147,15 @@ async def lifespan(app: FastAPI):
             maintenance_service.start_photo_backfill(engine)
         except Exception as exc:
             logger.LoggerFactory.logbot.warning(f"[maintenance] 사진 촬영 시각 한 번 훑기 시작 실패: {exc}")
+    if not skip_in_fixture("startup fine estimate resend"):
+        try:
+            # fine-estimate-contract.md "기존 신고 다시 보내기": 크롤링·화면 없이 로컬 DB 기존 신고로
+            # payload 를 다시 만들어 fine_estimate 가 새로 생긴 것만 기존 capture 경로로 보낸다(한 번, 백그라운드).
+            from services import community_capture
+            threading.Thread(target=community_capture.resend_fine_estimate_updates, args=(engine,),
+                             name="community-fine-estimate-resend", daemon=True).start()
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f"[community] 추정 과태료 다시 보내기 시작 실패: {exc}")
     if not skip_in_fixture("startup scheduler"):
         scheduler.init_scheduler()
     if not skip_in_fixture("startup crawl pending retry"):

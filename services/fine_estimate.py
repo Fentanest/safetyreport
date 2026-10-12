@@ -203,3 +203,40 @@ def estimate(record: dict) -> dict | None:
     if amount is None:
         return None
     return {"amount": int(amount), "rule": rule_id, "basis": f"{basis} · {cls if None not in table else '차종 무관'}"}
+
+
+# ── 통계·공유 payload 공통 판정 (fine-estimate-contract.md) ──────────────────────
+# 로컬 통계가 '추정 과태료'로 세는 신고 = 과태료 처분인데 금액을 모름(아래 두 함수) + estimate() 가 None 이 아님.
+# 이 모듈이 정본이고 services/stats/metrics.py·services/community_capture.py 는 이 함수들을 그대로 쓴다
+# (판정을 각자 다시 구현하지 않는다).
+
+def extract_fine_amount(text) -> int:
+    """`범칙금_과태료` 원문에서 과태료 확정 금액을 읽는다. 과태료가 아니거나 못 읽으면 0."""
+    if not text:
+        return 0
+    text = str(text)
+    if "과태료" not in text:
+        return 0
+    # '40.000원' 처럼 점을 천 단위 구분자로 쓴 답변도 있다. 모바일 `extractFineAmount` 와 같은 규칙.
+    match = re.search(r"([\d,.]+)\s*원", text)
+    if match:
+        digits = re.sub(r"[,.]", "", match.group(1))
+        return int(digits) if digits.isdigit() else 0
+    return 0
+
+
+def is_fine_amount_unknown(text) -> bool:
+    """과태료 처분인데 금액을 읽을 수 없는 경우(0원과 구분, statistics-spec S-05)."""
+    return "과태료" in str(text or "") and extract_fine_amount(text) == 0
+
+
+# estimate() 입력과 같은 열만(로컬 통계·공유 payload 공통, ssnpc_cd/ssnpc_type 은 포함하지 않는다 — fine-estimate-contract.md).
+FINE_ESTIMATE_FIELDS = ("category", "entry_value", "신고명", "위반법규", "차량번호", "사진_첫촬영", "사진_끝촬영", "발생시각")
+
+
+def estimate_if_unknown(fine_amount_text, record: dict) -> dict | None:
+    """금액 없는 과태료 신고만 추정한다. `fine_amount_text` = `범칙금_과태료` 원문, `record` 키는 FINE_ESTIMATE_FIELDS.
+    확정 금액이 있거나(과태료가 아니거나 금액이 읽히면) 규칙이 못 알아보면 None."""
+    if not is_fine_amount_unknown(fine_amount_text):
+        return None
+    return estimate(record)

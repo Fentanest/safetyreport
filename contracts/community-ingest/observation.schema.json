@@ -196,6 +196,40 @@
       ],
       "minimum": 1,
       "maximum": 5
+    },
+    "fine_estimate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "won",
+        "rule",
+        "rule_version"
+      ],
+      "properties": {
+        "won": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000000
+        },
+        "rule": {
+          "enum": [
+            "bus_lane",
+            "parking",
+            "hydrant",
+            "school_zone",
+            "ev_charging",
+            "disabled_parking",
+            "fire_lane",
+            "waste",
+            "overnight_truck"
+          ]
+        },
+        "rule_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        }
+      }
     }
   }
 }

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
 from core.utils.fallback import note_fallback
-from services import report_category
+from services import fine_estimate, report_category
 
 STATUS_MAP = {
     "수용": "accepted",
@@ -33,7 +33,7 @@ STATUS_MAP = {
     "처리중": "processing",
 }
 ELIGIBLE = {"accepted", "partial", "rejected", "completed_unknown"}
-PARSER_VERSION = "pc-parser-5"  # 2026-10-11 observation-v5(5분류·SSNPC)
+PARSER_VERSION = "pc-parser-6"  # 2026-10-12 fine_estimate(추정 과태료) 추가 — fine-estimate-contract.md
 SCHEMA_VERSION = 1
 
 _AMOUNT_RE = re.compile(r"^(과태료|범칙금):\s*(.+?)\s*원$")
@@ -213,14 +213,24 @@ def _parse_location(geocode) -> dict:
 def build_adapter_input(detail: dict, title_fields: dict | None = None,
                         entry_value: str | None = None, geo: dict | None = None,
                         progress_status: str | None = None, *,
-                        ssnpc_cd: str | None = None, ssnpc_type: str | None = None) -> dict:
-    """observation.md 2절 PC 열 → 플랫폼 중립 입력. geo 는 _prefetch_derived() 값만."""
+                        ssnpc_cd: str | None = None, ssnpc_type: str | None = None,
+                        report_name: str | None = None,
+                        photo_first_at: str | None = None, photo_last_at: str | None = None) -> dict:
+    """observation.md 2절 PC 열 → 플랫폼 중립 입력. geo 는 _prefetch_derived() 값만.
+
+    report_name/photo_first_at/photo_last_at(fine-estimate-contract.md, v6): payload 에는 싣지 않고
+    fine_estimate 판정 입력에만 쓴다(로컬 통계와 같은 열 — services/fine_estimate.FINE_ESTIMATE_FIELDS).
+    report_name·사진 촬영 시각은 detail/title_fields 에 없을 수 있어(목록만 갱신된 상세 등) 호출자가
+    기존 값을 넘길 수 있게 명시 인자로 뒀다 — 없으면 title_fields['신고명']으로 떨어진다.
+    """
     detail = detail or {}
     title_fields = title_fields or {}
     geo = geo or {}
     report_date = title_fields.get("신고일")
     if report_date is None:
         report_date = detail.get("신고일")
+    if report_name is None:
+        report_name = title_fields.get("신고명")
     return {
         "processing_status": detail.get("처리상태"),
         "report_number": title_fields.get("신고번호") or detail.get("신고번호"),
@@ -246,6 +256,11 @@ def build_adapter_input(detail: dict, title_fields: dict | None = None,
             "lat": geo.get("위도"),
             "lng": geo.get("경도"),
         },
+        # v6(2026-10-12): fine_estimate 판정 입력만(payload 로는 나가지 않음).
+        "report_name": report_name,
+        "occurrence_time": detail.get("발생시각"),
+        "photo_first_at": photo_first_at,
+        "photo_last_at": photo_last_at,
         # payload 에는 넣지 않고 detail_status 기록용
         "progress_status": progress_status,
     }
@@ -276,7 +291,7 @@ def build_payload(adapter_input: dict) -> dict:
         disposition = "warning"
     else:
         disposition = "unknown"
-    return {
+    payload = {
         "address": _clean(adapter_input.get("violation_location"), 200),
         "agency_name": _clean(adapter_input.get("processing_agency"), 200),
         "amount": {"confirmed_won": confirmed_won, "kind": kind, "penalty_points": penalty_points},
@@ -296,6 +311,27 @@ def build_payload(adapter_input: dict) -> dict:
         # 사유(blocked:source_agency_code_too_long)로 기록한다 — 조용히 버리지 않음.
         "source_agency_code": _payload_agency_code(adapter_input.get("agency_code")),
     }
+    # v6(2026-10-12, fine-estimate-contract.md): 로컬 통계가 '추정 과태료'로 세는 신고만, 같은 입력·같은 판정
+    # (services/fine_estimate.estimate_if_unknown = services/stats/metrics.py `_metric_unknown_fine` 조건 + estimate()).
+    # 대상이 아니면 키 자체를 넣지 않는다(null 금지) — payload_sha256 이 바뀌지 않아 재전송되지 않는다.
+    fine_record = {
+        "category": category,
+        "entry_value": entry_value,
+        "신고명": adapter_input.get("report_name"),
+        "위반법규": adapter_input.get("violation_law"),
+        "차량번호": adapter_input.get("car_number"),
+        "사진_첫촬영": adapter_input.get("photo_first_at"),
+        "사진_끝촬영": adapter_input.get("photo_last_at"),
+        "발생시각": adapter_input.get("occurrence_time"),
+    }
+    fine = fine_estimate.estimate_if_unknown(adapter_input.get("penalty_amount"), fine_record)
+    if fine is not None:
+        payload["fine_estimate"] = {
+            "won": fine["amount"],
+            "rule": fine["rule"],
+            "rule_version": fine_estimate.RULE_VERSION,
+        }
+    return payload
 
 
 def canonical_json(obj) -> str:
@@ -634,3 +670,96 @@ def deletion_cleanup_pending(data_dir: str | None = None) -> bool:
     except Exception as exc:
         note_fallback("community_capture.apply_pending_deletion", exc)
         return True
+
+
+# ── 기존 신고 다시 보내기 (fine-estimate-contract.md "기존 신고 다시 보내기") ──────────────
+# 앱 업데이트 뒤 한 번, 로컬 DB 의 기존 신고로 payload 를 다시 만들어 payload_sha256 이 바뀐 것
+# (= fine_estimate 가 새로 생긴 것)만 기존 capture() 경로로 보낸다. 크롤링·사용자 조작 없음.
+# capture() 가 이미 하는 일(동의·계정 문맥 검사, sha 비교, outbox 적재)을 그대로 쓴다 — 여기서 다시 판정하지 않는다.
+
+RESEND_MARKER_KEY = "fine_estimate_resend_done"
+
+
+def _resend_marker(data_dir: str | None = None) -> dict | None:
+    try:
+        raw = _store(data_dir).meta(RESEND_MARKER_KEY)
+    except Exception as exc:
+        note_fallback("community_capture.resend_marker", exc)
+        return None
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    return {"rule_version": data.get("rule_version"), "parser_version": data.get("parser_version")}
+
+
+def _set_resend_marker(data_dir: str | None, current: dict) -> None:
+    store = _store(data_dir)
+    with store.transaction() as tx:
+        store.set_meta(RESEND_MARKER_KEY, json.dumps({**current, "done_at": _now_iso()}, ensure_ascii=False), tx)
+
+
+def _resend_candidate_rows(engine):
+    """로컬 DB 신고 중 fine_estimate 대상일 '수 있는' 것만(과태료 문자열 포함, 상세 있음) — 같은 입력을 쓰는 cheap 선필터.
+    (요청 사유가 바뀌지 않는 한 payload_sha256 은 이 필터 밖에서는 바뀌지 않는다.)"""
+    from sqlalchemy import select
+
+    from core.database import models
+
+    table = models.report_table
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(table)
+            .where(table.c.category.is_not(None))
+            .where(table.c["범칙금_과태료"].like("%과태료%"))
+        ).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def _resend_adapter_input(row: dict) -> dict:
+    """저장된 신고 행(mysafety_report, 사이트 원문)을 build_adapter_input 입력으로 옮긴다. 크롤링 없음."""
+    from core.database import models
+
+    detail = {c: row.get(c) for c in models.DETAIL_COLUMN_NAMES}
+    title_fields = {c: row.get(c) for c in models.TITLE_COLUMN_NAMES}
+    geo = {"지오코딩상태": row.get("지오코딩상태"), "위도": row.get("위도"), "경도": row.get("경도")}
+    return build_adapter_input(
+        detail, title_fields, row.get("entry_value"), geo, None,
+        ssnpc_cd=row.get("ssnpc_cd"), ssnpc_type=row.get("ssnpc_type"),
+        report_name=row.get("신고명"),
+        photo_first_at=row.get("사진_첫촬영"), photo_last_at=row.get("사진_끝촬영"))
+
+
+def resend_fine_estimate_updates(engine, data_dir: str | None = None) -> dict:
+    """앱 업데이트 뒤 한 번: 로컬 DB 기존 신고로 payload 를 다시 만들어 바뀐 것만(fine_estimate 신규)
+    capture() 로 다시 보낸다. 완료 표시는 (RULE_VERSION, PARSER_VERSION) 기준이라 규칙이 바뀌면 다시 돈다.
+    동의·계정 문맥이 없거나 철회됐으면 capture() 가 journal 만 쓰고 outbox 에 넣지 않는다(기존 규칙, 보내지 않음).
+    삭제 정리가 아직 안 끝났으면 이번 실행은 건너뛰고 완료로 표시하지 않는다(다음 실행에서 다시 본다).
+    한 건이라도 실패하면 완료로 표시하지 않는다 — capture() 는 이미 보낸 건을 다시 보내지 않으므로(no-op)
+    다음 실행이 전체를 다시 훑어도 실패한 건만 실제로 새로 처리된다("실패해도 다음 실행에서 이어서")."""
+    current = {"rule_version": fine_estimate.RULE_VERSION, "parser_version": PARSER_VERSION}
+    if _resend_marker(data_dir) == current:
+        return {"state": "already_done", "candidates": 0, "resent": 0, "errors": 0, **current}
+    if deletion_cleanup_pending(data_dir):
+        return {"state": "deletion_pending", "candidates": 0, "resent": 0, "errors": 0, **current}
+
+    candidates = resent = errors = 0
+    for row in _resend_candidate_rows(engine):
+        candidates += 1
+        try:
+            adapter = _resend_adapter_input(row)
+            result = capture(adapter, source_report_id=str(row["ID"]), trigger="fine_estimate_backfill",
+                             data_dir=data_dir)
+            if result.event_id:
+                resent += 1
+        except CaptureStoreUnavailable:
+            raise
+        except Exception as exc:
+            errors += 1
+            note_fallback("community_capture.resend_fine_estimate_updates", exc)
+    if errors == 0:
+        _set_resend_marker(data_dir, current)
+    return {"state": "done" if errors == 0 else "partial", "candidates": candidates,
+            "resent": resent, "errors": errors, **current}

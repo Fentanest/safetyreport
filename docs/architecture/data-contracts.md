@@ -187,6 +187,8 @@ by_law (법규별, 같은 필드 + law)
 - 서버↔모바일 변환: `db_backup.restore_from_mobile_db` 가 세 컬럼을 옮긴다. 모바일 `reports` 테이블과 서버 DB 가져오기 쪽도 같은 세 컬럼을 가져야 한다(PROJECT_RULES §3-1).
 - API: `/api/v1/reports/*` 는 테이블 전체 컬럼을 내보내므로 세 필드가 추가된다. 대시보드 `recent_answers`/`watchlist` 레코드에도 포함.
 - 추정 과태료(`services/fine_estimate.py`)는 이 컬럼과 번호판·신고 메뉴로 계산하며 DB 에 저장하지 않는다(statistics-spec §4-2).
+- 2026-10-12: 로컬 통계가 '추정 과태료'로 세는 신고는 커뮤니티 공유 payload 의 `fine_estimate` 선택 필드로도 나간다 — 입력·판정은 통계와 공유(중복 구현 없음),
+  상세는 `community-upload.md` "추정 과태료 공유" 절.
 
 ## 2026-09-24 서버↔모바일 DB 왕복 검사 (PROJECT_RULES §3-1)
 

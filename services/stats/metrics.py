@@ -1,5 +1,4 @@
 """파생 지표와 순수 집계(EO R-05): 금액·처리일·별점·처분 분류·요약 카드·상세표 행. 입력 프레임을 바꾸지 않는다."""
-import re
 from datetime import datetime
 
 import pandas as pd
@@ -11,23 +10,13 @@ from services.stats.common import _UNASSIGNED_PERSON_VALUES, _ratio_item, _round
 
 
 def _extract_fine_amount(text) -> int:
-    if not text:
-        return 0
-    text = str(text)
-    if "과태료" not in text:
-        return 0
-    # '40.000원' 처럼 점을 천 단위 구분자로 쓴 답변도 있다. 모바일 `extractFineAmount` 와 같은 규칙.
-    match = re.search(r"([\d,.]+)\s*원", text)
-    if match:
-        digits = re.sub(r"[,.]", "", match.group(1))
-        return int(digits) if digits.isdigit() else 0
-    return 0
-
+    """정본은 services/fine_estimate.extract_fine_amount — 공유 payload(community_capture) 와 같은 판정을 쓴다."""
+    return fine_estimate.extract_fine_amount(text)
 
 
 def _is_fine_amount_unknown(text) -> bool:
-    """과태료 처분인데 금액을 읽을 수 없는 경우(0원과 구분, statistics-spec S-05)."""
-    return "과태료" in str(text or "") and _extract_fine_amount(text) == 0
+    """과태료 처분인데 금액을 읽을 수 없는 경우(0원과 구분, statistics-spec S-05). 정본은 services/fine_estimate.is_fine_amount_unknown."""
+    return fine_estimate.is_fine_amount_unknown(text)
 
 
 def _count_fine_amount_unknown(group_df: pd.DataFrame) -> int:
@@ -65,7 +54,7 @@ def _prepare_metrics(frame):
         frame['_metric_disposition_' + name] = mask
     frame['_metric_estimated_amount'] = 0
     frame['_metric_estimated_count'] = 0
-    columns = [c for c in ('category','entry_value','신고명','위반법규','차량번호','사진_첫촬영','사진_끝촬영','발생시각') if c in frame]
+    columns = [c for c in fine_estimate.FINE_ESTIMATE_FIELDS if c in frame]
     eligible = frame.loc[frame['_metric_unknown_fine'], columns].fillna('')
     if columns and not eligible.empty:
         combinations = eligible.drop_duplicates()
@@ -369,7 +358,7 @@ def _estimated_fine_totals(group_df: pd.DataFrame) -> dict[str, int]:
     amount = 0
     count = 0
     unknown = group_df['범칙금_과태료'].apply(_is_fine_amount_unknown)
-    columns = [c for c in ('category','entry_value','신고명','위반법규','차량번호','사진_첫촬영','사진_끝촬영','발생시각') if c in group_df]
+    columns = [c for c in fine_estimate.FINE_ESTIMATE_FIELDS if c in group_df]
     if not unknown.any() or not columns:
         return {"estimated_fine_amount": 0, "estimated_fine_count": 0}
     eligible = group_df.loc[unknown, columns].fillna('')

@@ -29,6 +29,14 @@
 
 `geocode` 는 기존 전송 형식의 좌표 있음 표시값이다. 실제 좌표는 공식 상세 응답에서 읽고, 주소를 카카오 REST API로 변환하지 않는다. 사용자 override 주소·좌표는 읽지 않는다.
 
+`fine_estimate`(v6, 2026-10-12, fine-estimate-contract.md) 판정에는 위 입력에 더해 아래 입력도 쓴다 — payload 로는 나가지 않고 판정에만 쓰인다. 이번 응답에 없으면(목록만 갱신된 상세 등) 호출자가 기존 저장 값으로 채운다.
+
+| 입력 키 | PC(저장 열) | 모바일(대응 필드) |
+|---|---|---|
+| `report_name` | `title_fields['신고명']`(없으면 기존 저장 값) | 로컬 통계와 같은 필드 |
+| `occurrence_time` | `발생시각` | 로컬 통계와 같은 필드 |
+| `photo_first_at` / `photo_last_at` | `사진_첫촬영` / `사진_끝촬영`(EXIF, `services/photo_capture_time.py`) | 로컬 통계와 같은 필드 |
+
 ## 3. DTO 규칙
 - 문자열 정리 `clean(s, n)`: None/비문자열 → 빈 문자열, 제어문자(U+0000–U+001F, U+007F)와 모든 공백 연속을 공백 하나로, 앞뒤 공백 제거, **코드포인트 기준** n 자로 자름. 결과가 빈 문자열이면 null.
 - `status` = 아래 표(입력은 `clean(processing_status, 40)`). 표에 없으면 `other`.
@@ -74,9 +82,21 @@
 - `location`: geocode 상태가 `ok` 이고 lat·lng 가 IEEE 754 double 로 해석되며(숫자 또는 10진 문자열) lat ∈ [32, 39.5], lng ∈ [124, 132] 이면
   lat·lng = 그 double 의 **최단 왕복 10진 문자열**(지수 표기 없음, 소수점이 없으면 `.0` 을 붙임 — Python `repr`, Dart `toString`, JS `String()` 후 보정), `source = "geocode"`;
   아니면 lat·lng null, `source = "none"`. 좌표를 반올림·격자화하지 않는다(공개 정책: 입력 좌표 그대로).
+- `fine_estimate`(v6, 2026-10-12, fine-estimate-contract.md — **선택 필드**): 로컬 통계가 그 신고를 '추정 과태료'로 세는 조건과 같은
+  입력·같은 판정으로만 넣는다 — 과태료 처분인데 금액을 모르는 신고(`penalty_amount` 가 `fine_estimate.is_fine_amount_unknown`,
+  통계 `_metric_unknown_fine` 와 같은 판정)이고 `fine_estimate.estimate(record)` 가 None 이 아닐 때만. `record` 키는
+  `category, entry_value, 신고명, 위반법규, 차량번호, 사진_첫촬영, 사진_끝촬영, 발생시각`(통계와 같은 열, `ssnpc_cd`/`ssnpc_type` 은
+  넣지 않는다). **대상이 아니면 키 자체를 넣지 않는다**(null 금지) — 그래서 대상이 아닌 신고의 payload·payload_sha256 은 바뀌지 않는다.
+  값은 `{"won": 정수 1..100000000, "rule": 규칙 id, "rule_version": 문자열(≤40)}`(additionalProperties false). `rule` 은
+  `bus_lane|parking|hydrant|school_zone|ev_charging|disabled_parking|fire_lane|waste|overnight_truck` 중 하나.
+  `rule_version` = 로컬 추정 규칙 버전(PC `services/fine_estimate.RULE_VERSION`, 모바일 대응 상수 — 둘 다
+  `tests/fixtures/fine_estimate_vectors.json` 과 같아야 한다). 사진 촬영 시각·발생 시각 원본은 보내지 않는다(금액·규칙·규칙버전만).
+  확정 금액(`amount.confirmed_won`)과 추정 금액을 같은 필드·같은 합계에 섞지 않는다(PROJECT_RULES §3-2). 앱 업데이트로 규칙이
+  바뀌어 이 필드가 새로 생기거나 바뀌면(payload_sha256 변경) 기존 신고도 한 번 다시 보낸다(§"기존 신고 다시 보내기").
 
-payload 키는 항상 모두 있다: `address, agency_name, amount{confirmed_won, kind, penalty_points}, category, completed_date, disposition, location{lat, lng, source}, manager_name, report_date, status, status_raw, vehicle_raw, violation_law, source_agency_code, rating`.
-v1(12키)·v2(13키)·v3(14키, `rating` 없음) payload 도 서버가 받는다(구 앱 호환) — 키가 없는 관측의 해당 값은 null(명시적 null 과 구별은 journal 의 parser 버전으로 한다).
+payload 키 중 `address, agency_name, amount{confirmed_won, kind, penalty_points}, category, completed_date, disposition, location{lat, lng, source}, manager_name, report_date, status, status_raw, vehicle_raw, violation_law, source_agency_code, rating` 는 항상 모두 있다.
+`fine_estimate` 는 위 목록과 달리 **선택** 필드라 조건을 만족할 때만 있다(키 부재 = 명시적 null 아님, 그 신고가 추정 대상이 아니라는 뜻).
+v1(12키)·v2(13키)·v3(14키, `rating` 없음)·v5(이전, `fine_estimate` 없음) payload 도 서버가 받는다(구 앱 호환) — 키가 없는 관측의 해당 값은 null(명시적 null 과 구별은 journal 의 parser 버전으로 한다).
 공식 로그인 정보·쿠키·헤더·사진·첨부·신고 본문·처리내용 원문은 넣지 않는다. `source_report_id` 는 envelope 의 event 필드(private)로만 간다.
 `report_number` 역시 Observation 밖의 private event 필드다. 공백을 잘라 빈 값은 null로 보낸다. 중앙은 `^SPP-[0-9]{4,6}-[0-9]{6,8}$`만 받는다. 기존 이벤트의 필드 생략도 null로 해석한다. 번호만 뒤늦게 채워졌으면 payload_sha256이 같아도 새 이벤트를 발급한다. Observation 해시와 parser/contract 버전은 그대로이며 기존 전체 신고를 일괄 update하지 않는다.
 
@@ -93,6 +113,7 @@ writer 전환·재설치 뒤 첫 비적격 관측도 이벤트 없음이 된다.
   처음 본 처리중·취하 신고도 마찬가지다.
 - `location_supplement`: 기존 자료와의 호환을 위해 서버가 받는 이벤트 종류로 남긴다. 새 앱/서버는 사용하지 않는다. 재조회에서 공식 좌표가 새로 생기거나 바뀌면 변경된 payload의 `completed_observation`을 보낸다.
 - `reshare`: 재동의·writer 전환 뒤 사용자가 지도 탭에서 **명시적으로** 요청할 때만. 신고별 최신 eligible journal 행의 payload·captured_at 을 그대로 두고 새 event_id·새 source_revision·현재 grant/connection/epoch 로 발급. 자동 실행 금지.
+- **기존 신고 다시 보내기**(v6, 2026-10-12, fine-estimate-contract.md): `fine_estimate` 규칙이 새로 생기거나 바뀌면(RULE_VERSION·PARSER_VERSION) 앱 업데이트 뒤 한 번, 사용자 조작·초기화 크롤링 없이 로컬 DB 의 기존 신고로 이 어댑터·payload 를 다시 만들어 `completed_observation` 경로(이 함수, `reshare` 아님)로 다시 `capture` 한다. payload_sha256 이 바뀐 신고(= `fine_estimate` 가 새로 생긴 신고)만 실제로 새 이벤트가 되고, 그 밖은 이 절의 `eligible` 이면서 `prev` 와 해시가 같은 경우와 같아 이벤트가 없다. 동의·계정 문맥이 없거나 철회됐으면(이 표의 `eligible` 판정과 무관하게) 평소처럼 journal 만 쓰고 outbox 에 넣지 않는다. 완료 표시는 (RULE_VERSION, PARSER_VERSION) 기준이라 둘 중 하나가 다시 바뀌면 다시 돈다.
 - 개인 편집·백업 복원·DB 변환·가져오기·모바일 Client 는 이벤트를 만들지 않는다.
 - capture 가 실패하면(community.db 오류 등) **그 신고의 개인 저장도 하지 않는다**(저장 실패로 집계). 개인 상태가 전진하지 않으므로 다음 수집의 선정 규칙(신규·미종결·목록 상태 변경)이 그 신고를 다시 읽는다 — 공유 사본을 영구히 놓치지 않는다(S-03).
 - 상세를 받을 때마다(이벤트 여부와 무관) `detail_status` 에 그 상세의 C_NOW 라벨(`progress_status`)을 같은 트랜잭션으로 기록한다(목록 상태 변경 감지용, S-12).

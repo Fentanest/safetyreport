@@ -199,8 +199,13 @@ class _CaptureFailed(RuntimeError):
     """공유 DTO 확정 실패 — 그 신고의 개인 저장을 건너뛰라는 신호."""
 
 
-def _community_capture_for(rec: CrawledDetail, derived: dict):
-    """개인 저장 트랜잭션 전에 공유 DTO 를 확정한다. 실패하면 예외를 올려 호출자가 저장하지 않게 한다."""
+def _community_capture_for(rec: CrawledDetail, derived: dict, existing: dict | None = None):
+    """개인 저장 트랜잭션 전에 공유 DTO 를 확정한다. 실패하면 예외를 올려 호출자가 저장하지 않게 한다.
+
+    fine_estimate(2026-10-12) 입력: 사진 촬영 시각은 detail 이 아니라 _prefetch_derived() 결과(`derived`)에 있고,
+    신고명은 이번 응답의 title_fields 에 없을 수 있어(상세만 다시 받은 경우) 기존 저장 행(`existing`)으로 떨어진다 —
+    둘 다 build_adapter_input 에 없으면 capture 가 fine_estimate 판정을 못 한다(fine-estimate-contract.md).
+    """
     import os as _os
 
     from services import community_capture as _cap
@@ -208,8 +213,11 @@ def _community_capture_for(rec: CrawledDetail, derived: dict):
     geo = {c: derived.get(c) for c in GEO_COLUMNS}
     detail = dict(rec.detail or {})
     title_fields = dict(rec.title_fields or {}) if rec.title_fields else None
+    report_name = (title_fields or {}).get("신고명") or (existing or {}).get("신고명")
     adapter = _cap.build_adapter_input(detail, title_fields, rec.entry_value, geo, rec.progress_status,
-                                       ssnpc_cd=rec.ssnpc_cd, ssnpc_type=rec.ssnpc_type)
+                                       ssnpc_cd=rec.ssnpc_cd, ssnpc_type=rec.ssnpc_type,
+                                       report_name=report_name,
+                                       photo_first_at=derived.get("사진_첫촬영"), photo_last_at=derived.get("사진_끝촬영"))
     trigger = _os.environ.get("SAFETYREPORT_REBUILD_RUN_ID") and "rebuild" or "realtime"
     run_id = _os.environ.get("SAFETYREPORT_REBUILD_RUN_ID") or None
     try:
@@ -230,7 +238,7 @@ def _save_one(engine, rec: CrawledDetail) -> dict | None:
     rec.category = _classification(rec, existing_before)["category"]
     derived = _prefetch_derived(engine, rec, existing_before)
     try:
-        capture_result = _community_capture_for(rec, derived)
+        capture_result = _community_capture_for(rec, derived, existing_before)
     except Exception as exc:
         from services import community_capture as _cap
 
