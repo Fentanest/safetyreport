@@ -19,6 +19,7 @@ _FINE_ESTIMATE_RECORD_FIELDS = fine_estimate.FINE_ESTIMATE_FIELDS
 def _with_fine_estimates(records: list[dict]) -> list[dict]:
     for record in records:
         fields = {key: record.get(key) for key in _FINE_ESTIMATE_RECORD_FIELDS}
+        record["fine_corrected_text"] = fine_estimate.corrected_fine_text(record.get("범칙금_과태료"), fields)
         result = fine_estimate.estimate_if_unknown(record.get("범칙금_과태료"), fields)
         record["fine_estimate_amount"] = result["amount"] if result else None
         record["fine_estimate_basis"] = result["basis"] if result else None

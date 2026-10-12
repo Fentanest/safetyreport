@@ -210,7 +210,57 @@ def estimate(record: dict) -> dict | None:
 # 이 모듈이 정본이고 services/stats/metrics.py·services/community_capture.py 는 이 함수들을 그대로 쓴다
 # (판정을 각자 다시 구현하지 않는다).
 
-def extract_fine_amount(text) -> int:
+def legal_fine_amounts(record: dict | None) -> set[int]:
+    """해당 유형·차종의 기본/2시간 가중 금액. 다른 차종/유형 금액은 후보가 아니다."""
+    record = record or {}
+    rule = _RULES.get(classify(record))
+    if rule is None:
+        return set()
+    _, amounts, surcharge = rule
+    cls = fine_class(record.get("차량번호"))
+    return {table.get(cls, table.get(None)) for table in (amounts, surcharge or {})
+            if table.get(cls, table.get(None)) is not None}
+
+
+def parse_amount_number(number: str, legal_amounts=()) -> int | None:
+    """정상 숫자는 그대로. 깨진 묶음은 원래 숫자/묶음 끝 0 보정 후보를 법정 금액과 대조한다."""
+    if re.fullmatch(r"[0-9]+|[0-9]{1,3}(?:[,.][0-9]{3})+", number):
+        return int(re.sub(r"[,.]", "", number))
+    if not re.fullmatch(r"[0-9]+(?:[,.][0-9]+)+", number):
+        return None
+    parts = re.split(r"[,.]", number)
+    candidates = {int("".join(parts))}
+    normalized = [parts[0]]
+    if len(parts[0]) <= 3:
+        for part in parts[1:]:
+            if len(part) < 3:
+                part = part.ljust(3, "0")
+            elif len(part) > 3:
+                if set(part[3:]) != {"0"}:
+                    break
+                part = part[:3]
+            normalized.append(part)
+        else:
+            candidates.add(int("".join(normalized)))
+    matches = candidates.intersection(legal_amounts)
+    return matches.pop() if len(matches) == 1 else None
+
+
+def corrected_fine_text(text, record: dict | None = None) -> str | None:
+    """보정된 원문만 표시용 문자열 반환. DB/호출자의 원문은 수정하지 않는다."""
+    text = str(text or "")
+    if "과태료" not in text:
+        return None
+    match = re.search(r"([0-9][0-9,.]*)\s*원", text)
+    if not match or re.fullmatch(r"[0-9]+|[0-9]{1,3}(?:[,.][0-9]{3})+", match[1]):
+        return None
+    amount = parse_amount_number(match[1], legal_fine_amounts(record))
+    if amount is None:
+        return None
+    return text[:match.start(1)] + f"{amount:,}" + text[match.end(1):]
+
+
+def extract_fine_amount(text, record: dict | None = None) -> int:
     """`범칙금_과태료` 원문에서 과태료 확정 금액을 읽는다. 과태료가 아니거나 못 읽으면 0."""
     if not text:
         return 0
@@ -220,23 +270,22 @@ def extract_fine_amount(text) -> int:
     # '40.000원' 처럼 점을 천 단위 구분자로 쓴 답변도 있다. 모바일 `extractFineAmount` 와 같은 규칙.
     match = re.search(r"([\d,.]+)\s*원", text)
     if match:
-        digits = re.sub(r"[,.]", "", match.group(1))
-        return int(digits) if digits.isdigit() else 0
+        return parse_amount_number(match.group(1), () if re.fullmatch(r"[0-9]+|[0-9]{1,3}(?:[,.][0-9]{3})+", match.group(1)) else legal_fine_amounts(record)) or 0
     return 0
 
 
-def is_fine_amount_unknown(text) -> bool:
+def is_fine_amount_unknown(text, record: dict | None = None) -> bool:
     """과태료 처분인데 금액을 읽을 수 없는 경우(0원과 구분, statistics-spec S-05)."""
-    return "과태료" in str(text or "") and extract_fine_amount(text) == 0
+    return "과태료" in str(text or "") and extract_fine_amount(text, record) == 0
 
 
-# estimate() 입력과 같은 열만(로컬 통계·공유 payload 공통, ssnpc_cd/ssnpc_type 은 포함하지 않는다 — fine-estimate-contract.md).
-FINE_ESTIMATE_FIELDS = ("category", "entry_value", "신고명", "위반법규", "차량번호", "사진_첫촬영", "사진_끝촬영", "발생시각")
+# estimate() 입력과 같은 열만(로컬 통계·공유 payload 공통, 분류 코드를 포함해 로컬 통계·공유 payload가 같은 유형을 판정한다).
+FINE_ESTIMATE_FIELDS = ("category", "entry_value", "신고명", "위반법규", "차량번호", "사진_첫촬영", "사진_끝촬영", "발생시각", "ssnpc_cd", "ssnpc_type")
 
 
 def estimate_if_unknown(fine_amount_text, record: dict) -> dict | None:
     """금액 없는 과태료 신고만 추정한다. `fine_amount_text` = `범칙금_과태료` 원문, `record` 키는 FINE_ESTIMATE_FIELDS.
     확정 금액이 있거나(과태료가 아니거나 금액이 읽히면) 규칙이 못 알아보면 None."""
-    if not is_fine_amount_unknown(fine_amount_text):
+    if not is_fine_amount_unknown(fine_amount_text, record):
         return None
     return estimate(record)

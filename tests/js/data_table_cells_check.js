@@ -47,3 +47,6 @@ const cell = C.renderFineCell('과태료', 'display', 50000, '근거');
 assert.match(cell, /^<span class="sr-fine-value">과태료<\/span><span class="sr-fine-estimate"/);
 assert.equal(C.renderFineCell('<b>', 'display', null, null), '&lt;b&gt;', '추정 없어도 원문은 escape 한다');
 console.log('data-table-cells ok');
+
+assert.equal(C.renderFineCell('과태료: 40,0000원', 'display', null, null, '과태료: 40,000원'), '과태료: 40,000원');
+assert.equal(C.renderFineCell('과태료: 40,0000원', 'filter', null, null, '과태료: 40,000원'), '과태료: 40,0000원');

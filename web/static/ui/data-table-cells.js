@@ -101,11 +101,11 @@
     }
 
     // 목록 '과태료/범칙금' 열: 원래 값은 그대로 두고(정렬·검색은 원문 d 기준) 추정이 있으면 옆에 흐리게 덧붙인다.
-    function renderFineCell(d, type, estimateAmount, estimateBasis) {
+    function renderFineCell(d, type, estimateAmount, estimateBasis, correctedText) {
         const raw = normalizeCellText(d);
         if (type !== 'display') return raw;
         const badge = renderFineEstimateBadge(estimateAmount, estimateBasis);
-        if (!badge) return esc(raw);
+        if (!badge) return esc(correctedText || raw);
         return `<span class="sr-fine-value">${esc(raw)}</span>${badge}`;
     }
 

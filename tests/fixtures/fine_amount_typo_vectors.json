@@ -1,0 +1,371 @@
+{
+  "version": "amount-typo-1",
+  "cases": [
+    {
+      "name": "실제 쉼표 오타 1건",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine"
+    },
+    {
+      "name": "실제 점 구분 1",
+      "raw": "과태료: 40.000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine"
+    },
+    {
+      "name": "실제 점 구분 2",
+      "raw": "과태료: 40.000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine"
+    },
+    {
+      "name": "실제 구분자 없음 1",
+      "raw": "과태료: 30000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 30000,
+      "stats_won": 30000,
+      "kind": "fine"
+    },
+    {
+      "name": "실제 구분자 없음 2",
+      "raw": "과태료: 30000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 30000,
+      "stats_won": 30000,
+      "kind": "fine"
+    },
+    {
+      "name": "4,0000",
+      "raw": "과태료: 4,0000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine"
+    },
+    {
+      "name": "40,00",
+      "raw": "과태료: 40,00원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine"
+    },
+    {
+      "name": "400,00",
+      "raw": "과태료: 400,00원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine"
+    },
+    {
+      "name": "어린이보호구역 승합",
+      "raw": "과태료: 1,30,000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고-어린이보호구역",
+        "차량번호": "70가1234",
+        "발생시각": "09:00"
+      },
+      "confirmed_won": 130000,
+      "stats_won": 130000,
+      "kind": "fine"
+    },
+    {
+      "name": "법정 금액 불일치",
+      "raw": "과태료: 70,0000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine"
+    },
+    {
+      "name": "규칙 없음",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "traffic",
+        "신고명": "신호위반"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine"
+    },
+    {
+      "name": "차종 불일치",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "70가1234"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine"
+    },
+    {
+      "name": "가중 금액",
+      "raw": "과태료: 50,0000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 50000,
+      "stats_won": 50000,
+      "kind": "fine"
+    },
+    {
+      "name": "코드 우선 소방차 전용구역",
+      "raw": "과태료: 500,0000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456",
+        "ssnpc_cd": "EP",
+        "ssnpc_type": "03"
+      },
+      "confirmed_won": 500000,
+      "stats_won": 500000,
+      "kind": "fine"
+    },
+    {
+      "name": "다른 숫자 삭제 금지",
+      "raw": "과태료: 40,0010원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine"
+    },
+    {
+      "name": "빈 묶음",
+      "raw": "과태료: 40,,000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine"
+    },
+    {
+      "name": "정상 40,000",
+      "raw": "과태료: 40,000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine"
+    },
+    {
+      "name": "정상 30,000",
+      "raw": "과태료: 30,000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 30000,
+      "stats_won": 30000,
+      "kind": "fine"
+    },
+    {
+      "name": "정상 130,000",
+      "raw": "과태료: 130,000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 130000,
+      "stats_won": 130000,
+      "kind": "fine"
+    },
+    {
+      "name": "정상 400,000",
+      "raw": "과태료: 400,000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 400000,
+      "stats_won": 400000,
+      "kind": "fine"
+    },
+    {
+      "name": "정상 999,999",
+      "raw": "과태료: 999,999원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 999999,
+      "stats_won": 999999,
+      "kind": "fine"
+    },
+    {
+      "name": "정상 1234567",
+      "raw": "과태료: 1234567원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 1234567,
+      "stats_won": 1234567,
+      "kind": "fine"
+    },
+    {
+      "name": "정상 1.000.000",
+      "raw": "과태료: 1.000.000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 1000000,
+      "stats_won": 1000000,
+      "kind": "fine"
+    },
+    {
+      "name": "정상 40.000",
+      "raw": "과태료: 40.000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine"
+    },
+    {
+      "name": "정상 30000",
+      "raw": "과태료: 30000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 30000,
+      "stats_won": 30000,
+      "kind": "fine"
+    },
+    {
+      "name": "정상 0",
+      "raw": "과태료: 0원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 0,
+      "stats_won": 0,
+      "kind": "fine"
+    },
+    {
+      "name": "범칙금 정상",
+      "raw": "범칙금: 40,000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 0,
+      "kind": "penalty"
+    },
+    {
+      "name": "범칙금 오타는 과태료 규칙 적용 안 함",
+      "raw": "범칙금: 40,0000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "penalty"
+    }
+  ],
+  "candidate_cases": [
+    {
+      "number": "4,0000",
+      "legal_amounts": [
+        4000,
+        40000
+      ],
+      "confirmed_won": null,
+      "name": "두 후보 일치 → 미확인"
+    },
+    {
+      "number": "40,0000",
+      "legal_amounts": [
+        40000
+      ],
+      "confirmed_won": 40000,
+      "name": "한 후보 일치"
+    },
+    {
+      "number": "70,0000",
+      "legal_amounts": [
+        40000,
+        50000
+      ],
+      "confirmed_won": null,
+      "name": "일치 없음"
+    }
+  ]
+}

@@ -14,5 +14,5 @@ a20f0ea220a69262a2852a25b6dadf7b59194905162e6090ce1da4e9488ededc  ./observation.
 413306eab4dca4d05ecedfec9d9ffde32bd6235620ad8401909dd3b5fc1ab50c  ./vectors/canonical-json.json
 59080611db4ebfb10554f8c05755dfb415d8d84b5457db8c533c36dd89f25b76  ./vectors/gate.json
 90efe18caa1572605a65d0521725affb85e4f68f970678265fca66c1a43fcce3  ./vectors/list_refetch.json
-a54c18526b60a9cc578d75f61aca9259182a58a58d5d24702f6247445796f2d2  ./vectors/observations.json
+adc9bcce0d86ad792c271ee045185e0db99af3261fc9646c809151ea359c3639  ./vectors/observations.json
 665addc4a1cd8c38552de76b9df1e193dac58316ae73715d9dfba2dd0ffc0a69  ./vectors/schedule.json

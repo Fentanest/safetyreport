@@ -33,7 +33,7 @@ STATUS_MAP = {
     "처리중": "processing",
 }
 ELIGIBLE = {"accepted", "partial", "rejected", "completed_unknown"}
-PARSER_VERSION = "pc-parser-6"  # 2026-10-12 fine_estimate(추정 과태료) 추가 — fine-estimate-contract.md
+PARSER_VERSION = "pc-parser-7"  # 금액 오타 보정: 규칙·파서 버전 기반 로컬 재전송
 SCHEMA_VERSION = 1
 
 _AMOUNT_RE = re.compile(r"^(과태료|범칙금):\s*(.+?)\s*원$")
@@ -132,32 +132,17 @@ def _parse_day(value) -> str | None:
     return candidate
 
 
-def _parse_amount(raw) -> tuple[int | None, str]:
-    """(confirmed_won, kind). kind 는 앞머리로 판정, 금액은 문법 일치 때만."""
+def _parse_amount(raw, record: dict | None = None) -> tuple[int | None, str]:
+    """앞머리/전체 문법은 기존 계약, 숫자 해석은 fine_estimate 정본."""
     text = raw if isinstance(raw, str) else ""
     stripped = text.strip()
-    kind = "unknown"
-    if stripped.startswith("범칙금"):
-        kind = "penalty"
-    elif stripped.startswith("과태료"):
-        kind = "fine"
-    match = _AMOUNT_RE.match(text.strip())
+    kind = "penalty" if stripped.startswith("범칙금") else "fine" if stripped.startswith("과태료") else "unknown"
+    match = _AMOUNT_RE.match(stripped)
     if not match:
         return None, kind
-    number = match.group(2)
-    if re.fullmatch(r"[0-9]+", number):
-        digits = number
-    elif re.fullmatch(r"[0-9]{1,3}(?:[,.][0-9]{3})+", number):
-        digits = re.sub(r"[,.]", "", number)
-    else:
-        return None, kind
-    try:
-        amount = int(digits)
-    except ValueError:
-        return None, kind
-    if amount > 100_000_000:
-        return None, kind
-    return amount, kind
+    legal = fine_estimate.legal_fine_amounts(record) if kind == "fine" else ()
+    amount = fine_estimate.parse_amount_number(match.group(2), legal)
+    return (amount if amount is not None and amount <= 100_000_000 else None), kind
 
 
 def _parse_points(raw) -> int | None:
@@ -277,7 +262,19 @@ def build_payload(adapter_input: dict) -> dict:
     report_date = _parse_day(adapter_input.get("report_date"))
     response_day = _parse_day(adapter_input.get("response_date"))
     completed_date = response_day if eligible else None
-    confirmed_won, kind = _parse_amount(adapter_input.get("penalty_amount"))
+    fine_record = {
+        "category": category,
+        "entry_value": entry_value,
+        "ssnpc_cd": adapter_input.get("ssnpc_cd"),
+        "ssnpc_type": adapter_input.get("ssnpc_type"),
+        "신고명": adapter_input.get("report_name"),
+        "위반법규": adapter_input.get("violation_law"),
+        "차량번호": adapter_input.get("car_number"),
+        "사진_첫촬영": adapter_input.get("photo_first_at"),
+        "사진_끝촬영": adapter_input.get("photo_last_at"),
+        "발생시각": adapter_input.get("occurrence_time"),
+    }
+    confirmed_won, kind = _parse_amount(adapter_input.get("penalty_amount"), fine_record)
     penalty_points = _parse_points(adapter_input.get("penalty_points"))
     raw_amount = adapter_input.get("penalty_amount") if isinstance(adapter_input.get("penalty_amount"), str) else ""
     amount_head = raw_amount.strip()
@@ -313,17 +310,7 @@ def build_payload(adapter_input: dict) -> dict:
     }
     # v6(2026-10-12, fine-estimate-contract.md): 로컬 통계가 '추정 과태료'로 세는 신고만, 같은 입력·같은 판정
     # (services/fine_estimate.estimate_if_unknown = services/stats/metrics.py `_metric_unknown_fine` 조건 + estimate()).
-    # 대상이 아니면 키 자체를 넣지 않는다(null 금지) — payload_sha256 이 바뀌지 않아 재전송되지 않는다.
-    fine_record = {
-        "category": category,
-        "entry_value": entry_value,
-        "신고명": adapter_input.get("report_name"),
-        "위반법규": adapter_input.get("violation_law"),
-        "차량번호": adapter_input.get("car_number"),
-        "사진_첫촬영": adapter_input.get("photo_first_at"),
-        "사진_끝촬영": adapter_input.get("photo_last_at"),
-        "발생시각": adapter_input.get("occurrence_time"),
-    }
+    # 대상이 아니면 키 자체를 넣지 않는다(null 금지).
     fine = fine_estimate.estimate_if_unknown(adapter_input.get("penalty_amount"), fine_record)
     if fine is not None:
         payload["fine_estimate"] = {

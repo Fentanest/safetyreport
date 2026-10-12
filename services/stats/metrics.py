@@ -9,14 +9,14 @@ from services import fine_estimate
 from services.stats.common import _UNASSIGNED_PERSON_VALUES, _ratio_item, _round_half_up, _text_or_empty
 
 
-def _extract_fine_amount(text) -> int:
+def _extract_fine_amount(text, record=None) -> int:
     """정본은 services/fine_estimate.extract_fine_amount — 공유 payload(community_capture) 와 같은 판정을 쓴다."""
-    return fine_estimate.extract_fine_amount(text)
+    return fine_estimate.extract_fine_amount(text, record)
 
 
-def _is_fine_amount_unknown(text) -> bool:
+def _is_fine_amount_unknown(text, record=None) -> bool:
     """과태료 처분인데 금액을 읽을 수 없는 경우(0원과 구분, statistics-spec S-05). 정본은 services/fine_estimate.is_fine_amount_unknown."""
-    return fine_estimate.is_fine_amount_unknown(text)
+    return fine_estimate.is_fine_amount_unknown(text, record)
 
 
 def _count_fine_amount_unknown(group_df: pd.DataFrame) -> int:
@@ -24,13 +24,21 @@ def _count_fine_amount_unknown(group_df: pd.DataFrame) -> int:
         return int(group_df['_metric_unknown_fine'].sum())
     if "범칙금_과태료" not in group_df.columns:
         return 0
-    return int(group_df["범칙금_과태료"].apply(_is_fine_amount_unknown).sum())
+    return int((group_df["범칙금_과태료"].fillna("").astype(str).str.contains("과태료", regex=False) & (_fine_amounts(group_df) == 0)).sum())
 
 
 def _fine_amounts(frame):
     if '_metric_fine_amount' in frame:
         return frame['_metric_fine_amount']
-    return frame['범칙금_과태료'].apply(_extract_fine_amount)
+    text = frame.get('범칙금_과태료', pd.Series('', index=frame.index)).fillna('')
+    amounts = text.apply(_extract_fine_amount)
+    # 정상 형식은 기존 열 연산, 보정이 필요한 원문만 행 맥락으로 대조한다.
+    tokens = text.astype(str).str.extract(r'([0-9][0-9,.]*)\s*원', expand=False)
+    malformed = tokens.notna() & ~tokens.str.fullmatch(r'[0-9]+|[0-9]{1,3}(?:[,.][0-9]{3})+', na=False)
+    if malformed.any():
+        amounts.loc[malformed] = frame.loc[malformed].fillna('').apply(
+            lambda row: _extract_fine_amount(row.get('범칙금_과태료'), row.to_dict()), axis=1)
+    return amounts
 
 
 def _prepare_metrics(frame):
@@ -39,7 +47,7 @@ def _prepare_metrics(frame):
         return frame
     frame = frame.copy()
     text = frame.get('범칙금_과태료', pd.Series('', index=frame.index)).fillna('')
-    frame['_metric_fine_amount'] = text.apply(_extract_fine_amount)
+    frame['_metric_fine_amount'] = _fine_amounts(frame)
     frame['_metric_unknown_fine'] = text.astype(str).str.contains('과태료', regex=False) & (frame['_metric_fine_amount'] == 0)
     frame['_metric_rating'] = pd.to_numeric(frame.get('별점', pd.Series(None, index=frame.index)), errors='coerce')
     frame['_metric_status'] = _stats_status_series(frame)
@@ -357,7 +365,7 @@ def _estimated_fine_totals(group_df: pd.DataFrame) -> dict[str, int]:
         return {"estimated_fine_amount": 0, "estimated_fine_count": 0}
     amount = 0
     count = 0
-    unknown = group_df['범칙금_과태료'].apply(_is_fine_amount_unknown)
+    unknown = group_df['범칙금_과태료'].fillna('').astype(str).str.contains('과태료', regex=False) & (_fine_amounts(group_df) == 0)
     columns = [c for c in fine_estimate.FINE_ESTIMATE_FIELDS if c in group_df]
     if not unknown.any() or not columns:
         return {"estimated_fine_amount": 0, "estimated_fine_count": 0}

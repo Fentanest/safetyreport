@@ -735,6 +735,28 @@ class FineEstimateResendTests(unittest.TestCase):
         self.assertEqual(again["state"], "already_done")
         self.assertEqual(conn.execute("SELECT COUNT(*) v FROM source_journal").fetchone()["v"], total_before)
 
+    def test_amount_typo_parser_bump_resends_once_without_crawl(self):
+        from services import fine_estimate
+        row = self._insert_report("T1", 범칙금_과태료="과태료: 40,0000원")
+        self._seed_pre_update_journal("T1", row)
+        conn = self.store.connect()
+        old = cap.build_payload(cap._resend_adapter_input(row))
+        old["amount"]["confirmed_won"] = None
+        old["fine_estimate"] = {"won": 40000, "rule": "parking", "rule_version": fine_estimate.RULE_VERSION}
+        conn.execute("UPDATE source_journal SET payload_json=?, payload_sha256=?, parser_version='pc-parser-6' WHERE source_report_id='T1'",
+                     (cap.canonical_json(old), cap.payload_sha256(old)))
+        conn.commit()
+        cap._set_resend_marker(self.tmp, {"rule_version": fine_estimate.RULE_VERSION, "parser_version": "pc-parser-6"})
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(result["resent"], 1)
+        latest = conn.execute("SELECT payload_json, parser_version FROM source_journal WHERE source_report_id='T1' ORDER BY source_revision DESC").fetchone()
+        self.assertEqual(json.loads(latest["payload_json"])["amount"]["confirmed_won"], 40000)
+        self.assertEqual(latest["parser_version"], "pc-parser-7")
+        self.assertEqual(cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)["state"], "already_done")
+        with self.engine.connect() as db:
+            stored = db.execute(self.models.report_table.select().where(self.models.report_table.c.ID == "T1")).mappings().one()
+        self.assertEqual(stored["범칙금_과태료"], "과태료: 40,0000원")
+
     def test_rule_version_bump_runs_again(self):
         from services import fine_estimate
         matched = self._insert_report("R1")

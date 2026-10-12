@@ -1,0 +1,60 @@
+"""PC/모바일 공유 벡터: 숫자, 실제 통계 집계, 업로드 payload, 원문 보존."""
+import json
+from pathlib import Path
+import unittest
+
+import pandas as pd
+from services import community_capture as capture, fine_estimate
+from services.stats import metrics
+
+VECTORS = json.loads((Path(__file__).parent / 'fixtures/fine_amount_typo_vectors.json').read_text())
+
+
+def adapter(case):
+    r = case['record']
+    return dict(processing_status='수용', penalty_amount=case['raw'], category=r.get('category'),
+                entry_value=r.get('entry_value'), ssnpc_cd=r.get('ssnpc_cd'), ssnpc_type=r.get('ssnpc_type'),
+                car_number=r.get('차량번호'), report_name=r.get('신고명'), violation_law=r.get('위반법규'),
+                occurrence_time=r.get('발생시각'), photo_first_at=r.get('사진_첫촬영'), photo_last_at=r.get('사진_끝촬영'))
+
+
+class FineAmountTypoTest(unittest.TestCase):
+    def test_four_path_vectors(self):
+        for c in VECTORS['cases']:
+            with self.subTest(c['name']):
+                r = dict(c['record'], **{'범칙금_과태료': c['raw']})
+                original = dict(r)
+                self.assertEqual(fine_estimate.extract_fine_amount(c['raw'], r), c['stats_won'])
+                self.assertEqual(capture._parse_amount(c['raw'], r), (c['confirmed_won'], c['kind']))
+                p = capture.build_payload(adapter(c))
+                self.assertEqual(p['amount']['confirmed_won'], c['confirmed_won'])
+                prepared = metrics._prepare_metrics(pd.DataFrame([r]))
+                self.assertEqual(prepared['_metric_fine_amount'].iloc[0], c['stats_won'])
+                self.assertEqual(metrics._fine_amounts(pd.DataFrame([r])).iloc[0], c['stats_won'])
+                self.assertEqual(r, original)
+                estimate = fine_estimate.estimate_if_unknown(c['raw'], r)
+                self.assertEqual('fine_estimate' in p, estimate is not None)
+                self.assertEqual(metrics._count_fine_amount_unknown(prepared), int('과태료' in c['raw'] and c['stats_won'] == 0))
+
+    def test_mixed_nullable_context_rows(self):
+        cases = VECTORS['cases']
+        frame = pd.DataFrame([dict(c['record'], **{'범칙금_과태료': c['raw']}) for c in cases])
+        self.assertEqual(metrics._fine_amounts(frame).tolist(), [c['stats_won'] for c in cases])
+        self.assertEqual(metrics._prepare_metrics(frame)['_metric_fine_amount'].tolist(), [c['stats_won'] for c in cases])
+
+    def test_ambiguity_and_no_match(self):
+        for c in VECTORS['candidate_cases']:
+            with self.subTest(c['name']):
+                self.assertEqual(fine_estimate.parse_amount_number(c['number'], c['legal_amounts']), c['confirmed_won'])
+
+    def test_corrected_display_only_and_hash_changes_once(self):
+        case = VECTORS['cases'][0]
+        self.assertEqual(fine_estimate.corrected_fine_text(case['raw'], case['record']), '과태료: 40,000원')
+        self.assertIsNone(fine_estimate.corrected_fine_text('과태료: 400,000원', case['record']))
+        current = capture.build_payload(adapter(case))
+        previous = dict(current, amount=dict(current['amount'], confirmed_won=None))
+        previous['fine_estimate'] = {'won': 40000, 'rule': 'parking', 'rule_version': fine_estimate.RULE_VERSION}
+        self.assertNotEqual(capture.payload_sha256(previous), capture.payload_sha256(current))
+        self.assertEqual(capture.decide_event({'eligible': True, 'payload_sha256': capture.payload_sha256(previous)}, current), 'completed_observation')
+        self.assertIsNone(capture.decide_event({'eligible': True, 'payload_sha256': capture.payload_sha256(current)}, current))
+        self.assertEqual(capture.PARSER_VERSION, 'pc-parser-7')

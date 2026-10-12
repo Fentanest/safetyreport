@@ -58,6 +58,15 @@ class _RouteTestCase(unittest.TestCase):
 
 
 class TrafficFineEstimateTest(_RouteTestCase):
+    def test_corrected_amount_is_display_only(self):
+        from web.routers import data as web_data
+        raw = {"범칙금_과태료": "과태료: 40,0000원", "category": "parking",
+               "entry_value": "불법주정차신고", "차량번호": "12가3456"}
+        row = web_data._with_fine_estimates([raw])[0]
+        self.assertEqual(row["범칙금_과태료"], "과태료: 40,0000원")
+        self.assertEqual(row["fine_corrected_text"], "과태료: 40,000원")
+        self.assertIsNone(row["fine_estimate_amount"])
+
     def test_unknown_fine_bus_lane_gets_estimate(self):
         """90000005: 버스전용차로 위반 · '과태료'(금액 없음) → bus_lane 규칙, 승용등 5만원."""
         _, by_id = self._records_by("view_traffic")

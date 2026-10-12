@@ -187,7 +187,7 @@ $(document).ready(function() {
         }] : []),
         { data: '위반법규' },
         { data: '범칙금_과태료', className: 'sr-fine-cell',
-          render: (d, t, r) => renderFineCell(d, t, r && r.fine_estimate_amount, r && r.fine_estimate_basis) },
+          render: (d, t, r) => renderFineCell(d, t, r && r.fine_estimate_amount, r && r.fine_estimate_basis, r && r.fine_corrected_text) },
         { data: '벌점' },
         { data: '처리기관' },
         { data: '담당자' },
