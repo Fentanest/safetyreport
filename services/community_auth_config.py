@@ -2,10 +2,14 @@
 
 우선순위: 환경변수(SAFETYREPORT_COMMUNITY_* = COMMUNITY_* 별칭, 둘 다 있고 다르면 config_conflict)
 > config.ini [COMMUNITY] > 빌드에 넣은 community_public.json.
+폐기 호스트의 주소·키는 유효한 대체 번들이 있으면 함께 무시한다.
 """
 from __future__ import annotations
 
 import dataclasses
+import configparser
+import datetime
+import logging
 import os
 import re
 from urllib.parse import urlsplit
@@ -24,8 +28,22 @@ ENV_ALIASES = {ENV_ENABLED: ("COMMUNITY_ENABLED",), ENV_SUPABASE_URL: ("COMMUNIT
                ENV_PUBLISHABLE_KEY: ("COMMUNITY_SUPABASE_PUBLISHABLE_KEY", "COMMUNITY_PUBLISHABLE_KEY"),
                ENV_SITE_URL: ("COMMUNITY_SITE_URL",)}
 BUNDLED_PUBLIC_FILE = "community_public.json"
+RETIRED_SUPABASE_HOSTS = frozenset({"nxdcxccixoswvqgjeprh.supabase.co"})
 
 _TRUE = {"1", "true", "yes", "on"}
+
+
+def is_retired_supabase_url(value) -> bool:
+    try:
+        return isinstance(value, str) and urlsplit(value.strip()).hostname in RETIRED_SUPABASE_HOSTS
+    except ValueError:
+        return False
+
+
+def has_replacement_bundle(bundled: dict) -> bool:
+    return bool(normalize_supabase_url(bundled.get("supabase_url"))
+                and not is_retired_supabase_url(bundled.get("supabase_url"))
+                and validate_publishable_key(bundled.get("publishable_key")))
 
 
 def normalize_supabase_url(value) -> str | None:
@@ -97,11 +115,25 @@ class CommunityConfig:
 
 
 def build_config(raw: dict, env: dict | None = None, bundled: dict | None = None) -> CommunityConfig:
-    """환경변수(정식 이름·별칭) > config.ini [COMMUNITY](raw) > 번들 공개값(bundled) 순서로 검증된 설정을 만든다."""
+    """환경변수 > ini > 번들 순서. 폐기 호스트의 주소·키 쌍은 유효한 번들로 복구한다."""
     env = os.environ if env is None else env
     bundled = bundled or {}
     locked = set()
     conflicts = set()
+
+    # URL과 키는 같은 서버의 한 쌍이다. 폐기된 환경 설정은 ini보다도 번들을 우선한다.
+    env_urls = [v.strip() for name in (ENV_SUPABASE_URL, *ENV_ALIASES[ENV_SUPABASE_URL])
+                if (v := env.get(name)) and v.strip()]
+    retired_env = bool(env_urls) and all(is_retired_supabase_url(v) for v in env_urls)
+    retired_raw = is_retired_supabase_url(raw.get("supabase_url"))
+    replacement = has_replacement_bundle(bundled)
+    if replacement:
+        if retired_raw or retired_env:
+            raw = {k: v for k, v in raw.items() if k not in ("supabase_url", "publishable_key")}
+        if retired_env:
+            ignored = {ENV_SUPABASE_URL, *ENV_ALIASES[ENV_SUPABASE_URL],
+                       ENV_PUBLISHABLE_KEY, *ENV_ALIASES[ENV_PUBLISHABLE_KEY]}
+            env = {k: v for k, v in env.items() if k not in ignored}
 
     def pick(key: str, env_name: str, default: str = "") -> str:
         values = [v.strip() for v in (env.get(env_name), *(env.get(a) for a in ENV_ALIASES[env_name])) if v is not None and v.strip() != ""]
@@ -121,6 +153,8 @@ def build_config(raw: dict, env: dict | None = None, bundled: dict | None = None
     problems = []
     disabled_ignored = pick("enabled", ENV_ENABLED, "true").lower() not in _TRUE
     url_raw = pick("supabase_url", ENV_SUPABASE_URL)
+    if is_retired_supabase_url(url_raw) and not replacement:
+        problems.append("retired_supabase_url")
     key_raw = pick("publishable_key", ENV_PUBLISHABLE_KEY)
     site_raw = pick("site_url", ENV_SITE_URL, DEFAULT_SITE_URL) or DEFAULT_SITE_URL
     url = normalize_supabase_url(url_raw) or ""
@@ -165,6 +199,76 @@ def load_bundled_public() -> dict:
             data = {}
         _bundled_cache = data
     return _bundled_cache
+
+
+def cleanup_retired_config(config_path: str, bundled: dict) -> bool:
+    """시작 시 폐기된 ini의 주소·키만 백업 후 제거한다. 실패해도 build_config가 우회한다.
+
+    AppSettings.save는 ConfigParser로 전체를 직렬화해 주석을 지우므로 여기서는
+    같은 파일 잠금/원자적 writer를 쓰되 나머지 바이트를 그대로 보존한다.
+    대체 번들이 없으면 원래 설정과 파일을 유지한다.
+    """
+    if not has_replacement_bundle(bundled) or not os.path.isfile(config_path):
+        return False
+    from core.utils.atomic_file import write_bytes
+    from core.utils.file_lock import exclusive
+
+    try:
+        with exclusive(config_path + ".lock"):
+            with open(config_path, "rb") as source:
+                original = source.read()
+            parser = configparser.ConfigParser(interpolation=None)
+            text = original.decode("utf-8")
+            parser.read_string(text)
+            if not is_retired_supabase_url(parser.get(SECTION, "supabase_url", fallback="")):
+                return False
+            lines = []
+            section = None
+            option_indent = None
+            removing = False
+            for line in text.splitlines(keepends=True):
+                stripped = line.strip()
+                if not stripped or stripped.startswith(("#", ";")):
+                    lines.append(line)
+                    continue
+                indent = len(line) - len(line.lstrip())
+                if option_indent is not None and indent > option_indent:
+                    if not removing:
+                        lines.append(line)
+                    continue
+                header = parser.SECTCRE.match(stripped)
+                if header:
+                    section = header.group("header")
+                    option_indent, removing = None, False
+                else:
+                    option = re.match(r"([^:=]+?)\s*[:=]", stripped)
+                    option_indent = indent
+                    removing = bool(section == SECTION and option
+                                    and option.group(1).strip().lower() in ("supabase_url", "publishable_key"))
+                if not removing:
+                    lines.append(line)
+            updated = "".join(lines).encode("utf-8")
+            if updated == original:
+                return False
+            # 제거 결과도 파싱되어야 한다. 오류 때 원본을 건드리지 않는다.
+            cleaned = configparser.ConfigParser(interpolation=None)
+            cleaned.read_string(updated.decode("utf-8"))
+            if is_retired_supabase_url(cleaned.get(SECTION, "supabase_url", fallback="")):
+                return False  # DEFAULT에서 상속한 주소는 이번 정리 대상이 아니다.
+            for key in ("supabase_url", "publishable_key"):
+                parser.remove_option(SECTION, key)
+            if dict(cleaned) != dict(parser):
+                return False
+            stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            backup = f"{config_path}.bak-{stamp}"
+            write_bytes(backup, original)
+            write_bytes(config_path, updated)
+        logging.getLogger("safetyreport.core.community_auth").warning(
+            "이전 커뮤니티 서버 주소 설정을 정리했습니다(백업: %s)", backup)
+        return True
+    except (OSError, UnicodeError, configparser.Error):
+        # 예외에는 설정 원문이 포함될 수 있다. 비밀을 로그에 남기지 않는다.
+        return False
 
 
 def load_config_from_settings() -> CommunityConfig:

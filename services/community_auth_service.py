@@ -10,6 +10,7 @@
   연결을 끄지 못하고(경고만), `upload_enabled` 는 폐기했다 — 업로드 허용의 정본은 중앙 동의 grant 와 게이트다.
 - 공개 설정 우선순위: 환경변수(SAFETYREPORT_COMMUNITY_* = COMMUNITY_* 별칭, 둘 다 있고 다르면 config_conflict)
   > config.ini [COMMUNITY] > 빌드에 넣은 community_public.json.
+  폐기 호스트의 주소·키는 유효한 대체 번들이 있으면 함께 무시한다(community_auth_config).
 """
 from __future__ import annotations
 

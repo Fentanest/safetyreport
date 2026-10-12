@@ -43,6 +43,8 @@ class AppSettings:
 
     def load(self):
         with self._lock:
+            from services.community_auth_config import cleanup_retired_config, load_bundled_public
+            cleanup_retired_config(self.config_path, load_bundled_public())
             config = configparser.ConfigParser()
             try:
                 with open(self.config_path, 'rb') as source:
