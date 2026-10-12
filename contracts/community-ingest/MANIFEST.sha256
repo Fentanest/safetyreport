@@ -14,5 +14,5 @@ cc943440feb4a6b16a42d28b77d603fd699d6eef233c25b8dee0e78e0a300054  ./local-store.
 413306eab4dca4d05ecedfec9d9ffde32bd6235620ad8401909dd3b5fc1ab50c  ./vectors/canonical-json.json
 59080611db4ebfb10554f8c05755dfb415d8d84b5457db8c533c36dd89f25b76  ./vectors/gate.json
 90efe18caa1572605a65d0521725affb85e4f68f970678265fca66c1a43fcce3  ./vectors/list_refetch.json
-62cc2508b76582e1ff399c686ca732b30d6da78704138aab9891333cd3c0345d  ./vectors/observations.json
+eff5c14841039dbc393981e0f757828dd20ccb1991bc03362f5f1264637d2d36  ./vectors/observations.json
 665addc4a1cd8c38552de76b9df1e193dac58316ae73715d9dfba2dd0ffc0a69  ./vectors/schedule.json

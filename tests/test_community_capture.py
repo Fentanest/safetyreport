@@ -703,6 +703,34 @@ class FineEstimateResendTests(unittest.TestCase):
             (rid,)).fetchone()
         return json.loads(row["payload_json"])
 
+    def test_motorcycle_rule_upgrade_corrects_old_estimates_once(self):
+        from services import fine_estimate
+        for rid, rule, old_won, overrides in (
+            ("M1", "parking", 40000, {}),
+            ("M2", "bus_lane", 50000, {"category": "traffic", "entry_value": "교통위반-버스전용차로 위반", "ssnpc_cd": "TV", "신고명": "버스전용차로 위반"}),
+        ):
+            row = self._insert_report(rid, 차량번호="경기군포다2671", **overrides)
+            self._seed_pre_update_journal(rid, row)
+            payload = self._latest_payload(rid)
+            payload["fine_estimate"] = {"won": old_won, "rule": rule, "rule_version": "2026-10-12.1"}
+            self.store.connect().execute(
+                "UPDATE source_journal SET payload_json=?,payload_sha256=?,parser_version=? WHERE source_report_id=?",
+                (cap.canonical_json(payload), cap.payload_sha256(payload), cap.PARSER_VERSION, rid))
+        self.store.set_meta(cap.RESEND_MARKER_KEY, cap.canonical_json(
+            {"rule_version": "2026-10-12.1", "parser_version": cap.PARSER_VERSION, "local_dataset_id": self.store.local_dataset_id()}))
+        before = {rid: self._latest_payload(rid) for rid in ("M1", "M2")}
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(result["resent"], 2)
+        self.assertNotIn("fine_estimate", self._latest_payload("M1"))
+        self.assertEqual(self._latest_payload("M2")["fine_estimate"],
+                         {"won": 40000, "rule": "bus_lane", "rule_version": fine_estimate.RULE_VERSION})
+        for rid in before:
+            before[rid].pop("fine_estimate")
+            after = self._latest_payload(rid)
+            after.pop("fine_estimate", None)
+            self.assertEqual(after, before[rid], "재전송은 추정 외 원문을 보존한다")
+        self.assertEqual(cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)["state"], "already_done")
+
     def _fill_photos(self, photos):
         from services import photo_capture_time
         with mock.patch.object(cap, "_store", return_value=self.store):

@@ -17,7 +17,7 @@ from datetime import datetime
 
 from services import plate_normalize, report_category
 
-RULE_VERSION = "2026-10-12.1"
+RULE_VERSION = "2026-10-13.1"
 
 # 차량 구분 → 과태료 표의 차종 구분 (도로교통법 시행령 별표6 비고)
 PASSENGER = "승용등"   # 승용자동차 + 4톤 이하 화물자동차

@@ -7,7 +7,7 @@
   - safetyreport-mobile:         test/fixtures/plate_normalize_vectors.json
   - safetyreport-community-map:  tests/fixtures/plate_normalize_vectors.json (server/plate.ts 가 같은 규칙을 구현)
 
-## 규칙 (경계 규칙 포함, 2026-10-12 사용자·Opus 결정)
+## 규칙 (경계 규칙 포함, 2026-10-13 이륜 확장 포함)
 1. NFKC 정규화 → 공백 전부(스페이스·탭·NBSP·전각공백 등) · 유니코드 서식 문자(Unicode category Cf —
    제로폭 공백/조인터, LRM/RLM, bidi 제어, BOM 등, 실제로 섞여 있어도 보이지 않으므로 통째로 제거) ·
    하이픈(`-`, NFKC 가 전각 하이픈도 반각으로 접어 주므로 이 한 글자만 지우면 된다) 제거.
@@ -15,6 +15,9 @@
    긴 이름부터 시도) + 본문" 패턴과 일치하는 구간을 전부 찾는다.
    본문 = 일반형(숫자 2~3자리 + 한글 1자 + 숫자 4자리, PC `fine_estimate._PLATE_RE`/지도 bodyPattern 과 같음)
         또는 이륜형(숫자 0~1자리 + 한글 1자 + 숫자 0~1자리 + 숫자 4자리, `fine_estimate._MOTORCYCLE_RE` 와 같음).
+   지역 필수 이륜형 = 지역 + 시군구(1~3자, 별도 시/군/구 접미 허용) + 글자 + 숫자4.
+   숫자 앞 마지막 글자를 용도 글자로 고정하고 시군구 끝 접미 한 글자는 제거한다(1자 지명은 보존).
+   접미가 중복되거나 약칭과 지명이 다시 지역 정식명으로 읽혀 정규형이 모호하면 제외한다.
 3. 찾은 구간의 바로 앞/뒤 문자가 숫자(0-9) 또는 한글(음절 가-힣, 또는 낱자모 ㄱ-ㅎ/ㅏ-ㅣ)이면 그 구간은 버린다
    ("경계가 애매하면 null") — `81수0136수`(번호판 뒤에 한글 한 글자가 구분자 없이 더 붙음),
    `25어95505`(끝 숫자가 5개 — 4자리를 넘는 초과분이 경계에 붙음), `0006마8861`(지역번호 2~3자리를 넘는
@@ -48,7 +51,7 @@ _REGION_ALT = "|".join(sorted(_REGION_MAP, key=len, reverse=True))
 _CAR_BODY = r"\d{2,3}[가-힣]\d{4}"
 # 이륜형(완화된 형태) — fine_estimate._MOTORCYCLE_RE 와 같다.
 _MOTO_BODY = r"\d{0,1}[가-힣]\d{0,1}\d{4}"
-_TOKEN_RE = re.compile(rf"({_REGION_ALT})?({_CAR_BODY}|{_MOTO_BODY})")
+_TOKEN_RE = re.compile(rf"({_REGION_ALT})?({_CAR_BODY}|{_MOTO_BODY}|[가-힣]{{2,5}}[0-9]{{4}})")
 # 토큰 경계: 숫자 또는 한글(음절/낱자모)이 바로 붙어 있으면 경계가 불분명하다.
 _ADJACENT_RE = re.compile(r"[0-9ᄀ-ᇿㄱ-ㆎ가-힣]")
 _STRIP_RE = re.compile(r"[-\s]")
@@ -87,7 +90,24 @@ def normalize_plate(raw) -> str | None:
         if end < len(text) and _ADJACENT_RE.match(text[end]):
             continue
         region = _REGION_MAP.get(match.group(1) or "", match.group(1) or "")
-        candidates.add(region + match.group(2))
+        body = match.group(2)
+        # 숫자 바로 앞 글자를 고정해 시군구와 용도 글자의 분할을 결정한다.
+        if re.fullmatch(r"[가-힣]{2,5}[0-9]{4}", body):
+            if not region:
+                continue
+            city = body[:-5]
+            if len(city) > 1 and city[-1] in "시군구":
+                city = city[:-1]
+            # 접미 제거 뒤에도 복수 접미 해석이 남으면 정규형이 안정되지 않으므로 제외한다.
+            if len(city) > 1 and city[-1] in "시군구":
+                continue
+            if not 1 <= len(city) <= 3:
+                continue
+            # 약칭+지명 첫 글자가 다시 지역 정식명으로 읽히면 정규형이 모호하다.
+            if _REGION_MAP.get(region + city[0]) == region:
+                continue
+            body = city + body[-5:]
+        candidates.add(region + body)
 
     if len(candidates) == 1:
         return next(iter(candidates))
