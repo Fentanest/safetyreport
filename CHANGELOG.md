@@ -32,6 +32,17 @@
 - 검증: 새 시험 `tests/test_data_table_fine_estimate.py` 12건(확정 금액 있는 행·범칙금·경고·규칙 불일치 비대상·판정 함수 재사용(wraps)·모바일 API
   계약 불변)과 `tests/js/data_table_cells_check.js` 확장(렌더 함수 순수 동작) 포함, 전체 unittest 1002건 통과(건너뜀 6). git 커밋만 했고
   push·릴리스·VERSION 변경은 하지 않았다.
+- 후속(같은 날): 위에서 빠졌던 감시목록(`watchlist.html`)·별점(`rating.html`)·중복 묶음(`duplicate_groups.html`)·대시보드(`index.html`, 감시 목록·최근
+  답변 표만, 통계 카드는 그대로)에도 같은 추정 보조 표기를 반영했다. 판정은 그대로 `services/fine_estimate`를 쓰고, `_with_fine_estimates`를
+  `web/routers/filters.with_fine_estimates()`로 옮겨 다섯 라우터가 모두 같은 함수를 공유한다(watchlist_route·rating_route·duplicate_route·dashboard·
+  data.py). `rating.html`은 `data-table-cells.js`의 `renderFineCell`을 그대로 재사용하고, 나머지 세 Jinja 화면은 같은 값(`fine_estimate_amount`/
+  `basis`)만 그리는 작은 로컬 매크로를 두고 `list.css`의 `.sr-fine-cell`/`.sr-fine-value`/`.sr-fine-estimate`를 그대로 쓴다(그 CSS는 DataTables
+  전용 조상 제한을 풀어 서버 렌더 표에도 적용). 대시보드는 모바일 API와 공유하는 `get_dashboard_stats()`의 고정 열에 `entry_value`가 없어 세부
+  규칙이 틀어지므로 라우터에서만 ID로 보충했고, 그 서비스 함수 자체의 반환값(모바일 API 계약)은 바꾸지 않았다. CSV 내보내기가 있는 화면은
+  없었다(grep 확인). 새 시험 `tests/test_fine_estimate_badge_screens.py` 18건(화면별 표시/비표시, 공유 함수 identity, 모바일 API 계약 불변,
+  대시보드 entry_value 보충 정확성) 추가, 전체 unittest 1020건 통과(건너뜀 6). fixture 서버 렌더 결과를 실제 Chromium(375px, 라이트/다크)으로
+  확인해 페이지 가로 넘침이 없음과 칸 줄바꿈을 봤고, `duplicate_groups.html`의 처분 열은 너비 지정이 없어 두 줄 표기가 글자 단위로 끊겨
+  `min-width`를 추가해 고쳤다.
 
 ## 2026-10-12 — 모바일 답변 알림의 재시도 가능한 크롤 접수
 

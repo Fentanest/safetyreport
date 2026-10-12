@@ -2,20 +2,55 @@ import os
 
 from fastapi import APIRouter, Request, HTTPException
 from fastapi.responses import FileResponse
+from sqlalchemy import select
+from core.database import database
 from core.database.engine import get_engine
 from services import data_service
 from services import sunwi_service
 from core.utils.templating import templates
-from web.routers.filters import default_dedupe_mode
+from web.routers.filters import default_dedupe_mode, with_fine_estimates
 
 engine = get_engine()
 router = APIRouter()
+
+
+def _attach_entry_value(records: list[dict]) -> None:
+    """추정 판정(services/fine_estimate.classify)에 필요한 entry_value 를 보충한다.
+
+    data_service.get_dashboard_stats() 의 watchlist/recent_answers 는 모바일 API(web/routers/api_route.py)
+    와 공유하는 고정 열 화이트리스트(services/stats/common._REPORT_FIELDS)를 쓰고, 거기엔 entry_value 가
+    없다(category 만 별도로 채워 넣음) — 세부 추정 규칙(과태료 종류 구분)이 틀어지므로 이 화면 전용으로
+    ID 로 보충해 붙인다. 모바일 API 가 쓰는 _REPORT_FIELDS/get_dashboard_stats() 자체는 건드리지 않는다.
+    """
+    ids = [record.get("ID") for record in records if record.get("ID")]
+    if not ids:
+        return
+    table = database.report_effective_table
+    lookup: dict[str, object] = {}
+    with engine.connect() as conn:
+        for offset in range(0, len(ids), 400):
+            chunk = ids[offset:offset + 400]
+            rows = conn.execute(select(table.c.ID, table.c.entry_value).where(table.c.ID.in_(chunk)))
+            lookup.update({str(row_id): entry_value for row_id, entry_value in rows})
+    for record in records:
+        record["entry_value"] = lookup.get(str(record.get("ID")))
+
 
 @router.get("/")
 def dashboard(request: Request):
     try:
         stats = data_service.get_dashboard_stats(engine, mode=default_dedupe_mode())
         stats["load_error"] = False
+        # 금액 미확인 과태료 보조 표기(PROJECT_RULES §3-2) — 판정은 services/fine_estimate 를 그대로 쓴다
+        # (web/routers/filters.with_fine_estimates). 감시 목록·최근 답변 표에만 붙이고(통계 카드는 이미
+        # 추정을 보이므로 그대로 둠), get_dashboard_stats() 의 캐시 결과는 매 호출 copy.deepcopy 로 반환되어
+        # 모바일 API(/api/v1, 같은 함수 공유)가 받는 값은 바꾸지 않는다.
+        watchlist_items = stats.get("watchlist") or []
+        recent_items = stats.get("recent_answers") or []
+        _attach_entry_value(watchlist_items)
+        _attach_entry_value(recent_items)
+        with_fine_estimates(watchlist_items)
+        with_fine_estimates(recent_items)
     except Exception as e:
         # 집계 실패를 0건으로 보여 주면 신고가 없는 것처럼 보인다 — 실패를 화면에 밝힌다(기술일지 O-02)
         from core.utils import logger

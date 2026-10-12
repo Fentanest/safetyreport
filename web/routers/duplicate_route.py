@@ -4,6 +4,7 @@ from fastapi.responses import RedirectResponse
 from core.database.engine import get_engine
 from core.utils.templating import templates
 from services import duplicate_group_service
+from web.routers.filters import with_fine_estimates
 
 
 router = APIRouter(prefix="/duplicates")
@@ -23,6 +24,13 @@ def view_duplicate_groups(
     all_groups = duplicate_group_service.get_duplicate_groups(engine)
     normalized = duplicate_group_service._normalize_duplicate_status(duplicate_status)
     groups = [group for group in all_groups if not normalized or group.get('status') == normalized]
+
+    # 금액 미확인 과태료 보조 표기(PROJECT_RULES §3-2) — 판정은 services/fine_estimate 를 그대로 쓴다
+    # (web/routers/filters.with_fine_estimates), 실제 화면에 그리는 groups 에만 붙인다. members 를
+    # 제자리에서 바꾸면 representative(같은 객체 참조, get_duplicate_groups 참조)에도 그대로 반영된다.
+    # DB 저장 없음.
+    for group in groups:
+        with_fine_estimates(group.get("members") or [])
 
     counts = {
         "total": len(all_groups),

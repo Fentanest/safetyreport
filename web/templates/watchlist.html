@@ -3,6 +3,8 @@
 {% block extra_css %}
 <link rel="stylesheet" href="/static/ui/badges.css?v={{ request.state.app_version }}">
 <link rel="stylesheet" href="/static/ui/ops.css?v={{ request.state.app_version }}">
+{# .sr-fine-cell/.sr-fine-value/.sr-fine-estimate 는 data_table.html 과 같은 추정 과태료 보조 표기용(380534b) #}
+<link rel="stylesheet" href="/static/ui/list.css?v={{ request.state.app_version }}">
 <style>
 /* data_table.html 의 table-fixed 와 유사하게 지정 */
 #watchlistTable { font-size: 0.9rem; }
@@ -69,7 +71,13 @@
                         <td>
                             <span class="sr-badge sr-badge-{{ r.처리상태|status_badge }}">{{ r.처리상태 }}</span>
                         </td>
-                        <td style="color: var(--sr-status-fine); font-weight: bold;">{{ r.범칙금_과태료 }}</td>
+                        <td class="sr-fine-cell" style="color: var(--sr-status-fine); font-weight: bold;">
+                            <span class="sr-fine-value">{{ r.범칙금_과태료 }}</span>
+                            {% if r.fine_estimate_amount %}
+                            {% set fine_tip = '법정 최저 기준 추정' ~ (' · ' ~ r.fine_estimate_basis if r.fine_estimate_basis else '') %}
+                            <span class="sr-fine-estimate" title="{{ fine_tip }}" aria-label="{{ fine_tip }}">추정 {{ '{:,}'.format(r.fine_estimate_amount) }}원</span>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>

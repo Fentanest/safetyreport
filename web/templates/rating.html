@@ -3,6 +3,8 @@
 {% block extra_css %}
 <link rel="stylesheet" href="/static/ui/badges.css?v={{ request.state.app_version }}">
 <link rel="stylesheet" href="/static/ui/ops.css?v={{ request.state.app_version }}">
+{# .sr-fine-cell/.sr-fine-value/.sr-fine-estimate 는 data_table.html 과 같은 추정 과태료 보조 표기용(380534b) #}
+<link rel="stylesheet" href="/static/ui/list.css?v={{ request.state.app_version }}">
 {% endblock %}
 
 {% block content %}
@@ -135,6 +137,8 @@
 
 {% block extra_js %}
 <script src="/static/ui/bounded-log.js"></script>
+{# renderFineCell/renderFineEstimateBadge/formatWon 재사용(data_table.html 과 같은 함수, 재구현 금지) #}
+<script src="/static/ui/data-table-cells.js?v={{ request.state.app_version }}"></script>
 <style>
     #ratingTable td {
         white-space: nowrap;
@@ -148,6 +152,7 @@
 </script>
 <script>
     $(document).ready(function () {
+        var renderFineCell = window.SrDataTableCells.renderFineCell;
         function esc(s) {
             if (s == null) return '';
             return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -188,7 +193,11 @@
                         return t === 'display' ? renderBadge(v) : (v == null ? '' : String(v));
                     }
                 },
-                { data: '범칙금_과태료', defaultContent: '' }
+                {
+                    data: '범칙금_과태료', defaultContent: '', render: function (d, t, r) {
+                        return renderFineCell(d, t, r && r.fine_estimate_amount, r && r.fine_estimate_basis);
+                    }
+                }
             ],
             scrollX: true,
             autoWidth: false,
@@ -207,7 +216,7 @@
                 { targets: 4, width: '190px' },
                 { targets: 5, width: '50px' },
                 { targets: 6, width: '50px' },
-                { targets: 7, width: '100px' }
+                { targets: 7, width: '140px', className: 'sr-fine-cell text-center' }
             ]
         });
 
