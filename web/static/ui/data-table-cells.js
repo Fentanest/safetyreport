@@ -84,10 +84,36 @@
         return `<a href="${first}" target="_blank">다운로드</a>`;
     }
 
+    function formatWon(amount) {
+        return Number(amount).toLocaleString('ko-KR') + '원';
+    }
+
+    // 금액 없는 과태료의 법정 최저 기준 추정 보조 표기(statistics-spec §4-1·§4-2, PROJECT_RULES §3-2).
+    // estimateAmount 는 services/fine_estimate.estimate_if_unknown 의 결과만 받는다(여기서 판정하지 않는다).
+    // 값이 없으면(해당 행이 추정 대상이 아니면) '' — 확정 '범칙금_과태료' 원문은 호출자가 그대로 둔다.
+    function renderFineEstimateBadge(estimateAmount, estimateBasis) {
+        if (estimateAmount === null || estimateAmount === undefined || estimateAmount === '') return '';
+        const amount = Number(estimateAmount);
+        if (!Number.isFinite(amount)) return '';
+        const basisText = normalizeCellText(estimateBasis);
+        const tooltip = '법정 최저 기준 추정' + (basisText ? (' · ' + basisText) : '');
+        return `<span class="sr-fine-estimate" title="${esc(tooltip)}" aria-label="${esc(tooltip)}">추정 ${esc(formatWon(amount))}</span>`;
+    }
+
+    // 목록 '과태료/범칙금' 열: 원래 값은 그대로 두고(정렬·검색은 원문 d 기준) 추정이 있으면 옆에 흐리게 덧붙인다.
+    function renderFineCell(d, type, estimateAmount, estimateBasis) {
+        const raw = normalizeCellText(d);
+        if (type !== 'display') return raw;
+        const badge = renderFineEstimateBadge(estimateAmount, estimateBasis);
+        if (!badge) return esc(raw);
+        return `<span class="sr-fine-value">${esc(raw)}</span>${badge}`;
+    }
+
 
     root.SrDataTableCells = {
         esc: esc, normalizeCellText: normalizeCellText, splitMultilineLinks: splitMultilineLinks,
         encodeLinksPayload: encodeLinksPayload, decodeLinksPayload: decodeLinksPayload, labelFromUrl: labelFromUrl,
         renderBadge: renderBadge, renderEllipsis: renderEllipsis, renderAttach: renderAttach, renderMap: renderMap,
+        formatWon: formatWon, renderFineEstimateBadge: renderFineEstimateBadge, renderFineCell: renderFineCell,
     };
 })(typeof window === 'undefined' ? globalThis : window);

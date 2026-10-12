@@ -2,6 +2,8 @@
 .rd-field-icon { width: 14px; font-size: .82rem; margin-top: 2px; }
 .rd-field-label { min-width: 78px; font-size: .82rem; }
 .rd-field-value { font-size: .82rem; word-break: break-all; }
+/* 과태료/범칙금 추정(법정 최저) 보조 표기(statistics-spec §4-1·§4-2) — 확정 값과 구분되는 흐린 글자 */
+.rd-fine-estimate { display: inline-block; margin-left: 2px; font-size: .76rem; font-weight: 400; color: var(--sr-text-muted); }
 .rd-field-chevron { font-size: .7rem; opacity: .5; }
 .rd-round { font-size: .8rem; line-height: 1.6; }
 .rd-text-block { font-size: .82rem; line-height: 1.6; white-space: pre-wrap; }

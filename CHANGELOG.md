@@ -1,5 +1,24 @@
 # Changelog
 
+## 2026-10-12 — (dev, 미릴리스) 목록·상세의 금액 미확인 과태료에 추정 표시
+
+- 신고 목록(`/data/<분류>` 표)과 신고 상세 팝업의 '과태료/범칙금' 항목에서, 금액이 적히지 않은 과태료 행에 법정 최저 기준 추정 금액을
+  원래 값 옆에 흐리게 함께 보여줍니다(예: "과태료" 뒤에 "추정 50,000원"). 마우스를 올리거나 스크린리더로 들으면 추정 근거(법 조항)를 알 수 있습니다.
+  확정 금액이 있는 행·범칙금·경고·과태료 대상이 아닌 행은 그대로입니다. CSV 다운로드에는 기존 열을 바꾸지 않고 `추정 금액`·`추정 근거` 열을 더했습니다.
+- 판정·계산은 통계 화면과 같은 `services/fine_estimate.estimate_if_unknown`(`FINE_ESTIMATE_FIELDS`)을 그대로 쓴다(재구현 금지). `web/routers/data.py`
+  의 `_with_fine_estimates()`가 `/data/traffic·parking·safety·living·other·all·duplicates` 응답에만 `fine_estimate_amount`/`fine_estimate_basis`를
+  붙이며, 추정값은 DB에 저장하지 않고 조회마다 계산한다. 모바일 API(`web/routers/api_route.py`, `exact_values=True`) 경로는 이 라우터를 거치지 않아
+  계약·응답 필드에 영향이 없다(별도 시험으로 확인).
+- 표시는 `web/static/ui/data-table-cells.js`의 `renderFineCell`/`renderFineEstimateBadge`(정렬·검색은 원본 값 그대로, 추정은 표시용 덧붙임)와
+  `web/static/ui/report-detail.js`의 `fineField`. '과태료/범칙금' 열 너비를 넓히고(98.7px→150px) 좁은 폭에서도 줄바꿈으로 칸이 넘치지 않게 했다
+  (`.sr-fine-cell`, `list.css`). 색은 테마 토큰(`--sr-text-muted`)이라 라이트/다크 모두 적용된다. 통계 화면은 이미 추정을 보이므로 건드리지 않았다.
+- 범위: 같은 템플릿·스크립트를 쓰는 7개 `/data/*` 목록(중복 차량 포함)과 공용 상세 모달까지만 반영했다. `watchlist.html`/`rating.html`/
+  `duplicate_groups.html`/대시보드처럼 같은 열을 자체 렌더링하는 다른 화면은 이번에 건드리지 않았다(대시보드는 통계 계열이라 제외, 나머지는
+  좁은 전용 도구 화면이라 범위를 좁혔다) — 확대가 필요하면 별도 작업으로 판단한다.
+- 검증: 새 시험 `tests/test_data_table_fine_estimate.py` 12건(확정 금액 있는 행·범칙금·경고·규칙 불일치 비대상·판정 함수 재사용(wraps)·모바일 API
+  계약 불변)과 `tests/js/data_table_cells_check.js` 확장(렌더 함수 순수 동작) 포함, 전체 unittest 1002건 통과(건너뜀 6). git 커밋만 했고
+  push·릴리스·VERSION 변경은 하지 않았다.
+
 ## 2026-10-12 — 모바일 답변 알림의 재시도 가능한 크롤 접수
 
 - `/api/v1/crawl/notification`에 API 키·게이트 검사를 유지한 멱등 접수를 추가했다. 같은 request ID의 응답 유실/재시작 후 재전송은 기존 접수를 반환하며, request ID를 다른 신고에 재사용하면 거절한다. 기존 `/crawl/enqueue` 계약은 유지한다.

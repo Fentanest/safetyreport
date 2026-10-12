@@ -161,6 +161,28 @@
             '</div></div>';
     }
 
+    // 과태료/범칙금 전용: 확정 원문(value)은 그대로 두고, 추정(법정 최저)이 있으면 흐린 보조 글자로 옆에 덧붙인다
+    // (statistics-spec §4-1·§4-2, PROJECT_RULES §3-2). estimateAmount·estimateBasis 는 서버가
+    // services/fine_estimate.estimate_if_unknown 으로 이미 계산해 둔 값만 받는다(여기서 판정하지 않는다).
+    function fineField(icon, label, value, estimateAmount, estimateBasis) {
+        var text = normalizeDisplayValue(value);
+        var amountNum = Number(estimateAmount);
+        var hasEstimate = estimateAmount !== null && estimateAmount !== undefined && estimateAmount !== '' && isFinite(amountNum);
+        if (!hasMeaningfulValue(text) && !hasEstimate) return '';
+        var estimateHtml = '';
+        if (hasEstimate) {
+            var basisText = normalizeDisplayValue(estimateBasis);
+            var tooltip = '법정 최저 기준 추정' + (basisText ? (' · ' + basisText) : '');
+            estimateHtml = ' <span class="rd-fine-estimate" title="' + esc(tooltip) + '" aria-label="' + esc(tooltip) + '">추정 ' +
+                amountNum.toLocaleString('ko-KR') + '원</span>';
+        }
+        return '<div class="col-12 col-sm-6"><div class="d-flex align-items-start">' +
+            '<i class="' + icon + ' text-muted me-2 rd-field-icon"></i>' +
+            '<span class="text-muted me-2 flex-shrink-0 rd-field-label">' + label + '</span>' +
+            '<span class="fw-medium rd-field-value">' + esc(text) + estimateHtml + '</span>' +
+            '</div></div>';
+    }
+
     /// 신고 카테고리(traffic/parking/other) 데이터 리스트로 이동하면서
     /// queryKey=value 검색 조건을 미리 적용. category 가 없으면 /data/all 로 fallback.
     function buildFilterUrl(category, queryKey, value) {
@@ -365,7 +387,8 @@
                 field('fas fa-check-circle',     '답변일',      window.srDisplayDateTime(record['답변일'])) +
                 field('fas fa-building',         '처리기관',    record['처리기관']) +
                 linkField('fas fa-user',         '담당자',      record['담당자'],     category, 'person') +
-                field('fas fa-coins',            '과태료/범칙금', record['범칙금_과태료']) +
+                fineField('fas fa-coins',        '과태료/범칙금', record['범칙금_과태료'],
+                          record['fine_estimate_amount'], record['fine_estimate_basis']) +
                 field('fas fa-exclamation-triangle','벌점',     record['벌점']) +
                 linkField('fas fa-car',          '차량번호',    record['차량번호'],   category, 'car') +
                 linkField('fas fa-gavel',        '위반법규',    record['위반법규'],   category, 'law') +

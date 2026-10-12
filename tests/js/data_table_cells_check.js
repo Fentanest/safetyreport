@@ -29,4 +29,21 @@ assert.match(C.renderAttach('f1', 'display', '보기', 'btn-x', 'file'), /^1개 
 assert.equal(C.renderAttach('6개월 초과', 'display', '보기', 'b', 'photo'), '만료');
 assert.equal(C.renderMap('m1\nm2', 'display'), '<a href="m1" target="_blank">다운로드</a>');
 assert.equal(C.renderMap('', 'display'), '');
+
+// 추정 과태료 보조 표기(statistics-spec §4-1·§4-2) — 목록 '과태료/범칙금' 열, 상세 모달과 같은 입력 모양.
+assert.equal(C.formatWon(50000), '50,000원');
+assert.equal(C.renderFineEstimateBadge(null, null), '', '추정이 없으면 표시 없음');
+assert.equal(C.renderFineEstimateBadge(undefined, ''), '');
+assert.equal(C.renderFineEstimateBadge('', ''), '');
+const badge = C.renderFineEstimateBadge(50000, '도로교통법 시행령 별표6 제3호(일반도로 전용차로) · 승용등');
+assert.match(badge, /^<span class="sr-fine-estimate" /);
+assert.match(badge, /추정 50,000원<\/span>$/);
+assert.match(badge, /title="법정 최저 기준 추정 · 도로교통법 시행령 별표6 제3호\(일반도로 전용차로\) · 승용등"/);
+assert.match(badge, /aria-label="법정 최저 기준 추정 · 도로교통법 시행령 별표6 제3호\(일반도로 전용차로\) · 승용등"/);
+assert.equal(C.renderFineCell('과태료', 'sort', 50000, '근거'), '과태료', '정렬·검색 값은 추정과 무관하게 원문 그대로');
+assert.equal(C.renderFineCell('과태료', 'filter', 50000, '근거'), '과태료');
+assert.equal(C.renderFineCell('과태료', 'display', null, null), '과태료', '추정 없으면 원문만');
+const cell = C.renderFineCell('과태료', 'display', 50000, '근거');
+assert.match(cell, /^<span class="sr-fine-value">과태료<\/span><span class="sr-fine-estimate"/);
+assert.equal(C.renderFineCell('<b>', 'display', null, null), '&lt;b&gt;', '추정 없어도 원문은 escape 한다');
 console.log('data-table-cells ok');

@@ -50,6 +50,23 @@ table.dataTable tbody td.tabular-nums {
     letter-spacing: 0;
 }
 
+/* 과태료/범칙금 열: 확정 값은 그대로 두고 추정(법정 최저)을 흐린 보조 글자로 아래에 덧붙인다
+   (statistics-spec §4-1·§4-2). 표 전체의 nowrap 을 이 열만 풀어 좁은 폭에서도 칸을 넘치지 않게 한다. */
+table.dataTable td.sr-fine-cell {
+    white-space: normal !important;
+    word-break: break-word;
+}
+.sr-fine-value {
+    display: block;
+}
+.sr-fine-estimate {
+    display: block;
+    margin-top: 2px;
+    font-size: 0.74rem;
+    line-height: 1.3;
+    color: var(--sr-text-muted);
+}
+
 tr.row-selected td {
     background-color: rgba(245, 158, 11, 0.08) !important;
 }

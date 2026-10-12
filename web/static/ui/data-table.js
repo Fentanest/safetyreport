@@ -158,7 +158,7 @@ $(document).ready(function() {
 
     // ── 렌더 헬퍼(EO R-14: web/static/ui/data-table-cells.js, 순수 함수) ──────────────
     const { esc, normalizeCellText, splitMultilineLinks, encodeLinksPayload, decodeLinksPayload, labelFromUrl,
-            renderBadge, renderEllipsis, renderAttach, renderMap } = window.SrDataTableCells;
+            renderBadge, renderEllipsis, renderAttach, renderMap, renderFineCell } = window.SrDataTableCells;
 
     // ── 컬럼 정의 ──────────────────────────────────────────────────
     const columns = [
@@ -186,7 +186,8 @@ $(document).ready(function() {
                 : String(d || 0)
         }] : []),
         { data: '위반법규' },
-        { data: '범칙금_과태료' },
+        { data: '범칙금_과태료', className: 'sr-fine-cell',
+          render: (d, t, r) => renderFineCell(d, t, r && r.fine_estimate_amount, r && r.fine_estimate_basis) },
         { data: '벌점' },
         { data: '처리기관' },
         { data: '담당자' },
@@ -284,7 +285,7 @@ $(document).ready(function() {
             { targets: 7, width: '89.45px' },
             ...(isDuplicate ? [{ targets: 8, width: '100px' }] : []),
             { targets: 8 + offset, width: '141.13px' },
-            { targets: 9 + offset, width: '98.7px' },
+            { targets: 9 + offset, width: '150px' },
             { targets: 10 + offset, width: '29.45px' },
             { targets: 11 + offset, width: '270.64px' },
             { targets: 12 + offset, width: '44.17px' },
@@ -625,6 +626,8 @@ $(document).ready(function() {
                 }
             }
         });
+        // 추정 과태료는 기존 '과태료/범칙금' 열 값을 바꾸지 않고 별도 열로 덧붙인다(statistics-spec §4-1·§4-2).
+        headers.push('"추정 금액"', '"추정 근거"');
         csvContent += headers.join(',') + '\r\n';
 
         resultData.forEach(function(rowObj) {
@@ -657,6 +660,9 @@ $(document).ready(function() {
                     }
                 }
             });
+            let estAmount = rowObj.raw.fine_estimate_amount;
+            rowArray.push('"' + (estAmount == null ? '' : String(estAmount)) + '"');
+            rowArray.push('"' + normalizeCellText(rowObj.raw.fine_estimate_basis).replace(/"/g, '""') + '"');
             csvContent += rowArray.join(',') + '\r\n';
         });
 
