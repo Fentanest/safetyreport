@@ -4,7 +4,7 @@ from sqlalchemy.exc import OperationalError
 
 from core.database import database
 import settings.settings as app_settings
-from services import duplicate_group_service, rating_eligibility, report_category, report_policy
+from services import duplicate_group_service, plate_normalize, rating_eligibility, report_category, report_policy
 from services.report_filter_spec import ReportFilterSpec
 
 # 화면용 표 하나에 모든 분류가 있다(스키마 6). 분류는 category 열로 거른다.
@@ -270,6 +270,13 @@ def search_by_address(engine, address: str, mode: str = "raw"):
     return projection.project_records(results)
 
 
+def _plate_group_key(raw_plate: str) -> str:
+    """중복차량 그룹핑 키 — 정규화에 성공하면 정규화 값, 아니면(미인식·모호) 원문 그대로를 키로 쓴다.
+    원문 열(차량번호)은 바꾸지 않는다(읽을 때만 정규화, 2026-10-12 결정) — 서로 다른 미인식 값들이
+    하나의 그룹으로 뭉치지 않도록 정규화 실패 시 raw 를 그대로 키로 쓴다."""
+    return plate_normalize.normalize_plate(raw_plate) or raw_plate
+
+
 def get_duplicate_records(engine, mode: str = "raw"):
     with engine.connect() as conn:
         conn.exec_driver_sql('BEGIN')
@@ -281,29 +288,33 @@ def get_duplicate_records(engine, mode: str = "raw"):
         watch_ids = _get_watch_ids(conn)
         df_all["감시목록"] = df_all["신고번호"].apply(lambda value: "Y" if value in watch_ids else "N")
         df_all = df_all[df_all["차량번호"].str.strip() != ""]
+        # 중복차량 매칭은 정규화된 번호판으로 한다(군더더기·설명 문구가 섞여도 같은 차량으로 묶인다) —
+        # 화면에 보이는 차량번호 열 자체는 각 신고의 원문 그대로다.
+        df_all["_plate_key"] = df_all["차량번호"].map(_plate_group_key)
 
-        total_counts = df_all["차량번호"].value_counts().to_dict()
-        valid_counts = df_all[report_policy.status_series(df_all) != report_policy.WITHDRAWN_STATUS]["차량번호"].value_counts().to_dict()
-        counts = df_all["차량번호"].value_counts()
+        total_counts = df_all["_plate_key"].value_counts().to_dict()
+        valid_counts = df_all[report_policy.status_series(df_all) != report_policy.WITHDRAWN_STATUS]["_plate_key"].value_counts().to_dict()
+        counts = df_all["_plate_key"].value_counts()
         duplicates = counts[counts > 1].index.tolist()
-        df_dups = df_all[df_all["차량번호"].isin(duplicates)].copy()
-        df_dups["total_count"] = df_dups["차량번호"].map(total_counts)
-        df_dups["valid_count"] = df_dups["차량번호"].map(valid_counts).fillna(0).astype(int)
+        df_dups = df_all[df_all["_plate_key"].isin(duplicates)].copy()
+        df_dups["total_count"] = df_dups["_plate_key"].map(total_counts)
+        df_dups["valid_count"] = df_dups["_plate_key"].map(valid_counts).fillna(0).astype(int)
 
-        max_rnums = df_dups.groupby("차량번호")["신고번호"].max().reset_index()
+        max_rnums = df_dups.groupby("_plate_key")["신고번호"].max().reset_index()
         max_rnums.rename(columns={"신고번호": "최근신고번호"}, inplace=True)
-        df_dups = df_dups.merge(max_rnums, on="차량번호")
-        df_dups = df_dups.sort_values(by=["최근신고번호", "차량번호", "신고번호"], ascending=[False, True, False])
+        df_dups = df_dups.merge(max_rnums, on="_plate_key")
+        df_dups = df_dups.sort_values(by=["최근신고번호", "_plate_key", "신고번호"], ascending=[False, True, False])
         df_dups = df_dups.drop(columns=["최근신고번호"])
 
         if app_settings.exclude_withdraw:
             df_dups = df_dups[report_policy.status_series(df_dups) != report_policy.WITHDRAWN_STATUS]
             if not df_dups.empty:
-                remaining_counts = df_dups["차량번호"].value_counts()
+                remaining_counts = df_dups["_plate_key"].value_counts()
                 single_after_filter = remaining_counts[remaining_counts <= 1].index.tolist()
                 if single_after_filter:
-                    df_dups = df_dups[~df_dups["차량번호"].isin(single_after_filter)]
+                    df_dups = df_dups[~df_dups["_plate_key"].isin(single_after_filter)]
 
+        df_dups = df_dups.drop(columns=["_plate_key"])
         records = df_dups.fillna("").to_dict("records")
         return projection.project_records(records)
 

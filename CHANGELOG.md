@@ -2,6 +2,22 @@
 
 ## 미배포
 
+### 2026-10-12 — 차량번호 정규화(세 레포 공통, 읽을 때만)
+
+- 커뮤니티 서버 실데이터 약 6.2만 건 중 238건이 차량 통계에서 빠지던 문제(미인식·끝 군더더기·설명 문구 붙음·
+  보이지 않는 문자·번호판 아닌 값·자리수·자모 오류)를 "읽을 때" 정규화하는 공통 함수 `services/plate_normalize.normalize_plate`
+  로 고쳤다. **DB 원문(`차량번호`)은 바꾸지 않는다.** 세 레포(서버·모바일·지도)가 같은 규칙과 같은 공유 벡터
+  (`tests/fixtures/plate_normalize_vectors.json`, 세 레포 바이트 동일)를 쓴다 — 규칙은 모듈 docstring에 문서화.
+- 적용 지점: `services/fine_estimate.vehicle_kind`/`fine_class`/`is_commercial_truck`(추정 과태료 차종 판정),
+  `services/report_query_service.get_duplicate_records`(중복차량 매칭 — 그룹 키를 정규화 값으로, 정규화 실패 시
+  원문을 그대로 키로 써서 서로 다른 미인식 값이 하나로 뭉치지 않게 함). 통계는 fine_estimate 를 그대로 쓰므로
+  별도 수정 없이 함께 좋아진다. 감시목록(`mysafety_watchlist`)은 신고번호 기반이라 번호판 매칭 대상이 아니다.
+- 차종 판정표(숫자 구간·사업용 기호)는 바뀌지 않았고 입력 인식만 좋아져 `RULE_VERSION`을 올리지 않았다 — 기존
+  `fine_estimate_vectors.json` 깨끗한 번호판 60건이 모두 같은 결과를 내는 것을 확인했고, 실데이터 garbage 입력
+  10건을 새 벡터로 추가했다(그 중 `대구81아7901)`류만 화물·사업용 기호 조합으로 `vehicle_kind`가 바뀐다 — 과태료
+  표 분류(`fine_class`)는 전부 기존과 같아 금액은 바뀌지 않는다).
+- 검증: PC 전체 unittest 1,028건 통과(skip 6, 실패 0). git 커밋만 했고 push·릴리스·VERSION 변경은 하지 않았다.
+
 ### 2026-10-12 — 과태료 금액 보정 검수 수정
 
 - 앞뒤 쉼표·점을 포함한 숫자 토큰을 통계·공유·표시에서 동일하게 판정하여 `,70,000원`·`,40,0000원`을 미확인으로 처리합니다.

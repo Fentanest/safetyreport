@@ -5,13 +5,17 @@
 - 금액은 일반적으로 알려진 기본 금액(최저 기준)이다. 가중(고속도로, 감경 등)은 데이터로 알 수 없으면 반영하지 않는다.
 - 모바일 Standalone 도 같은 규칙을 쓴다. 규칙을 바꾸면 RULE_VERSION 과 tests/fixtures/fine_estimate_vectors.json 을
   양쪽 레포에서 함께 바꾼다.
+- 번호판 입력은 services/plate_normalize.normalize_plate 로 먼저 정규화한다(세 레포 공통 규칙, 2026-10-12
+  사용자·Opus 결정). 이 전처리는 "같은 번호판을 가리키는 입력을 더 많이 알아보게" 할 뿐 차종 판정표(숫자
+  구간·사업용 기호)는 그대로이므로 RULE_VERSION 을 올리지 않는다 — 기존 fine_estimate_vectors.json 의 깨끗한
+  번호판 60건은 전부 같은 결과를 낸다(tests/test_fine_estimate.py 로 확인).
 """
 from __future__ import annotations
 
 import re
 from datetime import datetime
 
-from services import report_category
+from services import plate_normalize, report_category
 
 RULE_VERSION = "2026-10-12.1"
 
@@ -25,12 +29,19 @@ _MOTORCYCLE_RE = re.compile(r"^(?:[가-힣]{2,})?\d?[가-힣]\d?\d{4}$")
 
 
 def normalize_plate(plate) -> str:
+    """공백만 지운 원시 문자열(레거시 호환용). 차종 판정은 plate_normalize.normalize_plate 를 쓴다."""
     return re.sub(r"\s+", "", str(plate or ""))
 
 
 def vehicle_kind(plate) -> str | None:
-    """번호판 차종기호 → 승용/승합/화물/특수/긴급/이륜. 판별 불가면 None. 이륜은 형식 추정."""
-    text = normalize_plate(plate)
+    """번호판 차종기호 → 승용/승합/화물/특수/긴급/이륜. 판별 불가면 None. 이륜은 형식 추정.
+
+    plate_normalize.normalize_plate 로 먼저 정규화한다(군더더기·설명 문구·보이지 않는 문자 제거,
+    서로 다른 후보 2개 이상이거나 미인식이면 None) — 2026-10-12 결정, 원문은 호출자가 그대로 보존한다.
+    """
+    text = plate_normalize.normalize_plate(plate)
+    if text is None:
+        return None
     match = _PLATE_RE.match(text)
     if match:
         digits = match.group(1)
@@ -179,7 +190,9 @@ def is_commercial_truck(plate) -> bool:
     화물자동차 비사업용 800-979 / 일반사업용 80-97, 용도기호 일반용 "바, 사, 아, 자, 배", 대여사업용 "허, 하, 호".
     (2026-09-24 Opus 가 법령정보센터 도표 이미지 원문으로 대조)
     """
-    text = normalize_plate(plate)
+    text = plate_normalize.normalize_plate(plate)
+    if text is None:
+        return False
     match = _PLATE_RE.match(text)
     return bool(match) and vehicle_kind(text) == "화물" and match.group(2) in COMMERCIAL_TRUCK_SYMBOLS
 
