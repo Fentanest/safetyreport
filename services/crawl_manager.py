@@ -35,6 +35,8 @@ class CrawlManager:
                 cls._instance._rating_token = None
                 cls._instance._state_lock = threading.Lock()
                 cls._instance._pending_queue: List[str] = []
+                cls._instance._notification_receipts = {}
+                cls._instance._notification_again = set()
                 cls._instance._restore_hold = False
                 # 복원이 시작될 때마다 +1. 크롤 시작 전 허용 검사를 한 뒤 복원이 끼어들었으면 시작하지 않는다(감사 R4-03).
                 cls._instance._restore_generation = 0
@@ -259,29 +261,76 @@ class CrawlManager:
     def _load_pending_locked(self) -> None:
         if getattr(self, "_pending_loaded", False):
             return
-        self._pending_loaded = True
         try:
             with open(self._pending_path(), encoding="utf-8") as f:
                 saved = json.load(f)
+        except FileNotFoundError:
+            saved = []
         except (OSError, ValueError):
-            return
-        for r in saved if isinstance(saved, list) else []:
-            if isinstance(r, str) and r not in self._pending_queue:
+            raise RuntimeError("대기 큐를 읽지 못했습니다. 기존 파일을 보존했습니다.") from None
+        receipts, again = {}, []
+        if isinstance(saved, dict):
+            receipts = saved.get("notification_receipts")
+            again = saved.get("notification_again", [])
+            saved = saved.get("reports")
+        if (not isinstance(saved, list) or any(not isinstance(r, str) for r in saved)
+                or not isinstance(receipts, dict)
+                or any(not isinstance(k, str) or not isinstance(v, str) for k, v in receipts.items())
+                or not isinstance(again, list) or any(not isinstance(r, str) for r in again)):
+            raise RuntimeError("대기 큐 형식을 확인하지 못했습니다. 기존 파일을 보존했습니다.")
+        self._notification_receipts = receipts
+        self._notification_again = set(again)
+        for r in saved:
+            if r not in self._pending_queue:
                 self._pending_queue.append(r)
+        self._pending_loaded = True
 
     def _save_pending_locked(self) -> None:
         """큐를 파일에 원자적으로 쓴다. 실패하면 OSError 를 그대로 올린다(감사 R3-03 — 저장 실패를 숨기지 않는다)."""
         path = self._pending_path()
-        if not self._pending_queue:
+        receipts = getattr(self, "_notification_receipts", {})
+        if not self._pending_queue and not receipts:
             if os.path.exists(path):
                 os.remove(path)
             return
         tmp = f"{path}.tmp"
         with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(self._pending_queue, f, ensure_ascii=False)
+            payload = {"reports": self._pending_queue, "notification_receipts": receipts, "notification_again": sorted(getattr(self, "_notification_again", set()))} if receipts else self._pending_queue
+            json.dump(payload, f, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, path)
+
+    def append_notification(self, report_number: str, request_id: str, device_scope: str) -> None:
+        """Receipt and pending obligation commit in ONE atomic file replacement.
+
+        ACK loss/restart/replay after completion cannot enqueue the same event again.
+        Receipts are retained when the queue drains. Different API keys are isolated.
+        """
+        key = device_scope + ":" + request_id
+        with self._state_lock:
+            self._load_pending_locked()
+            if self._restore_hold or self._shutting_down:
+                raise RuntimeError("서버 작업 전환 중입니다. 잠시 뒤 다시 시도하세요.")
+            receipts = getattr(self, "_notification_receipts", {})
+            previous = receipts.get(key)
+            if previous is not None:
+                if previous != report_number:
+                    raise ValueError("request_id already belongs to another report")
+                return
+            original = list(self._pending_queue)
+            again = set(getattr(self, "_notification_again", set()))
+            self._notification_again = again | ({report_number} if report_number in self._reserved else set())
+            if report_number not in self._pending_queue:
+                self._pending_queue.append(report_number)
+            self._notification_receipts = {**receipts, key: report_number}
+            try:
+                self._save_pending_locked()
+            except OSError:
+                self._pending_queue[:] = original
+                self._notification_receipts = receipts
+                self._notification_again = again
+                raise RuntimeError("알림 요청을 저장하지 못했습니다. 다시 시도하세요.") from None
 
     def append_to_pending(self, report_number: str) -> int:
         """크롤링 중 들어온 신고번호를 대기 큐에 추가 (중복 제외). 현재 큐 크기 반환.
@@ -364,7 +413,9 @@ class CrawlManager:
         with self._state_lock:
             self._load_pending_locked()
             self._reserved.difference_update(items)
-            finished = set(items) & done
+            again = getattr(self, "_notification_again", set())
+            finished = (set(items) & done) - again
+            again.difference_update(items)
             if not finished:
                 return list(items)
             self._pending_queue[:] = [r for r in self._pending_queue if r not in finished]
@@ -398,7 +449,11 @@ class CrawlManager:
     def _request_worker(self) -> None:
         while True:
             try:
-                self.launch_pending_crawl()
+                started = self.launch_pending_crawl()
+                # Gate/restore/admission can change after HTTP acceptance. A
+                # declined launch is not an exception, but still needs a wakeup.
+                if not started and not self.is_crawling() and self.pending_count():
+                    self._schedule_retry()
             except Exception as exc:
                 from core.utils import logger
                 logger.LoggerFactory.logbot.warning(f"[crawl] 대기 큐 시작 요청 실패: {type(exc).__name__}")
@@ -448,6 +503,7 @@ class CrawlManager:
         with self._state_lock:
             self._load_pending_locked()
             self._pending_queue.clear()
+            getattr(self, "_notification_again", set()).clear()
             self._reserved.clear()
             self._save_pending_locked()  # failure keeps account replacement pending
 
@@ -457,6 +513,7 @@ class CrawlManager:
             self._load_pending_locked()
             items = list(self._pending_queue)
             self._pending_queue.clear()
+            getattr(self, "_notification_again", set()).clear()
             self._reserved.clear()
             try:
                 self._save_pending_locked()
