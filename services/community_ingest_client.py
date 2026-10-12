@@ -77,8 +77,21 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 MAX_RESPONSE_BYTES = 1024 * 1024
 
 
+def _user_agent() -> str:
+    """Python 기본 User-Agent(Python-urllib/…)는 셀프호스트 앞단 Cloudflare 가 봇으로 막는다(error code 1010, 2026-10-12).
+    업로드·manifest 가 서버에 닿지도 못했다 — 앱 이름과 버전을 밝힌다."""
+    try:
+        from core.utils.path_utils import resource_path
+        with open(resource_path("VERSION"), "r", encoding="utf-8") as fh:
+            version = fh.read().strip()
+    except Exception:
+        version = "unknown"
+    return f"safetyreport/{version or 'unknown'}"
+
+
 def _http_post(url: str, headers: dict, body: bytes, timeout: float) -> tuple[int, bytes, dict]:
     opener = urllib.request.build_opener(_NoRedirect)
+    headers = {"User-Agent": _user_agent(), **headers}
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
         with opener.open(request, timeout=timeout) as response:

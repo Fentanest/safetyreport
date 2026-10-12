@@ -34,6 +34,15 @@
 
 ---
 
+## 2026-10-12 — (dev, 미릴리스) 셀프호스트 앞단 Cloudflare 가 PC 업로드를 봇으로 차단하던 문제
+
+- 증상: 3.1.x PC 에서 다시 불러오기 시작이 409(`prerequisites_required`, 마지막 오류 `manifest_unavailable`), 신고 공유 업로드도 셀프호스트에 닿지 않음.
+- 원인: `services/community_ingest_client.py` 의 `urllib` 요청이 Python 기본 User-Agent(`Python-urllib/…`)를 보내고, `supabase.worklazy.net` 앞단 Cloudflare 가
+  이를 차단(403 `error code: 1010`). 로그인 계열은 `requests` 라 통과했다. 이전 클라우드에는 Cloudflare 가 없어 드러나지 않았다.
+- 수정: 업로드·manifest 요청에 `User-Agent: safetyreport/<VERSION>`. 시험 `tests/test_community_ingest_client_ua.py`. 버전 변경 없음(dev 확인 후 릴리스).
+
+---
+
 작업, 버그 수정, 세션 기록용 문서.
 
 - 구조/운영 컨텍스트는 `docs/architecture/`에 유지(2026-09-24 이전에는 `CLAUDE.md`)
