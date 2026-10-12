@@ -729,3 +729,14 @@ GET /api/v1/vehicle/{vehicle_number}
 |---|---|
 | 안신 키 최초 기록·변경 후 갱신 | 개인 DB 기록 제거. 새 백업 사본에도 안신 키를 보충하지 않음 |
 | 안신 키 누락/불일치 백업 거절 | 카카오 주인만 같으면 허용. 모바일에 안신 메타 기록 요구 없음 |
+
+
+## 코드 대조 정정: 모바일 답변 알림의 멱등 접수
+
+`POST /api/v1/crawl/notification`은 기존 `/crawl/enqueue`를 유지하면서 추가한 경로다. 기존 API 키 인증·프로토콜·커뮤니티 게이트·초기화 차단을 적용한다. JSON은 `report_number`(SPP-YYMM-6~8자리)와 `request_id`(`inbox.enqueue.native.notification.<UUID>`)이며, 정상 접수는 `{status: "accepted", request_id: ...}`로 응답한다. 이는 크롤 **완료**가 아니라 영속 대기 접수다.
+
+`crawl_control.enqueue_notification → CrawlManager.append_notification → request_pending_launch → launch_pending_crawl → start.py --queue` 순서다. API 키의 SHA-256과 request ID를 receipt 키로 삼고, receipt와 대기 번호를 같은 파일 교체에서 저장한다. 같은 ID/번호는 재접수하지 않으며 다른 번호로 ID를 재사용하면 400, 저장 실패는 503이다. receipt를 저장하기 전에는 성공 응답하지 않는다. 실제 실행 실패는 기존 서버 대기 큐의 재시도/기동 복구가 맡는다. 접수 뒤 게이트나 복원 상태가 바뀌어 시작 함수가 예외 없이 false를 반환하더라도, 크롤 중이 아니고 대기가 남으면 재시도 타이머를 예약한다.
+
+`crawl_pending_queue.json`은 기존 번호 배열을 계속 읽는다. 멱등 접수를 사용한 뒤에는 `{reports: [...], notification_receipts: {...}, notification_again: [...]}` 형태로 저장한다. 현재 실행이 이미 맡은 신고에 새 이벤트가 도착하면 `notification_again`으로 남겨 이전 실행의 완료가 새 답변 의무를 지우지 못하게 한다. 완료 후에도 receipt를 보존하므로 응답을 잃은 폰이 늦게 재시도하거나 서버가 재기동해도 같은 요청이 새 크롤을 만들지 않는다. 파일 파손·형식 오류는 빈 큐로 간주하지 않고 원본을 보존하며 접수를 거절한다.
+
+운영 주의: 새 모바일은 이 경로가 없는 서버에 요청을 임의로 재전송하지 않는다(404 대기). 서버를 먼저 반영한 뒤 모바일을 반영한다. 새 저장 형식을 사용한 서버를 구버전으로 되돌리면 구버전은 객체 큐를 읽지 못하므로 **대기 파일을 보존한 상태에서 이 코드로 복구해야 한다**. receipt는 중복 방지를 위해 자동 만료시키지 않아 장기적으로 파일 크기가 증가한다. 신고 DB 스키마·교환 컬럼은 변경하지 않는다.

@@ -317,6 +317,23 @@ def enqueue_report(report_number: str):
 
 
 @_serialized
+def enqueue_notification(report_number: str, request_id: str, api_key: str):
+    import hashlib
+    import re
+
+    if not re.fullmatch(r"SPP-[0-9]{4}-[0-9]{6,8}", report_number):
+        raise ValueError("invalid report_number")
+    if not re.fullmatch(r"inbox\.enqueue\.native\.notification\.[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", request_id):
+        raise ValueError("invalid request_id")
+    _check_crawl_allowed()
+    _refuse_ambiguous([report_number])
+    scope = hashlib.sha256(api_key.encode()).hexdigest()
+    crawl_manager.append_notification(report_number, request_id, scope)
+    crawl_manager.request_pending_launch()
+    return {"status": "accepted", "request_id": request_id}
+
+
+@_serialized
 def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
     normalized = []
     seen = set()

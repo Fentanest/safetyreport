@@ -470,6 +470,22 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
     }
 
 
+@router.post("/crawl/notification")
+async def enqueue_notification(request: Request, api_key: str = Depends(_require_api_key)):
+    """Idempotent notification admission. Legacy /enqueue behavior stays unchanged."""
+    body = await json_object(request)
+    number, request_id = body.get("report_number"), body.get("request_id")
+    if not isinstance(number, str) or not isinstance(request_id, str):
+        raise HTTPException(status_code=400, detail="report_number and request_id are required")
+    await run_in_threadpool(_raise_if_community_blocked)
+    try:
+        return await run_in_threadpool(crawl_control.enqueue_notification, number, request_id, api_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise _community_runtime_error(exc) or HTTPException(status_code=503, detail=str(exc))
+
+
 @router.get("/crawl/results")
 def get_crawl_results(device_id: str | None = None, _: str = Depends(_require_api_key)):
     """기기별로 아직 안 읽은 변경(결정 D-5). device_id 가 없는 구앱은 공용 'legacy' 위치를 함께 쓴다."""
