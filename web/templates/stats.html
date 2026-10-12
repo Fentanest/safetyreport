@@ -243,7 +243,7 @@
 
             {% macro fine_amt(val) %}{{ "{:,}원".format(val) if val > 0 else '—' }}{% endmacro %}
 
-            {% macro rating_display(val, count) %}{% if val is not none %}<span class="sr-metric-n"><span class="sr-rating-star" aria-hidden="true">★</span> {{ '%.2f' % val }}</span><span class="sr-metric-pct">{{ count }}명</span>{% else %}<span class="sr-muted" title="평가 없음">—</span>{% endif %}{% endmacro %}
+            {% macro rating_display(val, count) %}{% if val is not none %}<span class="sr-metric-n"><span class="sr-rating-star" aria-hidden="true">★</span> {{ '%.2f' % val }}</span><span class="sr-metric-pct">{{ count }}건</span>{% else %}<span class="sr-muted" title="평가 없음">—</span>{% endif %}{% endmacro %}
 
             {% macro metric_cells(r) %}
                     <td data-order="{{ r.total_fine_amount }}" data-count="{{ (r.fines or 0) - (r.fine_amount_unknown or 0) }}" class="sr-n small {{ 'sr-fine-confirmed' if r.total_fine_amount > 0 else 'sr-muted' }}">{{ fine_amt(r.total_fine_amount) }}</td>

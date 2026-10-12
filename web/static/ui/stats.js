@@ -498,7 +498,7 @@
                 foot(cfg[k]).html(n + '<span class="sr-metric-pct">' + pct(sums[k], sums.total) + '</span>');
             });
             foot(cfg.rating).html(wRatingBase > 0
-                ? '<span class="sr-metric-n"><span class="sr-rating-star" aria-hidden="true">★</span> ' + (wRating / wRatingBase).toFixed(2) + '</span><span class="sr-metric-pct">' + num(wRatingBase) + '명</span>'
+                ? '<span class="sr-metric-n"><span class="sr-rating-star" aria-hidden="true">★</span> ' + (wRating / wRatingBase).toFixed(2) + '</span><span class="sr-metric-pct">' + num(wRatingBase) + '건</span>'
                 : '—');
             if (isActiveTable(api)) {
                 updateScope(api);
@@ -733,7 +733,7 @@
         html.push('<ul class="sr-panel-list">');
         html.push('<li><span>평균 처리기간</span><b>' + (row.avg_days == null ? '—' : Number(row.avg_days).toFixed(1) + '일') +
             (row.avg_days_count != null ? ' <small class="text-muted fw-normal">(표본 ' + num(row.avg_days_count) + '건)</small>' : '') + '</b></li>');
-        html.push('<li><span>별점</span><b>' + (row.avg_rating == null ? '평가 없음' : '★ ' + Number(row.avg_rating).toFixed(2) + ' <small class="text-muted fw-normal">(' + num(row.rating_count) + '명)</small>') + '</b></li>');
+        html.push('<li><span>별점</span><b>' + (row.avg_rating == null ? '평가 없음' : '★ ' + Number(row.avg_rating).toFixed(2) + ' <small class="text-muted fw-normal">(' + num(row.rating_count) + '건)</small>') + '</b></li>');
         html.push('<li><span>확정 과태료</span><b>' + won(row.total_fine_amount) + ' <small class="text-muted fw-normal">(' + num(Math.max(0, fines - unknown)) + '건)</small></b></li>');
         html.push('<li><span>금액 미확인 과태료</span><b>' + num(unknown) + '건</b></li>');
         html.push('<li><span>추정 과태료(법정 최저)</span><b>' + (row.estimated_fine_count ? won(row.estimated_fine_amount) + ' <small class="text-muted fw-normal">(' + num(row.estimated_fine_count) + '건)</small>' : '—') + '</b></li>');
