@@ -3,26 +3,17 @@ from typing import Optional
 from core.database.engine import get_engine
 from services import data_service, fine_estimate
 from core.utils.templating import templates
-from web.routers.filters import normalize_dedupe_mode
+from web.routers.filters import normalize_dedupe_mode, with_fine_estimates
 
 engine = get_engine()
 router = APIRouter(prefix="/data")
 
-# 목록 화면 전용 표시값(docs/design/statistics-spec.md §4-1·§4-2, PROJECT_RULES §3-2): 추정은 DB 에 저장하지
-# 않고 조회마다 계산한다. 판정은 services/fine_estimate.estimate_if_unknown 을 그대로 쓴다(재구현 금지) —
-# 로컬 통계(services/stats/metrics.py)·공유 payload(services/community_capture.py)와 같은 입력 열
-# (fine_estimate.FINE_ESTIMATE_FIELDS)만 record 에서 골라 넘긴다. 이 라우터(웹 /data 화면)에서만 붙이고
-# 모바일 API(web/routers/api_route.py, exact_values=True)는 거치지 않으므로 계약에 영향이 없다.
-_FINE_ESTIMATE_RECORD_FIELDS = fine_estimate.FINE_ESTIMATE_FIELDS
-
-
-def _with_fine_estimates(records: list[dict]) -> list[dict]:
-    for record in records:
-        fields = {key: record.get(key) for key in _FINE_ESTIMATE_RECORD_FIELDS}
-        result = fine_estimate.estimate_if_unknown(record.get("범칙금_과태료"), fields)
-        record["fine_estimate_amount"] = result["amount"] if result else None
-        record["fine_estimate_basis"] = result["basis"] if result else None
-    return records
+# 추정 과태료 부착(판정은 services/fine_estimate.estimate_if_unknown, 재구현 금지)은 web/routers/filters.py
+# with_fine_estimates() 로 옮겨 watchlist_route.py·rating_route.py·duplicate_route.py·dashboard.py 와
+# 공유한다(2026-10-12, watchlist/rating/duplicate_groups/대시보드 확장). 이 모듈의 호출부는 그대로 둔다.
+# web_data.fine_estimate(아래 import)는 tests/test_data_table_fine_estimate.py 가 그대로 patch 한다 —
+# with_fine_estimates() 도 같은 모듈 객체의 estimate_if_unknown 을 호출 시점에 참조하므로 patch 가 유효하다.
+_with_fine_estimates = with_fine_estimates
 
 
 def _build_filters(status=None, fine=None, agency=None, person=None, agencyExact=False, law=None, rating=None, ratingCause=None):

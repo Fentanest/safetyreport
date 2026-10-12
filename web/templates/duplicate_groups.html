@@ -8,7 +8,18 @@
 </a>
 {%- endmacro %}
 
+{# 금액 미확인 과태료 보조 표기(PROJECT_RULES §3-2, statistics-spec §4-1·§4-2) — data_table.html 과 같은
+   추정값(fine_estimate_amount/basis, web/routers/filters.with_fine_estimates)만 그린다(여기서 판정하지
+   않는다). data-table-cells.js 의 renderFineEstimateBadge 와 같은 마크업/클래스(list.css). #}
+{% macro fine_estimate_badge(amount, basis) -%}
+{%- if amount -%}
+{%- set fine_tip = '법정 최저 기준 추정' ~ (' · ' ~ basis if basis else '') -%}
+<span class="sr-fine-estimate" title="{{ fine_tip }}" aria-label="{{ fine_tip }}">추정 {{ '{:,}'.format(amount) }}원</span>
+{%- endif -%}
+{%- endmacro %}
+
 {% block extra_css %}
+<link rel="stylesheet" href="/static/ui/list.css?v={{ request.state.app_version }}">
 <style>
 /* 중복 신고 관리 — 시범 화면(통계 세그먼트, 목록 작업 바·배지) 톤 */
 .sr-dup-count { display: inline-block; min-width: 1.6em; margin-left: 0.25rem; padding: 0 0.4em; border-radius: 999px;
@@ -32,6 +43,9 @@
 .duplicate-members-table tr.is-representative td { background: var(--sr-primary-soft); }
 .duplicate-members-table td, .duplicate-members-table th { white-space: nowrap; }
 .duplicate-members-table td.sr-addr { white-space: normal; min-width: 12rem; }
+/* 처분(과태료/범칙금) 열: 너비 지정이 없던 열이라 추정 보조 표기(두 줄)가 들어가면 자동 표 배치가
+   한 글자씩 줄바꿈할 만큼 좁아진다 — 최소 너비를 둬서 "추정 50,000원" 같은 글자가 안 끊기게 한다. */
+.duplicate-members-table td.sr-fine-cell { min-width: 6.5rem; }
 </style>
 {% endblock %}
 
@@ -119,6 +133,7 @@
                     {% if group.representative_mode == 'manual' %}<span class="sr-badge sr-badge-partial">대표 수동 고정</span>
                     {% else %}<span class="sr-badge sr-badge-default">대표 자동 선정</span>{% endif %}
                     <span class="sr-muted">대표 {{ representative['신고번호'] or '-' }} · {{ representative['처리상태'] or '-' }} · {{ representative['범칙금_과태료'] or '-' }}</span>
+                    {{ fine_estimate_badge(representative['fine_estimate_amount'], representative['fine_estimate_basis']) }}
                     <span class="sr-dup-decision ms-auto {{ 'is-user' if group.user_decided }}">
                         {% if group.user_decided %}<i class="fas fa-user-check me-1"></i>사용자 판단 · {{ group.decided_at_text }}{% else %}<i class="fas fa-robot me-1"></i>자동 감지{% endif %}
                     </span>
@@ -217,7 +232,10 @@
                                         {% endif %}
                                     </td>
                                     <td>{{ member['처리상태'] or '-' }}</td>
-                                    <td>{{ member['범칙금_과태료'] or '-' }}</td>
+                                    <td class="sr-fine-cell">
+                                        <span class="sr-fine-value">{{ member['범칙금_과태료'] or '-' }}</span>
+                                        {{ fine_estimate_badge(member['fine_estimate_amount'], member['fine_estimate_basis']) }}
+                                    </td>
                                     <td>{{ member['답변일'] or '-' }}</td>
                                 </tr>
                                 {% endfor %}

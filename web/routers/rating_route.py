@@ -7,14 +7,17 @@ import asyncio
 from core.database.engine import get_engine
 from services import data_service, rating_eligibility, rating_service
 from core.utils.templating import templates
+from web.routers.filters import with_fine_estimates
 
 engine = get_engine()
 router = APIRouter(prefix="/rating")
 
 @router.get("/")
 def view_rating_page(request: Request):
-    records = data_service.get_unrated_records(engine)
-            
+    # 금액 미확인 과태료 보조 표기(PROJECT_RULES §3-2) — 판정은 services/fine_estimate 를 그대로 쓴다
+    # (web/routers/filters.with_fine_estimates, data.py 의 /data/* 화면과 공유, DB 저장 없음).
+    records = with_fine_estimates(data_service.get_unrated_records(engine))
+
     return templates.TemplateResponse(request, "rating.html", {
         "title": "자동 별점 주기",
         "records": records,

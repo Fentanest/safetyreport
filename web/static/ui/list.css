@@ -51,8 +51,11 @@ table.dataTable tbody td.tabular-nums {
 }
 
 /* 과태료/범칙금 열: 확정 값은 그대로 두고 추정(법정 최저)을 흐린 보조 글자로 아래에 덧붙인다
-   (statistics-spec §4-1·§4-2). 표 전체의 nowrap 을 이 열만 풀어 좁은 폭에서도 칸을 넘치지 않게 한다. */
-table.dataTable td.sr-fine-cell {
+   (statistics-spec §4-1·§4-2). 표 전체의 nowrap 을 이 열만 풀어 좁은 폭에서도 칸을 넘치지 않게 한다.
+   data_table.html(jQuery DataTables) 뿐 아니라 watchlist.html/duplicate_groups.html/index.html 처럼
+   서버에서 바로 그리는 일반 표에도 같은 열을 쓰므로 `table.dataTable` 조상 제한 없이 둔다
+   (2026-10-12, watchlist/rating/duplicate_groups/대시보드 확장). */
+td.sr-fine-cell {
     white-space: normal !important;
     word-break: break-word;
 }
@@ -63,6 +66,7 @@ table.dataTable td.sr-fine-cell {
     display: block;
     margin-top: 2px;
     font-size: 0.74rem;
+    font-weight: 400;
     line-height: 1.3;
     color: var(--sr-text-muted);
 }

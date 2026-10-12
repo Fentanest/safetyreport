@@ -2,7 +2,19 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="/static/ui/dashboard.css?v={{ request.state.app_version }}">
+{# .sr-fine-cell/.sr-fine-value/.sr-fine-estimate 는 data_table.html 과 같은 추정 과태료 보조 표기용(380534b) #}
+<link rel="stylesheet" href="/static/ui/list.css?v={{ request.state.app_version }}">
 {% endblock %}
+
+{# 금액 미확인 과태료 보조 표기(PROJECT_RULES §3-2, statistics-spec §4-1·§4-2) — data_table.html 과 같은
+   추정값(fine_estimate_amount/basis, web/routers/filters.with_fine_estimates)만 그린다(여기서 판정하지
+   않는다). data-table-cells.js 의 renderFineEstimateBadge 와 같은 마크업/클래스(list.css). #}
+{% macro fine_estimate_badge(amount, basis) -%}
+{%- if amount -%}
+{%- set fine_tip = '법정 최저 기준 추정' ~ (' · ' ~ basis if basis else '') -%}
+<span class="sr-fine-estimate" title="{{ fine_tip }}" aria-label="{{ fine_tip }}">추정 {{ '{:,}'.format(amount) }}원</span>
+{%- endif -%}
+{%- endmacro %}
 
 {% block content %}
 <div class="row">
@@ -199,7 +211,10 @@
                                     <span class="badge" style="background-color: var(--sr-surface-3); color: var(--sr-text); border: 1px solid var(--sr-border);">{{ item.결과 }}</span>
                                     {% endif %}
                                 </td>
-                                <td style="color: var(--sr-status-fine); font-weight: bold;">{{ item.범칙금_과태료 }}</td>
+                                <td class="sr-fine-cell" style="color: var(--sr-status-fine); font-weight: bold;">
+                                    <span class="sr-fine-value">{{ item.범칙금_과태료 }}</span>
+                                    {{ fine_estimate_badge(item.fine_estimate_amount, item.fine_estimate_basis) }}
+                                </td>
                             </tr>
                             {% else %}
                             <tr>
@@ -258,7 +273,10 @@
                                     <span class="badge" style="background-color: var(--sr-surface-3); color: var(--sr-text); border: 1px solid var(--sr-border);">{{ item.결과 }}</span>
                                     {% endif %}
                                 </td>
-                                <td style="color: var(--sr-status-fine); font-weight: bold;">{{ item.범칙금_과태료 }}</td>
+                                <td class="sr-fine-cell" style="color: var(--sr-status-fine); font-weight: bold;">
+                                    <span class="sr-fine-value">{{ item.범칙금_과태료 }}</span>
+                                    {{ fine_estimate_badge(item.fine_estimate_amount, item.fine_estimate_basis) }}
+                                </td>
                             </tr>
                             {% else %}
                             <tr>
