@@ -564,6 +564,21 @@ jobs:
       contents: write
 
     steps:
+    - name: Checkout release notes
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ github.sha }}
+
+    - name: Require release notes
+      env:
+        RELEASE_TAG: ${{ needs.prepare-release.outputs.tag }}
+      run: |
+        notes_file="docs/releases/$RELEASE_TAG.md"
+        if [ ! -f "$notes_file" ]; then
+          echo "::error::릴리스 노트 파일이 없습니다: $notes_file"
+          exit 1
+        fi
+
     - name: Download Windows artifact
       uses: actions/download-artifact@v5
       with:
@@ -593,9 +608,7 @@ jobs:
       with:
         tag_name: ${{ needs.prepare-release.outputs.tag }}
         name: "나만의 안전신문고 v${{ needs.prepare-release.outputs.version }}"
-        body: |
-          **나만의 안전신문고** v${{ needs.prepare-release.outputs.version }} 자동 릴리즈
-          Commit: ${{ github.sha }}
+        body_path: docs/releases/${{ needs.prepare-release.outputs.tag }}.md
         files: |
           release-assets/windows/mysafetyreport-win.zip
           release-assets/linux/mysafetyreport-linux.zip
@@ -603,7 +616,7 @@ jobs:
           release-assets/macos-arm64/mysafetyreport-macos-arm64.zip
         draft: false
         prerelease: false
-        generate_release_notes: true
+        generate_release_notes: false
 
   # # ────────────────────────────────────────────────────────────────
   # # 5. Linux ARM64 실행 파일 빌드 (Docker 크로스컴파일, 235 러너)
