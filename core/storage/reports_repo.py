@@ -200,7 +200,7 @@ class _CaptureFailed(RuntimeError):
 
 
 def _community_capture_for(rec: CrawledDetail, derived: dict, existing: dict | None = None):
-    """개인 저장 트랜잭션 전에 공유 DTO 를 확정한다. 실패하면 예외를 올려 호출자가 저장하지 않게 한다.
+    """개인 DB 쓰기 잠금 안에서, 원문 쓰기 전에 공유 DTO 를 확정한다. 실패하면 개인 저장을 롤백한다.
 
     fine_estimate(2026-10-12) 입력: 사진 촬영 시각은 detail 이 아니라 _prefetch_derived() 결과(`derived`)에 있고,
     신고명은 이번 응답의 title_fields 에 없을 수 있어(상세만 다시 받은 경우) 기존 저장 행(`existing`)으로 떨어진다 —
@@ -237,21 +237,26 @@ def _save_one(engine, rec: CrawledDetail) -> dict | None:
         existing_before = _find_row(read, rec.id)
     rec.category = _classification(rec, existing_before)["category"]
     derived = _prefetch_derived(engine, rec, existing_before)
-    try:
-        capture_result = _community_capture_for(rec, derived, existing_before)
-    except Exception as exc:
-        from services import community_capture as _cap
-
-        if isinstance(exc, _cap.CaptureStoreUnavailable):
-            raise
-        raise _CaptureFailed("community_capture_failed") from exc
-
     from services import community_capture as _cap
 
+    capture_result = None
     try:
         with engine.begin() as conn:
-            now_ms = _now_ms()
+            # 크롤러는 별도 프로세스다. 캡처 → 개인 저장 사이에 재전송이 끼어들지 않게
+            # SQLite 쓰기 잠금을 먼저 잡고, 복원 장벽이 보는 연결도 커밋까지 유지한다.
+            conn.exec_driver_sql("BEGIN IMMEDIATE")
             existing = _find_row(conn, rec.id)
+            # 사진 보충이 prefetch 동안 끝났으면 그 시각을 오래된 None 으로 덮지 않는다.
+            if (existing and existing.get("사진_촬영수") is not None
+                    and existing.get("첨부사진") == rec.detail.get("첨부사진")):
+                derived.update({c: existing.get(c) for c in PHOTO_COLUMNS})
+            try:
+                capture_result = _community_capture_for(rec, derived, existing)
+            except _cap.CaptureStoreUnavailable:
+                raise
+            except Exception as exc:
+                raise _CaptureFailed("community_capture_failed") from exc
+            now_ms = _now_ms()
             site = {c: _clean(rec.detail.get(c)) for c in DETAIL_SITE_COLUMNS}
             cls = _classification(rec, existing)
             raw_changed = _save_body(conn, rec, now_ms)
@@ -275,10 +280,11 @@ def _save_one(engine, rec: CrawledDetail) -> dict | None:
                 conn.execute(update(REPORT).where(REPORT.c.ID == rec.id).values(**title))
             refresh_effective_rows(conn, [rec.id])
     except Exception:
-        try:
-            _cap.mark_personal_save(capture_result.event_id, False)
-        except Exception as exc:
-            note_fallback("reports_repo.mark_personal_save_failed", exc)
+        if capture_result is not None:
+            try:
+                _cap.mark_personal_save(capture_result.event_id, False)
+            except Exception as exc:
+                note_fallback("reports_repo.mark_personal_save_failed", exc)
         raise
     try:
         _cap.mark_personal_save(capture_result.event_id, True)

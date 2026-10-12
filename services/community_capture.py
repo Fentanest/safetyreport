@@ -377,11 +377,40 @@ def _rebuild_run_id(explicit: str | None) -> str | None:
     return os.environ.get("SAFETYREPORT_REBUILD_RUN_ID") or None
 
 
+def _backfill_payload(latest_payload: dict, adapter_input: dict) -> dict:
+    """journal 원문 판정을 보존하고 개인 DB의 추정 입력으로 fine_estimate만 교체한다."""
+    payload = dict(latest_payload)
+    payload.pop("fine_estimate", None)
+    amount = payload.get("amount") or {}
+    if amount.get("confirmed_won") is not None or amount.get("kind") != "fine":
+        return payload
+    entry = adapter_input.get("entry_value")
+    record = {
+        "category": report_category.category_of(adapter_input.get("ssnpc_cd"), adapter_input.get("ssnpc_type"), entry),
+        "entry_value": entry,
+        "ssnpc_cd": adapter_input.get("ssnpc_cd"),
+        "ssnpc_type": adapter_input.get("ssnpc_type"),
+        "신고명": adapter_input.get("report_name"),
+        "차량번호": adapter_input.get("car_number"),
+        "사진_첫촬영": adapter_input.get("photo_first_at"),
+        "사진_끝촬영": adapter_input.get("photo_last_at"),
+        "발생시각": adapter_input.get("occurrence_time"),
+        "위반법규": payload.get("violation_law"),
+    }
+    fine = fine_estimate.estimate(record)
+    if fine is not None:
+        payload["fine_estimate"] = {
+            "won": fine["amount"], "rule": fine["rule"], "rule_version": fine_estimate.RULE_VERSION,
+        }
+    return payload
+
+
 def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
             rebuild_run_id: str | None = None, data_dir: str | None = None) -> CaptureResult:
     """한 트랜잭션으로 detail_status → journal/outbox → report_latest 를 기록한다."""
     store = _store(data_dir)
-    payload = build_payload(adapter_input)
+    backfill = trigger == "fine_estimate_backfill"
+    payload = {} if backfill else build_payload(adapter_input)
     sha = payload_sha256(payload)
     # REVIEW3 낮음-1: 상한 초과 원문 기관코드는 조용히 null 로 버리지 않고 명시적
     # 거절한다. 원문은 크롤 DB(처리기관코드)에 그대로 있고, journal/outbox 에
@@ -405,6 +434,25 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
         if run_id and os.environ.get('SAFETYREPORT_CRAWL_RUN_ID'):
             from services.community_rebuild import assert_current_attempt
             assert_current_attempt(tx, run_id)
+        if backfill:
+            # 최신 관측 조회와 변경 발급은 같은 journal 쓰기 트랜잭션에서 수행한다.
+            # personal_save_state는 보충 조건으로 사용하지 않는다.
+            latest = tx.execute(
+                "SELECT payload_json, report_number, blocked_reason"
+                " FROM source_journal WHERE local_dataset_id=? AND source_report_id=?"
+                " ORDER BY source_revision DESC LIMIT 1",
+                (local_dataset_id, source_report_id)).fetchone()
+            if latest is None:
+                return CaptureResult(event_id=None, event_type=None, eligible=False, payload_sha256=sha)
+            original = json.loads(latest["payload_json"])
+            payload = _backfill_payload(original, adapter_input)
+            sha = payload_sha256(payload)
+            eligible = is_eligible(payload)
+            if payload == original:
+                return CaptureResult(event_id=None, event_type=None, eligible=eligible, payload_sha256=sha)
+            report_number = latest["report_number"]
+            code_blocked = latest["blocked_reason"] == f"blocked:{AGENCY_CODE_TOO_LONG}"
+            progress_label = None
         if progress_label:
             tx.execute(
                 "INSERT INTO detail_status(local_dataset_id, source_report_id, c_now_label, observed_at)"
@@ -660,8 +708,7 @@ def deletion_cleanup_pending(data_dir: str | None = None) -> bool:
 
 
 # ── 기존 신고 다시 보내기 (fine-estimate-contract.md "기존 신고 다시 보내기") ──────────────
-# 앱 업데이트 뒤 한 번, 로컬 DB 의 기존 신고로 payload 를 다시 만들어 payload_sha256 이 바뀐 것
-# (= fine_estimate 가 새로 생긴 것)만 기존 capture() 경로로 보낸다. 크롤링·사용자 조작 없음.
+# 앱 업데이트 뒤 한 번, journal 최신 payload의 fine_estimate만 재계산해 바뀐 것만 보낸다. 크롤링·사용자 조작 없음.
 # capture() 가 이미 하는 일(동의·계정 문맥 검사, sha 비교, outbox 적재)을 그대로 쓴다 — 여기서 다시 판정하지 않는다.
 
 RESEND_MARKER_KEY = "fine_estimate_resend_done"
@@ -669,7 +716,8 @@ RESEND_MARKER_KEY = "fine_estimate_resend_done"
 
 def _resend_marker(data_dir: str | None = None) -> dict | None:
     try:
-        raw = _store(data_dir).meta(RESEND_MARKER_KEY)
+        store = _store(data_dir)
+        raw = store.meta(RESEND_MARKER_KEY)
     except Exception as exc:
         note_fallback("community_capture.resend_marker", exc)
         return None
@@ -679,30 +727,32 @@ def _resend_marker(data_dir: str | None = None) -> dict | None:
         data = json.loads(raw)
     except ValueError:
         return None
+    if data.get("local_dataset_id") != store.local_dataset_id():
+        return None
     return {"rule_version": data.get("rule_version"), "parser_version": data.get("parser_version")}
 
 
-def _set_resend_marker(data_dir: str | None, current: dict) -> None:
+def _set_resend_marker(data_dir: str | None, current: dict, *, local_dataset_id: str | None = None) -> None:
     store = _store(data_dir)
     with store.transaction() as tx:
-        store.set_meta(RESEND_MARKER_KEY, json.dumps({**current, "done_at": _now_iso()}, ensure_ascii=False), tx)
+        marker = {**current, "local_dataset_id": local_dataset_id or store.local_dataset_id(),
+                  "done_at": _now_iso()}
+        store.set_meta(RESEND_MARKER_KEY, json.dumps(marker, ensure_ascii=False), tx)
+
+
+# 개인 DB에서는 추정 입력만 읽는다. 금액·상태·법규 등 원문 판정은 journal이 정본이다.
+BACKFILL_PERSONAL_FIELDS = (
+    "ID", "entry_value", "ssnpc_cd", "ssnpc_type", "차량번호", "사진_첫촬영", "사진_끝촬영", "발생시각", "신고명",
+)
 
 
 def _resend_candidate_rows(engine):
-    """로컬 DB 신고 중 fine_estimate 대상일 '수 있는' 것만(과태료 문자열 포함, 상세 있음) — 같은 입력을 쓰는 cheap 선필터.
-    (요청 사유가 바뀌지 않는 한 payload_sha256 은 이 필터 밖에서는 바뀌지 않는다.)"""
+    """개인 금액 원문으로 거르지 않는다(journal 최신 금액 판정과 다를 수 있다)."""
     from sqlalchemy import select
-
     from core.database import models
 
-    table = models.report_table
     with engine.connect() as conn:
-        rows = conn.execute(
-            select(table)
-            .where(table.c.category.is_not(None))
-            .where(table.c["범칙금_과태료"].like("%과태료%"))
-        ).mappings().all()
-    return [dict(row) for row in rows]
+        return [dict(row) for row in conn.execute(select(models.report_table.c.ID)).mappings()]
 
 
 def _resend_adapter_input(row: dict) -> dict:
@@ -720,8 +770,8 @@ def _resend_adapter_input(row: dict) -> dict:
 
 
 def resend_fine_estimate_updates(engine, data_dir: str | None = None) -> dict:
-    """앱 업데이트 뒤 한 번: 로컬 DB 기존 신고로 payload 를 다시 만들어 바뀐 것만(fine_estimate 신규)
-    capture() 로 다시 보낸다. 완료 표시는 (RULE_VERSION, PARSER_VERSION) 기준이라 규칙이 바뀌면 다시 돈다.
+    """앱 업데이트 뒤 한 번: journal 최신 payload의 fine_estimate만 재계산해 바뀐 것만
+    capture() 로 다시 보낸다. 완료 표시는 데이터셋·(RULE_VERSION, PARSER_VERSION) 기준이다.
     동의·계정 문맥이 없거나 철회됐으면 capture() 가 journal 만 쓰고 outbox 에 넣지 않는다(기존 규칙, 보내지 않음).
     삭제 정리가 아직 안 끝났으면 이번 실행은 건너뛰고 완료로 표시하지 않는다(다음 실행에서 다시 본다).
     한 건이라도 실패하면 완료로 표시하지 않는다 — capture() 는 이미 보낸 건을 다시 보내지 않으므로(no-op)
@@ -732,21 +782,37 @@ def resend_fine_estimate_updates(engine, data_dir: str | None = None) -> dict:
     if deletion_cleanup_pending(data_dir):
         return {"state": "deletion_pending", "candidates": 0, "resent": 0, "errors": 0, **current}
 
+    from sqlalchemy import select
+    from core.database import models
+
+    dataset_id = _store(data_dir).local_dataset_id()
+    table = models.report_table
     candidates = resent = errors = 0
     for row in _resend_candidate_rows(engine):
         candidates += 1
         try:
-            adapter = _resend_adapter_input(row)
-            result = capture(adapter, source_report_id=str(row["ID"]), trigger="fine_estimate_backfill",
-                             data_dir=data_dir)
-            if result.event_id:
-                resent += 1
+            with engine.begin() as conn:
+                # 후보 스냅샷은 ID만 신뢰한다. 재조회부터 캡처까지 크롤러 쓰기를 막고,
+                # 연결을 유지하여 DB 복원(연결 장벽/데이터셋 회전)과도 직렬화한다.
+                conn.exec_driver_sql("BEGIN IMMEDIATE")
+                if _store(data_dir).local_dataset_id() != dataset_id:
+                    return {"state": "dataset_changed", "candidates": candidates, "resent": resent,
+                            "errors": errors, **current}
+                fresh = conn.execute(select(*(table.c[key] for key in BACKFILL_PERSONAL_FIELDS))
+                                     .where(table.c.ID == row["ID"])).mappings().first()
+                if fresh is None:
+                    continue
+                result = capture(_resend_adapter_input(dict(fresh)), source_report_id=str(row["ID"]),
+                                 trigger="fine_estimate_backfill", data_dir=data_dir)
+                mark_personal_save(result.event_id, True, data_dir=data_dir)
+                if result.event_id:
+                    resent += 1
         except CaptureStoreUnavailable:
             raise
         except Exception as exc:
             errors += 1
             note_fallback("community_capture.resend_fine_estimate_updates", exc)
     if errors == 0:
-        _set_resend_marker(data_dir, current)
+        _set_resend_marker(data_dir, current, local_dataset_id=dataset_id)
     return {"state": "done" if errors == 0 else "partial", "candidates": candidates,
             "resent": resent, "errors": errors, **current}

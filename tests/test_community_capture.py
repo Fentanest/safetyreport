@@ -265,7 +265,6 @@ class CaptureTest(unittest.TestCase):
 
     def test_retry_file_and_consecutive_failures(self):
         """S-03: capture 실패 시 개인 저장 0·재시도 파일 기록·연속 3회 중단 신호."""
-        from contextlib import contextmanager
         from core.storage import reports_repo as repo
         from core.storage.reports_repo import CrawledDetail
         cap.add_retry_id("RX", "capture_started", data_dir=self.tmp)
@@ -273,18 +272,10 @@ class CaptureTest(unittest.TestCase):
         cap.remove_retry_id("RX", data_dir=self.tmp)
         self.assertNotIn("RX", cap.capture_retry_ids(data_dir=self.tmp))
 
-        began = []
-
-        class FakeEngine:
-            from contextlib import contextmanager as _cm
-
-            @_cm
-            def connect(self):
-                yield object()
-
-            def begin(self):
-                began.append(1)
-                raise AssertionError("personal save must not run when capture fails")
+        from core.database import models
+        engine = create_engine(f"sqlite:///{Path(self.tmp) / 'personal.db'}")
+        self.addCleanup(engine.dispose)
+        models.metadata.create_all(engine)
 
         recs = [CrawledDetail(id=f"F{i}", category="other", detail={"ID": f"F{i}"},
                               title_fields={"신고일": "2026-09-01"}) for i in range(3)]
@@ -293,8 +284,11 @@ class CaptureTest(unittest.TestCase):
                 mock.patch("services.community_capture.capture", side_effect=RuntimeError("db locked")), \
                 mock.patch.object(repo.logger.LoggerFactory, "logbot", create=True):
             with self.assertRaises(cap.CaptureStoreUnavailable):
-                repo.save_crawled(FakeEngine(), recs, refresh_duplicates=False)
-        self.assertEqual(began, [])  # 개인 저장 트랜잭션 0회
+                repo.save_crawled(engine, recs, refresh_duplicates=False)
+        # 캡처 실패 뒤 원문/본문/화면 표 어디에도 개인 저장이 없어야 한다.
+        with engine.connect() as conn:
+            for table in (models.report_table, models.report_body_table, models.report_effective_table):
+                self.assertEqual(conn.execute(table.select()).all(), [])
         import settings.settings as _app_settings
         # reports_repo 경로는 프로세스 데이터 dir(settings.datapath)을 쓴다
         retry_ids = cap.capture_retry_ids(data_dir=_app_settings.datapath)
@@ -703,6 +697,427 @@ class FineEstimateResendTests(unittest.TestCase):
                  CTX["contributor_fingerprint"], CTX["connection_id"], CTX["writer_epoch"], CTX["consent_grant_id"]))
         return sha
 
+    def _latest_payload(self, rid="R1"):
+        row = self.store.connect().execute(
+            "SELECT payload_json FROM source_journal WHERE source_report_id=? ORDER BY source_revision DESC LIMIT 1",
+            (rid,)).fetchone()
+        return json.loads(row["payload_json"])
+
+    def _fill_photos(self, photos):
+        from services import photo_capture_time
+        with mock.patch.object(cap, "_store", return_value=self.store):
+            self.assertTrue(photo_capture_time.fill_one(self.engine, "R1", photos, fetch=lambda url:
+                "2026-09-01 10:00:00" if "first" in url else "2026-09-01 12:01:00"))
+
+    def _save_record(self, row):
+        from core.storage import reports_repo as repo
+        return repo.CrawledDetail(
+            id=row["ID"], category="parking", detail=row, entry_value=row["entry_value"],
+            title_fields={key: row.get(key) for key in self.models.TITLE_COLUMN_NAMES})
+
+    def test_reshare_pending_allows_resend_and_photo_fill(self):
+        from services import community_upload_status
+        photos = "https://fixture/first.jpg\nhttps://fixture/last.jpg"
+        row = self._insert_report("R1", 첨부사진=photos)
+        self._seed_pre_update_journal("R1", row)
+        self.store.connect().execute("UPDATE source_journal SET consent_grant_id='old-grant'")
+        result = community_upload_status.request_reshare(self.tmp, send=False)
+        self.assertEqual(result["reshared"], 1)
+        latest = self.store.connect().execute(
+            "SELECT personal_save_state FROM source_journal ORDER BY source_revision DESC LIMIT 1").fetchone()
+        self.assertEqual(latest[0], "pending")
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual((result["resent"], result["errors"]), (1, 0))
+        self.assertEqual(self._latest_payload()["fine_estimate"]["won"], 40000)
+        self._fill_photos(photos)
+        self.assertEqual(self._latest_payload()["fine_estimate"]["won"], 50000)
+
+    def test_photo_fill_between_personal_commit_and_saved_marker(self):
+        from core.storage import reports_repo as repo
+        photos = "https://fixture/first.jpg\nhttps://fixture/last.jpg"
+        row = self._insert_report("R1", 첨부사진=photos)
+        original = cap.mark_personal_save
+        filled = []
+
+        def mark(event_id, ok, data_dir=None):
+            if not filled:
+                filled.append(True)
+                latest = self.store.connect().execute(
+                    "SELECT personal_save_state FROM source_journal WHERE event_id=?", (event_id,)).fetchone()
+                self.assertEqual(latest[0], "pending")
+                self._fill_photos(photos)
+            return original(event_id, ok, data_dir)
+
+        # 이미 1회 재전송이 끝난 뒤라도 사진 보충 자체가 공유 갱신을 책임진다.
+        cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        with mock.patch.object(cap, "_store", return_value=self.store), mock.patch.object(
+                repo, "_prefetch_derived", return_value={}), mock.patch.object(
+                cap, "mark_personal_save", side_effect=mark):
+            repo._save_one(self.engine, self._save_record({**row, "답변일": "2026-10-13"}))
+        self.assertTrue(filled)
+        self.assertEqual(self._latest_payload()["fine_estimate"]["won"], 50000)
+        self.assertEqual(cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)["state"], "already_done")
+
+    def test_photo_fill_after_failed_personal_save_retry(self):
+        from core.storage import reports_repo as repo
+        photos = "https://fixture/first.jpg\nhttps://fixture/last.jpg"
+        row = self._insert_report("R1", 첨부사진=photos)
+        failed = self._fail_personal_save_after_capture(row, 답변일="2026-10-13")
+        with mock.patch.object(cap, "_store", return_value=self.store), mock.patch.object(
+                repo, "_prefetch_derived", return_value={}):
+            repo._save_one(self.engine, self._save_record({**row, "답변일": "2026-10-13"}))
+        self.assertEqual(self.store.connect().execute(
+            "SELECT personal_save_state FROM source_journal WHERE event_id=?", (failed["event_id"],)).fetchone()[0], "failed")
+        self._fill_photos(photos)
+        self.assertEqual(self._latest_payload()["fine_estimate"]["won"], 50000)
+
+    def test_backfill_changes_only_estimate_using_journal_amount_judgment(self):
+        row = self._insert_report("R1", 범칙금_과태료="경고", 사진_첫촬영="2026-09-01 10:00:00",
+                                  사진_끝촬영="2026-09-01 12:01:00")
+        newer = {**row, "범칙금_과태료": "과태료", "처리기관": "최신 기관", "답변일": "2026-10-13",
+                 "위반장소": "최신 장소", "신고번호": "SPP-new", "차량번호": "34나5678",
+                 "사진_첫촬영": None, "사진_끝촬영": None}
+        cap.capture(cap._resend_adapter_input(newer), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        before = self._latest_payload()
+        expected = {**before, "fine_estimate": {**before["fine_estimate"], "won": 50000}}
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual((result["resent"], result["errors"]), (1, 0))
+        self.assertEqual(self._latest_payload(), expected)
+        latest = self.store.connect().execute(
+            "SELECT report_number FROM source_journal ORDER BY source_revision DESC LIMIT 1").fetchone()
+        self.assertEqual(latest[0], "SPP-new")
+
+    def test_backfill_without_journal_does_not_invent_observation(self):
+        self._insert_report("R1")
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual((result["resent"], result["errors"]), (0, 0))
+        self.assertEqual(self.store.connect().execute("SELECT count(*) FROM source_journal").fetchone()[0], 0)
+
+    def test_photo_fill_uses_journal_fine_even_when_personal_amount_is_warning(self):
+        photos = "https://fixture/first.jpg\nhttps://fixture/last.jpg"
+        row = self._insert_report("R1", 첨부사진=photos, 범칙금_과태료="경고")
+        cap.capture(cap._resend_adapter_input({**row, "범칙금_과태료": "과태료", "답변일": "2026-10-13"}),
+                    source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        before = self._latest_payload()
+        self._fill_photos(photos)
+        self.assertEqual(self._latest_payload(), {
+            **before, "fine_estimate": {**before["fine_estimate"], "won": 50000}})
+
+    def test_backfill_removes_estimate_for_journal_confirmed_or_nonfine_amount(self):
+        from services import fine_estimate
+        for rid, raw in (("confirmed", "과태료: 80,000원"), ("zero", "과태료: 0원"),
+                         ("warning", "경고"), ("penalty", "범칙금")):
+            with self.subTest(raw=raw):
+                row = self._insert_report(rid)
+                self._seed_pre_update_journal(rid, {**row, "범칙금_과태료": raw})
+                expected = self._latest_payload(rid)
+                inconsistent = {**expected, "fine_estimate": {
+                    "won": 40000, "rule": "parking", "rule_version": fine_estimate.RULE_VERSION}}
+                self.store.connect().execute(
+                    "UPDATE source_journal SET payload_json=?, payload_sha256=? WHERE source_report_id=?",
+                    (cap.canonical_json(inconsistent), cap.payload_sha256(inconsistent), rid))
+                result = cap.capture(cap._resend_adapter_input(row), source_report_id=rid,
+                                     trigger="fine_estimate_backfill", data_dir=self.tmp)
+                self.assertIsNotNone(result.event_id)
+                self.assertEqual(self._latest_payload(rid), expected)
+                again = cap.capture(cap._resend_adapter_input(row), source_report_id=rid,
+                                    trigger="fine_estimate_backfill", data_dir=self.tmp)
+                self.assertIsNone(again.event_id)
+
+    def test_backfill_uses_personal_classification_but_preserves_journal_fields(self):
+        row = self._insert_report("R1", ssnpc_cd="EP", ssnpc_type="03")
+        self._seed_pre_update_journal("R1", {**row, "ssnpc_cd": None, "ssnpc_type": None})
+        before = self._latest_payload()
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(result["resent"], 1)
+        actual = self._latest_payload()
+        estimate = actual.pop("fine_estimate")
+        self.assertEqual((estimate["won"], estimate["rule"]), (500000, "fire_lane"))
+        self.assertEqual(actual, before)
+
+    def test_resend_rereads_after_candidate_snapshot(self):
+        self._insert_report("R1")
+        original = cap._resend_candidate_rows
+
+        def concurrent_save(engine):
+            candidates = original(engine)
+            with engine.begin() as conn:
+                conn.execute(self.models.report_table.update().values(
+                    범칙금_과태료="과태료: 80,000원", 답변일="2026-10-13"))
+                latest = dict(conn.execute(self.models.report_table.select()).mappings().one())
+            cap.capture(cap._resend_adapter_input(latest), source_report_id="R1",
+                        trigger="realtime", data_dir=self.tmp)
+            return candidates
+
+        with mock.patch.object(cap, "_resend_candidate_rows", side_effect=concurrent_save):
+            cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(self._latest_payload()["amount"]["confirmed_won"], 80000)
+        self.assertNotIn("fine_estimate", self._latest_payload())
+        self.assertEqual(self.store.connect().execute("SELECT count(*) FROM outbox").fetchone()[0], 1)
+
+    def _fail_personal_save_after_capture(self, row, **changes):
+        from core.storage import reports_repo as repo
+        newer = {**row, **changes}
+        rec = repo.CrawledDetail(
+            id=row["ID"], category="parking", detail=newer, entry_value="불법주정차신고",
+            title_fields={key: newer.get(key) for key in self.models.TITLE_COLUMN_NAMES})
+        with mock.patch.object(cap, "_store", return_value=self.store), mock.patch.object(
+                repo, "_prefetch_derived", return_value={}), mock.patch.object(
+                repo, "_save_body", side_effect=RuntimeError("personal DB failure")):
+            with self.assertRaisesRegex(RuntimeError, "personal DB failure"):
+                repo._save_one(self.engine, rec)
+        latest = self.store.connect().execute(
+            "SELECT * FROM source_journal ORDER BY source_revision DESC LIMIT 1").fetchone()
+        self.assertEqual(latest["personal_save_state"], "failed")
+        with self.engine.connect() as conn:
+            personal = conn.execute(self.models.report_table.select()).mappings().one()
+        self.assertEqual(personal["범칙금_과태료"], row["범칙금_과태료"])
+        return dict(latest)
+
+    def _assert_journal_unchanged(self, before):
+        after = [dict(row) for row in self.store.connect().execute(
+            "SELECT * FROM source_journal ORDER BY source_revision")]
+        self.assertEqual(after, before)
+        self.assertEqual(self.store.connect().execute("SELECT count(*) FROM outbox").fetchone()[0], len(before))
+
+    def test_resend_preserves_new_capture_when_personal_save_fails(self):
+        row = self._insert_report("R1")
+        original = cap._resend_candidate_rows
+        before = []
+
+        def failed_save(engine):
+            candidates = original(engine)
+            before.append(self._fail_personal_save_after_capture(
+                row, 범칙금_과태료="과태료: 90,000원", 답변일="2026-10-14"))
+            return candidates
+
+        with mock.patch.object(cap, "_resend_candidate_rows", side_effect=failed_save):
+            result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self._assert_journal_unchanged(before)
+        self.assertEqual((result["resent"], result["errors"]), (0, 0))
+
+    def test_photo_fill_preserves_new_capture_when_personal_save_fails(self):
+        from services import photo_capture_time
+        photos = "https://fixture/first.jpg\nhttps://fixture/last.jpg"
+        row = self._insert_report("R1", 첨부사진=photos)
+        cap.capture(cap._resend_adapter_input(row), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self._fail_personal_save_after_capture(
+            row, 범칙금_과태료="과태료: 80,000원", 답변일="2026-10-13")
+        before = [dict(r) for r in self.store.connect().execute(
+            "SELECT * FROM source_journal ORDER BY source_revision")]
+        with mock.patch.object(cap, "_store", return_value=self.store):
+            self.assertTrue(photo_capture_time.fill_one(self.engine, "R1", photos, fetch=lambda url:
+                "2026-09-01 10:00:00" if "first" in url else "2026-09-01 12:01:00"))
+        self._assert_journal_unchanged(before)
+        self.assertEqual(cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)["state"], "already_done")
+        with self.engine.connect() as conn:
+            personal = conn.execute(self.models.report_table.select()).mappings().one()
+        self.assertEqual(personal["사진_촬영수"], 2)
+
+    def test_resend_recomputes_estimate_even_when_personal_save_is_pending(self):
+        row = self._insert_report("R1")
+        # capture 후 프로세스가 중단되어 mark_personal_save도 못 한 경우.
+        newer = {**row, "사진_첫촬영": "2026-09-01 10:00:00", "사진_끝촬영": "2026-09-01 12:01:00"}
+        cap.capture(cap._resend_adapter_input(newer), source_report_id="R1",
+                    trigger="realtime", data_dir=self.tmp)
+        before = [dict(r) for r in self.store.connect().execute("SELECT * FROM source_journal")]
+        self.assertEqual(before[0]["personal_save_state"], "pending")
+        self.assertEqual(self._latest_payload()["fine_estimate"]["won"], 50000)
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        expected = json.loads(before[0]["payload_json"])
+        expected["fine_estimate"]["won"] = 40000
+        self.assertEqual(self._latest_payload(), expected)
+        self.assertEqual(result["resent"], 1)
+
+    def test_resend_preserves_saved_journal_when_personal_payload_differs(self):
+        row = self._insert_report("R1")
+        newer = {**row, "범칙금_과태료": "과태료: 80,000원", "답변일": "2026-10-13"}
+        result = cap.capture(cap._resend_adapter_input(newer), source_report_id="R1",
+                             trigger="realtime", data_dir=self.tmp)
+        cap.mark_personal_save(result.event_id, True, data_dir=self.tmp)
+        before = [dict(r) for r in self.store.connect().execute("SELECT * FROM source_journal")]
+        # saved 표시만으로 원문 일치를 가정하지 않는다.
+        cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self._assert_journal_unchanged(before)
+
+    def test_resend_checks_latest_revision_across_account_contexts(self):
+        row = self._insert_report("R1")
+        cap.capture(cap._resend_adapter_input(row), source_report_id="R1", trigger="realtime", data_dir=self.tmp)
+        cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.store.set_context(**{**CTX, "contributor_fingerprint": "b" * 32, "dataset_key": "e" * 16})
+        self._fail_personal_save_after_capture(row, 범칙금_과태료="과태료: 90,000원")
+        with self.engine.begin() as conn:
+            conn.execute(self.models.report_table.update().values(
+                사진_첫촬영="2026-09-01 10:00:00", 사진_끝촬영="2026-09-01 12:01:00", 사진_촬영수=2))
+        self.store.set_context(**CTX)
+        self.store.connect().execute("DELETE FROM meta WHERE key=?", (cap.RESEND_MARKER_KEY,))
+        before = [dict(r) for r in self.store.connect().execute(
+            "SELECT * FROM source_journal ORDER BY source_revision")]
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self._assert_journal_unchanged(before)
+        self.assertEqual(result["resent"], 0)
+
+    def test_failed_legacy_capture_recomputes_only_estimate(self):
+        row = self._insert_report("R1", 범칙금_과태료="과태료: 40,0000원")
+        self._seed_pre_update_journal("R1", row)
+        previous = self._latest_payload()
+        previous["amount"]["confirmed_won"] = None
+        with self.store.transaction() as tx:
+            tx.execute("UPDATE source_journal SET personal_save_state='failed', payload_json=?, payload_sha256=?",
+                       (cap.canonical_json(previous), cap.payload_sha256(previous)))
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(result["resent"], 1)
+        expected = {**previous, "fine_estimate": cap.build_payload(cap._resend_adapter_input(
+            {**row, "범칙금_과태료": "과태료"}))["fine_estimate"]}
+        self.assertEqual(self._latest_payload(), expected)
+
+    def test_backfill_checks_journal_while_holding_community_write_lock(self):
+        import sqlite3
+        row = self._insert_report("R1")
+        self._seed_pre_update_journal("R1", row)
+        original = cap._backfill_payload
+
+        def check(*args):
+            with sqlite3.connect(self.store.path, timeout=0) as rival:
+                with self.assertRaises(sqlite3.OperationalError):
+                    rival.execute("BEGIN IMMEDIATE")
+            return original(*args)
+
+        with mock.patch.object(cap, "_backfill_payload", side_effect=check) as checked:
+            result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        checked.assert_called_once()
+        self.assertEqual((result["resent"], result["errors"]), (1, 0))
+
+    def test_resend_drops_deleted_candidate_after_restore(self):
+        self._insert_report("R1")
+        original = cap._resend_candidate_rows
+
+        def restore(engine):
+            candidates = original(engine)
+            with engine.begin() as conn:
+                conn.execute(self.models.report_table.delete())
+            self.store.rotate_dataset("restore_server")
+            return candidates
+
+        with mock.patch.object(cap, "_resend_candidate_rows", side_effect=restore):
+            cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(self.store.connect().execute("SELECT count(*) FROM source_journal").fetchone()[0], 0)
+
+    def _assert_personal_write_locked(self):
+        import sqlite3
+        with sqlite3.connect(self.engine.url.database, timeout=0) as rival:
+            with self.assertRaises(sqlite3.OperationalError):
+                rival.execute("BEGIN IMMEDIATE")
+
+    def test_resend_holds_write_lock_through_capture(self):
+        row = self._insert_report("R1")
+        self._seed_pre_update_journal("R1", row)
+        original = cap.capture
+
+        def capture(*args, **kwargs):
+            self._assert_personal_write_locked()
+            return original(*args, **kwargs)
+
+        with mock.patch.object(cap, "capture", side_effect=capture):
+            result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(result["errors"], 0)
+        self.assertEqual(result["resent"], 1)
+
+    def test_realtime_holds_write_lock_before_capture(self):
+        from core.storage import reports_repo as repo
+        row = self._insert_report("R1")
+        rec = repo.CrawledDetail(id="R1", category="parking", detail=row, entry_value="불법주정차신고")
+        result = cap.CaptureResult(event_id=None, event_type=None, eligible=False, payload_sha256="")
+        with mock.patch.object(repo, "_prefetch_derived", return_value={}), mock.patch.object(
+                repo, "_community_capture_for", side_effect=lambda *args: (self._assert_personal_write_locked(), result)[1]):
+            repo._save_one(self.engine, rec)
+
+    def test_photo_fill_updates_shared_estimate_after_resend_marker(self):
+        from services import photo_capture_time
+        photos = "https://fixture/first.jpg\nhttps://fixture/last.jpg"
+        row = self._insert_report("R1", 첨부사진=photos)
+        self._seed_pre_update_journal("R1", row)
+        cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual(self._latest_payload()["fine_estimate"]["won"], 40000)
+        with mock.patch.object(cap, "_store", return_value=self.store):
+            self.assertTrue(photo_capture_time.fill_one(self.engine, "R1", photos, fetch=lambda url:
+                "2026-09-01 10:00:00" if "first" in url else "2026-09-01 12:01:00"))
+        self.assertEqual(self._latest_payload()["fine_estimate"]["won"], 50000)
+        self.assertEqual(cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)["state"], "already_done")
+
+    def test_resend_keeps_restore_barrier_until_capture_finishes(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from core.database import write_barrier
+        write_barrier.attach(self.engine)
+        row = self._insert_report("R1")
+        self._seed_pre_update_journal("R1", row)
+        original = cap.capture
+
+        def restore():
+            with write_barrier.exclusive(drain_seconds=0.05):
+                self.fail("restore entered while capture still uses the source DB")
+
+        def capture(*args, **kwargs):
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                with self.assertRaises(write_barrier.BarrierTimeout):
+                    pool.submit(restore).result(timeout=2)
+            return original(*args, **kwargs)
+
+        with mock.patch.object(cap, "capture", side_effect=capture):
+            result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual((result["resent"], result["errors"]), (1, 0))
+        with write_barrier.exclusive(drain_seconds=0.05):
+            self.assertEqual(write_barrier.active_connections(), 0)
+
+    def test_photo_capture_failure_rolls_back_and_can_retry(self):
+        from services import photo_capture_time
+        photos = "https://fixture/first.jpg\nhttps://fixture/last.jpg"
+        row = self._insert_report("R1", 첨부사진=photos)
+        self._seed_pre_update_journal("R1", row)
+        cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        fetch = lambda url: "2026-09-01 10:00:00" if "first" in url else "2026-09-01 12:01:00"
+        with mock.patch.object(cap, "capture", side_effect=RuntimeError("journal unavailable")):
+            with self.assertRaisesRegex(RuntimeError, "journal unavailable"):
+                photo_capture_time.fill_one(self.engine, "R1", photos, fetch=fetch)
+        with self.engine.connect() as conn:
+            row = conn.execute(self.models.report_table.select()).mappings().one()
+            self.assertIsNone(row["사진_촬영수"])
+        self.assertEqual(self._latest_payload()["fine_estimate"]["won"], 40000)
+        with mock.patch.object(cap, "_store", return_value=self.store):
+            self.assertTrue(photo_capture_time.fill_one(self.engine, "R1", photos, fetch=fetch))
+        self.assertEqual(self._latest_payload()["fine_estimate"]["won"], 50000)
+
+    def test_photo_fill_during_realtime_prefetch_is_preserved(self):
+        from core.storage import reports_repo as repo
+        from services import photo_capture_time
+        photos = "https://fixture/first.jpg\nhttps://fixture/last.jpg"
+        row = self._insert_report("R1", 첨부사진=photos)
+        rec = repo.CrawledDetail(id="R1", category="parking", detail=row, entry_value="불법주정차신고")
+
+        def prefetch(*args):
+            photo_capture_time.fill_one(self.engine, "R1", photos, fetch=lambda url:
+                "2026-09-01 10:00:00" if "first" in url else "2026-09-01 12:01:00")
+            return {key: None for key in repo.PHOTO_COLUMNS}
+
+        with mock.patch.object(cap, "_store", return_value=self.store), mock.patch.object(
+                repo, "_prefetch_derived", side_effect=prefetch):
+            repo._save_one(self.engine, rec)
+        with self.engine.connect() as conn:
+            row = conn.execute(self.models.report_table.select()).mappings().one()
+            self.assertEqual(row["사진_촬영수"], 2)
+        self.assertEqual(self._latest_payload()["fine_estimate"]["won"], 50000)
+
+    def test_restored_dataset_does_not_reuse_resend_marker(self):
+        self._insert_report("R1")
+        self.assertEqual(cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)["state"], "done")
+        self.store.rotate_dataset("restore_server")
+        row = self._insert_report("R2")
+        self._seed_pre_update_journal("R2", row)
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual((result["state"], result["candidates"]), ("done", 2))
+        self.assertEqual(self._latest_payload("R2")["fine_estimate"]["won"], 40000)
+
     def test_resend_sends_only_changed_payloads_once(self):
         matched = self._insert_report("R1")
         confirmed = self._insert_report("R2", 범칙금_과태료="과태료: 40,000원")
@@ -735,7 +1150,7 @@ class FineEstimateResendTests(unittest.TestCase):
         self.assertEqual(again["state"], "already_done")
         self.assertEqual(conn.execute("SELECT COUNT(*) v FROM source_journal").fetchone()["v"], total_before)
 
-    def test_amount_typo_parser_bump_resends_once_without_crawl(self):
+    def test_parser_bump_preserves_journal_amount_judgment_without_crawl(self):
         from services import fine_estimate
         row = self._insert_report("T1", 범칙금_과태료="과태료: 40,0000원")
         self._seed_pre_update_journal("T1", row)
@@ -748,10 +1163,10 @@ class FineEstimateResendTests(unittest.TestCase):
         conn.commit()
         cap._set_resend_marker(self.tmp, {"rule_version": fine_estimate.RULE_VERSION, "parser_version": "pc-parser-6"})
         result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
-        self.assertEqual(result["resent"], 1)
+        self.assertEqual(result["resent"], 0)
         latest = conn.execute("SELECT payload_json, parser_version FROM source_journal WHERE source_report_id='T1' ORDER BY source_revision DESC").fetchone()
-        self.assertEqual(json.loads(latest["payload_json"])["amount"]["confirmed_won"], 40000)
-        self.assertEqual(latest["parser_version"], "pc-parser-7")
+        self.assertEqual(json.loads(latest["payload_json"]), old)
+        self.assertEqual(latest["parser_version"], "pc-parser-6")
         self.assertEqual(cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)["state"], "already_done")
         with self.engine.connect() as db:
             stored = db.execute(self.models.report_table.select().where(self.models.report_table.c.ID == "T1")).mappings().one()

@@ -15,10 +15,10 @@ router = APIRouter()
 
 
 def _attach_entry_value(records: list[dict]) -> None:
-    """추정 판정(services/fine_estimate.classify)에 필요한 entry_value 를 보충한다.
+    """추정 판정(services/fine_estimate.classify)에 필요한 entry_value·ssnpc_cd·ssnpc_type 을 보충한다.
 
     data_service.get_dashboard_stats() 의 watchlist/recent_answers 는 모바일 API(web/routers/api_route.py)
-    와 공유하는 고정 열 화이트리스트(services/stats/common._REPORT_FIELDS)를 쓰고, 거기엔 entry_value 가
+    와 공유하는 고정 열 화이트리스트(services/stats/common._REPORT_FIELDS)를 쓰고, 거기엔 메뉴·분류 코드가
     없다(category 만 별도로 채워 넣음) — 세부 추정 규칙(과태료 종류 구분)이 틀어지므로 이 화면 전용으로
     ID 로 보충해 붙인다. 모바일 API 가 쓰는 _REPORT_FIELDS/get_dashboard_stats() 자체는 건드리지 않는다.
     """
@@ -26,14 +26,18 @@ def _attach_entry_value(records: list[dict]) -> None:
     if not ids:
         return
     table = database.report_effective_table
-    lookup: dict[str, object] = {}
+    lookup: dict[str, dict] = {}
     with engine.connect() as conn:
         for offset in range(0, len(ids), 400):
             chunk = ids[offset:offset + 400]
-            rows = conn.execute(select(table.c.ID, table.c.entry_value).where(table.c.ID.in_(chunk)))
-            lookup.update({str(row_id): entry_value for row_id, entry_value in rows})
+            rows = conn.execute(
+                select(table.c.ID, table.c.entry_value, table.c.ssnpc_cd, table.c.ssnpc_type)
+                .where(table.c.ID.in_(chunk)))
+            lookup.update({str(row.ID): dict(row._mapping) for row in rows})
     for record in records:
-        record["entry_value"] = lookup.get(str(record.get("ID")))
+        source = lookup.get(str(record.get("ID")), {})
+        for field in ("entry_value", "ssnpc_cd", "ssnpc_type"):
+            record[field] = source.get(field)
 
 
 @router.get("/")

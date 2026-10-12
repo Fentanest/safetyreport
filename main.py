@@ -151,6 +151,7 @@ async def lifespan(app: FastAPI):
         try:
             # fine-estimate-contract.md "기존 신고 다시 보내기": 크롤링·화면 없이 로컬 DB 기존 신고로
             # payload 를 다시 만들어 fine_estimate 가 새로 생긴 것만 기존 capture 경로로 보낸다(한 번, 백그라운드).
+            # 사진 보충이 나중에 끝나도 fill_one()이 해당 신고를 다시 캡처하므로 완료 순서와 무관하다.
             from services import community_capture
             threading.Thread(target=community_capture.resend_fine_estimate_updates, args=(engine,),
                              name="community-fine-estimate-resend", daemon=True).start()

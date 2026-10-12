@@ -16,6 +16,7 @@
 """
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest import mock
 
@@ -220,6 +221,26 @@ class DashboardScreenTest(unittest.TestCase):
         by_id = self._watchlist()
         self.assertIsNone(by_id["90000002"]["fine_estimate_amount"])
         self.assertIsNone(by_id["90000004"]["fine_estimate_amount"])
+
+    def test_classification_codes_reach_watchlist_and_recent_answers(self):
+        from sqlalchemy import update
+        from core.database import models
+        from core.storage import reports_repo
+        from web.routers import dashboard as dash
+        with self.engine.begin() as conn:
+            conn.execute(update(models.report_table).where(models.report_table.c.ID == "90000005").values(
+                category="parking", entry_value="불법주정차신고", ssnpc_cd="EP", ssnpc_type="03",
+                신고명="주정차 위반", 위반법규="", 범칙금_과태료="과태료", 답변일=date.today().isoformat()))
+            reports_repo.refresh_effective_rows(conn, ["90000005"])
+        with mock.patch.object(dash, "engine", self.engine), mock.patch.object(
+                dash.templates, "TemplateResponse", side_effect=lambda req, name, ctx: ctx):
+            ctx = dash.dashboard(_request())
+        self.assertFalse(ctx["load_error"])
+        for section in ("watchlist", "recent_answers"):
+            with self.subTest(section=section):
+                row = next(r for r in ctx[section] if r["ID"] == "90000005")
+                self.assertEqual(row["fine_estimate_amount"], 500000)
+                self.assertEqual((row["ssnpc_cd"], row["ssnpc_type"]), ("EP", "03"))
 
     def test_dashboard_stats_service_itself_unaffected(self):
         """모바일 API(web/routers/api_route.py)가 쓰는 data_service.get_dashboard_stats() 자체는

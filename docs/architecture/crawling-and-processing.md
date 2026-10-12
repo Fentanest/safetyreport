@@ -29,6 +29,7 @@
 | 중복 원천 읽기 실패 | `duplicate_group_service`는 세 merge 표·entry_value·raw_content의 필수 조회 실패를 `DuplicateInventoryError`로 전달한다. 신고가 0건이어도 모든 원천의 조회 성공을 확인한 후에만 그룹/멤버를 재작성한다. 실패 시 transaction rollback으로 기존 판단·수동 대표·생성 시각을 보존한다. | 정상 빈 원천과 읽기 오류를 구분; 판단 표는 정상 재생성에서도 유지 |
 | 위반법규 파싱 (2026-09-27) | `services/parser.py`는 최신 처리내용에서 `도로교통법 제N조`와 `「자동차관리법」제29조`처럼 꺾쇠 안에 법 이름이 있는 조문을 읽는다. 법 이름·조·항 사이 공백을 허용하고 저장값은 공백을 정리한다. 모바일 `standalone_parser.dart`와 합성 입력 계약을 공유한다. | `contracts/parser-vectors.json` |
 | 커뮤니티 자동 업로드 (2026-09-27) | 상세 1건의 개인 DB 저장 완료 뒤 `community_uploader.wake()`를 호출한다. 모든 크롤링의 부모 프로세스 완료 훅(`CrawlManager.run_after_crawl`)에서도 깨워 자식 프로세스에서 만들어진 대기 전송을 처리한다. | `services/community_capture.py`, `services/crawl_manager.py` |
+| 캡처·재전송·사진 보충의 동시 저장 | 네트워크 prefetch 뒤 `BEGIN IMMEDIATE`로 실시간 캡처부터 개인 저장 커밋까지 직렬화한다. 재전송은 같은 잠금 안에서 추정 입력을 재조회한다. 사진 보충은 UPDATE 잠금 안에서 재캡처하며, 크롤링 prefetch 중 채워진 사진값도 보존한다. 두 보충 경로는 journal 최신 revision payload를 기준으로 `fine_estimate`만 바꾸고 금액 등 나머지 원문을 보존한다. 개인 저장 상태로 차단하지 않는다. | `reports_repo._save_one`, `community_capture.resend_fine_estimate_updates`, `photo_capture_time.fill_one`; 복원 장벽은 캡처 연결이 반환될 때까지 대기 |
 
 ## 이관 원문
 

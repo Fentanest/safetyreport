@@ -165,20 +165,46 @@
 - `build_payload`: 로컬 통계가 그 신고를 '추정 과태료'로 세는 조건(과태료 처분인데 금액을 모름 + `services/fine_estimate.estimate()` 가 None 아님)과
   **같은 입력·같은 판정**일 때만 `fine_estimate{won, rule, rule_version}` 을 싣는다 — 대상이 아니면 키 자체가 없다(null 금지, payload·payload_sha256 불변).
   판정은 `services/fine_estimate.is_fine_amount_unknown`/`extract_fine_amount`/`estimate_if_unknown`(정본)을 `services/stats/metrics.py` 와 공유한다(중복 구현 없음).
-  입력 레코드는 통계와 같은 8열(`FINE_ESTIMATE_FIELDS`: `category, entry_value, 신고명, 위반법규, 차량번호, 사진_첫촬영, 사진_끝촬영, 발생시각`) — `ssnpc_cd`/`ssnpc_type` 은 넣지 않는다.
+  입력 레코드는 통계와 같은 10열(`FINE_ESTIMATE_FIELDS`: `category, entry_value, 신고명, 위반법규, 차량번호, 사진_첫촬영, 사진_끝촬영, 발생시각, ssnpc_cd, ssnpc_type`)을 쓴다.
   확정 금액(`amount.confirmed_won`)과는 별도 필드·별도 합계로만 쓴다(PROJECT_RULES §3-2).
 - `build_adapter_input`에 `report_name`/`photo_first_at`/`photo_last_at` 입력이 늘었다(payload 로는 안 나가고 판정에만 쓰임). 크롤 경로(`core/storage/reports_repo._community_capture_for`)가
   `_prefetch_derived()` 의 사진 촬영 시각과, 이번 응답에 없으면 기존 저장 행의 신고명으로 채워 넘긴다. `발생시각`은 이미 `detail` 에 있어 그대로 쓴다.
 - `contracts/community-ingest/observation.schema.json`·`observation.md`(+MANIFEST, 지도 레포와 같은 정의): `fine_estimate` 선택 필드 추가(additionalProperties false,
   `rule` enum = `bus_lane|parking|hydrant|school_zone|ev_charging|disabled_parking|fire_lane|waste|overnight_truck`). 스키마 이름·`observation-v5` 는 그대로(가산적·선택 필드라 버전 안 올림).
-- parser_version `pc-parser-6`.
+- parser_version `pc-parser-7`.
 - **기존 신고 다시 보내기**: `services/community_capture.resend_fine_estimate_updates(engine, data_dir=None)` — `main.py` 시작 때(사진 촬영 시각 한 번 훑기와 같은 자리,
-  `skip_in_fixture("startup fine estimate resend")`) 백그라운드 스레드로 한 번 돈다. 로컬 DB 신고(범칙금_과태료 LIKE '%과태료%'·상세 있음)로 어댑터·payload 를 다시 만들어
-  기존 `capture()` 경로로 보낸다 — payload_sha256 이 바뀐 것(= fine_estimate 신규)만 실제 이벤트가 되고 outbox 에 들어간다. 완료 표시는 community.db
+  `skip_in_fixture("startup fine estimate resend")`) 백그라운드 스레드로 한 번 돈다. 개인 DB의 신고 ID를 순회하며 journal 최신 payload의 `fine_estimate`만
+  다시 계산해 기존 `capture()` 경로로 보낸다. 개인 DB의 금액 원문으로 후보를 거르지 않는다(최신 journal과 다를 수 있음). 추정 필드가 바뀐 것만 이벤트가 되고 outbox에 들어간다. 완료 표시는 community.db
   `meta['fine_estimate_resend_done']`(규칙 버전 `fine_estimate.RULE_VERSION` + `PARSER_VERSION`) 기준이라 둘 중 하나가 바뀌면 다시 돈다. 삭제 정리가 안 끝났으면
   (`deletion_cleanup_pending`) 이번 실행은 건너뛰고 완료로 표시하지 않는다. 한 건이라도 실패하면 완료로 표시하지 않되, `capture()` 가 이미 반영된 건은 no-op 이라
   다음 실행이 전체를 다시 훑어도 실패한 건만 실제로 새로 처리된다. 동의·계정 문맥이 없거나 철회됐으면(기존 규칙) journal 만 쓰고 outbox 에 넣지 않는다.
   사용자 조작·초기화 크롤링 없음, 기존 outbox 배치·재시도·쿨다운 규칙을 그대로 쓴다(한 번에 몰아치지 않음).
+- 재전송 후보의 값은 재사용하지 않는다. 신고마다 개인 DB `BEGIN IMMEDIATE` 뒤 추정 입력만 다시 읽고 캡처까지 연결을 유지한다.
+  삭제된 신고는 건너뛴다. 실시간 저장도 같은 쓰기 잠금을 캡처 전부터 개인 DB 커밋까지 유지한다.
+  연결 유지 중에는 복원 장벽이 DB 교체·데이터셋 회전을 기다린다.
+  신고 사이에 데이터셋이 회전하면 실행을 중단하며 완료 마커도 실행 당시 local_dataset_id에 묶어 복원된 DB에 재사용하지 않는다.
+- `fine_estimate_backfill` 캡처는 community.db 쓰기 트랜잭션 안에서 같은 로컬 데이터셋·신고의 **최대 revision payload**를 기준으로 삼는다.
+  계정 전환·staging 여부와 관계없이 최신 관측을 읽고, 개인 저장 상태(`pending`/`failed`/`saved`)로 보충을 차단하지 않는다.
+  개인 DB에서는 접수 메뉴·분류 코드·차량번호·사진 시각·발생시각·신고명만 읽는다. 위반법규는 최신 payload에서 읽는다.
+  최신 payload의 `amount.kind`가 `fine`이고 `amount.confirmed_won`이 `null`일 때만 추정 규칙을 적용하며,
+  확정 금액이 있거나 과태료가 아니거나 규칙이 맞지 않으면 `fine_estimate`를 제거한다.
+  `fine_estimate` 이외의 payload 필드와 journal 신고번호는 최신 관측 그대로 보존한다. 구버전 파서의 금액도 보충 경로에서 재해석하지 않는다.
+  최신 journal이 없거나 추정 필드가 바뀌지 않으면 이벤트가 없다. 조회와 revision 발급은 같은 트랜잭션이므로 그 사이 다른 관측이 끼어들지 않는다.
+  실시간 크롤링은 계속 개인 DB에 저장할 원문으로 전체 payload를 만든다.
+- 사진 보충(`photo_capture_time.fill_one`)은 첨부 일치 검사·촬영 시각 저장·effective 갱신 뒤, 쓰기 잠금 안에서 같은 추정 보충 경로를 호출한다.
+  재전송 완료 마커와 무관하게 수행하므로 재공유 이력, 개인 DB 커밋~saved 표시 사이, 개인 저장 실패 뒤 재시도 경로에서도 공유 추정액을 갱신한다.
+  최신 journal이 없거나 변경이 없어 이벤트가 생기지 않아도 개인 사진 시각은 저장한다. 캡처 예외는 사진 저장도 롤백하여 보충 대상으로 남긴다.
+  네트워크 사진 읽기는 계속 트랜잭션 밖에서 수행한다.
+
+### 코드 대조 정정 — 추정 입력과 저장 순서
+
+| 종전 설명 | 현재 코드 |
+|---|---|
+| 추정 입력 8열, 분류 코드 제외·parser-6 | `FINE_ESTIMATE_FIELDS` 10열로 분류 코드 포함, parser-7. 대시보드 웹 경로도 메뉴와 두 코드를 함께 보충하며 모바일 응답 화이트리스트는 유지 |
+| 개인 DB 트랜잭션 전 캡처·사진 보충과 1회 재전송은 독립 | 개인 DB 쓰기 잠금 안에서 캡처 후 원문 저장. 사진 보충마다 해당 신고 재캡처 |
+| 개인 저장 상태·payload 일치 검사로 오래된 관측을 차단 | 두 DB가 달라도 journal 최신 payload를 보존하고 개인 추정 입력으로 `fine_estimate`만 교체한다. 상태값으로 정상 보충을 차단하지 않는다 |
+| parser-5/6 금액 오타는 재전송에서 확정액으로 이관 | 보충은 금액 판정을 바꾸지 않는다. 금액 등 원문 갱신은 다음 실시간 상세 수집이 맡는다 |
+
 
 ## 기관코드 전체자료 대조와 통계 키 전환 (registry 2026-09-29.1, 2026-09-29)
 

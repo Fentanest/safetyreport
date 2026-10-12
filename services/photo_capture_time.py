@@ -153,7 +153,7 @@ def pending_photo_rows(engine, *, limit: int | None = None) -> list[tuple[str, s
 
 def fill_one(engine, record_id: str, photos, *, fetch=None) -> bool:
     """한 신고의 촬영 시각을 읽어 저장한다(네트워크는 트랜잭션 밖). 네트워크 오류면 False — 다음에 다시."""
-    from sqlalchemy import update
+    from sqlalchemy import select, update
 
     from core.database import models
     from core.storage import reports_repo
@@ -161,7 +161,10 @@ def fill_one(engine, record_id: str, photos, *, fetch=None) -> bool:
     collected = collect(photos, fetch=fetch)
     if collected is None:
         return False
+    from services import community_capture
+
     detail = models.report_table
+    capture_result = None
     with engine.begin() as conn:
         # 읽은 첨부가 지금도 같을 때만 쓴다. 네트워크를 기다리는 동안 DB 복원·재크롤링으로 첨부가 바뀌었으면
         # 다른 사진의 촬영 정보를 저장하게 되므로 버린다(기술일지 A2-02). 다음 훑기에서 새 첨부로 다시 시도한다.
@@ -171,6 +174,15 @@ def fill_one(engine, record_id: str, photos, *, fetch=None) -> bool:
         if not result.rowcount:
             return False
         reports_repo.refresh_effective_rows(conn, [record_id])
+        # UPDATE 쓰기 잠금 안에서 추정 입력만 읽고 journal 최신 payload의 fine_estimate만 갱신한다.
+        # 완료 마커와 무관하게 실행하며, 캡처 실패 시 사진 저장도 롤백되어 다음 훑기에서 재시도한다.
+        row = conn.execute(select(*(detail.c[key] for key in community_capture.BACKFILL_PERSONAL_FIELDS))
+                           .where(detail.c.ID == record_id)).mappings().one()
+        capture_result = community_capture.capture(
+            community_capture._resend_adapter_input(dict(row)), source_report_id=str(record_id),
+            trigger="fine_estimate_backfill")
+    if capture_result is not None:
+        community_capture.mark_personal_save(capture_result.event_id, True)
     return True
 
 
