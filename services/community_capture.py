@@ -36,7 +36,7 @@ ELIGIBLE = {"accepted", "partial", "rejected", "completed_unknown"}
 PARSER_VERSION = "pc-parser-7"  # 금액 오타 보정: 규칙·파서 버전 기반 로컬 재전송
 SCHEMA_VERSION = 1
 
-_AMOUNT_RE = re.compile(r"^(과태료|범칙금):\s*(.+?)\s*원$")
+_AMOUNT_RE = re.compile(rf"^(과태료|범칙금):\s*({fine_estimate.AMOUNT_TOKEN_PATTERN})\s*원$")
 _POINTS_RE = re.compile(r"^벌점:\s*([0-9]{1,4})\s*점$")
 _WS_RE = re.compile(r"\s+", re.UNICODE)
 

@@ -1,5 +1,5 @@
 {
-  "version": "amount-typo-1",
+  "version": "amount-typo-2",
   "cases": [
     {
       "name": "실제 쉼표 오타 1건",
@@ -11,7 +11,8 @@
       },
       "confirmed_won": 40000,
       "stats_won": 40000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": "과태료: 40,000원"
     },
     {
       "name": "실제 점 구분 1",
@@ -23,7 +24,8 @@
       },
       "confirmed_won": 40000,
       "stats_won": 40000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "실제 점 구분 2",
@@ -35,7 +37,8 @@
       },
       "confirmed_won": 40000,
       "stats_won": 40000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "실제 구분자 없음 1",
@@ -47,7 +50,8 @@
       },
       "confirmed_won": 30000,
       "stats_won": 30000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "실제 구분자 없음 2",
@@ -59,7 +63,8 @@
       },
       "confirmed_won": 30000,
       "stats_won": 30000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "4,0000",
@@ -71,7 +76,8 @@
       },
       "confirmed_won": 40000,
       "stats_won": 40000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": "과태료: 40,000원"
     },
     {
       "name": "40,00",
@@ -83,7 +89,8 @@
       },
       "confirmed_won": 40000,
       "stats_won": 40000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": "과태료: 40,000원"
     },
     {
       "name": "400,00",
@@ -95,7 +102,8 @@
       },
       "confirmed_won": 40000,
       "stats_won": 40000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": "과태료: 40,000원"
     },
     {
       "name": "어린이보호구역 승합",
@@ -108,7 +116,8 @@
       },
       "confirmed_won": 130000,
       "stats_won": 130000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": "과태료: 130,000원"
     },
     {
       "name": "법정 금액 불일치",
@@ -120,7 +129,8 @@
       },
       "confirmed_won": null,
       "stats_won": 0,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "규칙 없음",
@@ -131,7 +141,8 @@
       },
       "confirmed_won": null,
       "stats_won": 0,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "차종 불일치",
@@ -143,7 +154,8 @@
       },
       "confirmed_won": null,
       "stats_won": 0,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "가중 금액",
@@ -155,7 +167,8 @@
       },
       "confirmed_won": 50000,
       "stats_won": 50000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": "과태료: 50,000원"
     },
     {
       "name": "코드 우선 소방차 전용구역",
@@ -169,7 +182,8 @@
       },
       "confirmed_won": 500000,
       "stats_won": 500000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": "과태료: 500,000원"
     },
     {
       "name": "다른 숫자 삭제 금지",
@@ -181,7 +195,8 @@
       },
       "confirmed_won": null,
       "stats_won": 0,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "빈 묶음",
@@ -193,7 +208,8 @@
       },
       "confirmed_won": null,
       "stats_won": 0,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "정상 40,000",
@@ -205,7 +221,8 @@
       },
       "confirmed_won": 40000,
       "stats_won": 40000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "정상 30,000",
@@ -217,7 +234,8 @@
       },
       "confirmed_won": 30000,
       "stats_won": 30000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "정상 130,000",
@@ -229,7 +247,8 @@
       },
       "confirmed_won": 130000,
       "stats_won": 130000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "정상 400,000",
@@ -241,7 +260,8 @@
       },
       "confirmed_won": 400000,
       "stats_won": 400000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "정상 999,999",
@@ -253,7 +273,8 @@
       },
       "confirmed_won": 999999,
       "stats_won": 999999,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "정상 1234567",
@@ -265,7 +286,8 @@
       },
       "confirmed_won": 1234567,
       "stats_won": 1234567,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "정상 1.000.000",
@@ -277,7 +299,8 @@
       },
       "confirmed_won": 1000000,
       "stats_won": 1000000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "정상 40.000",
@@ -289,7 +312,8 @@
       },
       "confirmed_won": 40000,
       "stats_won": 40000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "정상 30000",
@@ -301,7 +325,8 @@
       },
       "confirmed_won": 30000,
       "stats_won": 30000,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "정상 0",
@@ -313,7 +338,8 @@
       },
       "confirmed_won": 0,
       "stats_won": 0,
-      "kind": "fine"
+      "kind": "fine",
+      "corrected_text": null
     },
     {
       "name": "범칙금 정상",
@@ -325,7 +351,8 @@
       },
       "confirmed_won": 40000,
       "stats_won": 0,
-      "kind": "penalty"
+      "kind": "penalty",
+      "corrected_text": null
     },
     {
       "name": "범칙금 오타는 과태료 규칙 적용 안 함",
@@ -337,7 +364,182 @@
       },
       "confirmed_won": null,
       "stats_won": 0,
-      "kind": "penalty"
+      "kind": "penalty",
+      "corrected_text": null
+    },
+    {
+      "name": "토큰 경계 ,70,000",
+      "raw": "과태료: ,70,000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "토큰 경계 ,40,0000",
+      "raw": "과태료: ,40,0000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "토큰 경계 .70.000",
+      "raw": "과태료: .70.000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "토큰 경계 .40.0000",
+      "raw": "과태료: .40.0000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "토큰 경계 40,000,",
+      "raw": "과태료: 40,000,원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "토큰 경계 40.000.",
+      "raw": "과태료: 40.000.원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "토큰 경계 ,,40,0000",
+      "raw": "과태료: ,,40,0000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "밤샘주차 오타 불일치 상세도 미보정",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고-기타",
+        "차량번호": "80바1234",
+        "ssnpc_cd": "EP",
+        "ssnpc_type": "02",
+        "사진_첫촬영": "2026-10-01 00:30:00",
+        "사진_끝촬영": "2026-10-01 01:40:00"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null,
+      "estimated_won": 50000,
+      "estimated_rule": "overnight_truck"
+    },
+    {
+      "name": "코드 없음 과태료: 0원",
+      "raw": "과태료: 0원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": 0,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null,
+      "estimated_won": 40000,
+      "estimated_rule": "parking"
+    },
+    {
+      "name": "EP-03 코드 있음 과태료: 0원",
+      "raw": "과태료: 0원",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456",
+        "ssnpc_cd": "EP",
+        "ssnpc_type": "03"
+      },
+      "confirmed_won": 0,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null,
+      "estimated_won": 500000,
+      "estimated_rule": "fire_lane"
+    },
+    {
+      "name": "코드 없음 과태료",
+      "raw": "과태료",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null,
+      "estimated_won": 40000,
+      "estimated_rule": "parking"
+    },
+    {
+      "name": "EP-03 코드 있음 과태료",
+      "raw": "과태료",
+      "record": {
+        "category": "parking",
+        "entry_value": "불법주정차신고",
+        "차량번호": "12가3456",
+        "ssnpc_cd": "EP",
+        "ssnpc_type": "03"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null,
+      "estimated_won": 500000,
+      "estimated_rule": "fire_lane"
     }
   ],
   "candidate_cases": [
@@ -367,5 +569,6 @@
       "confirmed_won": null,
       "name": "일치 없음"
     }
-  ]
+  ],
+  "rule_version": "2026-10-12.1"
 }

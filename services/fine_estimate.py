@@ -13,7 +13,7 @@ from datetime import datetime
 
 from services import report_category
 
-RULE_VERSION = "2026-10-11.4"
+RULE_VERSION = "2026-10-12.1"
 
 # 차량 구분 → 과태료 표의 차종 구분 (도로교통법 시행령 별표6 비고)
 PASSENGER = "승용등"   # 승용자동차 + 4톤 이하 화물자동차
@@ -222,9 +222,15 @@ def legal_fine_amounts(record: dict | None) -> set[int]:
             if table.get(cls, table.get(None)) is not None}
 
 
+# 숫자 토큰은 앞/뒤 구분자까지 포함한다. 부분 숫자만 골라 잘못된 형식을 정상으로 읽지 않는다.
+AMOUNT_TOKEN_PATTERN = r"[0-9,.]+"
+NORMAL_AMOUNT_PATTERN = r"[0-9]+|[0-9]{1,3}(?:[,.][0-9]{3})+"
+_AMOUNT_TOKEN_RE = re.compile(rf"({AMOUNT_TOKEN_PATTERN})\s*원")
+
+
 def parse_amount_number(number: str, legal_amounts=()) -> int | None:
     """정상 숫자는 그대로. 깨진 묶음은 원래 숫자/묶음 끝 0 보정 후보를 법정 금액과 대조한다."""
-    if re.fullmatch(r"[0-9]+|[0-9]{1,3}(?:[,.][0-9]{3})+", number):
+    if re.fullmatch(NORMAL_AMOUNT_PATTERN, number):
         return int(re.sub(r"[,.]", "", number))
     if not re.fullmatch(r"[0-9]+(?:[,.][0-9]+)+", number):
         return None
@@ -251,8 +257,8 @@ def corrected_fine_text(text, record: dict | None = None) -> str | None:
     text = str(text or "")
     if "과태료" not in text:
         return None
-    match = re.search(r"([0-9][0-9,.]*)\s*원", text)
-    if not match or re.fullmatch(r"[0-9]+|[0-9]{1,3}(?:[,.][0-9]{3})+", match[1]):
+    match = _AMOUNT_TOKEN_RE.search(text)
+    if not match or re.fullmatch(NORMAL_AMOUNT_PATTERN, match[1]):
         return None
     amount = parse_amount_number(match[1], legal_fine_amounts(record))
     if amount is None:
@@ -268,9 +274,9 @@ def extract_fine_amount(text, record: dict | None = None) -> int:
     if "과태료" not in text:
         return 0
     # '40.000원' 처럼 점을 천 단위 구분자로 쓴 답변도 있다. 모바일 `extractFineAmount` 와 같은 규칙.
-    match = re.search(r"([\d,.]+)\s*원", text)
+    match = _AMOUNT_TOKEN_RE.search(text)
     if match:
-        return parse_amount_number(match.group(1), () if re.fullmatch(r"[0-9]+|[0-9]{1,3}(?:[,.][0-9]{3})+", match.group(1)) else legal_fine_amounts(record)) or 0
+        return parse_amount_number(match.group(1), () if re.fullmatch(NORMAL_AMOUNT_PATTERN, match.group(1)) else legal_fine_amounts(record)) or 0
     return 0
 
 

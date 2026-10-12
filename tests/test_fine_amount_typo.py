@@ -6,6 +6,7 @@ import unittest
 import pandas as pd
 from services import community_capture as capture, fine_estimate
 from services.stats import metrics
+from web.routers.data import _with_fine_estimates
 
 VECTORS = json.loads((Path(__file__).parent / 'fixtures/fine_amount_typo_vectors.json').read_text())
 
@@ -19,6 +20,9 @@ def adapter(case):
 
 
 class FineAmountTypoTest(unittest.TestCase):
+    def test_shared_rule_version(self):
+        self.assertEqual(fine_estimate.RULE_VERSION, VECTORS['rule_version'])
+
     def test_four_path_vectors(self):
         for c in VECTORS['cases']:
             with self.subTest(c['name']):
@@ -32,8 +36,22 @@ class FineAmountTypoTest(unittest.TestCase):
                 self.assertEqual(prepared['_metric_fine_amount'].iloc[0], c['stats_won'])
                 self.assertEqual(metrics._fine_amounts(pd.DataFrame([r])).iloc[0], c['stats_won'])
                 self.assertEqual(r, original)
+                self.assertEqual(fine_estimate.corrected_fine_text(c['raw'], r), c['corrected_text'])
+                web_row = _with_fine_estimates([dict(r)])[0]
+                self.assertEqual(web_row['fine_corrected_text'], c['corrected_text'])
+                self.assertEqual(web_row['범칙금_과태료'], c['raw'])
                 estimate = fine_estimate.estimate_if_unknown(c['raw'], r)
                 self.assertEqual('fine_estimate' in p, estimate is not None)
+                if 'estimated_won' in c:
+                    self.assertEqual(estimate['amount'], c['estimated_won'])
+                    self.assertEqual(estimate['rule'], c['estimated_rule'])
+                    self.assertEqual(p['fine_estimate'], {
+                        'won': c['estimated_won'], 'rule': c['estimated_rule'],
+                        'rule_version': VECTORS['rule_version'],
+                    })
+                    self.assertEqual(prepared['_metric_estimated_amount'].iloc[0], c['estimated_won'])
+                    self.assertEqual(metrics._estimated_fine_totals(pd.DataFrame([r]))['estimated_fine_amount'], c['estimated_won'])
+                    self.assertEqual(web_row['fine_estimate_amount'], c['estimated_won'])
                 self.assertEqual(metrics._count_fine_amount_unknown(prepared), int('과태료' in c['raw'] and c['stats_won'] == 0))
 
     def test_mixed_nullable_context_rows(self):

@@ -29,7 +29,7 @@
 
 `geocode` 는 기존 전송 형식의 좌표 있음 표시값이다. 실제 좌표는 공식 상세 응답에서 읽고, 주소를 카카오 REST API로 변환하지 않는다. 사용자 override 주소·좌표는 읽지 않는다.
 
-`fine_estimate`(observation-v5 선택 확장, 2026-10-12, fine-estimate-contract.md) 판정에는 위 입력에 더해 아래 입력도 쓴다 — payload 로는 나가지 않고 판정에만 쓰인다. 이번 응답에 없으면(목록만 갱신된 상세 등) 호출자가 기존 저장 값으로 채운다. 스키마는 `observation-v5` 이고 envelope protocol/contract 이름도 그대로 유지한다. PARSER_VERSION만 PC `pc-parser-6`, 모바일 `mobile-parser-6`으로 구분하며 로컬 추정 RULE_VERSION은 `2026-10-11.4`다.
+`fine_estimate`(observation-v5 선택 확장, 2026-10-12, fine-estimate-contract.md) 판정에는 위 입력에 더해 아래 입력도 쓴다 — payload 로는 나가지 않고 판정에만 쓰인다. 이번 응답에 없으면(목록만 갱신된 상세 등) 호출자가 기존 저장 값으로 채운다. 스키마는 `observation-v5` 이고 envelope protocol/contract 이름도 그대로 유지한다. PARSER_VERSION만 PC `pc-parser-7`, 모바일 `mobile-parser-7`으로 구분하며 로컬 추정 RULE_VERSION은 `2026-10-12.1`다.
 
 | 입력 키 | PC(저장 열) | 모바일(대응 필드) |
 |---|---|---|
@@ -163,3 +163,12 @@ writer 전환·재설치 뒤 첫 비적격 관측도 이벤트 없음이 된다.
   `agency_current_name` = 승계면 현행명, 아니면 원문 기관명(원문 `agency_name` 은 그대로 저장 — 원문·현행 분리);
   `manager_key = "m1:" + sha256(agency_key + "|" + NFC(manager_name))[:24]`(agency_key 기준이므로 같은 기관의 같은 담당자는 개명 전후 한 키로 묶임).
   키 없는 구버전 갱신(v1/v2, payload에 `source_agency_code` 키 없음)은 기관명이 기존 fact와 같으면 저장된 기관코드뿐 아니라 기관 키·현행명·담당자 키도 보존한다(코드 없는 derived의 기관명 해시로 덮으면 승계 기관 통계가 갈라짐 — REVIEW4). 기관명이 다르면 코드 NULL·새 derived 키(새 기관 답변에 옛 코드·옛 키 부착 금지). 키가 있으면(명시적 null 포함) 그대로 쓴다.
+
+### 추정·오타 판정 입력의 일치
+
+통계·공유 업로드·목록/상세·내보내기는 SSNPC_CD/SSNPC_TYPE을 포함한 같은 신고 맥락으로 판정한다.
+분류 코드가 있으면 메뉴 문자열보다 우선한다(예: 일반 주정차 메뉴라도 EP-03이면 fire_lane, 500000원).
+코드가 없으면 기존 메뉴 fallback을 쓴다. 이 변경의 규칙 버전은 2026-10-12.1이며 두 앱이 같다.
+숫자 토큰은 `[0-9,.]+` 전체를 읽어 앞뒤 구분자를 버리지 않는다. `,70,000원`·`,40,0000원`은
+확정 금액 미확인이며 표시용 보정도 하지 않는다. 정상 숫자와 후보 대조 규칙은 로컬 fine_estimate가 정본이다.
+추정 필드 공유는 아직 미릴리스이므로 이 규칙 변경으로 이미 배포된 추정값을 재전송하는 추가 부담은 없다.

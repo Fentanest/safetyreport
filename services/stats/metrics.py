@@ -33,8 +33,8 @@ def _fine_amounts(frame):
     text = frame.get('범칙금_과태료', pd.Series('', index=frame.index)).fillna('')
     amounts = text.apply(_extract_fine_amount)
     # 정상 형식은 기존 열 연산, 보정이 필요한 원문만 행 맥락으로 대조한다.
-    tokens = text.astype(str).str.extract(r'([0-9][0-9,.]*)\s*원', expand=False)
-    malformed = tokens.notna() & ~tokens.str.fullmatch(r'[0-9]+|[0-9]{1,3}(?:[,.][0-9]{3})+', na=False)
+    tokens = text.astype(str).str.extract(rf'({fine_estimate.AMOUNT_TOKEN_PATTERN})\s*원', expand=False)
+    malformed = tokens.notna() & ~tokens.str.fullmatch(fine_estimate.NORMAL_AMOUNT_PATTERN, na=False)
     if malformed.any():
         amounts.loc[malformed] = frame.loc[malformed].fillna('').apply(
             lambda row: _extract_fine_amount(row.get('범칙금_과태료'), row.to_dict()), axis=1)

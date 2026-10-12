@@ -1,5 +1,5 @@
 {
- "rule_version": "2026-10-11.4",
+ "rule_version": "2026-10-12.1",
  "note": "서버 services/fine_estimate.py 와 모바일 Standalone 규칙이 같은 결과를 내야 한다. 이 파일은 양쪽 레포에 같은 내용으로 둔다.",
  "plates": [
   {
@@ -751,6 +751,28 @@
    },
    "amount": 500000,
    "rule": "fire_lane"
+  },
+  {
+   "name": "코드 우선 소방구역 코드 없음",
+   "record": {
+    "category": "parking",
+    "entry_value": "불법주정차신고",
+    "차량번호": "12가3456"
+   },
+   "rule": "parking",
+   "amount": 40000
+  },
+  {
+   "name": "코드 우선 소방구역 EP-03 있음",
+   "record": {
+    "category": "parking",
+    "entry_value": "불법주정차신고",
+    "차량번호": "12가3456",
+    "ssnpc_cd": "EP",
+    "ssnpc_type": "03"
+   },
+   "rule": "fire_lane",
+   "amount": 500000
   }
  ]
 }
