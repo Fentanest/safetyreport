@@ -40,7 +40,7 @@
 ```
 /
 ├── .github/workflows/
-│   ├── build.yml                  # Windows/Linux/macOS(x64+arm64) 빌드 + Release 생성
+│   ├── build.yml                  # push(main): Docker dev 태그만 푸시 / workflow_dispatch(main): 정식 릴리즈(4개 OS 빌드+Release)
 │   ├── build-windows-manual.yml   # Windows 수동 테스트 빌드 (artifact only)
 │   ├── build-linux-manual.yml     # Linux 수동 테스트 빌드 (artifact only)
 │   ├── build-macos-x64-manual.yml # macOS x64 수동 테스트 빌드 (artifact only)
@@ -209,7 +209,16 @@
   - 웹 페이지에는 별도 토글을 두지 않고 설정 페이지에서만 바꾼다.
   - 내부적으로 `dedupe=canonical|raw` 쿼리 파라미터가 명시되면 그 값은 여전히 우선 적용된다.
 - 빌드 계층은 `scripts/build/build_exe.py`와 `.github/workflows/*.yml`이 담당한다.
-  - `build.yml`: 정식 릴리즈 (macOS x64 + arm64 포함)
+  - `build.yml` (2026-10-13 재구성 — push/dispatch 경로 분리, job `if:` 로 나눔):
+    - **push(main)**: `build-docker-dev` job만 돈다. Docker 이미지를 두 레지스트리(ghcr, Docker Hub)에
+      `dev`·`dev-<짧은sha>` 태그로만 푸시한다. `latest`·버전 태그는 붙이지 않는다. 실행 파일(Windows/Linux/macOS x64·arm64)은
+      빌드하지 않는다. 태그·GitHub Release 없음.
+    - **workflow_dispatch(main) = 정식 릴리즈**: `prepare-release`(태그 존재 검사 포함)부터 `build-windows`/`build-linux`/
+      `build-docker`(`latest`+버전 태그)/`build-macos-x64`/`build-macos-arm64`/`create-release` 까지 이전과 동일하게 돈다.
+      계산된 태그의 `docs/releases/v<버전>.md` 내용 그대로 GitHub Release 본문이 된다(`Full Changelog` 포함, 자동 생성
+      노트 없음). 릴리스 job에서 해당 파일이 없으면 `::error::`로 경로를 안내하고 Release 생성 전에 실패한다. 기존 태그가
+      있으면 `prepare-release` 이후 전부 건너뛴다(이 태그 존재 검사는 릴리스 경로에만 있다 — push 의 `build-docker-dev` 는
+      매번 실행된다). artifact(실행파일 zip) 보관 1일.
   - `build-windows-manual.yml`: 태그 체크 없이 수동으로 Windows 아티팩트 생성
   - `build-linux-manual.yml`: 태그 체크 없이 수동으로 Linux 아티팩트 생성
   - `build-macos-x64-manual.yml`: 태그 체크 없이 수동으로 macOS x64 아티팩트 생성

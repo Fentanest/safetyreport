@@ -35,6 +35,8 @@ test_*
 !/.mcp.json
 !/tests/test_*.py
 !/tests/fixtures/*.json
+!/services/data/
+!/services/data/traffic_fine_table.json
 !/contracts/*.json
 !/contracts/community-ingest/**/*.json
 !/contracts/community-ingest/**/*.md

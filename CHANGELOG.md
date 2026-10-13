@@ -1,5 +1,86 @@
 # Changelog
 
+## 2026-10-13 — CI 재구성: push(main)=Docker dev 태그만, 정식 릴리즈=workflow_dispatch (사용자 결정, 미배포)
+
+- `push(main)`은 더 이상 실행파일을 빌드하지 않고 태그·GitHub Release 도 만들지 않는다. 새 job `build-docker-dev`가 Docker 이미지만 빌드해 ghcr·Docker Hub 두 레지스트리에 `dev`·`dev-<짧은sha>` 태그로 푸시한다. `latest`·버전 태그는 절대 붙이지 않는다.
+- 정식 릴리즈(4개 OS 실행파일 빌드·업로드, Docker `latest`+버전 태그, 태그·GitHub Release 생성, 태그 존재 재릴리스 방지, artifact 1일 보관)는 `workflow_dispatch`에서만 돈다. 기존 job(`prepare-release`/`build-windows`/`build-linux`/`build-docker`/`build-macos-x64`/`build-macos-arm64`/`create-release`)은 그대로 두고 `prepare-release`에 `if: github.event_name == 'workflow_dispatch'`를 붙여 push 경로와 분리했다(나머지 job은 `needs: prepare-release` 체인으로 자동 skip). 태그 존재 검사는 이 릴리스 경로에만 남는다.
+- 영향: `docker-compose.yml` 기본 이미지(`ghcr.io/fentanest/safetyreport:latest`, Watchtower 자동 업데이트 대상)는 이제 main push 직후가 아니라 정식 릴리즈(workflow_dispatch) 실행 때만 갱신된다.
+- 변경 파일: `.github/workflows/build.yml`, `docs/architecture/overview.md`, `docs/development/runtime-and-packaging.md`, `CHANGELOG.md`.
+- 검증: `python3 -c "import yaml; yaml.safe_load(open(F))"` 통과(수정한 workflow). `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/build.yml` 통과(self-hosted 러너 커스텀 라벨(233~236) 경고만, 기존에도 있던 경고로 무시). 실제 GitHub Actions 실행(push/workflow_dispatch)과 Docker/실행파일 빌드는 하지 않았다(원격 실행 금지 지시). 커밋·push 없음 — Opus 검토·반영 대기.
+
+## 2026-10-13 — 위반 조항별 법정 금액 대조 (dev, 미배포)
+
+- 법제처 현행 시행령(2026-10-02 시행) 별표 6·7 원문을 확인하여 44개 조/110개 조회 키의 공유 JSON을 추가했다. 차종별 일반·보호구역·속도 구간·2시간 가중 금액 및 차종 구분 없는 정액·기간 가산액을 출처와 함께 기록했다.
+- 기존 추정 규칙과 조항별 법정 금액의 합집합에서 깨진 숫자 후보가 정확히 하나 일치할 때만 보정한다. 끼어들기 제23조 `40,0000원`은 40,000원으로 표시·집계한다. 정상 형식/DB/내보내기 원문과 `_RULES`/classify/estimate의 대상·금액은 그대로다.
+- 미확인 금액 여부와 공유 payload가 바뀌므로 규칙 버전을 `2026-10-13.2`로 올렸다(앱 VERSION/파서 버전 변경 없음). 커뮤니티 observations·MANIFEST는 PC/모바일 사본만 갱신했으며 지도 정본은 통합 반영이 필요하다.
+- 검증: 최종 전체 pytest 1,052 passed · 6 skipped · 1,426 subtests passed(117 warnings). worktree 전용 .venv에 pytest를 설치하고 기존 공용 venv 의존성은 읽기 전용으로 참조했다. SAFETYREPORT_DATA_DIR는 매 실행 mktemp로 격리했다. JSON·공유 오타 벡터·커뮤니티 벡터 SHA-256 양쪽 일치, 생성 상수 바이트 일치, git diff --check 통과. 실제 서버/실기기·브라우저 E2E·PyInstaller/Docker/APK 빌드·배포는 미실행. 커밋·push·VERSION 변경 없음.
+- 기존 재전송의 journal 금액 보존 계약은 유지했다. 버전 상승으로 추정 필드는 재계산되지만 과거 공유 확정 금액은 바뀌지 않는다. 새 상세 관측의 payload부터 금액 보정이 반영된다. PC 계약 문서의 재전송 설명도 실제 코드에 맞춰 정정했다.
+- 조항 표기 변형·의2·미등록/복수 조항·차종·보호구역·실제 법정 복수 후보 방어 사례를 공유 벡터에 추가했다. 시험에는 합성 번호판을 사용한다. Client API → Report.law → 목록 카드/상세 보정 경로를 확인했다.
+- 읽기 전용 205 표본: 33개 법규 표기 중 27개가 표에 대응한다. 금액 분포 AMT가 제공된 1,323건 중 1,322건은 해당 조항 전 차종 집합에 포함, 1건 `도로교통법 제19조4항 / 40,000원`은 조항 미등록. 표를 표본에 맞춰 늘리지 않았다. 표본 전체 1,513건에서 AMT 미제공 190건은 금액 교차 확인 불가(오타 1건 포함); 제공 분포에는 차종 정보가 없어 차종별 적합성까지 입증하지 않는다.
+- 표 미대응 법규: 빈 값 147건, 도로교통법 제160조제3항 13건, 폐기물관리법 제8조 3건·제8조제1항 3건, 도로교통법 제19조4항 1건, 질서위반행위규제법 제16조 1건. 오타 표본 1건은 별도 입력으로 40,000원 보정을 확인했다.
+- Python JSON 로딩과 PyInstaller 데이터 포함 옵션을 추가했다.
+
+## 2026-10-13 — 모바일 Client 정확 검색·서버 페이지 계약 v1 (로컬 구현)
+
+- 기존 dev 기준 `astra/client-search`에서 작업. 시작 당시 PC dev는 main보다 3커밋 앞섰고 모바일 dev는 30커밋 앞섰으며 두 worktree 모두 깨끗했다. 버전·커밋·push·운영 반영은 하지 않았다. 별도 담당의 fine_estimate 파일은 수정하지 않았다.
+- `report_search_v1` capability와 `report_search_version=1`, `/api/v1/reports/{category}/search`를 추가했다. 26개 모바일 필터·전체 5분류·단일 분류·canonical/raw를 지원한다. 정확한 SQLite 판정 이후 total/페이지를 계산하며, 한 읽기 snapshot과 full report 응답을 유지한다. COUNT 캐시는 없고 판정에 필요한 열과 현재 페이지 객체만 읽는다.
+- Unicode 단순 소문자(ß/İ/Σ/보충 평면 문자), 공백·리터럴 `%`/`_`, OR/AND, NULL·별점 없음·법규 없음, 날짜/시각 경계 및 ASCII 날짜 숫자, 현행기관명·경찰 조건을 Dart와 공통 벡터 48개로 대조했다.
+- 신고번호/ID 및 분류/신고번호/ID 복합 인덱스를 추가했다. 실제 EXPLAIN의 `USE TEMP B-TREE FOR RIGHT PART OF ORDER BY`가 covering index 조회로 바뀌었다. DB 열·schema version은 유지한다.
+- 변경 파일: `services/client_report_search.py`, `services/report_query_service.py`, `web/routers/api_route.py`, `core/database/database.py`, `contracts/client-search-vectors.json`, `tests/test_client_report_search.py`, `scripts/dev/benchmark_client_search.py`, `docs/architecture/data-contracts.md`, `CHANGELOG.md`.
+- 검증: 매 실행 `SAFETYREPORT_DATA_DIR=$(mktemp -d)`로 격리. 전체 unittest 1,060개 실행, 6개 skip, 실패 없음. 이후 추가 HTTP 인증·버전·타입 검증 및 최종 필터 변경을 포함한 focused 6개 통과. 기존 projection 포함 focused 11개도 통과. 48조건 × 전체/개별 5분류의 ID 집합·순서·total·결과 페이지, 첫 200건 밖 일치, raw/canonical 대표건·not_duplicate, 데이터 수정 후 total, 기관/설정 변경, full 본문·첨부·보완 필드를 확인했다.
+- 실행 증거(비추적): `.agent-runs/search/python-all.log`, `python-final-focused.log`, `python-focused.log`; 6만 건 HTTP 측정은 모바일 `.agent-runs/search/benchmark-final.log`·`benchmark.json`. 합성 데이터만 사용했다.
+
+### 6만 건 합성 HTTP 전후 실측 (PC·모바일 공동, 2026-10-13)
+
+Python 3.14 + FastAPI 실 API 라우터/인증 + SQLite 합성 60,000행, Flutter 3.47.5 host test에서 실제
+ApiService·scanClientReports·ReportProvider.matchesFilter를 사용했다. 조건 `name=école`, 5분류 통합,
+canonical, 결과 15,000건. 같은 DB/추가 인덱스 조건에서 기존 전체 다운로드 알고리즘과 신규 검색을
+비교했다(기존 쪽도 새 인덱스를 쓴 보수적인 비교이며, 과거 바이너리/실기기 전후 측정은 아니다).
+직렬 실행 1회 값이며 반복 평균/p95가 아니다. 바이트는 UTF-8 HTTP 응답 **본문**으로 헤더/TLS는 제외한다.
+
+| 단계 | HTTP 수 | 응답 본문 byte | 함수 반환 ms | 서버 서비스 ms | 서버 응답 준비 ms | Dart JSON ms | Report 변환 ms |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| 기존 검색·첫 결과/정확 total | 300 | 126,284,655 | 28,473.287 | 14,564.369 | 22,922.252 | 1,536.507 | 718.006 |
+| 신규 검색·첫 결과/정확 total | 1 | 433,875 | 494.618 | 431.998 | 462.172 | 9.587 | 2.453 |
+| 신규 다음 페이지 prefetch(200) | 1 | 433,876 | 468.151 | 406.847 | 448.181 | 4.839 | 1.955 |
+| 기존 다음 window(400) | 301 | 126,284,754 | 31,057.303 | 15,830.628 | 25,071.302 | 1,657.147 | 728.661 |
+| 신규 다음 prefetch(400) | 1 | 433,878 | 494.261 | 401.347 | 437.596 | 18.409 | 10.461 |
+| 기존 먼 페이지(10000) | 300 | 126,284,655 | 31,017.215 | 15,912.720 | 25,006.082 | 1,625.623 | 808.898 |
+| 신규 먼 페이지(10000) | 1 | 433,881 | 584.399 | 545.865 | 570.828 | 3.686 | 1.288 |
+| 신규 먼 페이지 다음 prefetch(10200) | 1 | 433,881 | 652.474 | 617.990 | 639.926 | 3.700 | 1.463 |
+
+- 초기 capability+protocol 확인은 별도로 2요청/479byte/127.368ms였다. 기존 window(400)의 301요청에는
+  1분 유효기간이 지난 protocol 재확인 1회가 포함된다(신고 원본 페이지는 300회).
+- 첫 결과와 정확한 total은 동일 ReportPage 반환 시점이다. UI 적용 버튼/첫 paint의 지연은 여기 포함하지 않았다.
+  기존은 정확 count 때문에 60,000행을 끝까지 내려받고 일치 400행 window를 보관한다. 신규는 첫 200행을
+  반환한 뒤 별도 200행을 prefetch한다(두 요청 합계 867,751byte). 원본 전체 다운로드는 신규 경로에서 없다.
+- 다음(200)·이전(0) 캐시 이동은 양쪽 HTTP 0회/0byte. 실제 위젯 시험에서도 재요청 없이 재사용하고
+  다음 한 페이지만 추가 prefetch함을 확인했다. 먼 페이지는 offset 10000에서 두 경로의 ID 순서와 total이 같았다.
+- 검색창 열기는 변경하지 않았다. host 위젯 tap+pumpAndSettle 627.712ms, HTTP 0회/0byte를 확인했다.
+  가상 애니메이션을 쓰는 시험 비용이며 실기기 프레임 지연 측정이 아니다.
+- 미실행/제한: Android 실기기 apply→first paint/total UI 표시·build/raster frame 지연,
+  WAN/TLS/압축, 배터리, APK/네이티브 빌드·PyInstaller/Docker 패키징 및 운영 반영은 미실행.
+  정확 부분 문자열 판정은 서버에서 scan하며 매 페이지 total을 다시 계산한다. 임의 predicate/rating scope와
+  구서버의 정확 fallback은 전체 순회 비용이 남는다. 전체 모바일 회귀의 gate 타이밍 실패 1건은 별도 기록했다.
+- 재현: PC의 새 빈 `SAFETYREPORT_DATA_DIR=$(mktemp -d)`로
+  `.venv/bin/python scripts/dev/benchmark_client_search.py` 실행(127.0.0.1:18764).
+  모바일에서 같은 디렉터리를 `SR_SEARCH_FIXTURE_DIR`로 지정하고 고정 Flutter로
+  `flutter test --no-pub test/services/client_search_http_benchmark_test.dart` 실행.
+  서비스는 main/운영 배경 작업을 시작하지 않으며 합성 키를 전용 디렉터리 안에만 저장한다.
+
+
+## 2026-10-13 · 지역 이륜 번호판 인식과 공개 가림
+
+- 지역+시군구+용도 글자+숫자4 형식과 시/군/구 접미 표기를 인식한다. 원문은 보존하고 경계 위반·복수 후보는 제외한다.
+- 공통 정규화·차종 판정·과태료 규칙 버전·중복차량 및 재전송 회귀 시험을 갱신했다.
+- 추정 규칙 `2026-10-13.1`: 이륜 주정차 추정 제거, 버스전용차로 40,000원. 기존 오계산은 버전 변경 재전송으로 교정한다.
+- 공유 정규화·가림 벡터와 수집 계약 벡터·해시를 세 레포에 동기화했다. 커밋·운영 배포는 하지 않았다.
+- 검증: 격리 데이터 디렉터리의 전체 pytest 1,049개·하위 사례 1,397개 통과, 6개 제외(경고 117개). 최종 정규화·재전송·계약 추가 검사 91개·하위 사례 397개 통과.
+
+## 2026-10-13 — GitHub Release 본문 자동 적용
+
+- 릴리스 본문에 해당 버전의 `docs/releases/v<버전>.md`를 그대로 적용하고 자동 생성 노트를 끄며, 노트 파일이 없으면 Release 생성 전에 오류로 중단한다.
+
 ## 2026-10-13 — 3.2.0 릴리스 준비
 
 - VERSION을 3.1.3에서 3.2.0으로 변경하고 사용자용 릴리스 노트 `docs/releases/v3.2.0.md`를 작성했다.

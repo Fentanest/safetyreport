@@ -165,6 +165,24 @@ class MobileApiContractUnaffectedTest(unittest.TestCase):
         logger.LoggerFactory.create_logger(mode="crawl")
         self.engine = _seeded_engine(self)
 
+    def test_client_page_keeps_law_and_raw_typo_for_mobile_correction(self):
+        from core.database import database, models
+        from web.routers import api_route
+        with self.engine.begin() as conn:
+            conn.execute(models.report_table.update().where(models.report_table.c.ID == '90000001').values(
+                신고명='끼어들기 금지 위반', 위반법규='도로교통법 제23조',
+                차량번호='63너1234', 범칙금_과태료='과태료: 40,0000원'))
+        database.rebuild_effective(self.engine)
+        with mock.patch.object(api_route, 'engine', self.engine):
+            response = api_route.get_reports_page(
+                _RouteTestCase._request('/api/v1/reports/traffic/page'), 'traffic',
+                offset=0, limit=100, dedupe='raw', _='fixture')
+        row = next(row for row in response['data'] if row['ID'] == '90000001')
+        self.assertEqual(row['위반법규'], '도로교통법 제23조')
+        self.assertEqual(row['범칙금_과태료'], '과태료: 40,0000원')
+        self.assertNotIn('fine_corrected_text', row)
+        self.assertEqual(fine_estimate.corrected_fine_text(row['범칙금_과태료'], row), '과태료: 40,000원')
+
     def test_exact_values_records_have_no_fine_estimate_keys(self):
         records = data_service.get_traffic_records(self.engine, None, exact_values=True)
         self.assertTrue(records)

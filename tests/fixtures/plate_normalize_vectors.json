@@ -1,58 +1,601 @@
 {
-  "version": "2026-10-12.1",
+  "version": "2026-10-13.1",
   "note": "세 레포(safetyreport, safetyreport-mobile, safetyreport-community-map) 공통 normalizePlate 벡터. 바이트가 세 레포에서 같아야 한다. 규칙 설명은 각 레포의 plate_normalize 모듈 docstring/주석을 본다.",
   "cases": [
-    { "name": "real_unrecognized_label", "raw": "미인식", "expected": null, "note": "주정차/기타 응답에 쓰이는 '미인식' 그대로" },
-    { "name": "real_trailing_paren_3digit", "raw": "177도7967)", "expected": "177도7967", "note": "끝 군더더기 ')' 는 구두점 — 통과" },
-    { "name": "real_trailing_paren_2digit", "raw": "40라1805)", "expected": "40라1805", "note": "끝 군더더기 ')'" },
-    { "name": "real_trailing_glued_hangul", "raw": "81수0136수", "expected": null, "note": "번호판 바로 뒤에 한글 한 글자가 구분자 없이 붙음 — 경계 불분명" },
-    { "name": "real_region_trailing_glued_hangul", "raw": "대구81아7901구", "expected": null, "note": "지역 접두 + 번호판 뒤에 한글 한 글자가 구분자 없이 붙음 — 경계 불분명" },
-    { "name": "contrast_region_trailing_paren", "raw": "대구81아7901)", "expected": "대구81아7901", "note": "위 사례와 대조 — 뒤에 붙은 게 구두점이면 통과(경계 규칙 문서화용)" },
-    { "name": "real_description_slash_1", "raw": "235호2929/흰색SUV차량입니다.", "expected": "235호2929", "note": "'/' 뒤는 설명 문구 — 통과" },
-    { "name": "real_description_slash_2", "raw": "22거8784/승용차량입니다.", "expected": "22거8784", "note": "'/' 뒤는 설명 문구 — 통과" },
-    { "name": "real_suspect_invisible_1", "raw": "14두7874", "expected": "14두7874", "note": "실데이터에서 보이지 않는 문자 혼입 의심 — 정규화가 Cf(서식) 문자를 모두 제거하므로 실제로 끼어 있어도 결과는 같다" },
-    { "name": "real_suspect_invisible_2", "raw": "46부3555", "expected": "46부3555", "note": "위와 같음" },
-    { "name": "real_suspect_invisible_zwsp", "raw": "14​두​7874", "expected": "14두7874", "note": "제로폭 공백(U+200B) 혼입 — 제거 후 정상 인식" },
-    { "name": "real_suspect_invisible_bom", "raw": "46﻿부3555", "expected": "46부3555", "note": "BOM/ZWNBSP(U+FEFF) 혼입 — 제거 후 정상 인식" },
-    { "name": "real_date_dotted", "raw": "2024.06.05", "expected": null, "note": "날짜, 번호판 아님" },
-    { "name": "real_free_text", "raw": "중앙선침범", "expected": null, "note": "숫자 없는 설명 문구" },
-    { "name": "real_date_dashed", "raw": "202-12-29", "expected": null, "note": "하이픈 제거 후 순수 숫자만 남음" },
-    { "name": "real_short_digits", "raw": "4450", "expected": null, "note": "숫자만, 번호판 아님" },
-    { "name": "real_long_digits", "raw": "1478991", "expected": null, "note": "숫자만, 번호판 아님" },
-    { "name": "real_digit_overrun_5tail", "raw": "25어95505", "expected": null, "note": "자리수 오류 — 끝 숫자가 5개(4개 초과분이 경계에 붙어 있음)" },
-    { "name": "real_jamo_not_syllable", "raw": "04ㅁ2463", "expected": null, "note": "자모 오류 — 'ㅁ' 은 낱자모(U+3141), 음절(가-힣) 아님" },
-    { "name": "real_jamo_mixed_tail", "raw": "34모3ㄷ07", "expected": null, "note": "자모 오류 — 끝 4자리 숫자 run 이 자모로 끊김" },
-    { "name": "real_digit_overrun_5tail_2", "raw": "20마05850", "expected": null, "note": "자리수 오류 — 끝 숫자 5개" },
-    { "name": "real_digit_overrun_leading", "raw": "0006마8861", "expected": null, "note": "자리수 오류 — 앞 숫자가 4개(지역번호 2~3자리 초과분이 경계에 붙어 있음)" },
-    { "name": "real_region_prefix_3digit_tail", "raw": "경기53바415", "expected": null, "note": "지역 접두 + 끝 숫자 3자리(4자리 미만) — 구형/오류, 끝 숫자 4자리를 채울 수 없어 토큰 자체가 없음" },
-    { "name": "real_not_plate_registry_like", "raw": "김천시장010358", "expected": null, "note": "'김천'은 17개 시도 약칭에 없음 — 숫자 앞에 한글이 없어 본문 패턴 불성립" },
-    { "name": "normal_car_2digit", "raw": "12가3456", "expected": "12가3456" },
-    { "name": "normal_car_3digit", "raw": "123가4567", "expected": "123가4567" },
-    { "name": "normal_region_short_seoul", "raw": "서울12가3456", "expected": "서울12가3456" },
-    { "name": "normal_region_short_busan", "raw": "부산12가3456", "expected": "부산12가3456" },
-    { "name": "normal_region_full_to_short_seoul", "raw": "서울특별시12가3456", "expected": "서울12가3456", "note": "공식 전체 이름도 약칭으로 정규화" },
-    { "name": "normal_with_space_hyphen", "raw": "경기 123가-4567", "expected": "경기123가4567", "note": "번호판 표기상의 공백·하이픈은 제거" },
-    { "name": "normal_region_already_example", "raw": "경기76자3623", "expected": "경기76자3623" },
-    { "name": "normal_fullwidth_digits", "raw": "１２가３４５６", "expected": "12가3456", "note": "전각 숫자 — NFKC 로 반각 변환" },
-    { "name": "normal_internal_space_only", "raw": "12가 3456", "expected": "12가3456" },
-    { "name": "edge_null_input", "raw": null, "expected": null },
-    { "name": "edge_empty_string", "raw": "", "expected": null },
-    { "name": "edge_plain_text", "raw": "unknown", "expected": null },
-    { "name": "motorcycle_1digit_lead", "raw": "3호1234", "expected": "3호1234", "note": "이륜형 — 앞 숫자 1자리" },
-    { "name": "motorcycle_0digit_lead", "raw": "가1234", "expected": "가1234", "note": "이륜형 — 앞 숫자 0자리" },
-    { "name": "motorcycle_with_region", "raw": "서울3호1234", "expected": "서울3호1234", "note": "이륜형 + 지역 접두" },
-    { "name": "motorcycle_optional_mid_digit", "raw": "3호51234", "expected": "3호51234", "note": "이륜형 — 한글 뒤 선택 숫자 1개 + 필수 4자리" },
-    { "name": "region_prefix_jeonbuk_short", "raw": "전북12가3456", "expected": "전북12가3456" },
-    { "name": "region_prefix_jeonbuk_full_old", "raw": "전라북도12가3456", "expected": "전북12가3456" },
-    { "name": "region_prefix_gangwon_do", "raw": "강원도12가3456", "expected": "강원12가3456" },
-    { "name": "region_prefix_gangwon_special", "raw": "강원특별자치도12가3456", "expected": "강원12가3456" },
-    { "name": "region_prefix_jeju_do", "raw": "제주도12가3456", "expected": "제주12가3456" },
-    { "name": "old_style_single_digit_region_no", "raw": "2가1234", "expected": "2가1234", "note": "구형(한 자리 지역번호) — 일반형 최소 2자리에는 못 미쳐 이륜형 패턴으로 수용" },
-    { "name": "ambiguous_two_distinct_candidates", "raw": "12가3456/34나5678", "expected": null, "note": "서로 다른 유효 후보 2개 — 추측 금지로 null" },
-    { "name": "boundary_latin_prefix_ok", "raw": "a12가3456", "expected": "12가3456", "note": "영문자는 경계로 허용(숫자·한글만 경계 위반)" },
-    { "name": "boundary_digit_overrun_glued", "raw": "12가34567", "expected": null, "note": "번호판 뒤에 숫자 하나가 구분자 없이 더 붙음 — 경계 불분명" },
-    { "name": "ambiguous_two_plates_space_joined", "raw": "12가3456 34나5678", "expected": null, "note": "공백이 정규화에서 모두 제거되어 두 번호판이 맞붙음 — 양쪽 다 경계 위반으로 폐기(결과는 역시 null)" },
-    { "name": "edge_non_plate_dash_text", "raw": "UNKNOWN-PRIVATE-PLATE", "expected": null },
-    { "name": "edge_too_long", "raw": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "expected": null, "note": "65자 초과 — 길이 상한" }
+    {
+      "name": "real_unrecognized_label",
+      "raw": "미인식",
+      "expected": null,
+      "note": "주정차/기타 응답에 쓰이는 '미인식' 그대로",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_trailing_paren_3digit",
+      "raw": "177도7967)",
+      "expected": "177도7967",
+      "note": "끝 군더더기 ')' 는 구두점 — 통과",
+      "masked": "1*7도*9*7"
+    },
+    {
+      "name": "real_trailing_paren_2digit",
+      "raw": "40라1805)",
+      "expected": "40라1805",
+      "note": "끝 군더더기 ')'",
+      "masked": "4*라*8*5"
+    },
+    {
+      "name": "real_trailing_glued_hangul",
+      "raw": "81수0136수",
+      "expected": null,
+      "note": "번호판 바로 뒤에 한글 한 글자가 구분자 없이 붙음 — 경계 불분명",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_region_trailing_glued_hangul",
+      "raw": "대구81아7901구",
+      "expected": null,
+      "note": "지역 접두 + 번호판 뒤에 한글 한 글자가 구분자 없이 붙음 — 경계 불분명",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "contrast_region_trailing_paren",
+      "raw": "대구81아7901)",
+      "expected": "대구81아7901",
+      "note": "위 사례와 대조 — 뒤에 붙은 게 구두점이면 통과(경계 규칙 문서화용)",
+      "masked": "대구8*아*9*1"
+    },
+    {
+      "name": "real_description_slash_1",
+      "raw": "235호2929/흰색SUV차량입니다.",
+      "expected": "235호2929",
+      "note": "'/' 뒤는 설명 문구 — 통과",
+      "masked": "2*5호*9*9"
+    },
+    {
+      "name": "real_description_slash_2",
+      "raw": "22거8784/승용차량입니다.",
+      "expected": "22거8784",
+      "note": "'/' 뒤는 설명 문구 — 통과",
+      "masked": "2*거*7*4"
+    },
+    {
+      "name": "real_suspect_invisible_1",
+      "raw": "14두7874",
+      "expected": "14두7874",
+      "note": "실데이터에서 보이지 않는 문자 혼입 의심 — 정규화가 Cf(서식) 문자를 모두 제거하므로 실제로 끼어 있어도 결과는 같다",
+      "masked": "1*두*8*4"
+    },
+    {
+      "name": "real_suspect_invisible_2",
+      "raw": "46부3555",
+      "expected": "46부3555",
+      "note": "위와 같음",
+      "masked": "4*부*5*5"
+    },
+    {
+      "name": "real_suspect_invisible_zwsp",
+      "raw": "14​두​7874",
+      "expected": "14두7874",
+      "note": "제로폭 공백(U+200B) 혼입 — 제거 후 정상 인식",
+      "masked": "1*두*8*4"
+    },
+    {
+      "name": "real_suspect_invisible_bom",
+      "raw": "46﻿부3555",
+      "expected": "46부3555",
+      "note": "BOM/ZWNBSP(U+FEFF) 혼입 — 제거 후 정상 인식",
+      "masked": "4*부*5*5"
+    },
+    {
+      "name": "real_date_dotted",
+      "raw": "2024.06.05",
+      "expected": null,
+      "note": "날짜, 번호판 아님",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_free_text",
+      "raw": "중앙선침범",
+      "expected": null,
+      "note": "숫자 없는 설명 문구",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_date_dashed",
+      "raw": "202-12-29",
+      "expected": null,
+      "note": "하이픈 제거 후 순수 숫자만 남음",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_short_digits",
+      "raw": "4450",
+      "expected": null,
+      "note": "숫자만, 번호판 아님",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_long_digits",
+      "raw": "1478991",
+      "expected": null,
+      "note": "숫자만, 번호판 아님",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_digit_overrun_5tail",
+      "raw": "25어95505",
+      "expected": null,
+      "note": "자리수 오류 — 끝 숫자가 5개(4개 초과분이 경계에 붙어 있음)",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_jamo_not_syllable",
+      "raw": "04ㅁ2463",
+      "expected": null,
+      "note": "자모 오류 — 'ㅁ' 은 낱자모(U+3141), 음절(가-힣) 아님",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_jamo_mixed_tail",
+      "raw": "34모3ㄷ07",
+      "expected": null,
+      "note": "자모 오류 — 끝 4자리 숫자 run 이 자모로 끊김",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_digit_overrun_5tail_2",
+      "raw": "20마05850",
+      "expected": null,
+      "note": "자리수 오류 — 끝 숫자 5개",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_digit_overrun_leading",
+      "raw": "0006마8861",
+      "expected": null,
+      "note": "자리수 오류 — 앞 숫자가 4개(지역번호 2~3자리 초과분이 경계에 붙어 있음)",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_region_prefix_3digit_tail",
+      "raw": "경기53바415",
+      "expected": null,
+      "note": "지역 접두 + 끝 숫자 3자리(4자리 미만) — 구형/오류, 끝 숫자 4자리를 채울 수 없어 토큰 자체가 없음",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "real_not_plate_registry_like",
+      "raw": "김천시장010358",
+      "expected": null,
+      "note": "'김천'은 17개 시도 약칭에 없음 — 숫자 앞에 한글이 없어 본문 패턴 불성립",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "normal_car_2digit",
+      "raw": "12가3456",
+      "expected": "12가3456",
+      "masked": "1*가*4*6"
+    },
+    {
+      "name": "normal_car_3digit",
+      "raw": "123가4567",
+      "expected": "123가4567",
+      "masked": "1*3가*5*7"
+    },
+    {
+      "name": "normal_region_short_seoul",
+      "raw": "서울12가3456",
+      "expected": "서울12가3456",
+      "masked": "서울1*가*4*6"
+    },
+    {
+      "name": "normal_region_short_busan",
+      "raw": "부산12가3456",
+      "expected": "부산12가3456",
+      "masked": "부산1*가*4*6"
+    },
+    {
+      "name": "normal_region_full_to_short_seoul",
+      "raw": "서울특별시12가3456",
+      "expected": "서울12가3456",
+      "note": "공식 전체 이름도 약칭으로 정규화",
+      "masked": "서울1*가*4*6"
+    },
+    {
+      "name": "normal_with_space_hyphen",
+      "raw": "경기 123가-4567",
+      "expected": "경기123가4567",
+      "note": "번호판 표기상의 공백·하이픈은 제거",
+      "masked": "경기1*3가*5*7"
+    },
+    {
+      "name": "normal_region_already_example",
+      "raw": "경기76자3623",
+      "expected": "경기76자3623",
+      "masked": "경기7*자*6*3"
+    },
+    {
+      "name": "normal_fullwidth_digits",
+      "raw": "１２가３４５６",
+      "expected": "12가3456",
+      "note": "전각 숫자 — NFKC 로 반각 변환",
+      "masked": "1*가*4*6"
+    },
+    {
+      "name": "normal_internal_space_only",
+      "raw": "12가 3456",
+      "expected": "12가3456",
+      "masked": "1*가*4*6"
+    },
+    {
+      "name": "edge_null_input",
+      "raw": null,
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "edge_empty_string",
+      "raw": "",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "edge_plain_text",
+      "raw": "unknown",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "motorcycle_1digit_lead",
+      "raw": "3호1234",
+      "expected": "3호1234",
+      "note": "이륜형 — 앞 숫자 1자리",
+      "masked": "3호*2*4"
+    },
+    {
+      "name": "motorcycle_0digit_lead",
+      "raw": "가1234",
+      "expected": "가1234",
+      "note": "이륜형 — 앞 숫자 0자리",
+      "masked": "가*2*4"
+    },
+    {
+      "name": "motorcycle_with_region",
+      "raw": "서울3호1234",
+      "expected": "서울3호1234",
+      "note": "이륜형 + 지역 접두",
+      "masked": "서울3호*2*4"
+    },
+    {
+      "name": "motorcycle_optional_mid_digit",
+      "raw": "3호51234",
+      "expected": "3호51234",
+      "note": "이륜형 — 한글 뒤 선택 숫자 1개 + 필수 4자리",
+      "masked": "3호**2*4"
+    },
+    {
+      "name": "region_prefix_jeonbuk_short",
+      "raw": "전북12가3456",
+      "expected": "전북12가3456",
+      "masked": "전북1*가*4*6"
+    },
+    {
+      "name": "region_prefix_jeonbuk_full_old",
+      "raw": "전라북도12가3456",
+      "expected": "전북12가3456",
+      "masked": "전북1*가*4*6"
+    },
+    {
+      "name": "region_prefix_gangwon_do",
+      "raw": "강원도12가3456",
+      "expected": "강원12가3456",
+      "masked": "강원1*가*4*6"
+    },
+    {
+      "name": "region_prefix_gangwon_special",
+      "raw": "강원특별자치도12가3456",
+      "expected": "강원12가3456",
+      "masked": "강원1*가*4*6"
+    },
+    {
+      "name": "region_prefix_jeju_do",
+      "raw": "제주도12가3456",
+      "expected": "제주12가3456",
+      "masked": "제주1*가*4*6"
+    },
+    {
+      "name": "old_style_single_digit_region_no",
+      "raw": "2가1234",
+      "expected": "2가1234",
+      "note": "구형(한 자리 지역번호) — 일반형 최소 2자리에는 못 미쳐 이륜형 패턴으로 수용",
+      "masked": "2가*2*4"
+    },
+    {
+      "name": "ambiguous_two_distinct_candidates",
+      "raw": "12가3456/34나5678",
+      "expected": null,
+      "note": "서로 다른 유효 후보 2개 — 추측 금지로 null",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "boundary_latin_prefix_ok",
+      "raw": "a12가3456",
+      "expected": "12가3456",
+      "note": "영문자는 경계로 허용(숫자·한글만 경계 위반)",
+      "masked": "1*가*4*6"
+    },
+    {
+      "name": "boundary_digit_overrun_glued",
+      "raw": "12가34567",
+      "expected": null,
+      "note": "번호판 뒤에 숫자 하나가 구분자 없이 더 붙음 — 경계 불분명",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "ambiguous_two_plates_space_joined",
+      "raw": "12가3456 34나5678",
+      "expected": null,
+      "note": "공백이 정규화에서 모두 제거되어 두 번호판이 맞붙음 — 양쪽 다 경계 위반으로 폐기(결과는 역시 null)",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "edge_non_plate_dash_text",
+      "raw": "UNKNOWN-PRIVATE-PLATE",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "edge_too_long",
+      "raw": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "expected": null,
+      "note": "65자 초과 — 길이 상한",
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_01",
+      "raw": "경기군포다2671",
+      "expected": "경기군포다2671",
+      "masked": "경기군포다*6*1"
+    },
+    {
+      "name": "이륜_지역_회귀_02",
+      "raw": "서울강남다0025",
+      "expected": "서울강남다0025",
+      "masked": "서울강남다*0*5"
+    },
+    {
+      "name": "이륜_지역_회귀_03",
+      "raw": "광주북바5231",
+      "expected": "광주북바5231",
+      "masked": "광주북바*2*1"
+    },
+    {
+      "name": "이륜_지역_회귀_04",
+      "raw": "충북청주하9406",
+      "expected": "충북청주하9406",
+      "masked": "충북청주하*4*6"
+    },
+    {
+      "name": "이륜_지역_회귀_05",
+      "raw": "경기도군포시다2671",
+      "expected": "경기군포다2671",
+      "masked": "경기군포다*6*1"
+    },
+    {
+      "name": "이륜_지역_회귀_06",
+      "raw": "서울 강남 다 0025",
+      "expected": "서울강남다0025",
+      "masked": "서울강남다*0*5"
+    },
+    {
+      "name": "이륜_지역_회귀_07",
+      "raw": "서울특별시-강남구-다-0025",
+      "expected": "서울강남다0025",
+      "masked": "서울강남다*0*5"
+    },
+    {
+      "name": "이륜_지역_회귀_08",
+      "raw": "경기동두천다1234",
+      "expected": "경기동두천다1234",
+      "masked": "경기동두천다*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_09",
+      "raw": "경기도동두천시다1234",
+      "expected": "경기동두천다1234",
+      "masked": "경기동두천다*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_10",
+      "raw": "제주특별자치도서귀포가1234",
+      "expected": "제주서귀포가1234",
+      "masked": "제주서귀포가*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_11",
+      "raw": "부산동구가1234",
+      "expected": "부산동가1234",
+      "masked": "부산동가*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_12",
+      "raw": "부산동가1234",
+      "expected": "부산동가1234",
+      "masked": "부산동가*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_13",
+      "raw": "부산기장군가1234",
+      "expected": "부산기장가1234",
+      "masked": "부산기장가*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_14",
+      "raw": "경기수윈다1234",
+      "expected": "경기수윈다1234",
+      "masked": "경기수윈다*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_15",
+      "raw": "충북중주다1234",
+      "expected": "충북중주다1234",
+      "masked": "충북중주다*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_16",
+      "raw": "경기김경포다1234",
+      "expected": "경기김경포다1234",
+      "masked": "경기김경포다*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_17",
+      "raw": "경기군다1234",
+      "expected": "경기군다1234",
+      "masked": "경기군다*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_18",
+      "raw": "경기시다1234",
+      "expected": "경기시다1234",
+      "masked": "경기시다*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_19",
+      "raw": "경기구다1234",
+      "expected": "경기구다1234",
+      "masked": "경기구다*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_20",
+      "raw": "1오41357",
+      "expected": "1오41357",
+      "masked": "1오**3*7"
+    },
+    {
+      "name": "이륜_지역_회귀_21",
+      "raw": "설명경기군포다2671",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_22",
+      "raw": "1경기군포다2671",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_23",
+      "raw": "경기군포다26710",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_24",
+      "raw": "경기군포다2671가",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_25",
+      "raw": "경기군포다2671ㄱ",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_26",
+      "raw": "경기군포다2671/12가3456",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_27",
+      "raw": "경기도군포시다2671/경기군포다2671",
+      "expected": "경기군포다2671",
+      "masked": "경기군포다*6*1"
+    },
+    {
+      "name": "이륜_지역_회귀_28",
+      "raw": "경기군포다2671/서울강남다0025",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_29",
+      "raw": "여수사6361",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_30",
+      "raw": "천안차2711",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_31",
+      "raw": "경기가나다라바1234",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_32",
+      "raw": "경기군1포다1234",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_지역_회귀_33",
+      "raw": "경기군포다2671)/설명",
+      "expected": "경기군포다2671",
+      "masked": "경기군포다*6*1"
+    },
+    {
+      "name": "이륜_지역_회귀_34",
+      "raw": "경기도군포시다２６７１",
+      "expected": "경기군포다2671",
+      "masked": "경기군포다*6*1"
+    },
+    {
+      "name": "이륜_지역_회귀_35",
+      "raw": "서울특별시중구가1234",
+      "expected": "서울중가1234",
+      "masked": "서울중가*2*4"
+    },
+    {
+      "name": "이륜_지역_회귀_36",
+      "raw": "강원도강릉가1234",
+      "expected": "강원강릉가1234",
+      "masked": "강원강릉가*2*4"
+    },
+    {
+      "name": "이륜_복수접미_모호",
+      "raw": "경기가군구다1234",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_복수접미_모호2",
+      "raw": "경기시군구다1234",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    },
+    {
+      "name": "이륜_한글자지명_접미",
+      "raw": "경기구구가1234",
+      "expected": "경기구가1234",
+      "masked": "경기구가*2*4"
+    },
+    {
+      "name": "이륜_지역긴이름_우선",
+      "raw": "경기도가1234",
+      "expected": "경기가1234",
+      "masked": "경기가*2*4"
+    },
+    {
+      "name": "이륜_지역약칭과지명_모호",
+      "raw": "경기도도봉다1234",
+      "expected": null,
+      "masked": "번호 확인 불가"
+    }
   ]
 }

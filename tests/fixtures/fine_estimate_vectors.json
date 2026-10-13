@@ -1,5 +1,5 @@
 {
- "rule_version": "2026-10-12.1",
+ "rule_version": "2026-10-13.2",
  "note": "서버 services/fine_estimate.py 와 모바일 Standalone 규칙이 같은 결과를 내야 한다. 이 파일은 양쪽 레포에 같은 내용으로 둔다.",
  "plates": [
   {
@@ -130,6 +130,46 @@
    "kind": null,
    "class": "승용등",
    "note": "실데이터: 앞 숫자 4자리(지역번호 2~3자리 초과) — 자리수 오류로 null"
+  },
+  {
+   "plate": "경기군포다2671",
+   "kind": "이륜",
+   "class": "이륜등"
+  },
+  {
+   "plate": "경기도 군포시 다 2671",
+   "kind": "이륜",
+   "class": "이륜등"
+  },
+  {
+   "plate": "서울강남다0025",
+   "kind": "이륜",
+   "class": "이륜등"
+  },
+  {
+   "plate": "광주북바5231",
+   "kind": "이륜",
+   "class": "이륜등"
+  },
+  {
+   "plate": "충북청주하9406",
+   "kind": "이륜",
+   "class": "이륜등"
+  },
+  {
+   "plate": "경기동두천다1234",
+   "kind": "이륜",
+   "class": "이륜등"
+  },
+  {
+   "plate": "1오41357",
+   "kind": "이륜",
+   "class": "이륜등"
+  },
+  {
+   "plate": "가1234",
+   "kind": "이륜",
+   "class": "이륜등"
   }
  ],
  "cases": [
@@ -827,6 +867,28 @@
    },
    "rule": "fire_lane",
    "amount": 500000
+  },
+  {
+   "name": "지역_이륜_parking",
+   "record": {
+    "category": "parking",
+    "entry_value": "불법주정차신고-인도",
+    "차량번호": "경기군포다2671",
+    "범칙금_과태료": "과태료"
+   },
+   "amount": null,
+   "rule": "parking"
+  },
+  {
+   "name": "지역_이륜_bus_lane",
+   "record": {
+    "category": "traffic",
+    "신고명": "버스전용차로 위반",
+    "차량번호": "경기군포다2671",
+    "범칙금_과태료": "과태료"
+   },
+   "amount": 40000,
+   "rule": "bus_lane"
   }
  ]
 }

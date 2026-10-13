@@ -1,5 +1,5 @@
 {
-  "version": "amount-typo-2",
+  "version": "amount-typo-3",
   "cases": [
     {
       "name": "실제 쉼표 오타 1건",
@@ -540,6 +540,268 @@
       "corrected_text": null,
       "estimated_won": 500000,
       "estimated_rule": "fire_lane"
+    },
+    {
+      "name": "제23조 실표본과 동일 형식 끼어들기 (번호판 합성)",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제23조",
+        "차량번호": "63너1234",
+        "신고명": "끼어들기 금지 위반"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine",
+      "corrected_text": "과태료: 40,000원"
+    },
+    {
+      "name": "표에 없는 제19조제4항",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제19조4항",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "조항 정규화 도로교통법 제14조5항",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제14조5항",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine",
+      "corrected_text": "과태료: 40,000원"
+    },
+    {
+      "name": "조항 정규화 도로교통법 제14조제5항",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제14조제5항",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine",
+      "corrected_text": "과태료: 40,000원"
+    },
+    {
+      "name": "조항 정규화  도로 교통법 제 14 조 제 5 항 ",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": " 도로 교통법 제 14 조 제 5 항 ",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine",
+      "corrected_text": "과태료: 40,000원"
+    },
+    {
+      "name": "조항 정규화 제14조5항",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "제14조5항",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": 40000,
+      "stats_won": 40000,
+      "kind": "fine",
+      "corrected_text": "과태료: 40,000원"
+    },
+    {
+      "name": "다른 법 조항은 연결 안 함",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "다른법 제14조5항",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "복수 조항은 추측 안 함",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제23조, 제5조",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "없는 하위 조항에 상위 표 적용 금지",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제14조제99항",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "제160조는 위반행위 조항 아님",
+      "raw": "과태료: 40,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제160조제3항",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "의2 하위 조항 보존",
+      "raw": "과태료: 90,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제25조의2제1항",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": 90000,
+      "stats_won": 90000,
+      "kind": "fine",
+      "corrected_text": "과태료: 90,000원"
+    },
+    {
+      "name": "의2 조 단위는 확인된 항 합집합",
+      "raw": "과태료: 50,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제25조의2",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": 50000,
+      "stats_won": 50000,
+      "kind": "fine",
+      "corrected_text": "과태료: 50,000원"
+    },
+    {
+      "name": "의2 호 보존",
+      "raw": "과태료: 70,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제49조1항11호의2",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": 70000,
+      "stats_won": 70000,
+      "kind": "fine",
+      "corrected_text": "과태료: 70,000원"
+    },
+    {
+      "name": "보호구역 신호위반 13만원",
+      "raw": "과태료: 130,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제5조",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": 130000,
+      "stats_won": 130000,
+      "kind": "fine",
+      "corrected_text": "과태료: 130,000원"
+    },
+    {
+      "name": "차종 미상은 해당 조항 전 차종",
+      "raw": "과태료: 90,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제5조",
+        "차량번호": "미상"
+      },
+      "confirmed_won": 90000,
+      "stats_won": 90000,
+      "kind": "fine",
+      "corrected_text": "과태료: 90,000원"
+    },
+    {
+      "name": "승용에 이륜 금액 적용 금지",
+      "raw": "과태료: 90,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제5조",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
+    },
+    {
+      "name": "화물 4톤 경계 미상은 승용과 승합 합집합",
+      "raw": "과태료: 140,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제5조",
+        "차량번호": "80가1234"
+      },
+      "confirmed_won": 140000,
+      "stats_won": 140000,
+      "kind": "fine",
+      "corrected_text": "과태료: 140,000원"
+    },
+    {
+      "name": "번호판 차종별 이륜 끼어들기",
+      "raw": "과태료: 30,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제23조",
+        "차량번호": "경기군포다1234"
+      },
+      "confirmed_won": 30000,
+      "stats_won": 30000,
+      "kind": "fine",
+      "corrected_text": "과태료: 30,000원"
+    },
+    {
+      "name": "기존 규칙과 조항 표 합집합",
+      "raw": "과태료: 120,0000원",
+      "record": {
+        "category": "parking",
+        "위반법규": "도로교통법 제32조",
+        "차량번호": "63너1234",
+        "entry_value": "불법주정차신고"
+      },
+      "confirmed_won": 120000,
+      "stats_won": 120000,
+      "kind": "fine",
+      "corrected_text": "과태료: 120,000원"
+    },
+    {
+      "name": "법정 표에서 실제 가능한 복수 후보 10만원과 100만원",
+      "raw": "과태료: 100,0000원",
+      "record": {
+        "category": "traffic",
+        "위반법규": "도로교통법 제50조의3제6항",
+        "차량번호": "63너1234"
+      },
+      "confirmed_won": null,
+      "stats_won": 0,
+      "kind": "fine",
+      "corrected_text": null
     }
   ],
   "candidate_cases": [
@@ -570,5 +832,69 @@
       "name": "일치 없음"
     }
   ],
-  "rule_version": "2026-10-12.1"
+  "rule_version": "2026-10-13.2",
+  "table_cases": [
+    {
+      "law": "도로교통법 제5조",
+      "plate": "63너1234",
+      "amounts": [
+        70000,
+        130000
+      ]
+    },
+    {
+      "law": "도로교통법 제23조",
+      "plate": "미상",
+      "amounts": [
+        30000,
+        40000
+      ]
+    },
+    {
+      "law": "도로교통법 제32조",
+      "plate": "63너1234",
+      "amounts": [
+        40000,
+        50000,
+        80000,
+        90000,
+        120000,
+        130000
+      ]
+    },
+    {
+      "law": "도로교통법 제15조제3항",
+      "plate": "63너1234",
+      "amounts": [
+        50000,
+        90000
+      ]
+    },
+    {
+      "law": "도로교통법 제19조제4항",
+      "plate": "미상",
+      "amounts": []
+    },
+    {
+      "law": "도로교통법 제50조",
+      "plate": "63너1234",
+      "amounts": [
+        30000,
+        60000
+      ]
+    },
+    {
+      "law": "도로교통법 제50조제4항",
+      "plate": "63너1234",
+      "amounts": []
+    },
+    {
+      "law": "도로교통법 제50조제4항",
+      "plate": "미상",
+      "amounts": [
+        20000
+      ]
+    }
+  ],
+  "table_sha256": "e103aeafdce5adfcc60abd3500c891605f8cc4aab64abf53eba653742e51a0ca"
 }

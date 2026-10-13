@@ -1,5 +1,6 @@
 """PC/모바일 공유 벡터: 숫자, 실제 통계 집계, 업로드 payload, 원문 보존."""
 import json
+import hashlib
 from pathlib import Path
 import unittest
 
@@ -20,6 +21,25 @@ def adapter(case):
 
 
 class FineAmountTypoTest(unittest.TestCase):
+    def test_shared_table_hash_and_vehicle_amounts(self):
+        table_path = Path(fine_estimate.__file__).parent / 'data/traffic_fine_table.json'
+        self.assertEqual(hashlib.sha256(table_path.read_bytes()).hexdigest(), VECTORS['table_sha256'])
+        for case in VECTORS['table_cases']:
+            with self.subTest(case):
+                self.assertEqual(fine_estimate.legal_fine_amounts({
+                    '위반법규': case['law'], '차량번호': case['plate'],
+                }), set(case['amounts']))
+
+    def test_article_changes_unknown_target_without_changing_estimator(self):
+        r = {'category': 'traffic', '신고명': '끼어들기 금지 위반',
+             '위반법규': '도로교통법 제23조', '차량번호': '63너1234'}
+        self.assertIsNone(fine_estimate.classify(r))
+        self.assertIsNone(fine_estimate.estimate(r))
+        self.assertFalse(fine_estimate.is_fine_amount_unknown('과태료: 40,0000원', r))
+        r.update(category='parking', 위반법규='도로교통법 제32조')
+        self.assertEqual(fine_estimate.estimate(r)['amount'], 40000)
+        self.assertIsNone(fine_estimate.estimate_if_unknown('과태료: 120,0000원', r))
+
     def test_shared_rule_version(self):
         self.assertEqual(fine_estimate.RULE_VERSION, VECTORS['rule_version'])
 

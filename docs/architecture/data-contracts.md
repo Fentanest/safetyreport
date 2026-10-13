@@ -749,12 +749,13 @@ GET /api/v1/vehicle/{vehicle_number}
 `범칙금_과태료` 원문과 DB 교환 값은 보존한다. 정상 정수/천 단위 쉼표·점 표기는 그대로 읽는다.
 깨진 구분자 묶음은 구분자를 제거한 숫자와, 첫 묶음(1~3자리)을 유지하고 뒤 묶음을 3자리로 맞춘 숫자만 후보로 만든다.
 짧은 묶음은 끝에 0을 붙이고, 긴 묶음은 3자리 뒤가 모두 0일 때만 그 0을 지운다(다른 숫자는 바꾸지 않는다).
-해당 신고 유형·번호판 차종의 기존 fine_estimate 금액표(기본·2시간 가중)의 금액과 후보 하나만 일치할 때 확정으로 읽는다.
-일치 없음/복수 일치/유형 미상은 금액 미확인이며 기존 추정 대상 판정으로 이어진다. 범칙금에는 과태료 규칙을 적용하지 않는다.
+기존 fine_estimate 금액표(기본·2시간 가중)와 위반 조항별 법정 금액표의 합집합에 후보 하나만 일치할 때 확정으로 읽는다.
+일치 없음/복수 일치/사용 가능한 규칙·조항 없음은 금액 미확인이며 기존 추정 대상 판정으로 이어진다. 범칙금에는 과태료 규칙을 적용하지 않는다.
 PC는 `services/fine_estimate.py`, 모바일은 `lib/services/fine_estimate.dart`가 숫자 판정 정본이다. 통계·업로드는 신고 맥락을 함께 넘긴다.
-공유 시험 벡터는 `fine_amount_typo_vectors.json`이며 `candidate_cases`의 복수 일치는 합성 금액표로 방어 조건을 검사한다.
-파서 버전 pc-parser-7/mobile-parser-7은 기존 규칙·파서 버전 기반 재전송 경로를 다시 실행한다. 재크롤링 없이 로컬 값으로
-payload를 만들고 해시가 바뀐 신고만 한 번 새 관측으로 전송한다. 상세 화면의 보정값/원문 표기는 표시용이며 DB에 쓰지 않는다.
+공유 시험 벡터는 `fine_amount_typo_vectors.json`이며 합성 후보 집합과 실제 법정 집합 모두에서 복수 일치 방어 조건을 검사한다.
+파서 버전 pc-parser-7/mobile-parser-7은 기존 규칙·파서 버전 기반 재전송 경로를 다시 실행한다.
+재전송은 journal 최신 payload의 추정 필드만 재계산하며, 확정 금액의 파서 보정은 새 상세 관측을 수집할 때 반영한다.
+상세 화면의 보정값/원문 표기는 표시용이며 DB에 쓰지 않는다.
 
 ### 코드 대조 정정 — 금액 판정 입력과 토큰 경계
 
@@ -763,8 +764,121 @@ payload를 만들고 해시가 바뀐 신고만 한 번 새 관측으로 전송�
 | 숫자 토큰 | `[0-9,.]+` 전체를 통계·업로드·표시가 공유한다. 앞/뒤 쉼표·점은 버리지 않고, 빈 묶음은 미확인으로 처리한다. |
 | 판정 입력 | category, entry_value, ssnpc_cd, ssnpc_type, 신고명, 위반법규, 차량번호, 사진_첫촬영, 사진_끝촬영, 발생시각을 함께 넘긴다. 모바일 Report 변환은 fineRecordForReport가 정본이다. |
 | 코드 우선순위 | 분류 코드가 있으면 메뉴보다 우선한다. 일반 주정차 메뉴 + EP-03은 fire_lane 500000원, 코드가 없으면 parking 40000원이다. 통계·업로드·목록/상세·추정 금액 내보내기 모두 같다. |
-| 규칙 버전 | 양쪽 RULE_VERSION/ruleVersion은 2026-10-12.1. 파서 버전은 pc-parser-7/mobile-parser-7을 유지한다. 공유 벡터와 커뮤니티 계약 벡터·MANIFEST도 함께 변경한다. |
+| 규칙 버전 | 양쪽 RULE_VERSION/ruleVersion은 2026-10-13.2. 파서 버전은 pc-parser-7/mobile-parser-7을 유지한다. 공유 벡터와 커뮤니티 계약 벡터·MANIFEST도 함께 변경한다. |
+| 재전송 범위 | PC `_backfill_payload`, 모바일 `refreshFineEstimate`는 journal의 `amount`를 보존하고 `fine_estimate`만 재계산한다. 버전 상승만으로 과거 공유 확정 금액을 보정하지 않는다. PC의 종전 “로컬 값으로 payload를 만든다”는 설명을 이 코드에 맞춰 정정한다. |
 | 저장·표시·내보내기 | DB와 내보내기의 확정 원문은 보존한다. 목록/상세만 해석한 보정값을 쓰고, 상세에만 원문 보조를 붙인다. 미확인 금액의 추정은 같은 상세 줄에서 별도로 표시한다. |
 
 추정 과태료 업로드는 아직 미릴리스다. 코드 우선 적용으로 추정액·payload 해시가 바뀌는 범위는 있지만,
 이미 배포된 추정값을 다시 보내야 하는 추가 부담은 없다. 기존 버전 기반 재전송 경로와 해시 멱등성은 유지한다.
+
+## 이륜 번호판 정규화와 추정 규칙 버전
+
+| 규칙 버전 | 의미 |
+|---|---|
+| `2026-10-12.1` | 금액 오타 정리 규칙. 지역+시군구 이륜 번호판은 정규화되지 않아 승용등으로 추정하는 회귀가 있었다. |
+| `2026-10-13.1` | 지역 필수 이륜형을 인식한다. `경기도군포시다2671` → `경기군포다2671`, 차종 `이륜`, 금액군 `이륜등`. 주정차는 추정 없음, 일반도로 버스전용차로는 40,000원. |
+
+지역은 기존 사전의 긴 이름을 먼저 적용한다. 지역 뒤 시군구는 한글 1~3자이며 별도 `시/군/구` 접미 한 글자를 제거한다.
+한 글자 지명 자체는 제거하지 않는다. 숫자 앞 마지막 한글은 용도 글자로 고정해 지명 분할을 추측하지 않는다. 접미 제거 뒤에도 두 글자 이상 지명이 `시/군/구`로 끝나
+재정규화 결과가 달라지는 복수 접미 해석은 모호하므로 제외한다. 약칭과 지명 첫 글자가 다시 지역 정식명으로 읽히는 경우도 제외한다
+(예: `경기도도봉다1234`를 줄인 `경기도봉다1234`의 `도`가 지역인지 지명인지 모호함).
+지명 사전으로 오타를 교정하지 않으며, 지역 없는 `여수사6361`·`천안차2711`은 제외한다.
+경계는 지역 앞과 숫자4 뒤에서 검사한다. 서로 다른 후보가 두 개 이상이면 미인식이다.
+원문 차량번호·확정 금액은 그대로 보존하며 정규화된 값은 차종 판정과 중복차량 묶기에 사용한다.
+
+규칙 버전이 달라지면 기존 재전송 완료 표식이 만료된다. 최신 journal payload의 추정만 재계산해
+주정차의 잘못된 추정을 제거하고 버스전용차로 50,000원을 40,000원으로 교정한다.
+다른 payload 필드는 유지한다. 재전송 완료 뒤 동일 버전으로 다시 실행하면 중복 이벤트를 만들지 않는다.
+지도 수집기는 `rule_version`을 길이 제한 문자열로 받으므로 새 버전 허용 목록 변경은 필요하지 않다.
+기존 중앙의 오계산은 각 PC·모바일이 업데이트 후 재전송해야 고쳐진다. SQL은 앱 추정을 임의로 다시 계산하지 않는다.
+
+
+### 위반 조항별 법정 금액표
+
+- 원문: [도로교통법 시행령, 시행 2026-10-02, 대통령령 제36728호](https://www.law.go.kr/LSW/lsInfoP.do?lsiSeq=290387&efYd=20261002).
+  [별표 6](https://www.law.go.kr/LSW/flDownload.do?flSeq=169705915&bylClsCd=110201)(별표 개정일 2025-03-18),
+  [별표 7](https://www.law.go.kr/LSW/flDownload.do?flSeq=169705941&bylClsCd=110201)(별표 개정일 2020-12-01).
+  시행령 시행일과 별표 개정일은 서로 다르다. 작성일 2026-10-13. 원문 PDF SHA-256도 JSON metadata에 저장한다.
+- PC `services/data/traffic_fine_table.json`, 모바일 `assets/data/traffic_fine_table.json`은 바이트 동일하다.
+  44개 조, 세부 항·호와 상위 합집합 포함 110개 조회 키. 각 키의 `amounts`는 차종별 원 단위 집합,
+  `references`는 `별표번호:행번호`, `includes`는 상위 조·항에 합산한 확인된 하위 조항이다.
+  원문이 차종별로 나누지 않은 정액·기간 가산액은 `차종무관`에 두고 행위자/적용 범위를 `notes`에 기록한다.
+  제50조제4항은 `개인형이동장치`로 별도 구분하여 승용·승합·이륜 금액에 섞이지 않게 한다.
+  `제160조제3항`은 부과 근거이지 위반행위 조항이므로 조회 키가 아니다. 감경·체납 가산금·별표 8/10 범칙금은 제외한다.
+- `제14조5항`/`제14조제5항`, 공백, 법률명 생략을 정규화한다. 조 및 호의 `의2`는 보존한다.
+  다른 법률, 복수 조항, 미확인 하위 조항을 상위 조항으로 추측해 연결하지 않는다.
+  항 생략 시에는 표에 명시한 상위 집합만 조회한다(예: 제25조의2는 확인된 제1항·제2항의 합집합).
+- `legal_fine_amounts`/`legalFineAmounts`는 기존 `_RULES`의 기본·2시간 가중 금액을 유지하고 해당 위반 조항의
+  차종별 일반·보호구역·속도 구간·2시간 가중 금액을 합친다. 번호판 미상은 그 조항 전 차종,
+  화물의 4톤 경계·긴급차 원차종 미상은 승용등+승합등을 사용한다. 추정 함수의 기존 차종 선택은 바꾸지 않는다.
+  표로 보호구역 여부나 실제 부과액을 계산하지 않으며, 오직 깨진 숫자의 두 후보 대조에만 쓴다.
+- 정상 형식 금액은 표와 달라도 그대로 읽는다. 깨진 숫자는 후보 중 정확히 하나만 집합에 포함될 때 읽는다.
+  0개 또는 2개 일치면 원문/금액 미확인을 유지한다. 제23조의 `40,0000` → `40,000`.
+  실제 법정 집합에도 모호성이 있다: 별표 6 제10호의3(법 제50조의3제6항)은 10만원부터 500만원까지
+  10만원 단위 기간 가산액이므로 `100,0000`의 10만원/100만원 후보가 모두 맞아 보정하지 않는다.
+- `_RULES`, `classify`, `estimate`의 대상 유형·추정 금액은 그대로다. 다만 보정 성공으로 금액 미확인 여부가 바뀐다.
+  제23조는 추정 규칙 없이 확정 4만원이 되고, 일반 주정차+제32조 `120,0000`은 기존 추정 4만원 대신 확정 12만원이 된다.
+  따라서 양쪽 규칙 버전 `2026-10-13.2`로 기존 재전송 경로를 재실행한다. 파서 버전은 pc-parser-7/mobile-parser-7 유지.
+  커뮤니티 observations 벡터의 규칙 버전·canonical JSON·해시·MANIFEST는 PC/모바일 사본만 변경한다.
+  지도 저장소 정본 반영은 통합 담당자가 수행해야 한다.
+  **재전송 한계:** 기존 backfill은 journal의 `amount`를 보존하므로 과거 공유된 금액 미확인을 보정하지 않는다.
+  화면·로컬 통계와 새 상세 관측의 payload에는 즉시 적용되고, 과거 공유 금액은 새 상세 관측 때 반영된다.
+- Python은 모듈 기준 경로로 JSON을 읽고 PyInstaller 데이터 옵션에 포함한다.
+  모바일은 `tool/generate_traffic_fine_table.py`가 같은 JSON 전체를 `traffic_fine_table.g.dart`에 그대로 넣는다.
+  동기 함수·백그라운드 isolate에서 초기화 순서 없이 사용하며 Flutter asset 비동기 로딩은 필요 없다.
+  `--check`와 시험이 원본 JSON/생성 문자열/벡터의 SHA-256 일치를 검사한다.
+- PC `web/routers/filters.py` → `fine_corrected_text`에는 위반법규가 이미 전달된다.
+  Client 페이지 API는 위반법규를 포함한 원문 필드를 반환하고 `ApiService.getReportsPage` → `Report.fromJson` → `law` →
+  `fineRecordForReport`로 전달한다. 목록 `ReportCardMetaItem.fine` → `fineTextForReport`, 상세 `_fineField` →
+  `correctedFineText`를 사용한다. 화면 보정값·상세 원문 보조 표기만 달라지며 DB/내보내기 원문은 보존한다.
+
+## 모바일 Client 검색 계약 v1
+
+`GET /api/v1/app/config`의 `data.capabilities`에 `report_search_v1`,
+`data.report_search_version`에 정수 `1`이 **모두** 있을 때 사용한다. 제품 버전·protocol 3·DB schema 6은 변경하지 않는다.
+
+`GET /api/v1/reports/{category}/search` (기존 API 키 인증 유지):
+
+| 파라미터 | 의미 |
+|---|---|
+| `category` | traffic / parking / safety / living / other / all(5분류 통합) |
+| `search_version` | 필수 정수 1, 다른 버전은 400 |
+| `filter` | JSON 객체(최대 32768자), 생략하면 `{}`; 모르는 키·잘못된 타입은 400 |
+| `offset`, `limit` | 결과 기준 offset ≥ 0, limit 1~200(기본 200) |
+| `dedupe` | canonical(기본) / raw; 그 밖의 값은 400 |
+
+필터 키는 모바일 `ReportFilter.toSearchJson()` 및 양쪽 `contracts/client-search-vectors.json`이 정본이다.
+문자열 키: `name`, `reportNumber`, `id`, `ratingCause`, `agency`, `manager`, `carNumber`,
+`law`, `location`, `fine`, `supplementCount`, `reportContent`, `processContent`, `pollStatus`,
+`reportDateStart/End`, `occurDateStart/End`, `responseDateStart/End`, `occurTimeStart/End`.
+문자열 배열: `ratings`, `statuses`. bool: `excludePolice`, `onlyPolice`.
+빈 문자열·배열/false는 해당 조건 없음. 텍스트는 쉼표 OR/`&` AND, 양끝 공백 제거,
+Dart와 같은 Unicode 소문자 부분 일치이며 `%`·`_`는 리터럴이다(casefold·SQL LIKE 아님).
+법규는 공백 제거 후 완전 일치, `__없음__`은 NULL/빈 법규. 별점 NULL/0 이하의 토큰은 `__none__`.
+상태는 canonical 표시 상태(처리상태 NULL일 때 상태로 fallback), 보완횟수 NULL은 0,
+만족도 NULL은 `답변 대기`. 날짜·시각은 실제 유효 앞자리와 양끝 포함 범위이며 기존 모바일 판정을 보존한다.
+기관·경찰 조건은 현행 registry 표시명을 사용한다.
+
+응답은 기존 페이지 필드(`category,total,offset,limit,count,next_offset,dedupe_mode,data`)에
+`status:success`, `search_version:1`, 수신한 `filter` 객체, 서비스 처리 시간 `server_ms`를 더한다.
+`data`는 본문·처리내용·첨부·보완·편집용 필드를 생략하지 않은 full report이다.
+통합 목록에서는 각 행의 실제 category를 보존한다. 모바일은 버전·조건 echo·분류·offset·limit·dedupe를
+확인하며, 단순 HTTP 200만으로 검색이 적용됐다고 판단하지 않는다.
+
+`services/client_report_search.py`가 필요한 열만 받는 SQLite UDF로 **정확한 판정 후** COUNT와
+LIMIT/OFFSET을 적용한다. 기존 stats `sql_candidates`/목록 `_build_records_query`의 필터 의미를 대신 쓰지 않는다.
+신고번호 DESC, ID DESC 및 기존 canonical 대표건 투영·취하 제외 설정을 보존한다.
+COUNT·페이지·페이지의 중복 메타는 하나의 명시 읽기 트랜잭션을 공유한다.
+COUNT/검색결과 서버 캐시는 없으므로 DB 변경·dedupe·설정·registry에 대한 캐시 무효화 누락이 없다.
+기관 해석 캐시는 요청 안에서 최대 512개이고, full report 객체는 현재 페이지에 대해서만 만든다.
+정확한 부분 문자열 검색은 DB 스캔을 할 수 있다. 번호/ID, 분류/번호/ID 복합 인덱스로
+동일 신고번호의 ID 보조 정렬에 필요한 임시 정렬을 피한다. 인덱스만 추가하며 교환 DB 열은 바꾸지 않는다.
+
+모바일은 조건 검색과 전체 분류 조회를 이 경로로 읽고 현재·이전·다음 최대 3페이지 캐시,
+다음 한 페이지 prefetch를 유지한다. 조건이 없는 단일 분류는 기존 `/page`도 동일한 제한 조회다.
+capability를 성공적으로 조회했지만 신호가 없으면 기존 취소 가능한 200건 순회로 정확한 total을 구한다.
+401/timeout/5xx 및 새 경로의 404/응답 계약 오류는 오류로 전달하며 구서버 fallback 사유가 아니다.
+페이지 API 자체가 없는 서버의 기존 업데이트 필요 오류도 유지한다.
+임의 predicate를 사용하는 `FilteredListScreen`의 대시보드 드릴다운과 rating scope는
+명시적으로 기존 정확 순회에 남는다(부분 페이지 total로 속이지 않음).
+배포 순서는 PC 검색 계약 제공 → capability를 확인하는 모바일이며, 기존 모바일 `/page`와 `/reports`는 유지한다.
