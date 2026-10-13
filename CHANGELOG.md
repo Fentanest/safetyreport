@@ -1,5 +1,7 @@
 # Changelog
 
+- 2026-10-13: `.github/workflows/docker-dev.yml` 추가 — 선택한 실행 브랜치의 Docker 이미지만 ghcr·Docker Hub에 `dev`·`dev-<짧은sha>`로 빌드·푸시하는 수동 워크플로(버전 변경 없음).
+
 ## 2026-10-13 — CI 재구성: push(main)=Docker dev 태그만, 정식 릴리즈=workflow_dispatch (사용자 결정, 미배포)
 
 - `push(main)`은 더 이상 실행파일을 빌드하지 않고 태그·GitHub Release 도 만들지 않는다. 새 job `build-docker-dev`가 Docker 이미지만 빌드해 ghcr·Docker Hub 두 레지스트리에 `dev`·`dev-<짧은sha>` 태그로 푸시한다. `latest`·버전 태그는 절대 붙이지 않는다.
