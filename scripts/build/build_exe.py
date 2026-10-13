@@ -105,6 +105,7 @@ def build():
         f'--add-data=web/templates{sep}web/templates',
         f'--add-data=web/static{sep}web/static',
         f'--add-data=shared/agency-region-registry{sep}shared/agency-region-registry',
+        f'--add-data=services/data/traffic_fine_table.json{sep}services/data',
         f'--add-data=VERSION{sep}.',
         # Include hidden imports for dynamic loading frameworks
         '--hidden-import=uvicorn',

@@ -36,6 +36,8 @@ __pycache__/
 .env
 config.ini
 data/
+!services/data/
+!services/data/traffic_fine_table.json
 data.db
 auth/
 logs/

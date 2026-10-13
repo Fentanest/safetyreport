@@ -12,12 +12,32 @@
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
+from pathlib import Path
 
 from services import plate_normalize, report_category
 
-RULE_VERSION = "2026-10-13.1"
+RULE_VERSION = "2026-10-13.2"
+
+_TRAFFIC_FINE_TABLE = json.loads(
+    (Path(__file__).parent / "data/traffic_fine_table.json").read_text(encoding="utf-8")
+)["articles"]
+
+
+def normalize_violation_article(value) -> str | None:
+    """단일 도로교통법 조항만 정규화. 다른 법/복수 조항/모르는 하위 조항은 추측하지 않는다."""
+    text = re.sub(r"\s+", "", str(value or ""))
+    match = re.fullmatch(
+        r"(?:도로교통법)?제([0-9]+)조(의[0-9]+)?(?:제?([0-9]+)항)?(?:제?([0-9]+)호(의[0-9]+)?)?", text
+    )
+    if not match:
+        return None
+    article, subarticle, paragraph, item, subitem = match.groups()
+    return (f"도로교통법 제{article}조" + (subarticle or "")
+            + (f"제{paragraph}항" if paragraph else "")
+            + (f"제{item}호" if item else "") + (subitem or ""))
 
 # 차량 구분 → 과태료 표의 차종 구분 (도로교통법 시행령 별표6 비고)
 PASSENGER = "승용등"   # 승용자동차 + 4톤 이하 화물자동차
@@ -224,15 +244,25 @@ def estimate(record: dict) -> dict | None:
 # (판정을 각자 다시 구현하지 않는다).
 
 def legal_fine_amounts(record: dict | None) -> set[int]:
-    """해당 유형·차종의 기본/2시간 가중 금액. 다른 차종/유형 금액은 후보가 아니다."""
+    """기존 추정 규칙 금액 ∪ 확인된 위반 조항·차종의 모든 법정 금액(보정 전용)."""
     record = record or {}
     rule = _RULES.get(classify(record))
-    if rule is None:
-        return set()
-    _, amounts, surcharge = rule
     cls = fine_class(record.get("차량번호"))
-    return {table.get(cls, table.get(None)) for table in (amounts, surcharge or {})
-            if table.get(cls, table.get(None)) is not None}
+    result = set()
+    if rule is not None:
+        _, amounts, surcharge = rule
+        result.update(table.get(cls, table.get(None)) for table in (amounts, surcharge or {})
+                      if table.get(cls, table.get(None)) is not None)
+    entry = _TRAFFIC_FINE_TABLE.get(normalize_violation_article(record.get("위반법규")))
+    if entry:
+        amounts = entry["amounts"]
+        kind = vehicle_kind(record.get("차량번호"))
+        # 화물의 4톤 경계/긴급의 원차종은 번호판만으로 알 수 없다.
+        classes = ((PASSENGER, VAN) if kind in ("화물", "긴급") else
+                   tuple(amounts) if kind is None else (cls,))
+        for key in (*classes, "차종무관"):
+            result.update(amounts.get(key, ()))
+    return result
 
 
 # 숫자 토큰은 앞/뒤 구분자까지 포함한다. 부분 숫자만 골라 잘못된 형식을 정상으로 읽지 않는다.

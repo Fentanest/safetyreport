@@ -311,12 +311,12 @@
         "fine_estimate": {
           "won": 40000,
           "rule": "parking",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.1\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "d94be1d57097bc69fd4b06361ad5be26f543d31c360af5eeaf5d45721db5f1d1"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.2\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "c2c7840ca01cb1f36beadf5a059efa776daf2eb0078731723a466df1d8876aa5"
     },
     {
       "name": "zero_amount_is_not_null",
@@ -367,12 +367,12 @@
         "fine_estimate": {
           "won": 40000,
           "rule": "parking",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":0,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.1\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "5164afb522987ef413fd2bc80bee12a91135370ad1d7639bf3b061c3ad6f54f4"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":0,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.2\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "f73470e30fdd0843ba4bc31991937cd1765447c3bc3177cdb2b4b34db103c418"
     },
     {
       "name": "withdrawn_not_eligible",
@@ -1341,12 +1341,12 @@
         "fine_estimate": {
           "won": 40000,
           "rule": "parking",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.1\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "d94be1d57097bc69fd4b06361ad5be26f543d31c360af5eeaf5d45721db5f1d1"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.2\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "c2c7840ca01cb1f36beadf5a059efa776daf2eb0078731723a466df1d8876aa5"
     },
     {
       "name": "amount_dot_thousands",
@@ -1448,12 +1448,12 @@
         "fine_estimate": {
           "won": 40000,
           "rule": "parking",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.1\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "d94be1d57097bc69fd4b06361ad5be26f543d31c360af5eeaf5d45721db5f1d1"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.2\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "c2c7840ca01cb1f36beadf5a059efa776daf2eb0078731723a466df1d8876aa5"
     },
     {
       "name": "amount_over_cap_rejected",
@@ -1555,12 +1555,12 @@
         "fine_estimate": {
           "won": 40000,
           "rule": "parking",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.1\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "d94be1d57097bc69fd4b06361ad5be26f543d31c360af5eeaf5d45721db5f1d1"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.2\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "c2c7840ca01cb1f36beadf5a059efa776daf2eb0078731723a466df1d8876aa5"
     },
     {
       "name": "points_over_cap_rejected",
@@ -2385,12 +2385,12 @@
         "fine_estimate": {
           "won": 40000,
           "rule": "parking",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.1\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "d94be1d57097bc69fd4b06361ad5be26f543d31c360af5eeaf5d45721db5f1d1"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.2\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "c2c7840ca01cb1f36beadf5a059efa776daf2eb0078731723a466df1d8876aa5"
     },
     {
       "name": "amount_leading_separator__70_000",
@@ -2441,12 +2441,12 @@
         "fine_estimate": {
           "won": 40000,
           "rule": "parking",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.1\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "d94be1d57097bc69fd4b06361ad5be26f543d31c360af5eeaf5d45721db5f1d1"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.2\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "c2c7840ca01cb1f36beadf5a059efa776daf2eb0078731723a466df1d8876aa5"
     },
     {
       "name": "amount_leading_separator__40_0000",
@@ -2497,12 +2497,12 @@
         "fine_estimate": {
           "won": 40000,
           "rule": "parking",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.1\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "d94be1d57097bc69fd4b06361ad5be26f543d31c360af5eeaf5d45721db5f1d1"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.2\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "c2c7840ca01cb1f36beadf5a059efa776daf2eb0078731723a466df1d8876aa5"
     },
     {
       "name": "estimate_parking_no_code_zero",
@@ -2553,12 +2553,12 @@
         "fine_estimate": {
           "won": 40000,
           "rule": "parking",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":0,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.1\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "5164afb522987ef413fd2bc80bee12a91135370ad1d7639bf3b061c3ad6f54f4"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":0,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.2\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "f73470e30fdd0843ba4bc31991937cd1765447c3bc3177cdb2b4b34db103c418"
     },
     {
       "name": "estimate_fire_lane_code_zero",
@@ -2611,12 +2611,12 @@
         "fine_estimate": {
           "won": 500000,
           "rule": "fire_lane",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":0,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"fire_lane\",\"rule_version\":\"2026-10-13.1\",\"won\":500000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "b790fc93def7ed17c4c87bdb764283a0fdd9c33b1e9631d5dfaf7ff12c8a95d7"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":0,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"fire_lane\",\"rule_version\":\"2026-10-13.2\",\"won\":500000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "c580a20a1f870914a887cc03f0b75e7ddb0b0c0e71271a92a3c217f540692ce6"
     },
     {
       "name": "estimate_parking_no_code_unknown",
@@ -2667,12 +2667,12 @@
         "fine_estimate": {
           "won": 40000,
           "rule": "parking",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.1\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "d94be1d57097bc69fd4b06361ad5be26f543d31c360af5eeaf5d45721db5f1d1"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"parking\",\"rule_version\":\"2026-10-13.2\",\"won\":40000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "c2c7840ca01cb1f36beadf5a059efa776daf2eb0078731723a466df1d8876aa5"
     },
     {
       "name": "estimate_fire_lane_code_unknown",
@@ -2725,12 +2725,12 @@
         "fine_estimate": {
           "won": 500000,
           "rule": "fire_lane",
-          "rule_version": "2026-10-13.1"
+          "rule_version": "2026-10-13.2"
         }
       },
       "eligible": true,
-      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"fire_lane\",\"rule_version\":\"2026-10-13.1\",\"won\":500000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
-      "payload_sha256": "4a26de12404786369a8a6d44c5acfef6ddd1e7249f831d6b58483d665e2ec04c"
+      "canonical_json": "{\"address\":\"서울특별시 중구 세종대로 110\",\"agency_name\":\"서울특별시 중구청\",\"amount\":{\"confirmed_won\":null,\"kind\":\"fine\",\"penalty_points\":null},\"category\":\"parking\",\"completed_date\":\"2026-09-10\",\"disposition\":\"fine\",\"fine_estimate\":{\"rule\":\"fire_lane\",\"rule_version\":\"2026-10-13.2\",\"won\":500000},\"location\":{\"lat\":\"37.5662952\",\"lng\":\"126.9779451\",\"source\":\"geocode\"},\"manager_name\":\"홍길동\",\"rating\":null,\"report_date\":\"2026-09-01\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":\"12가3456\",\"violation_law\":null}",
+      "payload_sha256": "8d6a2dd5662ae4ce8ea4a789d444b9585014a0bc1fc113cf4e3041c830045f2c"
     }
   ],
   "event_decisions": [

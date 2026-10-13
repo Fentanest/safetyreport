@@ -1,5 +1,5 @@
 {
- "rule_version": "2026-10-13.1",
+ "rule_version": "2026-10-13.2",
  "note": "서버 services/fine_estimate.py 와 모바일 Standalone 규칙이 같은 결과를 내야 한다. 이 파일은 양쪽 레포에 같은 내용으로 둔다.",
  "plates": [
   {
