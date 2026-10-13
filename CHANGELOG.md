@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-13 — CI 재구성: push(main)=Docker dev 태그만, 정식 릴리즈=workflow_dispatch (사용자 결정, 미배포)
+
+- `push(main)`은 더 이상 실행파일을 빌드하지 않고 태그·GitHub Release 도 만들지 않는다. 새 job `build-docker-dev`가 Docker 이미지만 빌드해 ghcr·Docker Hub 두 레지스트리에 `dev`·`dev-<짧은sha>` 태그로 푸시한다. `latest`·버전 태그는 절대 붙이지 않는다.
+- 정식 릴리즈(4개 OS 실행파일 빌드·업로드, Docker `latest`+버전 태그, 태그·GitHub Release 생성, 태그 존재 재릴리스 방지, artifact 1일 보관)는 `workflow_dispatch`에서만 돈다. 기존 job(`prepare-release`/`build-windows`/`build-linux`/`build-docker`/`build-macos-x64`/`build-macos-arm64`/`create-release`)은 그대로 두고 `prepare-release`에 `if: github.event_name == 'workflow_dispatch'`를 붙여 push 경로와 분리했다(나머지 job은 `needs: prepare-release` 체인으로 자동 skip). 태그 존재 검사는 이 릴리스 경로에만 남는다.
+- 영향: `docker-compose.yml` 기본 이미지(`ghcr.io/fentanest/safetyreport:latest`, Watchtower 자동 업데이트 대상)는 이제 main push 직후가 아니라 정식 릴리즈(workflow_dispatch) 실행 때만 갱신된다.
+- 변경 파일: `.github/workflows/build.yml`, `docs/architecture/overview.md`, `docs/development/runtime-and-packaging.md`, `CHANGELOG.md`.
+- 검증: `python3 -c "import yaml; yaml.safe_load(open(F))"` 통과(수정한 workflow). `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/build.yml` 통과(self-hosted 러너 커스텀 라벨(233~236) 경고만, 기존에도 있던 경고로 무시). 실제 GitHub Actions 실행(push/workflow_dispatch)과 Docker/실행파일 빌드는 하지 않았다(원격 실행 금지 지시). 커밋·push 없음 — Opus 검토·반영 대기.
+
 ## 2026-10-13 — 위반 조항별 법정 금액 대조 (dev, 미배포)
 
 - 법제처 현행 시행령(2026-10-02 시행) 별표 6·7 원문을 확인하여 44개 조/110개 조회 키의 공유 JSON을 추가했다. 차종별 일반·보호구역·속도 구간·2시간 가중 금액 및 차종 구분 없는 정액·기간 가산액을 출처와 함께 기록했다.

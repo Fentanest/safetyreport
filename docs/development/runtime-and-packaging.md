@@ -80,7 +80,9 @@ docker compose -f tools/docker/compose.devtest.yml -p safetyreport-devtest down 
 - `scripts/build/build_exe.py` 가 `web/templates`, `web/static` 을 add-data 로 넣는다. 새 CSS/JS/이미지는 `web/static/ui/` 에 두면 자동 포함.
 - 번들 내부를 데이터 저장소로 쓰지 않는다. Node 는 `tools/web-tests` 개발 도구로만 쓰고 제품 실행에 요구하지 않는다.
 - 자산 처리 빌드 단계를 추가하면 PyInstaller·수동 빌드 워크플로·Docker 에 똑같이 넣고 산출물에서 확인한다.
-- 릴리즈 경로(`build.yml`: main push + VERSION/태그, `build.sh`: 이미지 push)는 승인 없이 실행하지 않는다.
+- 릴리즈 경로는 승인 없이 실행하지 않는다. `build.yml`: push(main)는 Docker `dev` 태그만 푸시(실행파일 빌드 없음, 태그/Release
+  없음), `workflow_dispatch(main)`만 정식 릴리즈(VERSION/태그/4개 OS 실행파일/Docker `latest`+버전 태그/GitHub Release,
+  2026-10-13 재구성). `build.sh`: 로컬에서 직접 돌리는 이미지 push(별도 스크립트, CI 와 무관).
 - source·로컬·공식 dev 빌드는 검증된 `community_public.json`을 공개 기본값으로 사용한다. PyInstaller/Docker 모두
   build_exe.write_community_public의 공개키 검증을 공유한다. 기본값까지 없는 실제 빌드는 실패한다.
   빈 config/env와 sample 자리표시자는 번들을 덮지 않으며, 명시적 고급 env 재정의·별칭 충돌 검사는 유지한다.
