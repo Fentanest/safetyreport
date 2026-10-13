@@ -831,3 +831,54 @@ PC는 `services/fine_estimate.py`, 모바일은 `lib/services/fine_estimate.dart
   Client 페이지 API는 위반법규를 포함한 원문 필드를 반환하고 `ApiService.getReportsPage` → `Report.fromJson` → `law` →
   `fineRecordForReport`로 전달한다. 목록 `ReportCardMetaItem.fine` → `fineTextForReport`, 상세 `_fineField` →
   `correctedFineText`를 사용한다. 화면 보정값·상세 원문 보조 표기만 달라지며 DB/내보내기 원문은 보존한다.
+
+## 모바일 Client 검색 계약 v1
+
+`GET /api/v1/app/config`의 `data.capabilities`에 `report_search_v1`,
+`data.report_search_version`에 정수 `1`이 **모두** 있을 때 사용한다. 제품 버전·protocol 3·DB schema 6은 변경하지 않는다.
+
+`GET /api/v1/reports/{category}/search` (기존 API 키 인증 유지):
+
+| 파라미터 | 의미 |
+|---|---|
+| `category` | traffic / parking / safety / living / other / all(5분류 통합) |
+| `search_version` | 필수 정수 1, 다른 버전은 400 |
+| `filter` | JSON 객체(최대 32768자), 생략하면 `{}`; 모르는 키·잘못된 타입은 400 |
+| `offset`, `limit` | 결과 기준 offset ≥ 0, limit 1~200(기본 200) |
+| `dedupe` | canonical(기본) / raw; 그 밖의 값은 400 |
+
+필터 키는 모바일 `ReportFilter.toSearchJson()` 및 양쪽 `contracts/client-search-vectors.json`이 정본이다.
+문자열 키: `name`, `reportNumber`, `id`, `ratingCause`, `agency`, `manager`, `carNumber`,
+`law`, `location`, `fine`, `supplementCount`, `reportContent`, `processContent`, `pollStatus`,
+`reportDateStart/End`, `occurDateStart/End`, `responseDateStart/End`, `occurTimeStart/End`.
+문자열 배열: `ratings`, `statuses`. bool: `excludePolice`, `onlyPolice`.
+빈 문자열·배열/false는 해당 조건 없음. 텍스트는 쉼표 OR/`&` AND, 양끝 공백 제거,
+Dart와 같은 Unicode 소문자 부분 일치이며 `%`·`_`는 리터럴이다(casefold·SQL LIKE 아님).
+법규는 공백 제거 후 완전 일치, `__없음__`은 NULL/빈 법규. 별점 NULL/0 이하의 토큰은 `__none__`.
+상태는 canonical 표시 상태(처리상태 NULL일 때 상태로 fallback), 보완횟수 NULL은 0,
+만족도 NULL은 `답변 대기`. 날짜·시각은 실제 유효 앞자리와 양끝 포함 범위이며 기존 모바일 판정을 보존한다.
+기관·경찰 조건은 현행 registry 표시명을 사용한다.
+
+응답은 기존 페이지 필드(`category,total,offset,limit,count,next_offset,dedupe_mode,data`)에
+`status:success`, `search_version:1`, 수신한 `filter` 객체, 서비스 처리 시간 `server_ms`를 더한다.
+`data`는 본문·처리내용·첨부·보완·편집용 필드를 생략하지 않은 full report이다.
+통합 목록에서는 각 행의 실제 category를 보존한다. 모바일은 버전·조건 echo·분류·offset·limit·dedupe를
+확인하며, 단순 HTTP 200만으로 검색이 적용됐다고 판단하지 않는다.
+
+`services/client_report_search.py`가 필요한 열만 받는 SQLite UDF로 **정확한 판정 후** COUNT와
+LIMIT/OFFSET을 적용한다. 기존 stats `sql_candidates`/목록 `_build_records_query`의 필터 의미를 대신 쓰지 않는다.
+신고번호 DESC, ID DESC 및 기존 canonical 대표건 투영·취하 제외 설정을 보존한다.
+COUNT·페이지·페이지의 중복 메타는 하나의 명시 읽기 트랜잭션을 공유한다.
+COUNT/검색결과 서버 캐시는 없으므로 DB 변경·dedupe·설정·registry에 대한 캐시 무효화 누락이 없다.
+기관 해석 캐시는 요청 안에서 최대 512개이고, full report 객체는 현재 페이지에 대해서만 만든다.
+정확한 부분 문자열 검색은 DB 스캔을 할 수 있다. 번호/ID, 분류/번호/ID 복합 인덱스로
+동일 신고번호의 ID 보조 정렬에 필요한 임시 정렬을 피한다. 인덱스만 추가하며 교환 DB 열은 바꾸지 않는다.
+
+모바일은 조건 검색과 전체 분류 조회를 이 경로로 읽고 현재·이전·다음 최대 3페이지 캐시,
+다음 한 페이지 prefetch를 유지한다. 조건이 없는 단일 분류는 기존 `/page`도 동일한 제한 조회다.
+capability를 성공적으로 조회했지만 신호가 없으면 기존 취소 가능한 200건 순회로 정확한 total을 구한다.
+401/timeout/5xx 및 새 경로의 404/응답 계약 오류는 오류로 전달하며 구서버 fallback 사유가 아니다.
+페이지 API 자체가 없는 서버의 기존 업데이트 필요 오류도 유지한다.
+임의 predicate를 사용하는 `FilteredListScreen`의 대시보드 드릴다운과 rating scope는
+명시적으로 기존 정확 순회에 남는다(부분 페이지 total로 속이지 않음).
+배포 순서는 PC 검색 계약 제공 → capability를 확인하는 모바일이며, 기존 모바일 `/page`와 `/reports`는 유지한다.

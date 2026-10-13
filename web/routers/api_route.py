@@ -90,6 +90,29 @@ def get_reports_page(request: Request, category: str, offset: int = Query(0, ge=
     return {'status':'success', **page}
 
 
+@router.get('/reports/{category}/search')
+def search_reports(request: Request, category: str, search_version: int = Query(...),
+                   filter: str = Query('{}', max_length=32768), offset: int = Query(0, ge=0),
+                   limit: int = Query(200, ge=1, le=200), dedupe: str = Query('canonical'),
+                   _: str = Depends(_require_api_key)):
+    import json
+    from time import perf_counter
+    from services.client_report_search import VERSION, validate_filter
+    from services.report_query_service import get_report_page
+    if search_version != VERSION or dedupe not in ('canonical', 'raw'):
+        raise HTTPException(400, 'Unsupported search contract')
+    try:
+        filters = validate_filter(json.loads(filter))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    categories, label = (None, None) if category == 'all' else _report_categories(request, category)
+    started = perf_counter()
+    page = get_report_page(engine, categories, offset=offset, limit=limit, mode=dedupe,
+                           label=label, search_filter=filters)
+    return {'status': 'success', **page, 'category': category, 'search_version': VERSION,
+            'filter': filters, 'server_ms': (perf_counter() - started) * 1000}
+
+
 @router.get("/vehicle/{vehicle_number}")
 def get_vehicle_reports(vehicle_number: str, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
@@ -713,7 +736,8 @@ def get_app_config(_: str = Depends(_require_api_key)):
             "auto_export_sheet": settings.config.getboolean("SETTINGS", "auto_export_sheet", fallback=False),
             # 앱이 서버 기능을 알아보는 목록. rating_cause: /rating/start 가 공통 사유(cause)를 받는다(2026-09-25).
             # community_account: /api/v1/community-auth/* (서버의 커뮤니티 계정 연결, 2026-09-25).
-            "capabilities": ["rating_cause", "community_account"],
+            "capabilities": ["rating_cause", "community_account", "report_search_v1"],
+            "report_search_version": 1,
             "rating_cause_max": rating_eligibility.RATING_CAUSE_MAX,
         },
     }

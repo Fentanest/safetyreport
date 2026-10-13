@@ -72,6 +72,8 @@ def _index_statements() -> list[str]:
         'CREATE INDEX IF NOT EXISTS ix_report_category_closed ON mysafety_report (category, "종결여부")',
         'CREATE INDEX IF NOT EXISTS ix_effective_category_number ON mysafety_report_effective (category, "신고번호")',
         'CREATE INDEX IF NOT EXISTS ix_effective_report_number ON mysafety_report_effective ("신고번호")',
+        'CREATE INDEX IF NOT EXISTS ix_effective_category_number_id ON mysafety_report_effective (category, "신고번호", "ID")',
+        'CREATE INDEX IF NOT EXISTS ix_effective_number_id ON mysafety_report_effective ("신고번호", "ID")',
         'CREATE INDEX IF NOT EXISTS ix_effective_answer ON mysafety_report_effective ("답변일", synced_at, "신고번호")',
         'CREATE INDEX IF NOT EXISTS ix_duplicate_member_report ON mysafety_duplicate_member (report_id)',
     ]

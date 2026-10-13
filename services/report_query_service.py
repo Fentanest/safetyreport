@@ -111,7 +111,7 @@ def _build_records_query(table_obj, filters=None, categories=None):
     return query
 
 
-def get_report_page(engine, category, *, offset=0, limit=200, mode='canonical', label: str | None = None):
+def get_report_page(engine, category, *, offset=0, limit=200, mode='canonical', label: str | None = None, search_filter=None):
     """Additive SQL pagination. Legacy full-list functions remain unchanged.
     category 는 하나 또는 여러 분류(구앱 호환 묶음). label 을 주면 응답 category·행 category 를 그 값으로 보인다."""
     categories = _as_categories(category)
@@ -121,6 +121,9 @@ def get_report_page(engine, category, *, offset=0, limit=200, mode='canonical', 
     with engine.connect() as conn:
         # One read transaction for count and page; no full materialization.
         conn.exec_driver_sql('BEGIN')
+        if search_filter is not None:
+            from services.client_report_search import install_predicate
+            query = query.where(install_predicate(conn, table, search_filter))
         total = conn.execute(select(func.count()).select_from(query.order_by(None).subquery())).scalar_one()
         df = pd.read_sql_query(query.order_by(None).order_by(table.c["신고번호"].desc(), table.c.ID.desc()).offset(offset).limit(limit), conn)
         watch_ids = _get_watch_ids(conn)
