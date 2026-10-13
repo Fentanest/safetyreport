@@ -83,6 +83,7 @@ docker compose -f tools/docker/compose.devtest.yml -p safetyreport-devtest down 
 - 릴리즈 경로는 승인 없이 실행하지 않는다. `build.yml`: push(main)는 Docker `dev` 태그만 푸시(실행파일 빌드 없음, 태그/Release
   없음), `workflow_dispatch(main)`만 정식 릴리즈(VERSION/태그/4개 OS 실행파일/Docker `latest`+버전 태그/GitHub Release,
   2026-10-13 재구성). `build.sh`: 로컬에서 직접 돌리는 이미지 push(별도 스크립트, CI 와 무관).
+- `docker-dev.yml`: 입력 없는 `workflow_dispatch` 전용. 선택한 실행 브랜치에서 `build.yml`의 `build-docker-dev`와 같은 단계로 ghcr·Docker Hub에 `dev`·`dev-<짧은sha>` 이미지만 푸시한다(실행파일·`latest`·버전 태그·Git 태그·Release 없음).
 - source·로컬·공식 dev 빌드는 검증된 `community_public.json`을 공개 기본값으로 사용한다. PyInstaller/Docker 모두
   build_exe.write_community_public의 공개키 검증을 공유한다. 기본값까지 없는 실제 빌드는 실패한다.
   빈 config/env와 sample 자리표시자는 번들을 덮지 않으며, 명시적 고급 env 재정의·별칭 충돌 검사는 유지한다.
