@@ -3,6 +3,7 @@ import re
 
 from services.report_category import normalize_code
 from services.fine_amount_syntax import explicit_fine_number
+from services.case_fine_supplement import supplement_case_fine
 
 
 # 확인된 코드만 둔다. 13 은 실사용자 응답에서 봤지만 뜻을 확인하지 못해 매핑하지 않는다(2026-10-12 사용자 지시 —
@@ -381,6 +382,9 @@ def parse_json_details(result_data):
     if processing_status == "취하":
         penalty_amount = ""
         penalty_points = ""
+
+    processing_status, penalty_amount = supplement_case_fine(
+        processing_status, penalty_amount, processing_content)
 
     # 분류용 원시 코드. report_category.normalize_code 로 정규화(대문자·두 자리·빈 값은 None)만 하고 분류 자체는 하지 않는다.
     ssnpc_cd, ssnpc_type = normalize_code(result_data.get("SSNPC_CD"), result_data.get("SSNPC_TYPE"))
