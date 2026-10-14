@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import hmac
 import secrets
-from urllib.parse import urlsplit
+from core.utils.proxy_headers import origin_tuple
 
 from starlette.requests import Request
 
@@ -26,34 +26,10 @@ def get_or_create_token(request: Request) -> str:
     return token
 
 
-def _trusted_proxy_configured() -> bool:
-    try:
-        import settings.settings as app_settings
-
-        return bool((app_settings.trusted_proxies or "").strip())
-    except Exception:
-        return False
-
-
 def _origin_allowed(request: Request, origin: str) -> bool:
-    if origin == "null":
-        return False
-    try:
-        parts = urlsplit(origin)
-    except ValueError:
-        return False
-    if parts.scheme not in ("http", "https") or not parts.netloc or parts.path not in ("", "/"):
-        return False
-    host = (request.headers.get("host") or "").lower()
-    hosts = {host} if host else set()
-    if _trusted_proxy_configured():
-        forwarded = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip().lower()
-        if forwarded:
-            hosts.add(forwarded)
-    if parts.netloc.lower() not in hosts:
-        return False
-    # 리버스 프록시가 TLS 를 끝내면 내부 scheme 이 http 일 수 있다. 신뢰 프록시가 설정된 경우에만 scheme 차이를 허용.
-    return parts.scheme == request.url.scheme or _trusted_proxy_configured()
+    supplied = origin_tuple(origin)
+    expected = origin_tuple(f'{request.url.scheme}://{request.headers.get("host", "")}')
+    return supplied is not None and supplied == expected
 
 
 def verify_json_post(request: Request) -> str | None:

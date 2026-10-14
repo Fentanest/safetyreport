@@ -129,7 +129,7 @@ async def lifespan(app: FastAPI):
     try:
         database.migrate_schema(engine, backup_dir)
     except database.MigrationVerifyFailed as exc:
-        # 옮기면 값이 사라지는 DB 는 바꾸지 않고 멈춘다(최종 감사 #4) — 사용자가 따를 안내를 남긴다.
+        # 옮기면 값이 사라지는 DB 는 바꾸지 않고 멈춘다(최종 감사 검토 항목 4) — 사용자가 따를 안내를 남긴다.
         logger.LoggerFactory.logbot.critical(
             f"[schema] DB 를 새 구조(스키마 {database.SCHEMA_VERSION})로 옮기지 못해 서버를 시작하지 않습니다: {exc} "
             f"지금 DB 는 바뀌지 않았고, 변환 전 백업은 {backup_dir} 에 있습니다. 이전 버전으로 되돌려 쓰거나, "
@@ -609,19 +609,14 @@ _ROUTERS = (
 def create_app() -> FastAPI:
     """웹 앱 조립(EO R-04). 프로세스 준비(로거·폴더) → 앱·정적 파일 → 프록시 → HTTP 미들웨어(아래 순서) → 세션 → 라우터.
 
-    미들웨어는 나중에 넣은 것이 바깥이다: 세션 → 관리자 인증 → 시간 측정 → 커뮤니티 게이트 → 버전·CSRF → (프록시) → 라우트.
+    미들웨어는 나중에 넣은 것이 바깥이다: 프록시 → 세션 → 관리자 인증 → 시간 측정 → 커뮤니티 게이트 → 버전·CSRF → 라우트.
     설정·DB 경로는 프로세스 전역(settings)이라 한 프로세스에 데이터 루트가 다른 앱을 둘 만들 수는 없다.
     """
+    from core.utils.proxy_headers import trusted_proxy_networks
+    trusted_proxy_networks(settings.trusted_proxies)
     _init_runtime()
     app = FastAPI(title="나만의 안전신문고", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=static_path), name="static")
-
-    # Reverse proxy support: trust X-Forwarded-For / X-Forwarded-Proto from configured IPs
-    if settings.trusted_proxies:
-        from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-        trusted = [ip.strip() for ip in settings.trusted_proxies.split(',') if ip.strip()]
-        if trusted:
-            app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=trusted)
 
     _install_signal_handlers()
     for router in _ROUTERS:
@@ -641,6 +636,9 @@ def create_app() -> FastAPI:
         session_cookie="safetyreport_session",
         max_age=settings.session_max_age,
     )
+    # Last registered = outermost: socket peer is checked before sessions/CSRF.
+    from core.utils.proxy_headers import TrustedProxyHeadersMiddleware
+    app.add_middleware(TrustedProxyHeadersMiddleware, trusted_proxies=settings.trusted_proxies)
     app.state.engine = get_engine()
     return app
 
@@ -704,10 +702,10 @@ def start_server():
         host = '127.0.0.1' if fixture else '0.0.0.0'
         if is_frozen:
             uvicorn.run(get_app(), host=host, port=port, log_config=_UVICORN_LOG_CONFIG,
-                        ws_ping_interval=None, ws_ping_timeout=None)
+                        ws_ping_interval=None, ws_ping_timeout=None, proxy_headers=False)
         else:
             uvicorn.run("main:app", host=host, port=port, reload=not fixture, log_config=_UVICORN_LOG_CONFIG,
-                        ws_ping_interval=None, ws_ping_timeout=None)
+                        ws_ping_interval=None, ws_ping_timeout=None, proxy_headers=False)
     except Exception as e:
         logger.LoggerFactory.get_logger().error(f"서버 시작 오류: {e}")
         if not is_frozen:

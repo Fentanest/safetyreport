@@ -204,7 +204,7 @@ def serve(data_dir: Path, host: str, port: int) -> None:
     assert is_fixture_mode(), "fixture 모드가 활성화되지 않았습니다."
     print(f"[fixture] data={data_dir} url=http://{host}:{port} user={ADMIN_USER}", flush=True)
     uvicorn.run(app_main.app, host=host, port=port, log_config=app_main._UVICORN_LOG_CONFIG,
-                ws_ping_interval=None, ws_ping_timeout=None)
+                ws_ping_interval=None, ws_ping_timeout=None, proxy_headers=False)
 
 
 def main() -> int:

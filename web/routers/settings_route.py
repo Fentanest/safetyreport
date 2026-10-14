@@ -7,6 +7,7 @@ import settings.settings as app_settings  # 시험이 이 이름으로 설정 �
 
 __all__ = ["router", "app_settings"]
 from core.utils import csrf
+from core.utils.proxy_headers import ProxyConfigurationError
 from core.utils.templating import templates
 from services import settings_service
 
@@ -62,15 +63,17 @@ def save_settings(
     except BindingError as exc:
         from urllib.parse import quote
         return RedirectResponse("/settings/?binding_error=" + quote(exc.code), status_code=303)
+    except ProxyConfigurationError as exc:
+        raise HTTPException(400, str(exc)) from None
     except RestoreRefused as exc:
         raise HTTPException(409, str(exc)) from None
-    return RedirectResponse(url="/settings?saved=true", status_code=303)
+    return RedirectResponse(url="/settings/?saved=true", status_code=303)
 
 
 @router.post("/upload_json")
 async def upload_json(file: UploadFile = File(...)):
     if not (file.filename or '').lower().endswith('.json'):
-        return RedirectResponse(url="/settings?error=invalid_file", status_code=303)
+        return RedirectResponse(url="/settings/?error=invalid_file", status_code=303)
     contents = await file.read(settings_service.GOOGLE_CREDENTIAL_MAX_BYTES + 1)
     try:
         settings_service.validate_google_credential(contents)
@@ -79,7 +82,7 @@ async def upload_json(file: UploadFile = File(...)):
     except settings_service.CredentialInvalid:
         raise HTTPException(400, 'Invalid service account JSON') from None
     await run_in_threadpool(settings_service.save_google_credential, contents)
-    return RedirectResponse(url="/settings?saved=true", status_code=303)
+    return RedirectResponse(url="/settings/?saved=true", status_code=303)
 
 
 @router.post("/official-account/retry")

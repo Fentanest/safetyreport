@@ -74,6 +74,8 @@ def web_command(form: dict) -> SettingsCommand:
         values["sheet_key"] = match.group(1)
     values["phone_number"] = re.sub(r'[^0-9]', '', values.get("phone_number") or "")
     values["trusted_proxies"] = (values.get("trusted_proxies") or "").strip()
+    from core.utils.proxy_headers import trusted_proxy_networks
+    trusted_proxy_networks(values["trusted_proxies"])
     return SettingsCommand(tuple((*_WEB_FIELDS[key], values[key]) for key in _WEB_FIELDS if key in values),
                            refresh_jobs=True, official_account_confirm=values.get("official_account_confirm", ""))
 

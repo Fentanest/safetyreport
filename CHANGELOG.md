@@ -328,7 +328,7 @@ canonical, 결과 15,000건. 같은 DB/추가 인덱스 조건에서 기존 전�
 
 ---
 
-## 2026-10-11 — Astra 리뷰 #3 수정: C_NOW=12(검토중) 답변이 답변완료로 조기 종결되던 결함
+## 2026-10-11 — Astra 리뷰 검토 항목 3 수정: C_NOW=12(검토중) 답변이 답변완료로 조기 종결되던 결함
 
 - `services/parser.py`: 답변완료 대역 안전망(`answered_band`, C_NOW 10~19 + 답변 있음)이 C_NOW 가 명시적으로 비종결 상태
   (진행·처리중·검토중)로 매핑된 경우까지 답변완료로 덮어쓰고 있었다 — 예를 들어 C_NOW=12 는 코드표상 검토중인데 답변이 있으면
@@ -340,7 +340,7 @@ canonical, 결과 15,000건. 같은 DB/추가 인덱스 조건에서 기존 전�
 
 ---
 
-## 2026-10-11 — Astra 리뷰 #7 수정: 모르는 소분류(EP-99 등)를 '소분류 없음'으로 오인해 밤샘주차로 추정하던 결함
+## 2026-10-11 — Astra 리뷰 검토 항목 7 수정: 모르는 소분류(EP-99 등)를 '소분류 없음'으로 오인해 밤샘주차로 추정하던 결함
 
 - `services/fine_estimate.py`: `classify()` 의 밤샘주차(`overnight_truck`) 분기가 `code in (None, "EP-02")` 로 "코드 없음"과
   "코드는 있지만 모르는 값"(`report_category.resolve()` 도 이 경우 `code=None` 을 돌려준다)을 구분하지 못해, EP-99 처럼 코드표에
@@ -2934,3 +2934,11 @@ mysafetyreport-linux.zip
 | `parse_details()` progress_status 미반환 | 내부 필드를 pop해서 호출부와 불일치 | pop 제거 |
 | 버전 체크 엔드포인트 중복 | 모바일과 웹/확장이 서로 다른 경로로 같은 정보를 조회 | `/version` 제거, 모바일은 `/api/v1/server/version`으로 통합 |
 | `/server/version` up_to_date 오판 | 문자열 비교만 사용 | `_version_gt(latest, current)` 비교로 교체 |
+
+
+## 2026-10-14 — 이슈 대응 로컬 수정
+
+- 웹 관리 메뉴·설정/JSON 저장·기기 삭제 후 이동 경로를 실제 라우트에 맞추고 쿼리 보존을 수정.
+- 연결 peer 기반 프록시 URL 복원, 엄격한 CSRF Origin 비교, 잘못된 trusted_proxies 진단과 Uvicorn 중복 처리 방지.
+- 명시 과태료 콜론·정수 만원 문법을 추가하고 모호한 복수 금액/상한을 보류. 파서 버전8, 기존 처분·법규·최소 추정 규칙 유지.
+- 공통 금액 벡터·ASGI 회귀 검사, AI 내부 번호의 GitHub 자동참조 방지 규칙 추가.

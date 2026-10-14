@@ -58,7 +58,7 @@
                     <label class="form-label" for="fld_trusted_proxies">신뢰할 수 있는 프록시 IP</label>
                     <input id="fld_trusted_proxies" type="text" class="form-control" name="trusted_proxies"
                         value="{{ trusted_proxies }}" placeholder="192.168.0.1">
-                    <div class="form-text">리버스 프록시(Nginx 등) IP를 입력하면 X-Forwarded-For 헤더를 신뢰합니다. 비워두면 비활성화. <strong>변경 후 서버 재시작 필요.</strong></div>
+                    <div class="form-text">서버에 직접 연결하는 프록시 IP 또는 CIDR을 쉼표로 구분해 입력합니다(예: 127.0.0.1, ::1). 해당 출처의 전달 주소·HTTPS 정보만 신뢰합니다. 비워두면 비활성화하며 1·0·*는 허용하지 않습니다. <strong>변경 후 서버 재시작 필요.</strong></div>
                 </div>
             </div>
         </div>
@@ -258,7 +258,10 @@
 
     if (window.location.search.includes('saved=true')) {
         alert("설정이 성공적으로 저장되었습니다!");
-        window.history.replaceState({}, document.title, "/settings");
+        const savedUrl = new URL(window.location.href);
+        savedUrl.pathname = "/settings/";
+        savedUrl.searchParams.delete('saved');
+        window.history.replaceState({}, document.title, savedUrl.pathname + savedUrl.search + savedUrl.hash);
     }
 
     // 세션 유지시간 → 시간 단위 표시

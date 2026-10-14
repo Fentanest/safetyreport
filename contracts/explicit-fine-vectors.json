@@ -1,0 +1,251 @@
+{
+  "description": "Synthetic grammar/ambiguity vectors; observed notation represented without personal records. 0 keeps the existing public unknown contract.",
+  "cases": [
+    {
+      "name": "integer",
+      "text": "과태료 100000원",
+      "number": "100000",
+      "amount": 100000
+    },
+    {
+      "name": "comma",
+      "text": "과태료 100,000원",
+      "number": "100,000",
+      "amount": 100000
+    },
+    {
+      "name": "colon",
+      "text": "과태료: 100,000원",
+      "number": "100,000",
+      "amount": 100000
+    },
+    {
+      "name": "colon spaces",
+      "text": "과태료 : 100,000 원",
+      "number": "100,000",
+      "amount": 100000
+    },
+    {
+      "name": "man",
+      "text": "과태료 10만원",
+      "number": "100000",
+      "amount": 100000
+    },
+    {
+      "name": "man space",
+      "text": "과태료 10만 원",
+      "number": "100000",
+      "amount": 100000
+    },
+    {
+      "name": "two million",
+      "text": "과태료 200만원",
+      "number": "2000000",
+      "amount": 2000000
+    },
+    {
+      "name": "brackets",
+      "text": "과태료(100,000원)",
+      "number": "100,000",
+      "amount": 100000
+    },
+    {
+      "name": "fullwidth",
+      "text": "과태료： （１０만 원）",
+      "number": "100000",
+      "amount": 100000
+    },
+    {
+      "name": "dot",
+      "text": "과태료40.000원",
+      "number": "40.000",
+      "amount": 40000
+    },
+    {
+      "name": "damaged",
+      "text": "과태료 40,0000원",
+      "number": "40,0000",
+      "amount": 40000
+    },
+    {
+      "name": "zero",
+      "text": "과태료 0원",
+      "number": "0",
+      "amount": 0
+    },
+    {
+      "name": "missing",
+      "text": "과태료 원",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "no amount",
+      "text": "과태료 부과 예정",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "phone",
+      "text": "과태료 문의 02-123-4567",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "date",
+      "text": "과태료 2026-10-14 부과",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "id",
+      "text": "과태료 신고번호 123456",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "max",
+      "text": "과태료 최대 200만원",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "below",
+      "text": "과태료 200만원 이하",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "max before",
+      "text": "최대 과태료 200만원",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "conditional",
+      "text": "미이행 시 과태료 50만원을 부과합니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "refusal",
+      "text": "과태료 10만원을 부과하지 않습니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "reduction",
+      "text": "과태료 100,000원, 감경 후 80,000원",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "distinct fines",
+      "text": "과태료 100,000원 및 과태료 200,000원",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "identical repeat",
+      "text": "과태료 100,000원, 과태료 100,000원",
+      "number": "100,000",
+      "amount": 100000
+    },
+    {
+      "name": "decimal man unsupported",
+      "text": "과태료 1.5만원",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "mixed units unsupported",
+      "text": "과태료 1만5천원",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "reward alone",
+      "text": "포상금 6천원 지급",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "unclosed bracket",
+      "text": "과태료(10만원",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "negative amount",
+      "text": "과태료 -100원",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "generic footer",
+      "text": "과태료 70,000원을 부과합니다.\n일반 안내: 증거가 부족한 경우 부과 불가",
+      "number": "70,000",
+      "amount": 70000
+    },
+    {
+      "name": "conditional reverse observed",
+      "text": "원상복구 명령에 불응 시 50만원의 과태료 부과",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "reference table observed",
+      "text": "이륜자동차 4만원, 승용자동차 5만원, 승합자동차 6만원",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "penalty distinct",
+      "text": "범칙금 30,000원 벌점 15점",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "broken leading delimiter",
+      "text": "과태료 ,40,000원",
+      "number": ",40,000",
+      "amount": 0
+    },
+    {
+      "name": "broken trailing delimiter",
+      "text": "과태료 40,000,원",
+      "number": "40,000,",
+      "amount": 0
+    },
+    {
+      "name": "same numeric different grouping",
+      "text": "과태료 100000원, 안내 100,000원",
+      "number": "100000",
+      "amount": 100000
+    },
+    {
+      "name": "offense noncompliance observed",
+      "text": "도로교통법 제37조 등화점등 조작 불이행에 따라 과태료 30,000원을 부과하여",
+      "number": "30,000",
+      "amount": 30000
+    },
+    {
+      "name": "conditional previous line",
+      "text": "미이행 시\n과태료 50만원을 부과합니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "limit next line",
+      "text": "과태료 200만원\n이하",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "limit previous line",
+      "text": "최대\n과태료 200만원",
+      "number": null,
+      "amount": 0
+    }
+  ]
+}
