@@ -185,7 +185,7 @@ $(document).ready(function() {
                 ? `<span class="badge bg-info text-dark" title="취하 제외">유효 ${d}</span> <span class="badge bg-secondary" title="취하 포함">전체 ${r.total_count}</span>`
                 : String(d || 0)
         }] : []),
-        { data: '위반법규' },
+        { data: '위반법규', render: (d, t) => t === 'display' ? SrLawValues.read(d).map(esc).join('<br>') : (d || '') },
         { data: '범칙금_과태료', className: 'sr-fine-cell',
           render: (d, t, r) => renderFineCell(d, t, r && r.fine_estimate_amount, r && r.fine_estimate_basis, r && r.fine_corrected_text) },
         { data: '벌점' },

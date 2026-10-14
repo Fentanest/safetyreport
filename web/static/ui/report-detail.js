@@ -195,13 +195,16 @@
     function linkField(icon, label, value, category, queryKey) {
         var text = normalizeDisplayValue(value);
         if (!hasMeaningfulValue(text)) return '';
-        var href = buildFilterUrl(category, queryKey, text);
+        var values = queryKey === 'law' ? window.SrLawValues.read(text) : [text];
+        var links = values.map(function(value) {
+            var href = buildFilterUrl(category, queryKey, value);
+            return '<a class="fw-medium text-decoration-underline rd-field-value" href="' + href + '">' + esc(value) +
+                ' <i class="fas fa-chevron-right ms-1 rd-field-chevron"></i></a>';
+        }).join('<br>');
         return '<div class="col-12 col-sm-6"><div class="d-flex align-items-start">' +
             '<i class="' + icon + ' text-muted me-2 rd-field-icon"></i>' +
             '<span class="text-muted me-2 flex-shrink-0 rd-field-label">' + label + '</span>' +
-            '<a class="fw-medium text-decoration-underline rd-field-value" href="' + href + '">' + esc(text) +
-            ' <i class="fas fa-chevron-right ms-1 rd-field-chevron"></i></a>' +
-            '</div></div>';
+            '<span>' + links + '</span></div></div>';
     }
 
     function safetyWebUrl(id) {

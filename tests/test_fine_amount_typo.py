@@ -95,4 +95,4 @@ class FineAmountTypoTest(unittest.TestCase):
         self.assertNotEqual(capture.payload_sha256(previous), capture.payload_sha256(current))
         self.assertEqual(capture.decide_event({'eligible': True, 'payload_sha256': capture.payload_sha256(previous)}, current), 'completed_observation')
         self.assertIsNone(capture.decide_event({'eligible': True, 'payload_sha256': capture.payload_sha256(current)}, current))
-        self.assertEqual(capture.PARSER_VERSION, 'pc-parser-10')
+        self.assertEqual(capture.PARSER_VERSION, 'pc-parser-11')

@@ -1,0 +1,217 @@
+{
+  "version": 1,
+  "storage": "Existing TEXT, one canonical citation per LF line; original legacy scalar remains readable.",
+  "semantics": "Each comma group is OR, ampersand within a group is AND. Ancestors include paragraphs/items, but 조의/호의 are distinct. Missing-law token is __없음__.",
+  "cases": [
+    {
+      "name": "second",
+      "value": "도로교통법 제32조\n도로교통법 제33조\n도로교통법 제34조",
+      "query": "도로교통법 제33조",
+      "expected": true
+    },
+    {
+      "name": "third",
+      "value": "도로교통법 제32조\n도로교통법 제33조\n도로교통법 제34조",
+      "query": "제34조",
+      "expected": true
+    },
+    {
+      "name": "legacy_numbering",
+      "value": "도로교통법 제13조3항",
+      "query": "도로교통법 제13조제3항",
+      "expected": true
+    },
+    {
+      "name": "legacy_query",
+      "value": "도로교통법 제13조제3항",
+      "query": "도로교통법 제13조3항",
+      "expected": true
+    },
+    {
+      "name": "parent_article",
+      "value": "도로교통법 제17조제4항",
+      "query": "도로교통법 제17조",
+      "expected": true
+    },
+    {
+      "name": "not_170",
+      "value": "도로교통법 제170조",
+      "query": "도로교통법 제17조",
+      "expected": false
+    },
+    {
+      "name": "not_inserted_article",
+      "value": "도로교통법 제17조의2",
+      "query": "도로교통법 제17조",
+      "expected": false
+    },
+    {
+      "name": "lawless_not_170",
+      "value": "도로교통법 제170조",
+      "query": "제17조",
+      "expected": false
+    },
+    {
+      "name": "different_law",
+      "value": "자동차관리법 제17조",
+      "query": "도로교통법 제17조",
+      "expected": false
+    },
+    {
+      "name": "different_decree",
+      "value": "도로교통법 시행령 제17조",
+      "query": "도로교통법 제17조",
+      "expected": false
+    },
+    {
+      "name": "item_parent",
+      "value": "도로교통법 제49조제1항제11호의2",
+      "query": "도로교통법 제49조제1항",
+      "expected": true
+    },
+    {
+      "name": "item_insert_separate",
+      "value": "도로교통법 제49조제1항제11호의2",
+      "query": "도로교통법 제49조제1항제11호",
+      "expected": false
+    },
+    {
+      "name": "letter",
+      "value": "도로교통법 제17조제4항제1호가목",
+      "query": "도로교통법 제17조제4항제1호",
+      "expected": true
+    },
+    {
+      "name": "alias",
+      "value": "환경친화적 자동차의 개발 및 보급 촉진에 관한 법률 제11조의2",
+      "query": "친환경자동차법 제11조의2",
+      "expected": true
+    },
+    {
+      "name": "fullwidth",
+      "value": "도로교통법 제３２조",
+      "query": "도로교통법 제32조",
+      "expected": true
+    },
+    {
+      "name": "quotes",
+      "value": "장애인복지법 제39조제3항",
+      "query": "「장애인복지법」 제39조 제3항",
+      "expected": true
+    },
+    {
+      "name": "and",
+      "value": "도로교통법 제32조\n도로교통법 제33조",
+      "query": "도로교통법 제32조&도로교통법 제33조",
+      "expected": true
+    },
+    {
+      "name": "and_missing",
+      "value": "도로교통법 제32조",
+      "query": "도로교통법 제32조&도로교통법 제33조",
+      "expected": false
+    },
+    {
+      "name": "or",
+      "value": "도로교통법 제32조",
+      "query": "도로교통법 제33조,도로교통법 제32조",
+      "expected": true
+    },
+    {
+      "name": "empty",
+      "value": null,
+      "query": "__없음__",
+      "expected": true
+    },
+    {
+      "name": "blank",
+      "value": " \n\t",
+      "query": "__없음__",
+      "expected": true
+    },
+    {
+      "name": "not_empty",
+      "value": "도로교통법 제32조",
+      "query": "__없음__",
+      "expected": false
+    },
+    {
+      "name": "literal",
+      "value": "x'); DROP TABLE reports;--",
+      "query": "x'); DROP TABLE reports;--",
+      "expected": true
+    },
+    {
+      "name": "empty_groups",
+      "value": null,
+      "query": ",,&",
+      "expected": true
+    },
+    {
+      "name": "law_name",
+      "value": "도로교통법 제13조제3항",
+      "query": "도로교통법",
+      "expected": true
+    },
+    {
+      "name": "no_name_decree_mix",
+      "value": "도로교통법 시행령 제13조",
+      "query": "도로교통법",
+      "expected": false
+    },
+    {
+      "name": "quoted_decree",
+      "value": "도로교통법 시행령 제17조",
+      "query": "「도로교통법 시행령」 제17조",
+      "expected": true
+    },
+    {
+      "name": "decree_name",
+      "value": "도로교통법 시행령 제17조",
+      "query": "도로교통법 시행령",
+      "expected": true
+    },
+    {
+      "name": "quoted_law_name",
+      "value": "도로교통법 제17조",
+      "query": "「도로교통법」",
+      "expected": true
+    },
+    {
+      "name": "decree_name_excludes_law",
+      "value": "도로교통법 제17조",
+      "query": "도로교통법 시행령",
+      "expected": false
+    },
+    {
+      "name": "bom_trim",
+      "value": "﻿도로교통법 제32조",
+      "query": "도로교통법 제32조",
+      "expected": true
+    },
+    {
+      "name": "bom_empty",
+      "value": "﻿",
+      "query": "__없음__",
+      "expected": true
+    },
+    {
+      "name": "unicode_line_separator",
+      "value": "도로교통법 제32조 도로교통법 제33조",
+      "query": "도로교통법 제33조",
+      "expected": true
+    },
+    {
+      "name": "unicode_paragraph_separator",
+      "value": "도로교통법 제32조 도로교통법 제33조",
+      "query": "도로교통법 제33조",
+      "expected": true
+    },
+    {
+      "name": "noncommon_trim_kept",
+      "value": "",
+      "query": "__없음__",
+      "expected": false
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 from datetime import datetime
 
 import pandas as pd
+from services.law_values import read_laws, available_laws, law_memberships
 
 from core.utils.fallback import note_fallback
 from services import report_policy
@@ -172,9 +173,11 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
 
     stats_law = []
     if "위반법규" in df.columns:
-        df_law = df.copy()
-        df_law["위반법규"] = df_law["위반법규"].fillna("").astype(str)
-        df_law = df_law[df_law["위반법규"].str.strip() != ""]
+        df_law = _prepare_metrics(df).copy()
+        values = df_law["위반법규"].fillna("")
+        universe = set(available_laws(values))
+        df_law["위반법규"] = values.map(lambda value: law_memberships(value, universe))
+        df_law = df_law.explode("위반법규").dropna(subset=["위반법규"])
         stats_law = [
             {"law": law, **_row_metrics(group)}
             for law, group in df_law.groupby("위반법규")
@@ -315,14 +318,15 @@ def _overview_report_types(df: pd.DataFrame) -> list[dict]:
 
 
 def _overview_violation_laws(df: pd.DataFrame) -> list[dict]:
-    """One report per exact stored normalized law string (including multi-law strings).
+    """Per-law membership counts; each report occurs once per distinct law.
 
-    This preserves the existing exact law filter and list drilldown population.
-    Missing law is its own bucket; report titles never supply law information.
+    Membership totals may exceed unique report totals. Missing law remains a bucket.
     """
     if df.empty:
         return []
-    laws = df.get("위반법규", pd.Series("", index=df.index)).fillna("").astype(str).str.strip()
+    values = df.get("위반법규", pd.Series("", index=df.index)).fillna("")
+    universe = set(available_laws(values))
+    laws = values.map(lambda value: law_memberships(value, universe) or ("",)).explode()
     return [{"name": name, "filter": name or "__없음__", "count": int(count)}
             for name, count in sorted(laws.value_counts().items(), key=lambda item: (-item[1], item[0]))]
 

@@ -20,6 +20,7 @@ from datetime import date, datetime, timezone
 
 from core.utils.fallback import note_fallback
 from services import fine_estimate, report_category
+from services.law_values import primary_law
 
 STATUS_MAP = {
     "수용": "accepted",
@@ -33,7 +34,7 @@ STATUS_MAP = {
     "처리중": "processing",
 }
 ELIGIBLE = {"accepted", "partial", "rejected", "completed_unknown"}
-PARSER_VERSION = "pc-parser-10"  # 법규 인식 보완: 기존 journal amount는 자동 재파싱하지 않음
+PARSER_VERSION = "pc-parser-11"  # 법규 인식 보완: 기존 journal amount는 자동 재파싱하지 않음
 SCHEMA_VERSION = 1
 
 _AMOUNT_RE = re.compile(rf"^(과태료|범칙금):\s*({fine_estimate.AMOUNT_TOKEN_PATTERN})\s*원$")
@@ -234,7 +235,7 @@ def build_adapter_input(detail: dict, title_fields: dict | None = None,
         "ssnpc_type": ssnpc_type,
         "penalty_points": detail.get("벌점"),
         # observation-v2(2026-09-28): 파서가 처리내용에서 뽑은 법 이름·조항(처리내용 원문은 보내지 않는다)
-        "violation_law": detail.get("위반법규"),
+        "violation_law": primary_law(detail.get("위반법규")),
         "rating": title_fields.get("별점"),
         "geocode": {
             "status": geo.get("지오코딩상태"),

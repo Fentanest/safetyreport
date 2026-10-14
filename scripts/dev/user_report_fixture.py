@@ -12,6 +12,7 @@ def main():
     p.add_argument('--data-dir',required=True)
     p.add_argument('--port',type=int,default=18703)
     p.add_argument('--review-fixture',action='store_true',help='동일명 기관 충돌 합성 자료 추가')
+    p.add_argument('--law-fixture', action='store_true', help='복수 법규 검색 합성 자료 추가')
     p.add_argument('--cloud-outage', action='store_true', help='합성 중앙 503과 업로드 대기 자료')
     args=p.parse_args()
     root=prepare_data_dir(args.data_dir,reset=False)
@@ -28,6 +29,9 @@ def main():
     if args.review_fixture:
         from review_regression_fixture import seed_collision_rows
         seed_collision_rows(get_engine())
+    if args.law_fixture:
+        from law_search_fixture import seed_law_rows
+        seed_law_rows(get_engine())
     from sqlalchemy import update
     fake=FakeSupabase()
     account=FakeAccount(fake)

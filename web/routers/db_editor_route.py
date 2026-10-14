@@ -45,5 +45,16 @@ async def db_editor_save(request: Request, category: str, record_id: str):
     if not db_editor_service.categories_for(category):
         return RedirectResponse("/db-editor", status_code=303)
     form = await request.form()
-    await run_in_threadpool(db_editor_service.update_record, engine, category, record_id, dict(form))
+    values = dict(form)
+    # HTML textarea submits CRLF. An unrelated edit must not create a law
+    # override merely because the stored field used LF (or legacy CRLF).
+    if isinstance(values.get("위반법규"), str):
+        current = await run_in_threadpool(db_editor_service.get_record, engine, category, record_id)
+        submitted = values["위반법규"].replace("\r\n", "\n").replace("\r", "\n")
+        existing = (current or {}).get("위반법규")
+        if isinstance(existing, str) and submitted == existing.replace("\r\n", "\n").replace("\r", "\n"):
+            del values["위반법규"]
+        else:
+            values["위반법규"] = submitted
+    await run_in_threadpool(db_editor_service.update_record, engine, category, record_id, values)
     return RedirectResponse(f"/db-editor?category={category}", status_code=303)

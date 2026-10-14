@@ -20,7 +20,7 @@ def normalized_law_copy(s):
     chars, mapping = ([], [])
     for match in re.finditer('&(?:#[xX][0-9a-fA-F]+|#\\d+|[a-zA-Z]+);|.', s, re.S):
         for char in unicodedata.normalize('NFKC', html.unescape(match[0])):
-            if char.isspace() or char in '·ㆍ･・ᆞ':
+            if char.isspace() or char in '·ㆍ･・ᆞ\ufeff':
                 continue
             chars.append(char)
             mapping.append((match.start(), match.end()))

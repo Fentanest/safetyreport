@@ -65,7 +65,7 @@ input.form-control { font-size: 0.82rem; }
     </div>
     <div class="col-md-4">
       <label class="form-label">위반법규{{ ov('위반법규') }}</label>
-      <input type="text" name="위반법규" class="form-control" value="{{ record.위반법규 or '' }}">
+      <textarea name="위반법규" class="form-control" rows="3">{{ record.위반법규 or '' }}</textarea>
       {{ site('위반법규') }}
     </div>
     <div class="col-md-2">

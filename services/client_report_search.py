@@ -8,6 +8,7 @@ from functools import lru_cache
 import re
 from sqlalchemy import func
 from services import report_policy
+from services.law_values import matches_laws
 from services.report_filter_spec import RANGE_FIELDS, range_key
 from services.agency_registry import resolve_display_agency
 
@@ -77,7 +78,7 @@ def compile_predicate(filters):
             r['처리상태'] if r['처리상태'] is not None else r['상태']) in f['statuses'])
     if f.get('law'):
         law = '' if f['law'] == '__없음__' else report_policy.norm(f['law'])
-        add(['위반법규'], lambda r: report_policy.norm(r['위반법규']) == law)
+        add(['위반법규'], lambda r: matches_laws(r['위반법규'], '__없음__' if f['law'] == '__없음__' else law))
     if f.get('pollStatus'):
         add(['만족도조사여부'], lambda r: (r['만족도조사여부'] if r['만족도조사여부'] is not None else '답변 대기').strip(report_policy.TRIM_CHARS + '\u0085') == f['pollStatus'])
     for prefix, column, _, time in RANGE_FIELDS:
