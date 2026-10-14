@@ -3,6 +3,7 @@
 import pandas as pd
 
 from services import fine_estimate
+from services.law_values import available_laws as list_laws, read_laws
 from services.report_cache import cached
 from services.stats.common import _normalize_mode, _sanitize_jsonable
 from services.stats.metrics import _build_stats_tables, _estimated_fine_totals, _fine_amounts, _prepare_metrics
@@ -52,10 +53,9 @@ def _compute_agency_stats(available_years, frames, filters=None, mode: str = "ca
         df = _exclude_withdraw_rows(df)
 
         if "위반법규" in df.columns:
-            laws = df["위반법규"].dropna().astype(str)
-            nonempty_laws = laws[laws.str.strip() != ""]
-            available_laws = sorted(nonempty_laws.unique().tolist())
-            has_empty_law = bool((df["위반법규"].fillna("").astype(str).str.strip() == "").any())
+            values = df["위반법규"].fillna("").astype(str)
+            available_laws = list_laws(values)
+            has_empty_law = bool(values.map(lambda value: not read_laws(value)).any())
         else:
             available_laws = []
             has_empty_law = False

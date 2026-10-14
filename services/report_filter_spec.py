@@ -20,6 +20,7 @@ import pandas as pd
 from sqlalchemy import func, or_
 
 from services import report_policy
+from services.law_values import matches_laws
 
 EMPTY_LAW = "__없음__"
 POLICE_TEXT = "경찰"
@@ -158,8 +159,7 @@ class ReportFilterSpec:
     def matches_law(self, row) -> bool:
         if not self.law:
             return True
-        value = report_policy.norm(row.get("위반법규"))
-        return value == "" if self.law == EMPTY_LAW else value == report_policy.norm(self.law)
+        return matches_laws(row.get("위반법규"), self.law)
 
     # ── pandas 최종 판정 ─────────────────────────────────────────────────
     def apply_rows(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -185,10 +185,7 @@ class ReportFilterSpec:
     def apply_law(self, df: pd.DataFrame) -> pd.DataFrame:
         if not self.law or df.empty or "위반법규" not in df:
             return df
-        value = report_policy.text_series(df, "위반법규")
-        if self.law == EMPTY_LAW:
-            return df[value == ""]
-        return df[value == report_policy.norm(self.law)]
+        return df[df["위반법규"].fillna("").map(lambda value: matches_laws(value, self.law))]
 
     # ── SQL 후보 축소(상위 집합) ─────────────────────────────────────────
     def sql_candidates(self, table) -> list:

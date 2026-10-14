@@ -42,4 +42,4 @@ async def delete_api_key(request: Request, key: str = Form(...)):
     await run_in_threadpool(database.delete_api_key, engine, key)
     # 키를 지운 뒤 그 키로 열린 이벤트 WS 를 닫는다. 로그 WS 는 GateWatch 가 다음 확인 때 닫는다(기술일지 A1-02).
     await ws_manager.revoke_api_key(key)
-    return RedirectResponse(url="/devices", status_code=303)
+    return RedirectResponse(url="/devices/", status_code=303)

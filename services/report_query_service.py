@@ -12,6 +12,12 @@ EFFECTIVE = database.report_effective_table
 CATEGORIES = report_category.CATEGORIES
 
 
+def _install_law_matcher(conn):
+    from services.law_values import matches_laws
+    conn.connection.driver_connection.create_function(
+        'sr_law_matches', 3, lambda value, query, partial: int(matches_laws(value, query, partial=bool(partial))), deterministic=True)
+
+
 def _safe_read(conn, table):
     return pd.read_sql_query(select(table), conn)
 
@@ -94,15 +100,7 @@ def _build_records_query(table_obj, filters=None, categories=None):
 
     law = filters.get("law")
     if law and "위반법규" in table_obj.c:
-        if law == "__없음__":
-            query = query.where(
-                (table_obj.c["위반법규"].is_(None))
-                | (func.trim(table_obj.c["위반법규"]) == "")
-            )
-        elif filters.get('lawExact'):
-            query = query.where(func.trim(table_obj.c['위반법규']) == str(law).strip())
-        else:
-            query = query.where(table_obj.c["위반법규"].contains(law))
+        query = query.where(func.sr_law_matches(table_obj.c["위반법규"], str(law), int(not filters.get('lawExact'))) == 1)
 
     rating_cause = filters.get("ratingCause")
     if rating_cause and "별점사유" in table_obj.c:
@@ -159,6 +157,7 @@ def _get_records_from_table(engine, table_obj, filters=None, category: str = '',
 
 
 def _get_records_from_connection(conn, table_obj, filters=None, *, category='', mode='raw', exact_values=False, categories=None):
+    _install_law_matcher(conn)
     df = pd.read_sql_query(_build_records_query(table_obj, filters, categories), conn)
     watch_ids = _get_watch_ids(conn)
     projection = duplicate_group_service.ProjectionContext.load(conn, mode)

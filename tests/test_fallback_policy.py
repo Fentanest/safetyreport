@@ -30,7 +30,6 @@ SILENT_ALLOWED = {
     "core/crawler/login.py::is_logged_in": ("parse", 1),
     "core/crawler/login.py::wait_for_logged_in": ("retry", 1),
     "core/database/database.py::upgrade_schema": ("optional", 1),
-    "core/utils/csrf.py::_trusted_proxy_configured": ("parse", 1),
     "core/utils/fallback.py::_log": ("logging", 1),
     "core/utils/fallback.py::log_request_exception": ("logging", 1),
     "core/utils/fallback.py::note_fallback": ("logging", 1),

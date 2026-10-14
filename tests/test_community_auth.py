@@ -939,7 +939,8 @@ class LocalApiTests(CommunityTestBase):
         cls.TestClient = TestClient
         engine = get_engine()
         database.upgrade_schema(engine, maintenance=False)
-        if not database.has_admin_user(engine):
+        # Other integration suites may already have created a different fixture admin.
+        if not database.get_admin_user(engine, "fixture-admin"):
             database.create_admin_user(engine, "fixture-admin", "fixture-pass")
         cls.manager_key = database.create_api_key(engine, "관리 허용 폰")
         cls.plain_key = database.create_api_key(engine, "일반 폰")

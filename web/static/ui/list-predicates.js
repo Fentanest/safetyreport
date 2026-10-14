@@ -53,7 +53,10 @@
     /* search: {text:[{field, groups}], ranges:[{min,max,time}] (RANGE_FIELDS 순서), statuses, ratings, poll,
        excludePolice, onlyPolice} */
     function matchesSearch(search, row) {
-        if (search.text.some(function (item) { return !matchesGroups(row[item.field], item.groups); })) return false;
+        if (search.text.some(function (item) {
+            if (item.field === '위반법규' && root.SrLawValues) return !root.SrLawValues.matches(row[item.field], item.groups.map(g => g.join('&')).join(','), true);
+            return !matchesGroups(row[item.field], item.groups);
+        })) return false;
         if (search.poll && String(row['만족도조사여부'] || '').trim() !== search.poll) return false;
         if (search.statuses.length && search.statuses.indexOf(root.SrReportPolicy.displayStatus(row['처리상태'])) < 0) return false;
         if (search.ratings.length && search.ratings.indexOf(ratingKey(row['별점'])) < 0) return false;

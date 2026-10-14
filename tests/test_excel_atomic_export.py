@@ -16,7 +16,7 @@ class ExcelAtomicExportTests(unittest.TestCase):
              mock.patch.object(export.settings, 'telegram_enabled', False):
             path = Path(directory) / 'fixture.xlsx'
             path.write_bytes(b'previous complete workbook')
-            first = pd.DataFrame({'신고내용': ['쉼표, 인용 "한글"\n둘째 줄'], '금액': [30000]})
+            first = pd.DataFrame({'신고내용': ['쉼표, 인용 "한글"\n둘째 줄'], '위반법규': ['도로교통법 제32조\n도로교통법 제33조'], '금액': [30000]})
             broken = mock.Mock(empty=False)
             broken.to_excel.side_effect = OSError('fixture partial write')
             with self.assertRaises(OSError): export.save_to_excel({'교통위반': first, '주정차위반': broken})

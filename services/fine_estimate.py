@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from services import plate_normalize, report_category
+from services.law_values import primary_law
 
 RULE_VERSION = "2026-10-13.2"
 
@@ -155,14 +156,14 @@ def _no_subcategory_info(resolved: report_category.Resolved, entry_value) -> boo
     """진짜 '소분류 없음'(메뉴만 있고 세부가 없음)일 때만 True.
 
     소분류 코드(SSNPC_TYPE)가 있으면(모르는 코드라도) 소분류가 있는데 못 알아본 것이므로 False —
-    EP-99 처럼 코드표에 없는 코드는 밤샘주차가 아니라 일반 주정차로 떨어져야 한다(Astra #7).
-    대분류(SSNPC_CD)만 있고 소분류가 비면 소분류 없음이다(Astra 재검수 #6). 그때는 entry_value 의
+    EP-99 처럼 코드표에 없는 코드는 밤샘주차가 아니라 일반 주정차로 떨어져야 한다(Astra 검토 항목 7).
+    대분류(SSNPC_CD)만 있고 소분류가 비면 소분류 없음이다(Astra 재검수 검토 항목 6). 그때는 entry_value 의
     '메뉴-소분류'에서 '-' 뒤가 비어 있는지로 판단한다.
     """
     if resolved.ssnpc_type:
         return False
     if resolved.ssnpc_cd not in (None, "EP"):
-        # 대분류가 IP(소화전·교차로 등 지정 구역)면 '기타 불법주정차'가 아니다 — 밤샘주차는 EP(일반)만(최종 감사 #3).
+        # 대분류가 IP(소화전·교차로 등 지정 구역)면 '기타 불법주정차'가 아니다 — 밤샘주차는 EP(일반)만(최종 감사 항목 3).
         return False
     _menu, _sep, sub = str(entry_value or "").strip().partition("-")
     return not sub.strip()
@@ -175,7 +176,7 @@ def classify(record: dict) -> str | None:
     resolved = report_category.resolve(record.get("ssnpc_cd"), record.get("ssnpc_type"), entry_value)
     code = resolved.code
     name = _text(record.get("신고명"))
-    law = _text(record.get("위반법규"))
+    law = _text(primary_law(record.get("위반법규")))
     plate = record.get("차량번호")
     first, last = record.get("사진_첫촬영"), record.get("사진_끝촬영")
 
@@ -253,7 +254,7 @@ def legal_fine_amounts(record: dict | None) -> set[int]:
         _, amounts, surcharge = rule
         result.update(table.get(cls, table.get(None)) for table in (amounts, surcharge or {})
                       if table.get(cls, table.get(None)) is not None)
-    entry = _TRAFFIC_FINE_TABLE.get(normalize_violation_article(record.get("위반법규")))
+    entry = _TRAFFIC_FINE_TABLE.get(normalize_violation_article(primary_law(record.get("위반법규"))))
     if entry:
         amounts = entry["amounts"]
         kind = vehicle_kind(record.get("차량번호"))

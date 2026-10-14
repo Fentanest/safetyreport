@@ -645,7 +645,8 @@ class GateAppTests(GateTestBase):
         for m in self.main.app.user_middleware:
             dispatch = m.kwargs.get("dispatch")
             names.append(dispatch.__name__ if dispatch else m.cls.__name__)
-        self.assertEqual(names[0], "_WebSocketSafeSessionMiddleware", names)
+        self.assertEqual(names[:2], ["TrustedProxyHeadersMiddleware", "_WebSocketSafeSessionMiddleware"], names)
+        self.assertLess(names.index("_WebSocketSafeSessionMiddleware"), names.index("auth_middleware"), names)
         self.assertLess(names.index("auth_middleware"), names.index("community_gate_middleware"),
                         "게이트는 관리자 인증 안쪽(뒤)에서 실행된다")
 
@@ -791,6 +792,84 @@ class GateAppTests(GateTestBase):
         self.assertEqual(r.json()["gate"]["state"], "kakao_required")
         self.assertEqual(self.client.get("/settings/", follow_redirects=False).status_code, 302)
         self.assertEqual(self.store.context()["state"], "inactive")
+
+    def test_logout_recovers_from_cloud_failure_and_locks_local_pages(self):
+        from services.community_account_client import AccountApiError, CommunityAccountClient
+
+        token = self.login()
+        self.open_gate()
+        with mock.patch.object(CommunityAccountClient, "status", side_effect=AccountApiError("network_error")):
+            self.assertEqual(community_gate.refresh_now()["state"], "cloud_unavailable")
+        self.assertTrue(community_gate.evaluate()["can_local"])
+        # The remote logout can also fail; completing local logout must not depend on it.
+        with mock.patch.object(self.service, "_logout_quietly", return_value=False):
+            response = self.post("/settings/community/logout", {"confirm": "DELETE_MY_REPORTS"}, token=token)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(response.json()["result"]["server_logout"])
+        self.assertIsNone(self.service.store.load().get("current"))
+        self.assertEqual(response.json()["gate"]["state"], "kakao_required")
+        from services import community_cloud
+        with mock.patch.object(community_cloud, "remaining", return_value=300):
+            for path in ("/", "/settings/", "/crawl/"):
+                response = self.client.get(path, follow_redirects=False)
+                self.assertEqual(response.status_code, 302)
+                self.assertTrue(response.headers["location"].startswith("/onboarding/community"))
+            self.assertEqual(self.client.get("/onboarding/community", follow_redirects=False).status_code, 200)
+
+    def test_logout_recovery_keeps_csrf_and_confirmation_checks(self):
+        token = self.login()
+        gate = {"state": "cloud_unavailable", "can_enter": False, "can_local": False, "reasons": ["cloud_unavailable"]}
+        from web.routers import community_route
+        with mock.patch.object(self.main, "_community_gate_state", return_value=gate), \
+             mock.patch.object(community_route.ops, "logout") as logout:
+            for supplied in (None, "wrong-token"):
+                response = self.post("/settings/community/logout", {"confirm": "DELETE_MY_REPORTS"}, token=supplied)
+                self.assertEqual(response.status_code, 403)
+                self.assertEqual(response.json()["detail"], "csrf_failed")
+                self.assertEqual(response.json()["reason"], "csrf")
+            response = self.post("/settings/community/logout", {"confirm": "DELETE_MY_REPORTS"}, token=token,
+                                 headers={"Origin": "https://untrusted.invalid"})
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json()["detail"], "csrf_failed")
+            self.assertEqual(response.json()["reason"], "origin")
+            response = self.post("/settings/community/logout", {}, token=token)
+            self.assertEqual(response.status_code, 400)
+            logout.assert_not_called()
+
+    def test_logout_recovery_does_not_bypass_admin_authentication(self):
+        from web.routers import community_route
+        with mock.patch.object(community_route.ops, "logout") as logout:
+            response = self.post("/settings/community/logout", {"confirm": "DELETE_MY_REPORTS"}, token="not-a-session")
+            self.assertEqual(response.status_code, 401)
+            logout.assert_not_called()
+
+    def test_logout_recovery_does_not_call_remote_gate(self):
+        token = self.login()
+        from web.routers import community_route
+        with mock.patch.object(self.main, "_community_gate_state", side_effect=AssertionError("remote gate called")), \
+             mock.patch.object(community_route.ops, "logout", return_value={"result": {"server_logout": False}}) as logout:
+            response = self.post("/settings/community/logout", {"confirm": "DELETE_MY_REPORTS"}, token=token)
+            self.assertEqual(response.status_code, 200, response.text)
+            logout.assert_called_once_with()
+
+    def test_revoked_remote_session_can_logout_and_start_fresh_login(self):
+        token = self.login()
+        self.open_gate()
+        with self.fake.lock:
+            for session in self.fake.sessions.values():
+                session["revoked"] = True
+        response = self.post("/settings/community/logout", {"confirm": "DELETE_MY_REPORTS"}, token=token)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNone(self.service.store.load().get("current"))
+        response = self.post("/settings/community/start", {}, token=token)
+        self.assertEqual(response.status_code, 200, response.text)
+        request_id = response.json()["data"]["pending"]["request_id"]
+        self.assertIsNone(self.service.store.load().get("current"))
+        self.fake.give_code(request_id, USER_A)
+        self.assertTrue(wait_for(lambda: self.service.status(can_manage=True)["state"] == "confirm_required"))
+        response = self.post("/settings/community/confirm", {"request_id": request_id}, token=token)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIsNotNone(self.service.store.load().get("current"))
 
     def test_logout_is_refused_when_the_data_owner_cannot_be_read(self):
         # 주인 표시를 읽지 못하면 "주인 없음"으로 보고 지우지 않는다 — 아무것도 지우지 않고 로그인도 그대로(Codex 검수 P1)

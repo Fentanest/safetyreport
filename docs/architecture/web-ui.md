@@ -192,3 +192,16 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 - `base.html` 제목 줄의 `{% block page_actions %}` 에 화면별 버튼을 둔다(지금은 `/stats/map` 만 사용).
 - `/stats/map`: 제목 줄 `.community-map-link`(새 창, `https://safemap.worklazy.net/`), '커뮤니티 공유' 패널 맨 아래 `.community-map-note` 안내 링크.
   모바일 앱은 지도 오른쪽 위 버튼으로 폰의 기본 브라우저 앱을 연다(앱 안 웹뷰 금지).
+
+
+## 프록시 뒤 웹 이동·CSRF (2026-10-14)
+
+다섯 관리 메뉴의 정규 경로는 `/crawl/`, `/rating/`, `/watchlist/`, `/settings/`, `/devices/`다. 내부 링크·설정/JSON 저장 후303·기기 키 삭제 후303은 정규 경로를 직접 사용한다. 구 slash 없는 GET은 기존307 호환을 유지하며 쿼리도 보존한다. 설정 저장 안내 JS는 `saved`만 지우고 다른 쿼리와 hash를 보존한다. API 경로는 변경하지 않는다.
+
+`TrustedProxyHeadersMiddleware`는 앱 가장 바깥에서 원래 socket peer를 확인하고 URL을 복원한다. 이후 세션·인증·CSRF가 같은 scheme/Host를 본다. `trusted_proxies`는 실제 연결하는 프록시 IP/CIDR의 쉼표 목록이다. 빈 값은 비활성화; boolean처럼 쓴1/0, 임의 이름, wildcard와 전체주소 CIDR은 오류다. 잘못된 값은 전체 신뢰로 바꾸지 않으며 설정 저장은400, 앱 생성은 명확한 설정 오류로 중단한다.
+
+예: 프록시가 실제로 loopback에서 접속한다면 `[SETTINGS]`의 `trusted_proxies = 127.0.0.1, ::1`. Docker의 별도 프록시는 앱이 보는 실제 peer IP 또는 제한된 전용 네트워크 CIDR을 사용한다. 예시 주소를 확인 없이 복사하지 않는다. 변경 후 서버/컨테이너 재시작이 필요하다. 운영 설정을 이 수정에서 자동 변경하지 않는다.
+
+신뢰 peer에서만 `X-Forwarded-Proto`(http/https), 단일 `X-Forwarded-Host`, IP 목록인 `X-Forwarded-For`를 읽는다. 프록시는 외부 요청의 전달 헤더를 제거/덮어써야 한다. XFF는 오른쪽부터 신뢰 경계를 확인하고, original peer는 별도 scope 값으로 보존한다. 비신뢰 peer의 전달 헤더는 무시한다. Host/Proto의 복수·모호 값과 잘못된 신뢰 헤더는400(WS1008)으로 거절한다. 기본 포트를 포함한 scheme·host·port를 정규화해 Origin을 정확 비교하며, JSON·세션 토큰·cross-site 거절은 유지한다.
+
+Uvicorn 기본 proxy 처리가 먼저 client를 바꾸면 원 socket peer를 복원할 수 없다. 공식 Docker entrypoint는 `--no-proxy-headers`, main 및 fixture 기동은 `proxy_headers=False`다. 별도 기동도 `uvicorn main:app --no-proxy-headers`로 실행한다. Uvicorn의 기본 ProxyHeadersMiddleware는 X-Forwarded-Host를 처리하지 않으므로 자동 지원을 가정하지 않는다.

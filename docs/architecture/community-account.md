@@ -43,6 +43,7 @@
 ### 계정 업무 순서 (EO R-08, 2026-10-05)
 `web/routers/community_route.py` 는 입력·권한 확인과 응답 변환만 하고, 업무 순서는 `services/community_account_ops.py` 가 가진다.
 - `logout()`: 자료 주인 확인(못 하면 아무것도 안 함, 409) → 게이트 무효화 → 주인이 다른 계정으로 확인된 경우가 아니면 신고 자료 삭제(거절되면 로그인 유지, 409) → 카카오 연결 해제.
+- 관리자 웹의 `POST /settings/community/logout`은 중앙 상태 조회·연결 게이트보다 먼저 로컬 처리기로 전달한다. 관리자 세션, JSON/Origin/CSRF 및 `DELETE_MY_REPORTS` 확인은 그대로 필요하다. 중앙 장애나 원격 세션 만료가 로컬 로그아웃을 가로막지 않는다. 성공하면 화면은 `/onboarding/community`로 즉시 이동하고 일반 화면은 다시 카카오 로그인을 요구한다. 삭제 거절 등 실제 실패 시에는 성공으로 이동하지 않는다.
 - `adopt_db_owner()`: 게이트가 `db_owner_mismatch` 일 때만, 지금 카카오 회원번호로 자료를 지운 뒤 다시 확인.
 - `consent()`·`consent_revoke()`(중앙 호출 전에 게이트 무효화)·`takeover()`·`contributions_delete()`·`policy_view()`, 중앙 호출과 오류 변환 `account_call()`, 재확인 `regate()`.
 순서는 `tests/test_community_account_ops.py` 가 호출 기록으로 확인한다.
@@ -147,6 +148,12 @@
   네트워크/5xx/429 → 세션 유지, `auth_unavailable` 예외.
 - `disconnect()`(카카오 로그아웃·세션 초기화가 부름): poll 중지, 대기 요청 취소, 로컬 세션 삭제(항상), 서버에는 `logout?scope=local`(access 가 만료됐으면 refresh 후, refresh 도 실패하면 생략).
   GoTrue 의 scope 기본값은 global 이므로 늘 `scope=local`. 이 함수 자체는 신고 데이터를 건드리지 않는다 — 지우는 것은 라우트 `/logout` 이다.
+
+### 카카오 연결 철회 뒤 다시 로그인
+
+재로그인은 기존 토큰 갱신만으로 끝내지 않는다. `start()`가 새 PKCE 요청을 만들고 중앙 페이지가 `provider=kakao`인 `/auth/v1/authorize`로 이동한 뒤, 새 코드 교환·계정 확인·관리자 확정을 거친다. 카카오에서 앱 연결을 해제했다면 이 인가 과정에서 동의를 다시 받는다. 일부 선택 동의항목 철회와 앱 연결 해제는 구분해야 한다.
+
+카카오의 `prompt=login`은 사용자 인증 화면을 다시 표시하는 옵션이며 동의 화면 강제 표시 옵션이 아니다. 공식 지원 목록에 없는 `prompt=consent`를 추가하지 않는다. [카카오 인가 API](https://developers.kakao.com/docs/ko/kakaologin/rest-api#request-code)의 동의 화면·prompt 설명 참조. 실제 카카오에서의 철회/재동의와 Apple Silicon 실행파일 검증은 모의 서버 테스트와 구분한다.
 
 ## 카카오 로그인 필수·자료 주인 (2026-09-27 사용자 결정)
 
