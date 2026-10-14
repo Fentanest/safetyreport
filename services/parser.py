@@ -4,6 +4,7 @@ import re
 from services.report_category import normalize_code
 from services.fine_amount_syntax import explicit_fine_number
 from services.case_fine_supplement import supplement_case_fine
+from services.law_values import supplement_law
 
 
 # 확인된 코드만 둔다. 13 은 실사용자 응답에서 봤지만 뜻을 확인하지 못해 매핑하지 않는다(2026-10-12 사용자 지시 —
@@ -208,7 +209,7 @@ def _select_answer(answers: list, raw_status: str) -> dict:
     return selected
 
 
-def _violation_law(processing_content: str) -> str:
+def _legacy_violation_law(processing_content: str) -> str:
     """3단계: 답변 본문의 위반 법규(법 이름 + 조·항)."""
     if not processing_content:
         return ""
@@ -222,6 +223,11 @@ def _violation_law(processing_content: str) -> str:
     article = re.sub(r'\s+', '', violation_law_match.group(3))
     paragraph = re.sub(r'\s+', '', violation_law_match.group(4) or '')
     return f"{law_name} 제{article}{paragraph}"
+
+
+def _violation_law(processing_content: str) -> str:
+    """Recognize with the existing parser, then supplement/validate its result."""
+    return supplement_law(processing_content, _legacy_violation_law(processing_content))
 
 
 def _penalty(entry_value: str, processing_status: str, processing_content: str) -> tuple[str, str]:

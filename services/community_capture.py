@@ -33,7 +33,7 @@ STATUS_MAP = {
     "처리중": "processing",
 }
 ELIGIBLE = {"accepted", "partial", "rejected", "completed_unknown"}
-PARSER_VERSION = "pc-parser-9"  # 미확인 처분 보완: 기존 journal amount는 자동 재파싱하지 않음
+PARSER_VERSION = "pc-parser-10"  # 법규 인식 보완: 기존 journal amount는 자동 재파싱하지 않음
 SCHEMA_VERSION = 1
 
 _AMOUNT_RE = re.compile(rf"^(과태료|범칙금):\s*({fine_estimate.AMOUNT_TOKEN_PATTERN})\s*원$")

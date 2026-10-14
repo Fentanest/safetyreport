@@ -902,3 +902,12 @@ capability를 성공적으로 조회했지만 신호가 없으면 기존 취소 
 정본 구현은 Python `services/case_fine_supplement.py`와 Dart `lib/services/case_fine_supplement.dart`. 인식용 사본에만 기본 HTML entity/숫자 entity, 전각 ASCII, 공백 정규화를 적용하며 원문은 보존한다. `contracts/case-fine-supplement-vectors.json`은 실제 관측 답변 발췌에서 식별정보를 제거한 공통 회귀 입력이다. 원본 백업·개인 식별정보는 계약 벡터에 포함하지 않는다.
 
 파서 버전은 pc-parser-9/mobile-parser-9. 기존 버전 기반 재전송은 journal의 원래 금액 판정을 보존하며 추정 필드만 재계산한다. 이번 변경에 과거 답변 자동 재파싱/DB 보정은 포함하지 않는다. 새 상세 수집에 적용되며 기존 데이터의 일괄 보정은 별도 작업이다.
+
+
+## 법규 인식 보완 (2026-10-15)
+
+기존 법규 정규식 결과를 먼저 얻고 공통 법규 인식·사건 근거 판정으로 보완한다. 원문과 인용 위치를 유지하며 법률·시행령·시행규칙을 구분한다. 위반 확인은 과태료 처분을 필수 조건으로 삼지 않는다. 일반 안내·적용 배제·신고포상금·경고 지침을 사건의 위반 근거와 구분한다. 제2조를 제2호로 추측 보정하지 않는다.
+
+기존 인식값의 의미가 같으면 기존 표기를 유지한다. 파서 버전은 pc-parser-10/mobile-parser-10이며 기존 DB나 journal을 자동 덮어쓰지 않는다. 과거 답변에 개선을 적용하려면 명시적인 재수집/재파싱이 필요하고 사용자 수정값의 우선순위는 유지한다. 금액·최소 추정 정책 변경은 없다.
+
+공통 계약은 `contracts/law-recognition.json`과 `contracts/law-parser-vectors.json`이다. 후자는 식별정보 없는 관측 문법 발췌와 경계 조합이며 실데이터 파일을 포함하지 않는다.
