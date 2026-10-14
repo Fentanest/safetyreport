@@ -434,6 +434,11 @@ async def community_gate_middleware(request: Request, call_next):
                 return JSONResponse(problem, status_code=409, headers={"Cache-Control": "no-store"})
     if request.method == "OPTIONS":
         return await call_next(request)
+    # Local logout is a recovery operation, including when cloud/binding checks fail.
+    # The outer administrator session and the route's CSRF/JSON/destructive-confirmation
+    # checks still apply. Do not require a remote status refresh to clear a local session.
+    if (request.method, path) == ("POST", "/settings/community/logout"):
+        return await call_next(request)
     if (request.method, path) in {("GET", "/api/v1/server/version"), ("GET", "/onboarding/cloud"), ("POST", "/settings/official-account/retry"),
                                    ("GET", "/settings/community/gate")}:
         return await call_next(request)

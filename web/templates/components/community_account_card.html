@@ -433,7 +433,7 @@
             var wiped = res.result && res.result.reports_wiped;
             alertBox(wiped ? '로그아웃했습니다. 이 서버에 저장된 신고 내역을 지웠습니다. 다시 쓰려면 카카오 계정으로 로그인해 주세요.'
                            : '로그아웃했습니다. 다시 쓰려면 카카오 계정으로 로그인해 주세요.', 'success');
-            setTimeout(function () { window.location.reload(); }, 1500);
+            window.location.replace('/onboarding/community');
         });
     }
     // 자료가 지워지는 조작은 공통 확인 창으로 지워지는 것·남는 것을 보여 준다(기술일지 F-09)
