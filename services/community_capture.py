@@ -252,20 +252,14 @@ def build_adapter_input(detail: dict, title_fields: dict | None = None,
     }
 
 
-def build_payload(adapter_input: dict) -> dict:
-    """observation.md 3절 그대로. 입력 외 값을 읽지 않는 순수 함수."""
-    status_raw = _clean(adapter_input.get("processing_status"), 40)
-    status = STATUS_MAP.get(status_raw or "", "other")
-    eligible = status in ELIGIBLE
-    entry_value = adapter_input.get("entry_value") if isinstance(adapter_input.get("entry_value"), str) else ""
-    # observation-v5: 5분류(contracts/report-categories.json). 코드가 있으면 코드, 없으면 접수 메뉴 문구.
-    category = report_category.category_of(adapter_input.get("ssnpc_cd"), adapter_input.get("ssnpc_type"), entry_value)
-    report_date = _parse_day(adapter_input.get("report_date"))
-    response_day = _parse_day(adapter_input.get("response_date"))
-    completed_date = response_day if eligible else None
-    fine_record = {
+def _fine_record(adapter_input: dict, category: str) -> dict:
+    """추정·금액 판정 입력(services/fine_estimate.FINE_ESTIMATE_FIELDS, 로컬 통계와 같은 열).
+
+    일반 캡처(build_payload)와 재전송·사진 보충(_backfill_payload)이 같은 어댑터 입력에서 같은 레코드를 만든다.
+    """
+    return {
         "category": category,
-        "entry_value": entry_value,
+        "entry_value": adapter_input.get("entry_value") if isinstance(adapter_input.get("entry_value"), str) else "",
         "ssnpc_cd": adapter_input.get("ssnpc_cd"),
         "ssnpc_type": adapter_input.get("ssnpc_type"),
         "신고명": adapter_input.get("report_name"),
@@ -275,27 +269,56 @@ def build_payload(adapter_input: dict) -> dict:
         "사진_끝촬영": adapter_input.get("photo_last_at"),
         "발생시각": adapter_input.get("occurrence_time"),
     }
+
+
+def _category(adapter_input: dict) -> str:
+    entry_value = adapter_input.get("entry_value") if isinstance(adapter_input.get("entry_value"), str) else ""
+    # observation-v5: 5분류(contracts/report-categories.json). 코드가 있으면 코드, 없으면 접수 메뉴 문구.
+    return report_category.category_of(adapter_input.get("ssnpc_cd"), adapter_input.get("ssnpc_type"), entry_value)
+
+
+def _disposition(status: str, raw_amount) -> str:
+    amount_head = (raw_amount if isinstance(raw_amount, str) else "").strip()
+    if status == "rejected":
+        return "none"
+    if amount_head.startswith("범칙금"):
+        return "penalty"
+    if amount_head.startswith("과태료"):
+        return "fine"
+    if amount_head.startswith("경고"):
+        return "warning"
+    return "unknown"
+
+
+def _fine_estimate_field(adapter_input: dict, fine_record: dict) -> dict | None:
+    """v6(2026-10-12, fine-estimate-contract.md): 로컬 통계가 '추정 과태료'로 세는 신고만, 같은 입력·같은 판정
+    (services/fine_estimate.estimate_if_unknown = services/stats/metrics.py `_metric_unknown_fine` 조건 + estimate()).
+    대상이 아니면 None(호출자가 키 자체를 넣지 않는다 — null 금지)."""
+    fine = fine_estimate.estimate_if_unknown(adapter_input.get("penalty_amount"), fine_record)
+    if fine is None:
+        return None
+    return {"won": fine["amount"], "rule": fine["rule"], "rule_version": fine_estimate.RULE_VERSION}
+
+
+def build_payload(adapter_input: dict) -> dict:
+    """observation.md 3절 그대로. 입력 외 값을 읽지 않는 순수 함수."""
+    status_raw = _clean(adapter_input.get("processing_status"), 40)
+    status = STATUS_MAP.get(status_raw or "", "other")
+    eligible = status in ELIGIBLE
+    category = _category(adapter_input)
+    report_date = _parse_day(adapter_input.get("report_date"))
+    response_day = _parse_day(adapter_input.get("response_date"))
+    completed_date = response_day if eligible else None
+    fine_record = _fine_record(adapter_input, category)
     confirmed_won, kind = _parse_amount(adapter_input.get("penalty_amount"), fine_record)
     penalty_points = _parse_points(adapter_input.get("penalty_points"))
-    raw_amount = adapter_input.get("penalty_amount") if isinstance(adapter_input.get("penalty_amount"), str) else ""
-    amount_head = raw_amount.strip()
-    if status == "rejected":
-        disposition = "none"
-    elif amount_head.startswith("범칙금"):
-        disposition = "penalty"
-    elif amount_head.startswith("과태료"):
-        disposition = "fine"
-    elif amount_head.startswith("경고"):
-        disposition = "warning"
-    else:
-        disposition = "unknown"
     payload = {
         "address": _clean(adapter_input.get("violation_location"), 200),
         "agency_name": _clean(adapter_input.get("processing_agency"), 200),
         "amount": {"confirmed_won": confirmed_won, "kind": kind, "penalty_points": penalty_points},
         "category": category,
         "completed_date": completed_date,
-        "disposition": disposition,
+        "disposition": _disposition(status, adapter_input.get("penalty_amount")),
         "location": _parse_location(adapter_input.get("geocode")),
         "manager_name": _clean(adapter_input.get("person_in_charge"), 160),
         "report_date": report_date,
@@ -309,16 +332,9 @@ def build_payload(adapter_input: dict) -> dict:
         # 사유(blocked:source_agency_code_too_long)로 기록한다 — 조용히 버리지 않음.
         "source_agency_code": _payload_agency_code(adapter_input.get("agency_code")),
     }
-    # v6(2026-10-12, fine-estimate-contract.md): 로컬 통계가 '추정 과태료'로 세는 신고만, 같은 입력·같은 판정
-    # (services/fine_estimate.estimate_if_unknown = services/stats/metrics.py `_metric_unknown_fine` 조건 + estimate()).
-    # 대상이 아니면 키 자체를 넣지 않는다(null 금지).
-    fine = fine_estimate.estimate_if_unknown(adapter_input.get("penalty_amount"), fine_record)
+    fine = _fine_estimate_field(adapter_input, fine_record)
     if fine is not None:
-        payload["fine_estimate"] = {
-            "won": fine["amount"],
-            "rule": fine["rule"],
-            "rule_version": fine_estimate.RULE_VERSION,
-        }
+        payload["fine_estimate"] = fine
     return payload
 
 
@@ -378,37 +394,48 @@ def _rebuild_run_id(explicit: str | None) -> str | None:
     return os.environ.get("SAFETYREPORT_REBUILD_RUN_ID") or None
 
 
+def read_account_context(store) -> tuple:
+    """capture() 가 쓰는 (계정 문맥, 동의 상태). 계정 상태 파일을 읽으므로 반복 호출자는 한 번만 부른다."""
+    from services import community_cloud
+    try:
+        return community_cloud.capture_context(store.context())
+    except Exception:
+        return None, 'unverified_owner'
+
+
 def _backfill_payload(latest_payload: dict, adapter_input: dict) -> dict:
-    """journal 원문 판정을 보존하고 개인 DB의 추정 입력으로 fine_estimate만 교체한다."""
+    """journal 최신 payload 를 보존하고 fine_estimate 만 일반 캡처와 같은 판정으로 다시 정한다.
+
+    adapter_input 은 개인 DB 현재 행으로 만든 어댑터 입력(_resend_adapter_input)이다. 추정 판정은 build_payload 와
+    같은 함수(_fine_estimate_field = estimate_if_unknown)를 같은 입력(범칙금_과태료 원문·위반법규·분류·사진 시각 등)에
+    적용한다. 단, 그 원문을 지금 규칙으로 읽은 금액 판정(amount.kind·confirmed_won, disposition)이 journal 의 것과
+    같을 때만 적용한다 — 다르면 개인 DB 가 journal 과 어긋났거나(개인 저장 지연) 금액표 보정으로 확정 금액이 새로
+    읽힌 것이므로 추정을 싣지 않는다(PROJECT_RULES 3-2). journal 의 amount 는 바꾸지 않는다(확정 금액 갱신은 다음
+    실시간 상세 수집이 맡는다).
+    """
     payload = dict(latest_payload)
     payload.pop("fine_estimate", None)
+    record = _fine_record(adapter_input, _category(adapter_input))
+    raw = adapter_input.get("penalty_amount")
+    confirmed_won, kind = _parse_amount(raw, record)
     amount = payload.get("amount") or {}
-    if amount.get("confirmed_won") is not None or amount.get("kind") != "fine":
+    current = (confirmed_won, kind, _disposition(payload.get("status"), raw))
+    if current != (amount.get("confirmed_won"), amount.get("kind"), payload.get("disposition")):
         return payload
-    entry = adapter_input.get("entry_value")
-    record = {
-        "category": report_category.category_of(adapter_input.get("ssnpc_cd"), adapter_input.get("ssnpc_type"), entry),
-        "entry_value": entry,
-        "ssnpc_cd": adapter_input.get("ssnpc_cd"),
-        "ssnpc_type": adapter_input.get("ssnpc_type"),
-        "신고명": adapter_input.get("report_name"),
-        "차량번호": adapter_input.get("car_number"),
-        "사진_첫촬영": adapter_input.get("photo_first_at"),
-        "사진_끝촬영": adapter_input.get("photo_last_at"),
-        "발생시각": adapter_input.get("occurrence_time"),
-        "위반법규": payload.get("violation_law"),
-    }
-    fine = fine_estimate.estimate(record)
+    fine = _fine_estimate_field(adapter_input, record)
     if fine is not None:
-        payload["fine_estimate"] = {
-            "won": fine["amount"], "rule": fine["rule"], "rule_version": fine_estimate.RULE_VERSION,
-        }
+        payload["fine_estimate"] = fine
     return payload
 
 
 def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
-            rebuild_run_id: str | None = None, data_dir: str | None = None) -> CaptureResult:
-    """한 트랜잭션으로 detail_status → journal/outbox → report_latest 를 기록한다."""
+            rebuild_run_id: str | None = None, data_dir: str | None = None,
+            account_context: tuple | None = None) -> CaptureResult:
+    """한 트랜잭션으로 detail_status → journal/outbox → report_latest 를 기록한다.
+
+    account_context: 여러 신고를 한 번에 보충하는 호출자(resend_fine_estimate_updates)가 실행 시작 때 한 번 읽은
+    (context, authorization) — 신고마다 계정 상태 파일을 다시 읽지 않는다. None 이면 여기서 읽는다.
+    """
     store = _store(data_dir)
     backfill = trigger == "fine_estimate_backfill"
     payload = {} if backfill else build_payload(adapter_input)
@@ -425,11 +452,10 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
     run_id = _rebuild_run_id(rebuild_run_id)
     local_dataset_id = store.local_dataset_id()
     now = _now_iso()
-    from services import community_cloud
-    try:
-        captured_context, authorization = community_cloud.capture_context(store.context())
-    except Exception:
-        captured_context, authorization = None, 'unverified_owner'
+    if account_context is not None:
+        captured_context, authorization = account_context
+    else:
+        captured_context, authorization = read_account_context(store)
 
     with store.transaction() as tx:
         if run_id and os.environ.get('SAFETYREPORT_CRAWL_RUN_ID'):
@@ -438,12 +464,20 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
         if backfill:
             # 최신 관측 조회와 변경 발급은 같은 journal 쓰기 트랜잭션에서 수행한다.
             # personal_save_state는 보충 조건으로 사용하지 않는다.
+            # 보충은 옛 관측의 재해석이지 새 수집이 아니다 — 사용자가 지운 관측(deleted_by_user)을 되살리지 않는다
+            # (BL-1). 후보 조회 뒤 삭제가 끼어들 수 있어 발급 트랜잭션 안에서 다시 확인한다(모바일 capture 와 같음).
+            deleted = tx.execute(
+                "SELECT 1 FROM report_latest l JOIN source_journal j ON j.event_id=l.event_id"
+                " WHERE l.local_dataset_id=? AND l.source_report_id=? AND j.blocked_reason='deleted_by_user'",
+                (local_dataset_id, source_report_id)).fetchone()
+            if deleted is not None:
+                return CaptureResult(event_id=None, event_type=None, eligible=False, payload_sha256=sha)
             latest = tx.execute(
                 "SELECT payload_json, report_number, blocked_reason"
                 " FROM source_journal WHERE local_dataset_id=? AND source_report_id=?"
                 " ORDER BY source_revision DESC LIMIT 1",
                 (local_dataset_id, source_report_id)).fetchone()
-            if latest is None:
+            if latest is None or latest["blocked_reason"] == "deleted_by_user":
                 return CaptureResult(event_id=None, event_type=None, eligible=False, payload_sha256=sha)
             original = json.loads(latest["payload_json"])
             payload = _backfill_payload(original, adapter_input)
@@ -741,19 +775,24 @@ def _set_resend_marker(data_dir: str | None, current: dict, *, local_dataset_id:
         store.set_meta(RESEND_MARKER_KEY, json.dumps(marker, ensure_ascii=False), tx)
 
 
-# 개인 DB에서는 추정 입력만 읽는다. 금액·상태·법규 등 원문 판정은 journal이 정본이다.
+# 개인 DB에서 읽는 열: 일반 캡처와 같은 추정 판정 입력(범칙금_과태료 원문·위반법규 포함).
+# 상태·주소·기관 등 나머지 payload 필드는 journal 최신 payload 를 그대로 보존한다(_backfill_payload).
 BACKFILL_PERSONAL_FIELDS = (
     "ID", "entry_value", "ssnpc_cd", "ssnpc_type", "차량번호", "사진_첫촬영", "사진_끝촬영", "발생시각", "신고명",
+    "범칙금_과태료", "위반법규",
 )
 
 
-def _resend_candidate_rows(engine):
-    """개인 금액 원문으로 거르지 않는다(journal 최신 금액 판정과 다를 수 있다)."""
-    from sqlalchemy import select
-    from core.database import models
+def _resend_candidate_ids(data_dir: str | None, local_dataset_id: str) -> list[str]:
+    """한 번이라도 캡처된 신고(report_latest) 중 사용자가 지우지 않은 것만, ID 순(모바일 resendFineEstimateIfNeeded 와 같은 후보 규칙).
 
-    with engine.connect() as conn:
-        return [dict(row) for row in conn.execute(select(models.report_table.c.ID)).mappings()]
+    개인 금액 원문으로 거르지 않는다 — 추정 판정은 capture() 의 발급 트랜잭션에서 한다.
+    """
+    rows = _store(data_dir).connect().execute(
+        "SELECT l.source_report_id FROM report_latest l JOIN source_journal j ON j.event_id=l.event_id"
+        " WHERE l.local_dataset_id=? AND (j.blocked_reason IS NULL OR j.blocked_reason!='deleted_by_user')"
+        " ORDER BY l.source_report_id", (local_dataset_id,)).fetchall()
+    return [str(row["source_report_id"]) for row in rows]
 
 
 def _resend_adapter_input(row: dict) -> dict:
@@ -786,10 +825,13 @@ def resend_fine_estimate_updates(engine, data_dir: str | None = None) -> dict:
     from sqlalchemy import select
     from core.database import models
 
-    dataset_id = _store(data_dir).local_dataset_id()
+    store = _store(data_dir)
+    dataset_id = store.local_dataset_id()
+    # 계정 상태 파일은 실행마다 한 번만 읽는다(신고마다 다시 읽지 않음). 업로더는 전송 때 현재 문맥과 다시 대조한다.
+    account_context = read_account_context(store)
     table = models.report_table
     candidates = resent = errors = 0
-    for row in _resend_candidate_rows(engine):
+    for source_report_id in _resend_candidate_ids(data_dir, dataset_id):
         candidates += 1
         try:
             with engine.begin() as conn:
@@ -800,11 +842,12 @@ def resend_fine_estimate_updates(engine, data_dir: str | None = None) -> dict:
                     return {"state": "dataset_changed", "candidates": candidates, "resent": resent,
                             "errors": errors, **current}
                 fresh = conn.execute(select(*(table.c[key] for key in BACKFILL_PERSONAL_FIELDS))
-                                     .where(table.c.ID == row["ID"])).mappings().first()
+                                     .where(table.c.ID == source_report_id)).mappings().first()
                 if fresh is None:
                     continue
-                result = capture(_resend_adapter_input(dict(fresh)), source_report_id=str(row["ID"]),
-                                 trigger="fine_estimate_backfill", data_dir=data_dir)
+                result = capture(_resend_adapter_input(dict(fresh)), source_report_id=source_report_id,
+                                 trigger="fine_estimate_backfill", data_dir=data_dir,
+                                 account_context=account_context)
                 mark_personal_save(result.event_id, True, data_dir=data_dir)
                 if result.event_id:
                     resent += 1
