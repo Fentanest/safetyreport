@@ -150,6 +150,16 @@
         return cells;
     }
 
+    /* 위반법규 막대의 목록 조건(lawExact=true 와 함께 넘긴다). 통계가 이미 법규 A 로 좁혀져 있으면 막대 B 의 건수는
+       A 와 B 에 모두 속한 신고이므로, 저장 키를 한 줄에 하나씩(줄 = AND) 넘긴다. 키 안의 쉼표·& 는 나누지 않는다. */
+    function lawBarFilter(activeLaw, barFilter) {
+        var active = String(activeLaw || '').trim(), bar = String(barFilter || '').trim();
+        if (!active || active === '__없음__' || bar === '__없음__') return bar;
+        var keys = active.split(/\r\n?|\n|\u2028|\u2029/).map(function (k) { return k.trim(); }).filter(Boolean);
+        if (keys.indexOf(bar) < 0) keys.push(bar);
+        return keys.join('\n');
+    }
+
     function csvText(header, rows) {
         var lines = [header.map(csvCell).join(',')].concat(rows.map(function (cells) { return cells.map(csvCell).join(','); }));
         return '﻿' + lines.join('\r\n') + '\r\n';
@@ -159,6 +169,6 @@
         esc: esc, num: num, won: won, pct: pct, pctValue: pctValue, rowKey: rowKey, listBaseParams: listBaseParams,
         kpiListUrl: kpiListUrl, mapParams: mapParams, lawUrl: lawUrl, naturalCompare: naturalCompare,
         COUNT_KEYS: COUNT_KEYS, summarizeRows: summarizeRows, csvCell: csvCell, csvHeader: csvHeader, csvRow: csvRow,
-        csvText: csvText,
+        csvText: csvText, lawBarFilter: lawBarFilter,
     };
 })(typeof window === 'undefined' ? globalThis : window);

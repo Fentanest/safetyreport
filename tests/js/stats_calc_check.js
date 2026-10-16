@@ -98,3 +98,9 @@ assert.deepEqual(JSON.parse(JSON.stringify(M.summarizeClusterRegions(
     [{ region: '주소 정보 없음', address: '', total: 2, cluster: true }]))),
     { title: '주소 정보 없음', addressLines: [] });
 console.log('stats-calc ok');
+// 법규 막대 링크: 통계가 법규로 좁혀져 있으면 저장 키를 줄마다(AND) 넘긴다. 키 안의 쉼표는 나누지 않는다.
+assert.equal(S.lawBarFilter('', '도로교통법 제5조, 제6조'), '도로교통법 제5조, 제6조');
+assert.equal(S.lawBarFilter('도로교통법 제32조', '도로교통법 제32조'), '도로교통법 제32조');
+assert.equal(S.lawBarFilter('도로교통법 제32조', '도로교통법 제33조'), '도로교통법 제32조\n도로교통법 제33조');
+assert.equal(S.lawBarFilter('__없음__', '__없음__'), '__없음__');
+console.log('law-bar ok');

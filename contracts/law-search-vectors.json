@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "storage": "Existing TEXT, one canonical citation per LF line; original legacy scalar remains readable.",
-  "semantics": "Each comma group is OR, ampersand within a group is AND. Ancestors include paragraphs/items, but 조의/호의 are distinct. Missing-law token is __없음__.",
+  "semantics": "Each comma group is OR, ampersand within a group is AND. Ancestors include paragraphs/items, but 조의/호의 are distinct. Missing-law token is __없음__. Search ('cases') may split ',' and '&'; a query equal to one stored key matches it whole. Stored-key membership ('key_cases', web lawExact=true, mobile ReportFilter.lawExact, stats law filter) never splits: one key per line = AND, a row belongs to K when one of its keys is K or a descendant paragraph/item. Text that is not one structured key (law name containing ',', '&' or another N조) stays one raw key with its spacing. Each per-law statistic bar count equals key membership of its filter ('stats_cases').",
   "cases": [
     {
       "name": "second",
@@ -212,6 +212,340 @@
       "value": "",
       "query": "__없음__",
       "expected": false
+    },
+    {
+      "name": "whole_raw_key_with_comma",
+      "value": "도로교통법 제5조, 제6조 위반",
+      "query": "도로교통법 제5조, 제6조 위반",
+      "expected": true
+    },
+    {
+      "name": "raw_comma_value_other_law_article",
+      "value": "주차장법 제33조",
+      "query": "도로교통법 제32조, 제33조",
+      "expected": true
+    },
+    {
+      "name": "inserted_article_paragraph_typo",
+      "value": "도로교통법 제32조의21항",
+      "query": "도로교통법 제32조의2",
+      "expected": true
+    },
+    {
+      "name": "inserted_article_paragraph_typo_not_parent",
+      "value": "도로교통법 제32조의21항",
+      "query": "도로교통법 제32조",
+      "expected": false
+    },
+    {
+      "name": "raw_two_articles_name_search",
+      "value": "도로교통법 제32조 제33조",
+      "query": "도로교통법",
+      "expected": true
+    },
+    {
+      "name": "raw_and_articles_name_search",
+      "value": "도로교통법 제32조 및 제33조",
+      "query": "도로교통법",
+      "expected": true
+    },
+    {
+      "name": "raw_two_articles_not_structured",
+      "value": "도로교통법 제32조 제33조",
+      "query": "도로교통법 제32조",
+      "expected": false
+    },
+    {
+      "name": "entity_requires_semicolon",
+      "value": "도로교통법&middot제32조",
+      "query": "도로교통법 제32조",
+      "expected": false
+    },
+    {
+      "name": "entity_with_semicolon",
+      "value": "도로교통법&middot;제32조",
+      "query": "도로교통법 제32조",
+      "expected": true
+    },
+    {
+      "name": "arabic_indic_digits_not_article",
+      "value": "도로교통법 제٣٢조",
+      "query": "도로교통법 제32조",
+      "expected": false
+    }
+  ],
+  "canonical_cases": [
+    {
+      "name": "paragraph_typo_backtrack",
+      "value": "도로교통법 제32조의21항",
+      "expected": "도로교통법 제32조의2제1항"
+    },
+    {
+      "name": "comma_raw_spacing_kept",
+      "value": " 도로교통법 제32조, 제33조 ",
+      "expected": "도로교통법 제32조, 제33조"
+    },
+    {
+      "name": "two_articles_raw",
+      "value": "도로교통법 제32조 제33조",
+      "expected": "도로교통법 제32조 제33조"
+    },
+    {
+      "name": "and_articles_raw",
+      "value": "도로교통법 제32조 및 제33조",
+      "expected": "도로교통법 제32조 및 제33조"
+    },
+    {
+      "name": "ampersand_raw",
+      "value": "도로교통법 제32조&제33조",
+      "expected": "도로교통법 제32조&제33조"
+    },
+    {
+      "name": "empty_name_raw",
+      "value": "「」제3조",
+      "expected": "「」제3조"
+    },
+    {
+      "name": "lawless_raw",
+      "value": "제32조",
+      "expected": "제32조"
+    },
+    {
+      "name": "digit_name_raw",
+      "value": "12제3조",
+      "expected": "12제3조"
+    },
+    {
+      "name": "fullwidth",
+      "value": "도로교통법 제３２조１항",
+      "expected": "도로교통법 제32조제1항"
+    },
+    {
+      "name": "entity_named",
+      "value": "「도로교통법」&nbsp;제32조",
+      "expected": "도로교통법 제32조"
+    },
+    {
+      "name": "entity_without_semicolon_raw",
+      "value": "도로교통법&nbsp제32조",
+      "expected": "도로교통법&nbsp제32조"
+    },
+    {
+      "name": "entity_control_kept",
+      "value": "도로교통법&#1;제32조",
+      "expected": "도로교통법\u0001 제32조"
+    },
+    {
+      "name": "entity_cp1252",
+      "value": "도로교통법&#150;제32조",
+      "expected": "도로교통법– 제32조"
+    },
+    {
+      "name": "decree",
+      "value": "도로교통법시행령제17조",
+      "expected": "도로교통법 시행령 제17조"
+    },
+    {
+      "name": "alias",
+      "value": "친환경자동차법 제11조의2",
+      "expected": "환경친화적 자동차의 개발 및 보급 촉진에 관한 법률 제11조의2"
+    },
+    {
+      "name": "letter",
+      "value": "도로교통법 제17조 제4항 제1호 가목",
+      "expected": "도로교통법 제17조제4항제1호가목"
+    }
+  ],
+  "key_cases": [
+    {
+      "name": "same_key",
+      "value": "도로교통법 제32조",
+      "query": "도로교통법 제32조",
+      "expected": true
+    },
+    {
+      "name": "descendant_paragraph",
+      "value": "도로교통법 제32조제1항",
+      "query": "도로교통법 제32조",
+      "expected": true
+    },
+    {
+      "name": "ancestor_not_member",
+      "value": "도로교통법 제32조",
+      "query": "도로교통법 제32조제1항",
+      "expected": false
+    },
+    {
+      "name": "inserted_article_separate",
+      "value": "도로교통법 제32조의2",
+      "query": "도로교통법 제32조",
+      "expected": false
+    },
+    {
+      "name": "name_is_exact_key",
+      "value": "도로교통법",
+      "query": "도로교통법",
+      "expected": true
+    },
+    {
+      "name": "name_no_prefix",
+      "value": "도로교통법 제32조",
+      "query": "도로교통법",
+      "expected": false
+    },
+    {
+      "name": "lawless_no_wildcard",
+      "value": "도로교통법 제33조",
+      "query": "제33조",
+      "expected": false
+    },
+    {
+      "name": "raw_comma_key_whole",
+      "value": "도로교통법 제32조, 제33조",
+      "query": "도로교통법 제32조, 제33조",
+      "expected": true
+    },
+    {
+      "name": "raw_comma_no_or",
+      "value": "주차장법 제33조",
+      "query": "도로교통법 제32조, 제33조",
+      "expected": false
+    },
+    {
+      "name": "raw_comma_no_or_first",
+      "value": "도로교통법 제32조",
+      "query": "도로교통법 제32조, 제33조",
+      "expected": false
+    },
+    {
+      "name": "raw_ampersand_key",
+      "value": "도로교통법 제32조&제33조",
+      "query": "도로교통법 제32조&제33조",
+      "expected": true
+    },
+    {
+      "name": "line_and",
+      "value": "도로교통법 제32조\n도로교통법 제33조",
+      "query": "도로교통법 제32조\n도로교통법 제33조",
+      "expected": true
+    },
+    {
+      "name": "line_and_missing",
+      "value": "도로교통법 제32조",
+      "query": "도로교통법 제32조\n도로교통법 제33조",
+      "expected": false
+    },
+    {
+      "name": "legacy_numbering_key",
+      "value": "도로교통법 제13조3항",
+      "query": "도로교통법 제13조제3항",
+      "expected": true
+    },
+    {
+      "name": "key_trim",
+      "value": " 도로교통법 ",
+      "query": "도로교통법",
+      "expected": true
+    },
+    {
+      "name": "missing",
+      "value": null,
+      "query": "__없음__",
+      "expected": true
+    },
+    {
+      "name": "missing_not",
+      "value": "도로교통법",
+      "query": "__없음__",
+      "expected": false
+    },
+    {
+      "name": "empty_query",
+      "value": "도로교통법",
+      "query": "",
+      "expected": true
+    }
+  ],
+  "stats_cases": [
+    {
+      "name": "bars_equal_drilldown",
+      "values": [
+        "도로교통법",
+        "도로교통법 제32조",
+        " 도로교통법 ",
+        "도로교통법 제5조\n자동차관리법 제29조",
+        null,
+        "",
+        "도로교통법 제5조, 제6조",
+        "도로교통법 제32조제1항",
+        "도로교통법 제32조의21항",
+        "도로교통법 제32조 제33조",
+        "도로교통법 제32조, 제33조",
+        "주차장법 제33조",
+        "도로교통법 제32조의2"
+      ],
+      "expected": [
+        {
+          "name": "",
+          "filter": "__없음__",
+          "count": 2
+        },
+        {
+          "name": "도로교통법",
+          "filter": "도로교통법",
+          "count": 2
+        },
+        {
+          "name": "도로교통법 제32조",
+          "filter": "도로교통법 제32조",
+          "count": 2
+        },
+        {
+          "name": "도로교통법 제32조의2",
+          "filter": "도로교통법 제32조의2",
+          "count": 2
+        },
+        {
+          "name": "도로교통법 제32조 제33조",
+          "filter": "도로교통법 제32조 제33조",
+          "count": 1
+        },
+        {
+          "name": "도로교통법 제32조, 제33조",
+          "filter": "도로교통법 제32조, 제33조",
+          "count": 1
+        },
+        {
+          "name": "도로교통법 제32조의2제1항",
+          "filter": "도로교통법 제32조의2제1항",
+          "count": 1
+        },
+        {
+          "name": "도로교통법 제32조제1항",
+          "filter": "도로교통법 제32조제1항",
+          "count": 1
+        },
+        {
+          "name": "도로교통법 제5조",
+          "filter": "도로교통법 제5조",
+          "count": 1
+        },
+        {
+          "name": "도로교통법 제5조, 제6조",
+          "filter": "도로교통법 제5조, 제6조",
+          "count": 1
+        },
+        {
+          "name": "자동차관리법 제29조",
+          "filter": "자동차관리법 제29조",
+          "count": 1
+        },
+        {
+          "name": "주차장법 제33조",
+          "filter": "주차장법 제33조",
+          "count": 1
+        }
+      ]
     }
   ]
 }

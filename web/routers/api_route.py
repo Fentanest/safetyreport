@@ -736,8 +736,11 @@ def get_app_config(_: str = Depends(_require_api_key)):
             "auto_export_sheet": settings.config.getboolean("SETTINGS", "auto_export_sheet", fallback=False),
             # 앱이 서버 기능을 알아보는 목록. rating_cause: /rating/start 가 공통 사유(cause)를 받는다(2026-09-25).
             # community_account: /api/v1/community-auth/* (서버의 커뮤니티 계정 연결, 2026-09-25).
-            "capabilities": ["rating_cause", "community_account", "report_search_v1"],
+            # law_search_v2(2026-10-16): 법규를 개별 키로 정규화해 검색하고 검색 필터 `lawExact`(저장 키 소속 판정)를 받는다.
+            # 이 신호가 없는 서버(v3.3.0 이하)에는 앱이 예전처럼 저장 원문 값을 보낸다. 기존 필드는 그대로 두고 추가만 한다.
+            "capabilities": ["rating_cause", "community_account", "report_search_v1", "law_search_v2"],
             "report_search_version": 1,
+            "law_search_version": 2,
             "rating_cause_max": rating_eligibility.RATING_CAUSE_MAX,
         },
     }

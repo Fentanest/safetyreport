@@ -189,7 +189,9 @@
     /// queryKey=value 검색 조건을 미리 적용. category 가 없으면 /data/all 로 fallback.
     function buildFilterUrl(category, queryKey, value) {
         var path = '/data/' + (category || 'all');
-        return path + '?' + queryKey + '=' + encodeURIComponent(normalizeDisplayValue(value));
+        // 법규 링크는 저장 키 그대로(lawExact): 키 안의 쉼표·& 를 OR/AND 로 나누지 않는다(통계 막대와 같은 판정).
+        return path + '?' + queryKey + '=' + encodeURIComponent(normalizeDisplayValue(value)) +
+            (queryKey === 'law' ? '&lawExact=true' : '');
     }
 
     function linkField(icon, label, value, category, queryKey) {
