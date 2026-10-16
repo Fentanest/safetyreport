@@ -58,7 +58,10 @@
                     <label class="form-label" for="fld_trusted_proxies">신뢰할 수 있는 프록시 IP</label>
                     <input id="fld_trusted_proxies" type="text" class="form-control" name="trusted_proxies"
                         value="{{ trusted_proxies }}" placeholder="192.168.0.1">
-                    <div class="form-text">서버에 직접 연결하는 프록시 IP 또는 CIDR을 쉼표로 구분해 입력합니다(예: 127.0.0.1, ::1). 해당 출처의 전달 주소·HTTPS 정보만 신뢰합니다. 비워두면 비활성화하며 1·0·*는 허용하지 않습니다. <strong>변경 후 서버 재시작 필요.</strong></div>
+                    <div class="form-text">서버에 직접 연결하는 프록시 IP 또는 CIDR을 쉼표로 구분해 입력합니다(예: 127.0.0.1, ::1). 해당 출처의 전달 주소·HTTPS 정보만 신뢰합니다. 비워두면 같은 PC의 프록시(127.0.0.1, ::1)만 신뢰합니다. Docker 의 별도 프록시 컨테이너나 다른 PC의 프록시는 그 IP/CIDR을 적어야 하며, 적으면 기본값 대신 그 목록만 신뢰합니다. 1·0·호스트 이름은 저장할 수 없습니다. *는 모든 연결의 전달 정보를 신뢰하므로 권하지 않습니다. <strong>변경 후 서버 재시작 필요.</strong></div>
+                    {% for warning in trusted_proxies_warnings %}
+                    <div class="alert alert-warning small py-1 px-2 mt-1 mb-0 sr-proxy-warning" role="status">{{ warning }}</div>
+                    {% endfor %}
                 </div>
             </div>
         </div>

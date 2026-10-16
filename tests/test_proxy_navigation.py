@@ -1,5 +1,8 @@
 """Real router ASGI regression; external services and mutating storage are mocked."""
+import json
 import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 os.environ.setdefault('SAFETYREPORT_DATA_DIR', tempfile.mkdtemp(prefix='sr-proxy-test-'))
@@ -10,7 +13,9 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.responses import JSONResponse
 from starlette.testclient import TestClient
 from core.utils import csrf
-from core.utils.proxy_headers import TrustedProxyHeadersMiddleware, trusted_proxy_networks, origin_tuple
+from core.utils.proxy_headers import (TrustedProxyHeadersMiddleware, trusted_proxy_networks, origin_tuple,
+                                      parse_trusted_proxies, LOOPBACK_NETWORKS, validate_trusted_proxies_setting,
+                                      ProxyConfigurationError)
 from web.routers import settings_route, devices_route, community_route, crawl, rating_route, watchlist_route
 
 
@@ -74,9 +79,12 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(r.json()['url'],'http://internal.test/test/url')
 
     def test_invalid_configuration_and_forwarded_authority(self):
-        for value in ('1','0','arbitrary','*','0.0.0.0/0','::/0','127.0.0.1,'):
+        # 설정 저장용 엄격 검사: 진단은 유지하되 빈 항목(끝 쉼표)은 무시한다.
+        for value in ('1','0','arbitrary','nginx','*','0.0.0.0/0','::/0','127.0.0.1, nginx'):
             with self.subTest(value),self.assertRaises(ValueError):trusted_proxy_networks(value)
         self.assertEqual(len(trusted_proxy_networks('127.0.0.1, ::1, 10.2.0.0/24')),3)
+        self.assertEqual(trusted_proxy_networks('127.0.0.1,'),trusted_proxy_networks('127.0.0.1'))
+        self.assertEqual(trusted_proxy_networks(' , '),())
         c=TestClient(make_app('10.2.0.2'),client=('10.2.0.2',1))
         for host in ('evil.test, public.test','user@public.test','public.test/path','public.test:bad'):
             self.assertEqual(c.get('/test/url',headers={'x-forwarded-host':host}).status_code,400)
@@ -84,9 +92,15 @@ class ProxyTests(unittest.TestCase):
 
     def test_startup_configuration_and_no_outer_uvicorn_rewrite(self):
         from services import settings_service
-        for value in ('1', '0', '*'):
-            with self.assertRaises(ValueError):
-                settings_service.web_command({'trusted_proxies': value})
+        with patch.object(settings_service,'_stored_trusted_proxies',return_value=''):
+            for value in ('1', '0', 'nginx', '0.0.0.0/0'):
+                with self.subTest(value),self.assertRaises(ValueError):
+                    settings_service.web_command({'trusted_proxies': value})
+            # '*' 는 시작 때와 같은 의미로 저장하되 경고를 돌려준다(2026-10-16 Opus 결정).
+            command=settings_service.web_command({'trusted_proxies': ' * '})
+            self.assertEqual(dict(((s,k),v) for s,k,v in command.values)[('SETTINGS','trusted_proxies')],'*')
+            self.assertEqual(len(command.warnings),1)
+            self.assertEqual(settings_service.web_command({'trusted_proxies': '127.0.0.1'}).warnings,())
         # Entrypoints explicitly preserve the socket peer for the app boundary.
         self.assertIn('--no-proxy-headers', Path('entrypoint.sh').read_text())
         self.assertEqual(Path('main.py').read_text().count('proxy_headers=False'), 2)
@@ -97,6 +111,183 @@ class ProxyTests(unittest.TestCase):
         r=c.post('/settings/community/start',data={'x':1},headers={'x-csrf-token':token})
         self.assertEqual(r.status_code,403)
         self.assertEqual(r.json()['reason'],'content_type')
+
+
+FWD={'x-forwarded-proto':'https','x-forwarded-host':'public.test','x-forwarded-for':'203.0.113.9'}
+
+
+class LocalProxyDefaultTests(unittest.TestCase):
+    """trusted_proxies 가 비면 같은 PC 프록시(127.0.0.1, ::1)만 신뢰한다(이전 Uvicorn 기본과 같음)."""
+    post=ProxyTests.post
+
+    def test_loopback_proxy_with_empty_setting_posts_and_restores_https(self):
+        for peer in ('127.0.0.1','::1'):
+            with self.subTest(peer):
+                r,calls=self.post(peer,'','https://public.test',FWD)
+                self.assertEqual((r.status_code,calls),(200,1),r.text)
+                c=TestClient(make_app(''),client=(peer,1234),base_url='http://internal.test')
+                body=c.get('/test/url',headers=FWD).json()
+                self.assertEqual((body['url'],body['client']),('https://public.test/test/url','203.0.113.9'))
+                self.assertEqual(body['peer'],[peer,1234])
+
+    def test_remote_peer_forwarded_headers_ignored_with_empty_setting(self):
+        c=TestClient(make_app(''),client=('198.51.100.2',1234),base_url='http://internal.test')
+        body=c.get('/test/url',headers=FWD).json()
+        self.assertEqual((body['url'],body['client']),('http://internal.test/test/url','198.51.100.2'))
+        r,calls=self.post('198.51.100.2','','https://public.test',FWD)
+        self.assertEqual((r.status_code,calls),(403,0))
+        self.assertEqual(r.json()['reason'],'origin')
+        # 루프백이 신뢰 프록시를 거쳐 왔다고 주장해도 원격 peer 는 그대로다.
+        r,calls=self.post('198.51.100.2','','https://public.test',{**FWD,'x-forwarded-for':'127.0.0.1'})
+        self.assertEqual((r.status_code,calls),(403,0))
+
+    def test_explicit_list_replaces_loopback_default(self):
+        c=TestClient(make_app('10.2.0.0/24'),client=('127.0.0.1',1234),base_url='http://internal.test')
+        self.assertEqual(c.get('/test/url',headers=FWD).json()['url'],'http://internal.test/test/url')
+        r,calls=self.post('127.0.0.1','10.2.0.0/24','https://public.test',FWD)
+        self.assertEqual((r.status_code,calls),(403,0))
+
+    def test_issue6_slash_redirect_via_local_proxy_keeps_https_and_query(self):
+        c=TestClient(make_app(''),client=('127.0.0.1',42),base_url='http://internal.test')
+        r=c.get('/crawl?q=a%2Fb&saved=true',headers=FWD,follow_redirects=False)
+        self.assertEqual((r.status_code,r.headers['location']),(307,'https://public.test/crawl/?q=a%2Fb&saved=true'))
+
+    def test_lenient_startup_parse(self):
+        cfg=parse_trusted_proxies('')
+        self.assertEqual((cfg.networks,cfg.trust_all,cfg.implicit_loopback,cfg.warnings),(LOOPBACK_NETWORKS,False,True,()))
+        cfg=parse_trusted_proxies('127.0.0.1,')
+        self.assertEqual((len(cfg.networks),cfg.implicit_loopback,cfg.warnings),(1,False,()))
+        cfg=parse_trusted_proxies('nginx, 10.2.0.2')
+        self.assertEqual([str(n) for n in cfg.networks],['10.2.0.2/32'])
+        self.assertEqual(len(cfg.warnings),1);self.assertIn('nginx',cfg.warnings[0])
+        cfg=parse_trusted_proxies('nginx')
+        self.assertEqual((cfg.networks,cfg.implicit_loopback),(LOOPBACK_NETWORKS,True))
+        self.assertEqual(len(cfg.warnings),2)
+        cfg=parse_trusted_proxies('*')
+        self.assertTrue(cfg.trust_all);self.assertEqual(len(cfg.warnings),1)
+        for value in ('1','0'):
+            cfg=parse_trusted_proxies(value)
+            self.assertEqual((cfg.networks,cfg.implicit_loopback),(LOOPBACK_NETWORKS,True))
+
+    def test_star_trusts_every_peer_like_old_uvicorn(self):
+        c=TestClient(make_app('*'),client=('198.51.100.2',1234),base_url='http://internal.test')
+        body=c.get('/test/url',headers={**FWD,'x-forwarded-for':'203.0.113.9, 10.0.0.5'}).json()
+        self.assertEqual((body['url'],body['client']),('https://public.test/test/url','203.0.113.9'))
+        r,calls=self.post('198.51.100.2','*','https://public.test',FWD)
+        self.assertEqual((r.status_code,calls),(200,1))
+
+    def test_hostname_entry_is_ignored_and_valid_entries_used(self):
+        c=TestClient(make_app('nginx, 10.2.0.2'),client=('10.2.0.2',1234),base_url='http://internal.test')
+        self.assertEqual(c.get('/test/url',headers=FWD).json()['url'],'https://public.test/test/url')
+        c=TestClient(make_app('nginx, 10.2.0.2'),client=('127.0.0.1',1234),base_url='http://internal.test')
+        self.assertEqual(c.get('/test/url',headers=FWD).json()['url'],'http://internal.test/test/url')
+
+    def test_underscore_host_origin(self):
+        self.assertEqual(origin_tuple('http://my_pc:6819'),('http','my_pc',6819))
+        self.assertEqual(origin_tuple('http://MY_PC:6819/'),('http','my_pc',6819))
+        service=Mock();service.start.return_value={'state':'pending'}
+        with TestClient(make_app(),client=('192.168.0.20',1234),base_url='http://my_pc:6819') as c, \
+                patch.object(community_route.cas,'get_service',return_value=service):
+            token=c.get('/test/session').json()['token']
+            r=c.post('/settings/community/start',json={},headers={'origin':'http://my_pc:6819','x-csrf-token':token})
+            self.assertEqual((r.status_code,service.start.call_count),(200,1),r.text)
+            r=c.post('/settings/community/start',json={},headers={'origin':'http://other_pc:6819','x-csrf-token':token})
+            self.assertEqual(r.status_code,403)
+        # 신뢰 프록시가 넘긴 밑줄 호스트도 받는다(Docker 컨테이너 이름).
+        c=TestClient(make_app('10.2.0.2'),client=('10.2.0.2',1),base_url='http://internal.test')
+        self.assertEqual(c.get('/test/url',headers={'x-forwarded-host':'safety_report:6819'}).json()['url'],
+                         'http://safety_report:6819/test/url')
+
+
+
+class SettingsSaveTrustedProxiesTests(unittest.TestCase):
+    """설정 저장: '*' 는 경고와 함께 저장, 새로 넣은 해석 불가 항목은 400, 바꾸지 않은 기존 값은 막지 않는다."""
+
+    def test_validator(self):
+        self.assertEqual(len(validate_trusted_proxies_setting('*')),1)
+        self.assertEqual(len(validate_trusted_proxies_setting('*, 10.0.0.1')),1)
+        self.assertEqual(validate_trusted_proxies_setting('127.0.0.1, ::1,'),())
+        for value in ('nginx','1','::/0','10.0.0.1, my_proxy'):
+            with self.subTest(value),self.assertRaises(ProxyConfigurationError):
+                validate_trusted_proxies_setting(value,'')
+        # 저장된 값과 같으면(칸을 바꾸지 않음) 통과하고 시작 때와 같은 경고를 돌려준다.
+        self.assertTrue(validate_trusted_proxies_setting('nginx','nginx'))
+        self.assertTrue(validate_trusted_proxies_setting(' nginx , 10.0.0.1','nginx,10.0.0.1,'))
+        with self.assertRaises(ProxyConfigurationError):
+            validate_trusted_proxies_setting('nginx, other','nginx')
+
+    def _save(self, stored, submitted):
+        from services import settings_service
+        client=TestClient(make_app(),client=('192.168.0.20',1),base_url='http://internal.test')
+        with patch.object(settings_service,'_stored_trusted_proxies',return_value=stored), \
+             patch.object(settings_route.settings_service,'apply') as apply:
+            r=client.post('/settings/save',data={'trusted_proxies':submitted,'telegram_token':'changed'},follow_redirects=False)
+        return r,apply
+
+    def test_unchanged_legacy_value_does_not_block_other_settings(self):
+        for stored in ('nginx','1','nginx, 172.18.0.2','0.0.0.0/0'):
+            with self.subTest(stored):
+                r,apply=self._save(stored,stored)
+                self.assertEqual((r.status_code,r.headers.get('location')),(303,'/settings/?saved=true'),r.text)
+                self.assertEqual(apply.call_count,1)
+                values={(s,k):v for s,k,v in apply.call_args.args[0].values}
+                self.assertEqual(values[('SETTINGS','trusted_proxies')],stored.strip())
+                self.assertEqual(values[('TELEGRAM','telegram_token')],'changed')
+
+    def test_star_saved_and_new_invalid_rejected(self):
+        r,apply=self._save('','*')
+        self.assertEqual((r.status_code,apply.call_count),(303,1))
+        self.assertTrue(apply.call_args.args[0].warnings)
+        r,apply=self._save('nginx','nginx2')
+        self.assertEqual((r.status_code,apply.call_count),(400,0))
+        self.assertIn('nginx2',r.json()['detail'])
+
+    def test_settings_page_shows_wildcard_warning(self):
+        from services import settings_service, community_gate
+        real=settings_service.view_values
+        def values():
+            data=real();data['trusted_proxies']='*'
+            data['trusted_proxies_warnings']=settings_service._proxy_warnings('*')
+            return data
+        from starlette.staticfiles import StaticFiles
+        app=make_app();app.mount('/static',StaticFiles(directory='web/static'),name='static')
+        client=TestClient(app,client=('192.168.0.20',1),base_url='http://internal.test')
+        client.get('/test/session')
+        with patch.object(settings_service,'view_values',side_effect=values), \
+             patch.object(community_gate,'check_for_request',return_value={'state':'ready'}):
+            r=client.get('/settings/')
+        self.assertEqual(r.status_code,200,r.text[-500:])
+        self.assertIn('sr-proxy-warning',r.text)
+        self.assertIn('모든 연결의 X-Forwarded-* 를 신뢰합니다',r.text)
+        self.assertEqual(settings_service._proxy_warnings('127.0.0.1'),())
+
+
+_CREATE_APP_PROBE = """
+import json, sys
+sys.path.insert(0, {root!r})
+import main
+app = main.get_app()
+names = [m.cls.__name__ for m in app.user_middleware]
+from core.utils import logger
+print(json.dumps({{"outer": names[0]}}))
+"""
+
+
+class CreateAppTrustedProxiesTests(unittest.TestCase):
+    """예전에 동작하던 trusted_proxies 값으로 서버 시작이 실패하지 않는다(경고만)."""
+    def test_create_app_accepts_legacy_values_with_warning(self):
+        root=str(Path(__file__).resolve().parents[1])
+        cases={'*':True,'nginx':True,'127.0.0.1,':False,'nginx, 172.18.0.0/16':True,'':False}
+        for value,warns in cases.items():
+            with self.subTest(value=value):
+                data_dir=tempfile.mkdtemp(prefix='sr-proxy-app-')
+                Path(data_dir,'config.ini').write_text('[SETTINGS]\ntrusted_proxies = '+value+'\n',encoding='utf-8')
+                env=dict(os.environ,SAFETYREPORT_DATA_DIR=data_dir)
+                result=subprocess.run([sys.executable,'-c',_CREATE_APP_PROBE.format(root=root)],cwd=root,env=env,
+                                      capture_output=True,text=True,timeout=120)
+                self.assertEqual(result.returncode,0,result.stderr[-2000:])
+                self.assertEqual(json.loads(result.stdout.strip().splitlines()[-1]),{'outer':'TrustedProxyHeadersMiddleware'})
+                self.assertEqual('[proxy]' in result.stdout,warns,result.stdout[-2000:])
 
 
 class NavigationTests(unittest.TestCase):

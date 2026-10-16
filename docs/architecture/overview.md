@@ -216,7 +216,10 @@
     - **workflow_dispatch(main) = 정식 릴리즈**: `prepare-release`(태그 존재 검사 포함)부터 `build-windows`/`build-linux`/
       `build-docker`(`latest`+버전 태그)/`build-macos-x64`/`build-macos-arm64`/`create-release` 까지 이전과 동일하게 돈다.
       계산된 태그의 `docs/releases/v<버전>.md` 내용 그대로 GitHub Release 본문이 된다(`Full Changelog` 포함, 자동 생성
-      노트 없음). 릴리스 job에서 해당 파일이 없으면 `::error::`로 경로를 안내하고 Release 생성 전에 실패한다. 기존 태그가
+      노트 없음). 2026-10-16 부터 `prepare-release` 가 맨 먼저 main 이 아닌 ref 면 실패하고(건너뛰기 아님), 태그가 없을 때
+      노트 파일이 없거나 비어 있으면 `::error::`로 경로를 안내하며 실패한다 — 실행파일·Docker `latest`/버전 이미지를 만들기 전이다
+      (예전에는 `create-release` 에서만 확인해 이미지가 이미 푸시된 반쪽 릴리스가 될 수 있었다). `create-release` 는 softprops 에
+      `target_commitish: github.sha` 를 넘겨 태그를 빌드한 커밋에 만든다. 기존 태그가
       있으면 `prepare-release` 이후 전부 건너뛴다(이 태그 존재 검사는 릴리스 경로에만 있다 — push 의 `build-docker-dev` 는
       매번 실행된다). artifact(실행파일 zip) 보관 1일.
   - `build-windows-manual.yml`: 태그 체크 없이 수동으로 Windows 아티팩트 생성

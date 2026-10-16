@@ -617,9 +617,11 @@ def create_app() -> FastAPI:
     미들웨어는 나중에 넣은 것이 바깥이다: 프록시 → 세션 → 관리자 인증 → 시간 측정 → 커뮤니티 게이트 → 버전·CSRF → 라우트.
     설정·DB 경로는 프로세스 전역(settings)이라 한 프로세스에 데이터 루트가 다른 앱을 둘 만들 수는 없다.
     """
-    from core.utils.proxy_headers import trusted_proxy_networks
-    trusted_proxy_networks(settings.trusted_proxies)
     _init_runtime()
+    # 잘못된 trusted_proxies 로 시작을 막지 않는다(Docker 재시작 루프 방지): 쓸 수 없는 항목은 경고 후 무시.
+    from core.utils.proxy_headers import parse_trusted_proxies
+    for warning in parse_trusted_proxies(settings.trusted_proxies).warnings:
+        logger.LoggerFactory.logbot.warning(f"[proxy] {warning}")
     app = FastAPI(title="나만의 안전신문고", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=static_path), name="static")
 
