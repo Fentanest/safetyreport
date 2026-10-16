@@ -765,7 +765,7 @@ PC는 `services/fine_estimate.py`, 모바일은 `lib/services/fine_estimate.dart
 | 판정 입력 | category, entry_value, ssnpc_cd, ssnpc_type, 신고명, 위반법규, 차량번호, 사진_첫촬영, 사진_끝촬영, 발생시각을 함께 넘긴다. 모바일 Report 변환은 fineRecordForReport가 정본이다. |
 | 코드 우선순위 | 분류 코드가 있으면 메뉴보다 우선한다. 일반 주정차 메뉴 + EP-03은 fire_lane 500000원, 코드가 없으면 parking 40000원이다. 통계·업로드·목록/상세·추정 금액 내보내기 모두 같다. |
 | 규칙 버전 | 양쪽 RULE_VERSION/ruleVersion은 2026-10-13.2. 파서 버전은 pc-parser-7/mobile-parser-7을 유지한다. 공유 벡터와 커뮤니티 계약 벡터·MANIFEST도 함께 변경한다. |
-| 재전송 범위 | PC `_backfill_payload`, 모바일 `refreshFineEstimate`는 journal의 `amount`를 보존하고 `fine_estimate`만 재계산한다. 버전 상승만으로 과거 공유 확정 금액을 보정하지 않는다. PC의 종전 “로컬 값으로 payload를 만든다”는 설명을 이 코드에 맞춰 정정한다. |
+| 재전송 범위 | PC `_backfill_payload`, 모바일 `refreshFineEstimate`는 journal의 `amount`를 보존하고 `fine_estimate`만 재계산한다. 버전 상승만으로 과거 공유 확정 금액을 보정하지 않는다. PC의 종전 “로컬 값으로 payload를 만든다”는 설명을 이 코드에 맞춰 정정한다. 2026-10-16: 추정 판정은 일반 캡처와 같은 `estimate_if_unknown`/`estimateIfUnknown` 을 개인 DB 현재 원문(범칙금_과태료·위반법규 포함)에 적용하되, 그 원문의 지금 금액 판정(confirmed_won·kind·disposition)이 journal 과 같을 때만 — 금액표 보정으로 확정 금액이 새로 읽히면 추정을 싣지 않는다(상세: `community-upload.md` 추정 판정 절). |
 | 저장·표시·내보내기 | DB와 내보내기의 확정 원문은 보존한다. 목록/상세만 해석한 보정값을 쓰고, 상세에만 원문 보조를 붙인다. 미확인 금액의 추정은 같은 상세 줄에서 별도로 표시한다. |
 
 추정 과태료 업로드는 아직 미릴리스다. 코드 우선 적용으로 추정액·payload 해시가 바뀌는 범위는 있지만,
