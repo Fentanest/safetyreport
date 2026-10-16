@@ -34,7 +34,7 @@ STATUS_MAP = {
     "처리중": "processing",
 }
 ELIGIBLE = {"accepted", "partial", "rejected", "completed_unknown"}
-PARSER_VERSION = "pc-parser-11"  # 법규 인식 보완: 기존 journal amount는 자동 재파싱하지 않음
+PARSER_VERSION = "pc-parser-12"  # 2026-10-16 파서 결함 수정(가지번호·항 경계, 명시 금액 절 범위, 미래 조건·경고 제외, 서버·모바일 문자 규칙 통일). 기존 journal amount는 자동 재파싱하지 않음
 SCHEMA_VERSION = 1
 
 _AMOUNT_RE = re.compile(rf"^(과태료|범칙금):\s*({fine_estimate.AMOUNT_TOKEN_PATTERN})\s*원$")
