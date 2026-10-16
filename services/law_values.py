@@ -1,9 +1,8 @@
 """Backward-compatible readers for scalar and newline-delimited law TEXT."""
 from functools import lru_cache
 import re
-import html
 import unicodedata
-from services.law_citations import ALIASES
+from services.law_citations import ALIASES, decode_entities
 
 _TRIM_CHARS = " \t\n\x0b\x0c\r\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
 _LINES = re.compile(r'\r\n?|\n|\u2028|\u2029')
@@ -18,28 +17,16 @@ _KEY = re.compile(r'(.+?)제?([0-9]+)조(의[0-9]+)?(?:제?([0-9]+)항)?(?:제?(
 _BAD_NAME = re.compile(r'[,&]|[0-9]조')
 _QUOTES = re.compile(r'''[「」『』【】\[\]“”‘’"']''')
 _NOTES = re.compile(r'\((?:약칭|이하같음|경찰청지침)\)')
-_ENTITY = re.compile(r'&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);')
 _SPACE = re.compile(r'[\s\ufeff·ㆍ･・ᆞ]')
 
 
-def _entity(token: str) -> str:
-    """HTML5 character reference with a required semicolon (Dart html / browser rule).
-
-    html.unescape alone also decodes references without ';' and drops control or
-    noncharacter code points; Dart's html parser and the browser keep them.
-    """
-    if token[1] != '#':
-        return html.unescape(token)  # named: HTML5 table, incl. legacy prefixes
-    code = int(token[3:-1], 16) if token[2] in 'xX' else int(token[2:-1])
-    if code in (0, 0x0D) or 0x80 <= code <= 0x9F:
-        return html.unescape(token)  # HTML5 replacement table (cp1252, NUL)
-    if 0xD800 <= code <= 0xDFFF or code > 0x10FFFF:
-        return '\ufffd'
-    return chr(code)
-
-
 def _decode(value) -> str:
-    return _ENTITY.sub(lambda m: _entity(m.group(0)), str(value or ''))
+    """HTML5 references with a required ';' (Dart html / browser rule).
+
+    Shared with law_citations so numeric references are bounded before int()
+    and decoded exactly like the parser's recognition copy and Dart.
+    """
+    return decode_entities(str(value or ''))
 
 
 def _compact(value):

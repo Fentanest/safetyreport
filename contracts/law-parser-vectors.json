@@ -150,7 +150,8 @@
       "answer": "해당 차량은 도로교통법 제32조의2 1항을 위반하여 과태료를 부과할 예정입니다.",
       "primary": "도로교통법 제32조의2제1항",
       "selected": "도로교통법 제32조의2제1항",
-      "origin": "review defect: whitespace between a branch number and a bare paragraph number must not merge digits (was 제32조의21)"
+      "origin": "review defect: whitespace between a branch number and a bare paragraph number must not merge digits (was 제32조의21; stored legacy notation was 제32조의21항)",
+      "value": "도로교통법 제32조의2제1항"
     },
     {
       "name": "branch_number_space_paragraph_quoted_law",
@@ -173,14 +174,16 @@
       "answer": "해당 차량은 도로교통법 제32조의21항을 위반하여 과태료를 부과할 예정입니다.",
       "primary": "도로교통법 제32조의21",
       "selected": "도로교통법 제32조의21",
-      "origin": "synthetic: without whitespace the branch/paragraph boundary is undecidable; existing greedy reading kept (0 such rows in the provided backups)"
+      "origin": "synthetic: without whitespace the branch/paragraph boundary is undecidable; existing greedy reading kept (0 such rows in the provided backups)",
+      "value": "도로교통법 제32조의21"
     },
     {
       "name": "branch_number_bom_paragraph",
       "answer": "해당 차량은 도로교통법 제32조의2\ufeff1항을 위반하여 과태료를 부과할 예정입니다.",
       "primary": "도로교통법 제32조의2제1항",
       "selected": "도로교통법 제32조의2제1항",
-      "origin": "parity: U+FEFF is whitespace on both platforms"
+      "origin": "parity: U+FEFF is whitespace on both platforms",
+      "value": "도로교통법 제32조의2제1항"
     },
     {
       "name": "branch_number_info_separator_paragraph",
@@ -221,6 +224,35 @@
       "selected": "도로교통법 제32조의2",
       "value": "도로교통법 제32조의2",
       "origin": "parity: control code point references are kept (not dropped), so digits do not merge"
+    },
+    {
+      "name": "space_paragraph_without_branch_keeps_notation",
+      "answer": "도로교통법 제13조 3항을 위반한 사실이 확인되었습니다.",
+      "primary": "도로교통법 제13조제3항",
+      "value": "도로교통법 제13조3항",
+      "origin": "legacy notation: 제 is inserted only when two digits would touch"
+    },
+    {
+      "name": "branch_number_space_paragraph_with_je_keeps_notation",
+      "answer": "해당 차량은 도로교통법 제32조의2 제1항을 위반하여 과태료를 부과할 예정입니다.",
+      "primary": "도로교통법 제32조의2제1항",
+      "selected": "도로교통법 제32조의2제1항",
+      "value": "도로교통법 제32조의2제1항",
+      "origin": "legacy notation with an explicit 제 is unchanged"
+    },
+    {
+      "name": "mixed_whitespace_branch_paragraph_parity",
+      "answer": "1. 도로교통법\ufeff제  3  조의\ufeff10\u30000  항를 위반한 사실이 확인되어 원상복구 명령을 하였습니다.",
+      "primary": "도로교통법 제3조의10제0항",
+      "value": "도로교통법 제3조의10제0항",
+      "origin": "parity: synthetic differential case (Python fullmatch vs Dart prefix canonicalization differed before)"
+    },
+    {
+      "name": "mixed_whitespace_excluded_parity",
+      "answer": "가. 도로교통법\t제\n1\t조  의\t10\t3\ufeff항에 해당하지 않아 과태료를 부과하였습니다.  ",
+      "primary": "",
+      "value": "",
+      "origin": "parity: excluded legacy citation is removed on both platforms"
     }
   ]
 }

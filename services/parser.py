@@ -230,6 +230,12 @@ def _legacy_violation_law(processing_content: str) -> str:
     law_name = _LEGACY_SPACES.sub('', violation_law_match.group(1) or violation_law_match.group(2))
     article = _LEGACY_SPACES.sub('', violation_law_match.group(3))
     paragraph = _LEGACY_SPACES.sub('', violation_law_match.group(4) or '')
+    # '제32조의2 1항': removing the whitespace would merge the branch number and
+    # the paragraph number ('의21항'). Keep the boundary with '제' only when two
+    # digits would touch; '제13조3항' and a source-joined '제32조의21항' keep
+    # their existing notation. Same rule in Dart law_values.legacyViolationLaw.
+    if paragraph[:1].isdigit() and article[-1:].isdigit():
+        paragraph = '제' + paragraph
     return f"{law_name} 제{article}{paragraph}"
 
 
