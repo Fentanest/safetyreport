@@ -246,6 +246,90 @@
       "text": "최대\n과태료 200만원",
       "number": null,
       "amount": 0
+    },
+    {
+      "name": "reduction notice in a later clause",
+      "text": "과태료 40,000원을 부과할 예정이며, 의견제출 기한 내 자진납부하는 경우 20% 감경됩니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "surcharge condition in a later clause",
+      "text": "과태료 40,000원을 부과하였으며 이에 불응할 경우 가산금이 부과됩니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "generic limit footer next line",
+      "text": "과태료 40,000원을 부과하였습니다.\n※ 위반 시 20만원 이하의 과태료에 처합니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "conditional amount in a later clause",
+      "text": "과태료 40,000원을 부과하며, 미이행 시 과태료 50만원이 추가로 부과됩니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "condition before amount same clause",
+      "text": "기한 내 납부하지 않을 경우, 과태료 50만원을 부과합니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "future condition reapprehension",
+      "text": "향후 다시 적발될 시 과태료 10만원을 부과하겠습니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "future condition myeon",
+      "text": "다시 적발되면 과태료 10만원을 부과합니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "reduced amount in a later clause",
+      "text": "과태료 100,000원을 부과하며, 감경 시 80,000원입니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "reduced amount in a later sentence",
+      "text": "과태료 40,000원을 부과하였습니다. 의견제출 기한 내 납부 시 32,000원으로 감경됩니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "bom separator",
+      "text": "과태료\ufeff40,000원",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "information separator",
+      "text": "과태료\u001c40,000원",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "next line control",
+      "text": "과태료\u008540,000원",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "too many digits",
+      "text": "과태료 1234567890123456원",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "too many digits man",
+      "text": "과태료 1234567890123456만원",
+      "number": null,
+      "amount": 0
     }
   ]
 }
