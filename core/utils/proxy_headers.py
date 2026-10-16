@@ -33,7 +33,7 @@ def _items(value) -> list[str]:
 
 
 def trusted_proxy_networks(value: str):
-    """Strict check for the settings form: explicit IPs/CIDRs only (blank items ignored).
+    """Strict IP/CIDR list check (blank items ignored). The settings form uses validate_trusted_proxies_setting.
 
     Empty means "no explicit list" (the middleware then trusts loopback only).
     Booleans, host names, ``*`` and whole-address-space CIDRs are rejected.
@@ -49,6 +49,19 @@ def trusted_proxy_networks(value: str):
             raise ProxyConfigurationError(f'신뢰할 프록시 IP 항목 {item!r} 은 모든 주소를 신뢰하므로 쓸 수 없습니다.')
         result.append(network)
     return tuple(result)
+
+
+def validate_trusted_proxies_setting(value: str, previous: str = '') -> tuple:
+    """설정 화면 저장 검사(2026-10-16 Opus 결정). 경고 문구 tuple 을 돌려주고, 새로 넣은 잘못된 항목은 400 용으로 던진다.
+
+    - ``*`` 는 시작 때와 같은 의미(모든 peer 신뢰)로 저장을 허용하고 경고를 돌려준다.
+    - 호스트 이름·1/0·전체 주소 CIDR 등은 ProxyConfigurationError.
+    - 이미 저장된 값과 항목이 같으면(사용자가 이 칸을 바꾸지 않음) 잘못된 항목이 있어도 통과시킨다 —
+      다른 설정 저장이 이 칸 때문에 막히지 않게. 시작 때와 같은 경고만 돌려준다.
+    """
+    if _items(value) != _items(previous):
+        trusted_proxy_networks(','.join(item for item in _items(value) if item != '*'))
+    return parse_trusted_proxies(value).warnings
 
 
 @dataclass(frozen=True)

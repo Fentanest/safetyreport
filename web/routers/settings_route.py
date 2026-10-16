@@ -59,7 +59,8 @@ def save_settings(
     from services.official_account import BindingError
     from core.storage.exchange import RestoreRefused
     try:
-        settings_service.apply(settings_service.web_command(form))
+        command = settings_service.web_command(form)
+        settings_service.apply(command)
     except BindingError as exc:
         from urllib.parse import quote
         return RedirectResponse("/settings/?binding_error=" + quote(exc.code), status_code=303)
@@ -67,6 +68,12 @@ def save_settings(
         raise HTTPException(400, str(exc)) from None
     except RestoreRefused as exc:
         raise HTTPException(409, str(exc)) from None
+    if command.warnings:
+        from core.utils import logger
+        for warning in command.warnings:
+            if logger.LoggerFactory.logbot:
+                logger.LoggerFactory.logbot.warning(f"[proxy] 설정 저장: {warning}")
+    # 경고는 저장 뒤 설정 화면이 저장된 값에서 다시 계산해 신뢰 프록시 칸 아래에 보인다(view_values).
     return RedirectResponse(url="/settings/?saved=true", status_code=303)
 
 

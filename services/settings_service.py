@@ -57,6 +57,7 @@ class SettingsCommand:
     values: tuple  # ((섹션, 키, 값), ...) — 기록 순서 그대로
     refresh_jobs: bool = False
     official_account_confirm: str = ""
+    warnings: tuple = ()  # 저장은 하되 화면·로그에 알릴 문구(예: trusted_proxies '*')
 
 
 @dataclass
@@ -74,10 +75,17 @@ def web_command(form: dict) -> SettingsCommand:
         values["sheet_key"] = match.group(1)
     values["phone_number"] = re.sub(r'[^0-9]', '', values.get("phone_number") or "")
     values["trusted_proxies"] = (values.get("trusted_proxies") or "").strip()
-    from core.utils.proxy_headers import trusted_proxy_networks
-    trusted_proxy_networks(values["trusted_proxies"])
+    from core.utils.proxy_headers import validate_trusted_proxies_setting
+    # 칸을 바꾸지 않았으면(저장된 값과 같으면) 예전 잘못된 값이 있어도 다른 설정 저장을 막지 않는다.
+    warnings = validate_trusted_proxies_setting(values["trusted_proxies"], _stored_trusted_proxies())
     return SettingsCommand(tuple((*_WEB_FIELDS[key], values[key]) for key in _WEB_FIELDS if key in values),
-                           refresh_jobs=True, official_account_confirm=values.get("official_account_confirm", ""))
+                           refresh_jobs=True, official_account_confirm=values.get("official_account_confirm", ""),
+                           warnings=warnings)
+
+
+def _stored_trusted_proxies() -> str:
+    app_settings._instance.load()
+    return app_settings.config.get('SETTINGS', 'trusted_proxies', fallback='')
 
 
 def api_command(body: dict) -> SettingsCommand:
@@ -160,7 +168,13 @@ def view_values() -> dict:
         "google_json_exists": os.path.isfile(google_credential_path()),
         "session_max_age": int(config.get('SETTINGS', 'session_max_age', fallback=10800)),
         "trusted_proxies": config.get('SETTINGS', 'trusted_proxies', fallback=''),
+        "trusted_proxies_warnings": _proxy_warnings(config.get('SETTINGS', 'trusted_proxies', fallback='')),
     }
+
+
+def _proxy_warnings(value: str) -> tuple:
+    from core.utils.proxy_headers import parse_trusted_proxies
+    return parse_trusted_proxies(value).warnings
 
 
 def validate_google_credential(contents: bytes) -> None:

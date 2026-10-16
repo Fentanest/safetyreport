@@ -14,7 +14,8 @@ from starlette.responses import JSONResponse
 from starlette.testclient import TestClient
 from core.utils import csrf
 from core.utils.proxy_headers import (TrustedProxyHeadersMiddleware, trusted_proxy_networks, origin_tuple,
-                                      parse_trusted_proxies, LOOPBACK_NETWORKS)
+                                      parse_trusted_proxies, LOOPBACK_NETWORKS, validate_trusted_proxies_setting,
+                                      ProxyConfigurationError)
 from web.routers import settings_route, devices_route, community_route, crawl, rating_route, watchlist_route
 
 
@@ -91,9 +92,15 @@ class ProxyTests(unittest.TestCase):
 
     def test_startup_configuration_and_no_outer_uvicorn_rewrite(self):
         from services import settings_service
-        for value in ('1', '0', '*', 'nginx'):
-            with self.assertRaises(ValueError):
-                settings_service.web_command({'trusted_proxies': value})
+        with patch.object(settings_service,'_stored_trusted_proxies',return_value=''):
+            for value in ('1', '0', 'nginx', '0.0.0.0/0'):
+                with self.subTest(value),self.assertRaises(ValueError):
+                    settings_service.web_command({'trusted_proxies': value})
+            # '*' 는 시작 때와 같은 의미로 저장하되 경고를 돌려준다(2026-10-16 Opus 결정).
+            command=settings_service.web_command({'trusted_proxies': ' * '})
+            self.assertEqual(dict(((s,k),v) for s,k,v in command.values)[('SETTINGS','trusted_proxies')],'*')
+            self.assertEqual(len(command.warnings),1)
+            self.assertEqual(settings_service.web_command({'trusted_proxies': '127.0.0.1'}).warnings,())
         # Entrypoints explicitly preserve the socket peer for the app boundary.
         self.assertIn('--no-proxy-headers', Path('entrypoint.sh').read_text())
         self.assertEqual(Path('main.py').read_text().count('proxy_headers=False'), 2)
@@ -190,6 +197,69 @@ class LocalProxyDefaultTests(unittest.TestCase):
         c=TestClient(make_app('10.2.0.2'),client=('10.2.0.2',1),base_url='http://internal.test')
         self.assertEqual(c.get('/test/url',headers={'x-forwarded-host':'safety_report:6819'}).json()['url'],
                          'http://safety_report:6819/test/url')
+
+
+
+class SettingsSaveTrustedProxiesTests(unittest.TestCase):
+    """설정 저장: '*' 는 경고와 함께 저장, 새로 넣은 해석 불가 항목은 400, 바꾸지 않은 기존 값은 막지 않는다."""
+
+    def test_validator(self):
+        self.assertEqual(len(validate_trusted_proxies_setting('*')),1)
+        self.assertEqual(len(validate_trusted_proxies_setting('*, 10.0.0.1')),1)
+        self.assertEqual(validate_trusted_proxies_setting('127.0.0.1, ::1,'),())
+        for value in ('nginx','1','::/0','10.0.0.1, my_proxy'):
+            with self.subTest(value),self.assertRaises(ProxyConfigurationError):
+                validate_trusted_proxies_setting(value,'')
+        # 저장된 값과 같으면(칸을 바꾸지 않음) 통과하고 시작 때와 같은 경고를 돌려준다.
+        self.assertTrue(validate_trusted_proxies_setting('nginx','nginx'))
+        self.assertTrue(validate_trusted_proxies_setting(' nginx , 10.0.0.1','nginx,10.0.0.1,'))
+        with self.assertRaises(ProxyConfigurationError):
+            validate_trusted_proxies_setting('nginx, other','nginx')
+
+    def _save(self, stored, submitted):
+        from services import settings_service
+        client=TestClient(make_app(),client=('192.168.0.20',1),base_url='http://internal.test')
+        with patch.object(settings_service,'_stored_trusted_proxies',return_value=stored), \
+             patch.object(settings_route.settings_service,'apply') as apply:
+            r=client.post('/settings/save',data={'trusted_proxies':submitted,'telegram_token':'changed'},follow_redirects=False)
+        return r,apply
+
+    def test_unchanged_legacy_value_does_not_block_other_settings(self):
+        for stored in ('nginx','1','nginx, 172.18.0.2','0.0.0.0/0'):
+            with self.subTest(stored):
+                r,apply=self._save(stored,stored)
+                self.assertEqual((r.status_code,r.headers.get('location')),(303,'/settings/?saved=true'),r.text)
+                self.assertEqual(apply.call_count,1)
+                values={(s,k):v for s,k,v in apply.call_args.args[0].values}
+                self.assertEqual(values[('SETTINGS','trusted_proxies')],stored.strip())
+                self.assertEqual(values[('TELEGRAM','telegram_token')],'changed')
+
+    def test_star_saved_and_new_invalid_rejected(self):
+        r,apply=self._save('','*')
+        self.assertEqual((r.status_code,apply.call_count),(303,1))
+        self.assertTrue(apply.call_args.args[0].warnings)
+        r,apply=self._save('nginx','nginx2')
+        self.assertEqual((r.status_code,apply.call_count),(400,0))
+        self.assertIn('nginx2',r.json()['detail'])
+
+    def test_settings_page_shows_wildcard_warning(self):
+        from services import settings_service, community_gate
+        real=settings_service.view_values
+        def values():
+            data=real();data['trusted_proxies']='*'
+            data['trusted_proxies_warnings']=settings_service._proxy_warnings('*')
+            return data
+        from starlette.staticfiles import StaticFiles
+        app=make_app();app.mount('/static',StaticFiles(directory='web/static'),name='static')
+        client=TestClient(app,client=('192.168.0.20',1),base_url='http://internal.test')
+        client.get('/test/session')
+        with patch.object(settings_service,'view_values',side_effect=values), \
+             patch.object(community_gate,'check_for_request',return_value={'state':'ready'}):
+            r=client.get('/settings/')
+        self.assertEqual(r.status_code,200,r.text[-500:])
+        self.assertIn('sr-proxy-warning',r.text)
+        self.assertIn('모든 연결의 X-Forwarded-* 를 신뢰합니다',r.text)
+        self.assertEqual(settings_service._proxy_warnings('127.0.0.1'),())
 
 
 _CREATE_APP_PROBE = """
