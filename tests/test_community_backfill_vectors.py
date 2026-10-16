@@ -20,8 +20,9 @@ def _journal_payload(case: dict) -> dict:
     row = {**VECTORS["base_personal"], **case["personal"], "범칙금_과태료": case["journal_raw"]}
     payload = cap.build_payload(_adapter(row))
     override = case["journal_override"]
-    if "confirmed_won" in override:
-        payload["amount"] = {**payload["amount"], "confirmed_won": override["confirmed_won"]}
+    for key in ("kind", "confirmed_won"):
+        if key in override:
+            payload["amount"] = {**payload["amount"], key: override[key]}
     if "fine_estimate" in override:
         payload.pop("fine_estimate", None)
         if override["fine_estimate"] is not None:
@@ -40,6 +41,7 @@ class BackfillVectorTests(unittest.TestCase):
                 expected = case["expected"]
                 captured = cap.build_payload(_adapter(row))
                 self.assertEqual({
+                    "kind": captured["amount"]["kind"],
                     "confirmed_won": captured["amount"]["confirmed_won"],
                     "disposition": captured["disposition"],
                     "violation_law": captured["violation_law"],

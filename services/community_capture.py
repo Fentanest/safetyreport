@@ -404,6 +404,17 @@ def read_account_context(store) -> tuple:
         return None, 'unverified_owner'
 
 
+def _is_legacy_combined_kind(journal_kind, raw_amount) -> bool:
+    """예전 모바일 파서가 같은 원문에서 낸 `combined`(두 낱말이 함께 있는 원문)인지(모바일 isLegacyCombinedKind 와 같음).
+
+    계약상 combined 는 예약값이라 지금은 어느 쪽도 만들지 않는다. 그런 journal 을 보충이 금액 판정 불일치로 보지 않게
+    한다 — journal amount 는 보존하고 다음 실시간 수집 때만 kind 가 바뀐다. PC 는 combined 를 만든 적이 없지만
+    서버·모바일 판정 함수를 같게 둔다.
+    """
+    text = (raw_amount if isinstance(raw_amount, str) else "").strip()
+    return journal_kind == "combined" and "범칙금" in text and "과태료" in text
+
+
 def _backfill_payload(latest_payload: dict, adapter_input: dict) -> dict:
     """journal 최신 payload 를 보존하고 fine_estimate 만 일반 캡처와 같은 판정으로 다시 정한다.
 
@@ -420,8 +431,11 @@ def _backfill_payload(latest_payload: dict, adapter_input: dict) -> dict:
     raw = adapter_input.get("penalty_amount")
     confirmed_won, kind = _parse_amount(raw, record)
     amount = payload.get("amount") or {}
+    journal_kind = amount.get("kind")
+    if _is_legacy_combined_kind(journal_kind, raw):
+        journal_kind = kind
     current = (confirmed_won, kind, _disposition(payload.get("status"), raw))
-    if current != (amount.get("confirmed_won"), amount.get("kind"), payload.get("disposition")):
+    if current != (amount.get("confirmed_won"), journal_kind, payload.get("disposition")):
         return payload
     fine = _fine_estimate_field(adapter_input, record)
     if fine is not None:
