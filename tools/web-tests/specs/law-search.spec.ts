@@ -41,3 +41,26 @@ test('CSV keeps multiple laws in one quoted field',async({page})=>{
  const stream=await download.createReadStream();expect(stream).not.toBeNull();const chunks:Buffer[]=[];for await(const chunk of stream!){chunks.push(Buffer.from(chunk));}
  const csv=Buffer.concat(chunks).toString('utf8');expect(csv).toContain('"'+laws.join('\n')+'"');
 });
+
+// 2026-10-16: 위반법규 막대 건수 == 막대 링크(lawExact=true) 목록 건수. 법규 필터가 걸린 통계에서도 같다.
+async function barCounts(page:Page){
+ return page.locator('#statsTypeList li').evaluateAll(items=>items.map(li=>({href:(li.querySelector('a') as HTMLAnchorElement|null)?.getAttribute('href')||'',
+  name:(li.querySelector('.sr-hbar-label')?.textContent||'').trim(),count:Number((li.querySelector('.sr-hbar-value')?.textContent||'').match(/[\d,]+/)![0].replace(/,/g,''))})));
+}
+for(const statsQuery of ['?dedupe=raw&year=all','?dedupe=raw&year=all&law='+encodeURIComponent('도로교통법 제32조')]){
+ test('every law bar opens a list with the same count '+statsQuery,async({page})=>{
+  await login(page);await page.goto('/stats'+statsQuery);
+  await expect(page.locator('#statsTypeList li .sr-hbar-value').first()).toBeVisible();
+  const more=page.locator('#statsTypeMore');if(await more.isVisible()){await more.click();await expect(more).toHaveAttribute('aria-expanded','true');}
+  const bars=await barCounts(page);expect(bars.length).toBeGreaterThan(0);
+  if(!statsQuery.includes('law=')){
+   const names=bars.map(b=>b.name);
+   for(const n of ['도로교통법','도로교통법 제5조, 제6조','도로교통법 제32조의2제1항','자동차관리법 제29조 제30조','주차장법 제33조'])expect(names).toContain(n);
+  }
+  for(const bar of bars){
+   expect(bar.href).toContain('lawExact=true');
+   await page.goto(bar.href);await expect.poll(()=>count(page),{message:bar.name+' '+bar.href}).toBe(bar.count);
+  }
+ });
+}
+

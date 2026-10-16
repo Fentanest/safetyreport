@@ -855,7 +855,7 @@ PC는 `services/fine_estimate.py`, 모바일은 `lib/services/fine_estimate.dart
 문자열 배열: `ratings`, `statuses`. bool: `excludePolice`, `onlyPolice`.
 빈 문자열·배열/false는 해당 조건 없음. 텍스트는 쉼표 OR/`&` AND, 양끝 공백 제거,
 Dart와 같은 Unicode 소문자 부분 일치이며 `%`·`_`는 리터럴이다(casefold·SQL LIKE 아님).
-법규는 공백 제거 후 완전 일치, `__없음__`은 NULL/빈 법규. 별점 NULL/0 이하의 토큰은 `__none__`.
+법규는 아래 "복수 법규 TEXT 저장·검색 계약"의 개별 키 검색(쉼표 OR·`&` AND), `lawExact: true`(bool, 2026-10-16 추가)면 저장 키 소속 판정, `__없음__`은 NULL/빈 법규. 별점 NULL/0 이하의 토큰은 `__none__`. 보완횟수가 숫자로 읽히지 않으면 0(모바일 `_toIntOrNull ?? 0`과 같음, 예전에는 500).
 상태는 canonical 표시 상태(처리상태 NULL일 때 상태로 fallback), 보완횟수 NULL은 0,
 만족도 NULL은 `답변 대기`. 날짜·시각은 실제 유효 앞자리와 양끝 포함 범위이며 기존 모바일 판정을 보존한다.
 기관·경찰 조건은 현행 registry 표시명을 사용한다.
@@ -936,6 +936,26 @@ capability를 성공적으로 조회했지만 신호가 없으면 기존 취소 
 서버는 SQLite 결정적 검색 함수를 WHERE에 적용하고 COUNT/LIMIT 전에 필터한다. 모바일은 같은 읽기 트랜잭션에서 DISTINCT 저장값을 읽어 개별 조문으로 판정한 뒤 해당 원본 문자열들의 SQL IN 조건을 COUNT/LIMIT 전에 적용한다. FFI의 선두 BOM 제거를 피하려고 DISTINCT 값을 BLOB으로 읽고 원문 바이트를 복원한다. IN 값은 UTF-8 hex TEXT literal로 만들어 따옴표·호스트 바인드 개수 제한을 피한다. 새 인덱스·FTS·관계 테이블은 없다. 두 방식 모두 전체 스캔 비용이 남으므로 대규모 DB 성능은 별도로 측정해야 한다. 캐시는 문자열 판정만 저장하며 신고 행·건수는 캐시하지 않는다.
 
 법규별 통계에는 동일 신고가 복수 법규에 소속될 수 있다. 법규별 건수를 더하면 전체 고유 신고 수와 다를 수 있으며 화면에 이를 표시한다. 전체 건수·금액은 고유 신고 기준이고, 같은 상위 조문에 여러 하위 조문이 걸려도 그 조문에서는 한 번만 센다. 기존 금액 오타 보정·최소 추정 분류는 대표 조문인 첫 줄만 사용한다. 추가 조문으로 금액을 올리거나 후보 금액을 합산하지 않는다.
+
+### 통계 막대·드릴다운 불변식과 법규 검색 capability (2026-10-16)
+
+- **저장 키 소속 판정**(`matches_law_keys` / `SrLawValues.matchesKeys` / `matchesLawKeys`): 질의는 저장 키 그대로(한 줄에 하나, 여러 줄은 AND).
+  행의 키 중 하나가 그 키이거나 그 키의 하위 항·호·목이면 속한다(`ancestor_laws`). 쉼표·`&` 분해, 법령명 접두 검색, 법령명 없는 조 번호 검색은 없다.
+  `law_memberships`(법규 막대·표 집계)와 같은 규칙이므로 **법규 막대 건수 == 그 막대 링크의 목록 행 수**가 모든 막대에서 성립한다.
+- 이 판정을 쓰는 곳: 서버 통계 법규 필터(`_apply_stats_law_filter` → `/stats`, `/api/v1/stats`, `/api/v1/stats/overview`, 지도),
+  웹 목록 `lawExact=true`(통계 막대·표·지도 링크, 상세 법규 링크), 모바일 검색 필터 `lawExact`(Client 검색 API·Standalone 목록),
+  모바일 Standalone 통계 법규 선택. 통계가 이미 법규 A 로 좁혀져 있으면 막대 B 의 링크는 `A\nB`(줄 = AND)를 넘긴다.
+- 검색칸·검색 시트(lawExact 없음)는 예전대로 검색 의미(쉼표 OR, `&` AND, 상위 조·항이 하위 포함, 법령명·조 번호 검색)다.
+  질의 전체가 저장 키 하나와 같으면 그 키를 통째로 찾는다(쉼표가 든 사용자 수정값).
+- 구조화된 한 키로 완전히 읽히지 않는 값(법령명 부분에 `,`·`&`·다른 `N조`가 들어간 `도로교통법 제32조, 제33조`, `… 제32조 제33조`, `… 및 제33조`)은
+  원문 공백을 지킨 한 개의 키다. 조문 키 인식은 Python `fullmatch`, JS `^…$`, Dart 앵커 정규식(백트래킹 전체 일치)으로 같다.
+  HTML 문자 참조는 세미콜론이 있어야 풀고(Dart html·브라우저 규칙), 숫자는 ASCII 만 조 번호로 읽는다.
+- 공통 벡터: `contracts/law-search-vectors.json` v2 의 `cases`(검색), `canonical_cases`, `key_cases`(소속 판정), `stats_cases`(막대 == 드릴다운). 두 레포 바이트 동일.
+- **capability**: `GET /api/v1/app/config` 의 `capabilities` 에 `law_search_v2`, 그리고 `law_search_version: 2` 를 **추가**했다(기존 `report_search_v1`·`report_search_version: 1` 유지).
+  뜻: 서버가 법규를 개별 키로 정규화해 검색하고 검색 필터 `lawExact` 를 받는다.
+- **구버전 조합**: 앱은 Client 모드에서 이 신호를 확인한 서버에만 정규화한 개별 키와 `lawExact` 를 보낸다. 신호가 없거나 아직 모르는 서버(v3.3.0 이하)에는
+  예전처럼 저장 원문 값(앞뒤 공백 제거)을 선택지·상세 링크·검색 값으로 쓰고 `lawExact` 를 보내지 않는다(구서버는 모르는 키를 400 으로 거절).
+  구서버의 법규 검색·통계는 저장값 완전 일치이므로 원문 값을 보내면 예전 결과와 같다. 새 서버 + 구 앱: 구 앱은 `lawExact` 를 보내지 않으며 원문 값도 정규화해 찾는다.
 
 CSV/Excel 및 DB 백업·양방향 변환은 원본 LF 문자열과 사용자 수정값을 그대로 전달한다. 웹·모바일 편집기는 여러 줄을 유지한다. 웹 textarea가 CRLF로 제출해도 기존 유효값과 줄바꿈 외에 차이가 없으면 법규 수정값을 새로 만들지 않는다. 커뮤니티 업로드 `violation_law`는 기존 60자 계약에 맞춰 대표 조문만 기존 정제기에 전달한다. 외부 저장 구조·업로드 계약은 바꾸지 않는다.
 

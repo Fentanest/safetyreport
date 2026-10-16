@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 import unittest
-from services.law_values import matches_laws, read_laws, available_laws, law_memberships, primary_law
+from services.law_values import matches_laws, matches_law_keys, canonical_law, read_laws, available_laws, law_memberships, primary_law
 from services.parser import _violation_law
 from services.fine_estimate import extract_fine_amount, estimate_if_unknown
 
@@ -10,6 +10,24 @@ class LawValueTests(unittest.TestCase):
         cases=json.loads((Path(__file__).parents[1]/'contracts/law-search-vectors.json').read_text())['cases']
         for c in cases:
             with self.subTest(c['name']): self.assertEqual(matches_laws(c['value'],c['query']),c['expected'])
+
+    def test_shared_canonical_and_key_membership(self):
+        vectors=json.loads((Path(__file__).parents[1]/'contracts/law-search-vectors.json').read_text())
+        for c in vectors['canonical_cases']:
+            with self.subTest('canonical '+c['name']): self.assertEqual(canonical_law(c['value']),c['expected'])
+        for c in vectors['key_cases']:
+            with self.subTest('key '+c['name']): self.assertEqual(matches_law_keys(c['value'],c['query']),c['expected'])
+
+    def test_shared_stats_bars_equal_key_membership(self):
+        # 막대 건수(소속 집계) == 같은 filter 의 저장 키 소속 판정 행 수. Dart local_statistics 도 같은 벡터를 쓴다.
+        from services.stats.metrics import _overview_violation_laws
+        import pandas as pd
+        for c in json.loads((Path(__file__).parents[1]/'contracts/law-search-vectors.json').read_text())['stats_cases']:
+            bars=_overview_violation_laws(pd.DataFrame({'위반법규':c['values']}))
+            self.assertEqual(bars,c['expected'])
+            for bar in bars:
+                with self.subTest(c['name']+' '+bar['name']):
+                    self.assertEqual(sum(matches_law_keys(v,bar['filter']) for v in c['values']),bar['count'])
 
     def test_multiple_parser_to_search_and_dedup(self):
         answer='도로교통법 제32조, 제33조, 제34조 위반. 신고된 차량에 대해 과태료부과 처분을 하였습니다.'

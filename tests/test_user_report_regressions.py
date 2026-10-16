@@ -53,7 +53,9 @@ class CacheRegressions(unittest.TestCase):
 
 
 class StatisticsRegressions(unittest.TestCase):
-    def test_partial_fine_and_exact_law_combinations_are_independent(self):
+    def test_partial_fine_and_law_bar_count_equals_key_membership_drilldown(self):
+        # 법규 막대는 저장 키 소속 집계, 드릴다운(_apply_stats_law_filter = matches_law_keys)도 같은 판정이다.
+        # 쉼표가 든 한 줄 법규('도로교통법 제5조, 제6조')는 원문 공백을 지킨 하나의 키라 제5조 막대에 섞이지 않는다.
         frame=pd.DataFrame([
             {'ID':'1','처리상태':'일부수용','범칙금_과태료':'과태료 40,000원','위반법규':'도로교통법 제5조','category':'traffic'},
             {'ID':'2','처리상태':'일부수용','범칙금_과태료':'미확인','위반법규':'도로교통법 제5조, 제6조','category':'traffic'},
@@ -63,6 +65,7 @@ class StatisticsRegressions(unittest.TestCase):
         self.assertEqual(result['result_distribution'],{'accept':0,'partial':2,'reject':0,'unknown':1})
         self.assertEqual(result['disposition']['fines'],1)
         self.assertEqual(sum(v['count'] for v in result['violation_laws']),3)
+        self.assertEqual({v['name'] for v in result['violation_laws']},{'도로교통법 제5조','도로교통법 제5조, 제6조',''})
         for law in result['violation_laws']:
             self.assertEqual(len(stats._apply_stats_law_filter(frame,{'law':law['filter']})),law['count'])
 

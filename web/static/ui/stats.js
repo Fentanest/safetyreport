@@ -335,7 +335,8 @@
             return;
         }
         var total = Number(s.total || 0);
-        $('#statsTypeBase').text('저장 법규 조합 ' + num(types.length) + '개 · 복수 법규도 신고당 1건');
+        // 법규별 소속 집계: 한 신고가 여러 법규 막대에 들어갈 수 있어 막대 합·비율 합이 전체(100%)를 넘을 수 있다.
+        $('#statsTypeBase').text('법규 ' + num(types.length) + '개 · 한 신고가 여러 법규에 포함될 수 있어 비율 합이 100%를 넘을 수 있음');
         if (!types.length) {
             $list.html('<li class="text-muted small">표시할 신고가 없습니다.</li>');
             $more.prop('hidden', true);
@@ -346,7 +347,8 @@
         $list.html(shown.map(function (t) {
             var n = Number(t.count || 0);
             var name = t.name ? t.name : '법규 정보 없음';
-            var href = kpiListUrl(cat, {law: t.filter, lawExact:'true'});
+            // 막대 건수와 같은 판정(서버 matches_law_keys = law_memberships): 저장 키 그대로, 하위 항·호 포함.
+            var href = kpiListUrl(cat, {law: Calc.lawBarFilter(FILTERS.law, t.filter), lawExact:'true'});
             return '<li class="sr-hbar" title="' + esc(name) + '">' +
                 '<span class="sr-hbar-label">' + (LIST_REPRODUCIBLE ? '<a href="' + esc(href) + '">' + esc(name) + '</a>' : esc(name)) + '</span>' +
                 '<span class="sr-hbar-track" aria-hidden="true"><span class="sr-hbar-fill" style="display:block;width:' + (n / max * 100).toFixed(2) + '%"></span></span>' +
@@ -355,7 +357,7 @@
         $('#statsTypeScroll').toggleClass('sr-types-scroll', typesExpanded);
         if (types.length > TYPE_TOP_N) {
             $more.prop('hidden', false).attr('aria-expanded', typesExpanded ? 'true' : 'false')
-                .text(typesExpanded ? '상위 ' + TYPE_TOP_N + '개만 보기' : '전체 ' + num(types.length) + '개 법규 조합 보기');
+                .text(typesExpanded ? '상위 ' + TYPE_TOP_N + '개만 보기' : '전체 ' + num(types.length) + '개 법규 보기');
         } else {
             $more.prop('hidden', true);
         }

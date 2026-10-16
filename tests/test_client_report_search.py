@@ -110,7 +110,48 @@ class ClientSearchTest(unittest.TestCase):
                 self.assertEqual(client.get(path, headers=headers, params=query).status_code, 400)
             self.assertEqual(client.get(path, headers=headers, params={'search_version':1,'limit':201}).status_code,422)
 
+    def test_law_search_v2_capability_and_law_exact(self):
+        # 2026-10-16 하위호환 추가: app-config 가 law_search_v2/law_search_version=2 를 알리고, 검색 필터가 bool lawExact 를 받는다.
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from web.routers import api_route
+        from services.client_report_search import compile_predicate, LAW_SEARCH_CAPABILITY, LAW_SEARCH_VERSION
+        from core.utils import logger
+        logger.LoggerFactory.create_logger(mode='crawl')
+        key = database.create_api_key(self.engine, 'synthetic-law-v2')
+        app = FastAPI(); app.include_router(api_route.router)
+        with patch.object(api_route, 'engine', self.engine), TestClient(app) as client:
+            data = client.get('/api/v1/app/config', headers={'X-API-Key': key}).json()['data']
+            self.assertIn(LAW_SEARCH_CAPABILITY, data['capabilities'])
+            self.assertIn('report_search_v1', data['capabilities'])
+            self.assertEqual((data['report_search_version'], data['law_search_version']), (1, LAW_SEARCH_VERSION))
+            filters = {'law': '도로교통법 제5조, 제6조', 'lawExact': True}
+            body = client.get('/api/v1/reports/all/search', headers={'X-API-Key': key, 'X-SR-Taxonomy': '5'},
+                              params={'search_version': 1, 'filter': json.dumps(filters)}).json()
+            self.assertEqual(body['filter'], filters)
+        rows = ['도로교통법 제5조, 제6조', '도로교통법 제6조', '주차장법 제6조', '도로교통법 제5조제1항', '도로교통법']
+        def hits(f):
+            columns, predicate = compile_predicate(f)
+            return [v for v in rows if predicate(*[v if c == '위반법규' else None for c in columns])]
+        self.assertEqual(hits({'law': '도로교통법 제5조, 제6조', 'lawExact': True}), ['도로교통법 제5조, 제6조'])
+        self.assertEqual(hits({'law': '도로교통법 제5조', 'lawExact': True}), ['도로교통법 제5조제1항'])
+        self.assertEqual(hits({'law': '도로교통법', 'lawExact': True}), ['도로교통법'])
+        # 검색(lawExact 없음)은 예전대로 쉼표 OR·법령명 없는 조 번호·법령명 접두 검색.
+        self.assertEqual(hits({'law': '도로교통법', 'lawExact': False}), rows[:2] + rows[3:])
+        self.assertEqual(hits({'law': '도로교통법 제5조, 제6조'}), rows[:4])
+
+    def test_non_numeric_supplement_count_is_zero_not_500(self):
+        from services.client_report_search import compile_predicate, dart_int_or_zero
+        columns, predicate = compile_predicate({'supplementCount': '0'})
+        self.assertEqual(columns, ['보완횟수'])
+        for value, expected in [('abc', 1), (None, 1), ('', 1), ('NaN', 1), (' 3 ', 0), (2.0, 0), ('0', 1), ('0x0', 1)]:
+            with self.subTest(value=value):
+                self.assertEqual(predicate(value), expected)
+        # Dart _toIntOrNull(v) ?? 0 과 같은 값(int.tryParse → double.tryParse → 0).
+        self.assertEqual([dart_int_or_zero(v) for v in ['0x1F', '3.0', ' 3.5 ', '1e3', 'Infinity', '٣', '３', '-3', '\u00a03']],
+                         [31, 3, 3, 1000, 0, 0, 0, -3, 3])
+
     def test_invalid_filters_rejected(self):
-        for value in ([], {'unknown':''}, {'ratings':'1'}, {'onlyPolice':1}):
+        for value in ([], {'unknown':''}, {'ratings':'1'}, {'onlyPolice':1}, {'lawExact':'true'}):
             with self.assertRaises(ValueError):
                 validate_filter(value)

@@ -82,12 +82,25 @@ class ReportStatsServiceTest(unittest.TestCase):
         self.assertEqual(report_stats_service._round_half_up(0.35, 1), 0.3)  # 0.35 는 이진수로 0.3499…
         self.assertEqual(report_stats_service._round_half_up(4.125, 2), 4.13)
 
-    def test_law_filter_is_exact_match(self):
-        frame = pd.DataFrame({"위반법규": ["도로교통법", "도로교통법 제32조", " 도로교통법 ", None, ""]})
+    def test_law_filter_is_stored_key_membership_equal_to_bar_count(self):
+        # 판정: 저장 키 소속(matches_law_keys) = 정확 일치 + 같은 조의 하위 항·호 포함. 법령명 접두 검색·쉼표 분해 없음.
+        # 불변식: 위반법규 막대(violation_laws) 건수 == 그 막대 filter 로 거른 행 수(통계 필터·목록 lawExact 와 같은 함수).
+        frame = pd.DataFrame({"위반법규": ["도로교통법", "도로교통법 제32조", " 도로교통법 ", None, "",
+                                          "도로교통법 제5조\n자동차관리법 제29조", "도로교통법 제32조제1항",
+                                          "도로교통법 제5조, 제6조"]})
         exact = report_stats_service._apply_stats_law_filter(frame, {"law": "도로교통법"})
-        self.assertEqual(len(exact), 2)  # 앞뒤 공백만 무시, 제32조는 제외
+        self.assertEqual(len(exact), 2)  # 앞뒤 공백만 무시, 제32조·제5조(법령명 접두)는 제외
+        parent = report_stats_service._apply_stats_law_filter(frame, {"law": "도로교통법 제32조"})
+        self.assertEqual(len(parent), 2)  # 제32조 + 하위 제32조제1항
+        raw = report_stats_service._apply_stats_law_filter(frame, {"law": "도로교통법 제5조, 제6조"})
+        self.assertEqual(len(raw), 1)  # 쉼표가 든 저장 키는 하나의 키, OR 로 나누지 않는다
         empty = report_stats_service._apply_stats_law_filter(frame, {"law": "__없음__"})
         self.assertEqual(len(empty), 2)
+        bars = report_stats_service._summarize_overview_frame(frame)["violation_laws"]
+        self.assertIn({"name": "도로교통법 제5조, 제6조", "filter": "도로교통법 제5조, 제6조", "count": 1}, bars)
+        for bar in bars:
+            with self.subTest(bar=bar["name"]):
+                self.assertEqual(len(report_stats_service._apply_stats_law_filter(frame, {"law": bar["filter"]})), bar["count"])
 
     def test_stats_tables_include_only_answered_rows(self):
         # 2026-09-28 사용자 결정(S-10 대체): 표는 답변 완료(수용·일부수용·불수용·기타·답변완료) 신고만.

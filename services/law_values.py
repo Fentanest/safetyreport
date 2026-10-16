@@ -10,28 +10,73 @@ _LINES = re.compile(r'\r\n?|\n|\u2028|\u2029')
 def _trim(value):
     return ('' if value is None else str(value)).strip(_TRIM_CHARS)
 
-_KEY = re.compile(r'(.+?)제?(\d+)조(의\d+)?(?:제?(\d+)항)?(?:제?(\d+)호(의\d+)?)?(?:([가-하])목)?')
+# ASCII digits only: Dart/JS RegExp \d is ASCII, Python's str \d is Unicode.
+_KEY = re.compile(r'(.+?)제?([0-9]+)조(의[0-9]+)?(?:제?([0-9]+)항)?(?:제?([0-9]+)호(의[0-9]+)?)?(?:([가-하])목)?')
+# A law name never contains another article or a list separator. Such text
+# (e.g. '도로교통법 제32조, 제33조', '도로교통법 제32조 및 제33조') is not one
+# structured key; it stays one raw key with its original spacing.
+_BAD_NAME = re.compile(r'[,&]|[0-9]조')
+_QUOTES = re.compile(r'''[「」『』【】\[\]“”‘’"']''')
+_NOTES = re.compile(r'\((?:약칭|이하같음|경찰청지침)\)')
+_ENTITY = re.compile(r'&(?:#[xX][0-9a-fA-F]+|#[0-9]+|[a-zA-Z]+);')
+_SPACE = re.compile(r'[\s\ufeff·ㆍ･・ᆞ]')
+
+
+def _entity(token: str) -> str:
+    """HTML5 character reference with a required semicolon (Dart html / browser rule).
+
+    html.unescape alone also decodes references without ';' and drops control or
+    noncharacter code points; Dart's html parser and the browser keep them.
+    """
+    if token[1] != '#':
+        return html.unescape(token)  # named: HTML5 table, incl. legacy prefixes
+    code = int(token[3:-1], 16) if token[2] in 'xX' else int(token[2:-1])
+    if code in (0, 0x0D) or 0x80 <= code <= 0x9F:
+        return html.unescape(token)  # HTML5 replacement table (cp1252, NUL)
+    if 0xD800 <= code <= 0xDFFF or code > 0x10FFFF:
+        return '\ufffd'
+    return chr(code)
+
+
+def _decode(value) -> str:
+    return _ENTITY.sub(lambda m: _entity(m.group(0)), str(value or ''))
+
 
 def _compact(value):
-    return re.sub(r'[\s\ufeff·ㆍ･・ᆞ]', '', unicodedata.normalize('NFKC', html.unescape(str(value or ''))))
+    return _SPACE.sub('', unicodedata.normalize('NFKC', _decode(value)))
+
+
+def _structured(compact_text: str):
+    """Full (backtracking) match of one article key, or None. Same rule in Dart/JS."""
+    match = _KEY.fullmatch(compact_text)
+    if not match:
+        return None
+    name = match.group(1)
+    if name == '제' or re.fullmatch('[0-9]+', name) or _BAD_NAME.search(name):
+        return None
+    return match
+
+
+def _law_name(name: str) -> str:
+    name = _NOTES.sub('', _QUOTES.sub('', name))
+    suffix = next((s for s in ('시행규칙', '시행령') if name.endswith(s)), '')
+    base = name[:-len(suffix)] if suffix else name
+    base = _NOTES.sub('', _QUOTES.sub('', base))
+    if not base:
+        return ''
+    return ALIASES.get(base, base) + (' ' + suffix if suffix else '')
+
 
 @lru_cache(maxsize=4096)
 def canonical_law(value: str) -> str:
     raw = _trim(value)
-    text = _compact(raw)
-    match = _KEY.fullmatch(text)
+    match = _structured(_compact(raw))
     if not match:
         return raw
     name, article, sub, paragraph, item, subitem, letter = match.groups()
-    if name == '제' or name.isdigit():
+    name = _law_name(name)
+    if not name:
         return raw
-    name = re.sub(r'''[「」『』【】\[\]“”‘’"']''', '', name)
-    name = re.sub(r'\((?:약칭|이하같음|경찰청지침)\)', '', name)
-    suffix = next((s for s in ('시행규칙', '시행령') if name.endswith(s)), '')
-    base = name[:-len(suffix)] if suffix else name
-    base = re.sub(r'''[「」『』【】\[\]“”‘’"']''', '', base)
-    base = re.sub(r'\((?:약칭|이하같음|경찰청지침)\)', '', base)
-    name = ALIASES.get(base, base) + (' ' + suffix if suffix else '')
     return (f'{name} 제{article}조' + (sub or '')
             + (f'제{paragraph}항' if paragraph else '')
             + (f'제{item}호' if item else '') + (subitem or '') + (letter + '목' if letter else ''))
@@ -58,8 +103,8 @@ def _term_matches(keys: tuple[str, ...], term: str, *, partial: bool) -> bool:
                    for key in keys for parent in ancestor_laws(key))
     query = canonical_law(term)
     compact_query = _compact(query)
-    structured = _KEY.fullmatch(compact_query) is not None
-    name_query = re.sub(r'''[「」『』【】\[\]“”‘’"']''', '', compact_query)
+    structured = _structured(compact_query) is not None
+    name_query = _QUOTES.sub('', compact_query)
     suffix = next((s for s in ('시행규칙', '시행령') if name_query.endswith(s)), '')
     base_name = name_query[:-len(suffix)] if suffix else name_query
     name = (ALIASES[base_name] + (' ' + suffix if suffix else '')) if base_name in ALIASES else None
@@ -88,6 +133,10 @@ def _matches_law_text(value: str, query: str, partial: bool) -> bool:
     keys = read_laws(value)
     if text == '__없음__':
         return not keys
+    # A query equal to one stored key matches it as a whole, even if that raw
+    # key itself contains ',' or '&' (e.g. a user-edited '제32조, 제33조').
+    if text in keys:
+        return True
     # Legacy clients may send the whole displayed multiline field.
     if _LINES.search(text):
         return all(_term_matches(keys, term, partial=partial) for term in read_laws(text))
@@ -137,7 +186,7 @@ def parse_law_values(answer: str, legacy: str, *, multiple=True) -> str:
 
 
 def ancestor_laws(key: str) -> tuple[str, ...]:
-    match = _KEY.fullmatch(_compact(key))
+    match = _structured(_compact(key))
     if not match or ' 제' not in key:
         return (key,)
     _, article, sub, paragraph, item, subitem, _ = match.groups()
@@ -154,3 +203,29 @@ def ancestor_laws(key: str) -> tuple[str, ...]:
 def law_memberships(value, universe) -> tuple[str, ...]:
     keys = read_laws(value)
     return tuple(sorted({parent for key in keys for parent in ancestor_laws(key) if parent in universe}))
+
+
+def matches_law_keys(value, query) -> bool:
+    """Stored-key membership: the predicate behind every per-law statistic.
+
+    `query` is one stored key (or several, one per line = AND) exactly as the
+    statistics/detail links pass it. A row belongs to key K when one of its keys
+    is K or a descendant paragraph/item of K (`ancestor_laws`) — the same rule as
+    `law_memberships`, so a law bar's count equals the rows this returns. Unlike
+    `matches_laws` there is no ','/'&' splitting and no law-name prefix search.
+    '__없음__' selects rows without any law.
+    """
+    return _matches_law_keys('' if value is None else str(value), '' if query is None else str(query))
+
+
+@lru_cache(maxsize=16384)
+def _matches_law_keys(value: str, query: str) -> bool:
+    text = _trim(query)
+    if not text:
+        return True
+    keys = read_laws(value)
+    if text == '__없음__':
+        return not keys
+    wanted = read_laws(text)
+    parents = {parent for key in keys for parent in ancestor_laws(key)}
+    return all(key in parents for key in wanted)

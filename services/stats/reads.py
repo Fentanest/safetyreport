@@ -88,7 +88,8 @@ def _apply_stats_row_filters(df: pd.DataFrame, filters=None) -> pd.DataFrame:
 
 
 def _apply_stats_law_filter(df: pd.DataFrame, filters=None) -> pd.DataFrame:
-    """S-09: 완전 일치(드롭다운 값 그대로, 앞뒤 공백 무시). 부분 일치는 이름이 겹치는 다른 법규를 섞는다."""
+    """S-09 + 2026-10-16: 저장 키 소속 판정(`matches_law_keys`). 드롭다운·막대가 넘긴 키 그대로(앞뒤 공백 무시),
+    하위 항·호·목은 포함, 쉼표·& 분해와 법령명 접두 검색은 없다. 법규 막대 건수(`law_memberships`)와 같은 판정이다."""
     return ReportFilterSpec.from_filters(filters).apply_law(df) if filters else df
 
 

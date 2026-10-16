@@ -12,10 +12,19 @@ EFFECTIVE = database.report_effective_table
 CATEGORIES = report_category.CATEGORIES
 
 
+LAW_SEARCH, LAW_PARTIAL, LAW_KEYS = 0, 1, 2
+
+
+def _law_match(value, query, mode):
+    from services.law_values import matches_law_keys, matches_laws
+    if mode == LAW_KEYS:
+        return int(matches_law_keys(value, query))
+    return int(matches_laws(value, query, partial=mode == LAW_PARTIAL))
+
+
 def _install_law_matcher(conn):
-    from services.law_values import matches_laws
-    conn.connection.driver_connection.create_function(
-        'sr_law_matches', 3, lambda value, query, partial: int(matches_laws(value, query, partial=bool(partial))), deterministic=True)
+    # mode: 0 검색(완전), 1 검색(부분), 2 저장 키 소속(lawExact — 통계 막대·표·상세 링크와 같은 판정)
+    conn.connection.driver_connection.create_function('sr_law_matches', 3, _law_match, deterministic=True)
 
 
 def _safe_read(conn, table):
@@ -100,7 +109,9 @@ def _build_records_query(table_obj, filters=None, categories=None):
 
     law = filters.get("law")
     if law and "위반법규" in table_obj.c:
-        query = query.where(func.sr_law_matches(table_obj.c["위반법규"], str(law), int(not filters.get('lawExact'))) == 1)
+        # lawExact=true: 통계·상세 링크가 넘긴 저장 키 그대로(줄마다 AND, 쉼표·& 분해 없음, 하위 항·호 포함).
+        mode = LAW_KEYS if filters.get('lawExact') else LAW_PARTIAL
+        query = query.where(func.sr_law_matches(table_obj.c["위반법규"], str(law), mode) == 1)
 
     rating_cause = filters.get("ratingCause")
     if rating_cause and "별점사유" in table_obj.c:
