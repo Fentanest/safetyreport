@@ -1305,6 +1305,42 @@ class FineEstimateResendTests(unittest.TestCase):
             "SELECT blocked_reason FROM source_journal WHERE source_report_id='R1' ORDER BY source_revision DESC LIMIT 1").fetchone()
         self.assertEqual(row["blocked_reason"], "consent:none")
 
+    def test_resend_candidates_follow_report_latest_and_read_account_once(self):
+        # 결함 4: 모바일과 같은 후보 규칙(report_latest 중 삭제되지 않은 신고)과 계정 상태 1회 읽기.
+        for rid in ("R1", "R3"):
+            self._seed_pre_update_journal(rid, self._insert_report(rid))
+        self._insert_report("R2")  # 공유 캡처된 적 없는 신고 — 후보 아님
+        self.store.connect().execute(
+            "UPDATE source_journal SET blocked_reason='deleted_by_user' WHERE source_report_id='R3'")
+        with mock.patch.object(cap, "read_account_context", wraps=cap.read_account_context) as reader, \
+                mock.patch.object(cap, "capture", wraps=cap.capture) as captured:
+            result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual((result["candidates"], result["resent"], result["errors"]), (1, 1, 0))
+        self.assertEqual(reader.call_count, 1)
+        self.assertEqual([c.kwargs["source_report_id"] for c in captured.call_args_list], ["R1"])
+        self.assertIsNotNone(captured.call_args.kwargs["account_context"])
+        self.assertEqual(self.store.connect().execute(
+            "SELECT count(*) FROM source_journal WHERE source_report_id='R3'").fetchone()[0], 1)
+
+    def test_deleted_contributions_are_not_revived_by_backfill_after_reconnect(self):
+        # BL-1: 삭제 → 새 연결 → 사진 보충 / 추정 재전송 → outbox 에 보낼 것이 없다.
+        photos = "https://fixture/first.jpg\nhttps://fixture/last.jpg"
+        row = self._insert_report("R1", 첨부사진=photos)
+        self._seed_pre_update_journal("R1", row)
+        with mock.patch.object(cap, "_store", return_value=self.store):
+            cap.on_contributions_deleted(data_dir=self.tmp)
+        self.store.set_context(**{**CTX, "connection_id": "33333333-2222-4333-8444-555555555555", "writer_epoch": 2})
+        result = cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
+        self.assertEqual((result["candidates"], result["resent"]), (0, 0))
+        # 후보 조회를 거치지 않는 직접 보충(사진 보충과 같은 경로)도 발급 트랜잭션에서 막는다.
+        direct = cap.capture(cap._resend_adapter_input(row), source_report_id="R1",
+                             trigger="fine_estimate_backfill", data_dir=self.tmp)
+        self.assertIsNone(direct.event_id)
+        self._fill_photos(photos)
+        conn = self.store.connect()
+        self.assertEqual(conn.execute("SELECT count(*) FROM source_journal").fetchone()[0], 1)
+        self.assertEqual(conn.execute("SELECT count(*) FROM outbox WHERE state!='blocked'").fetchone()[0], 0)
+
     def test_resend_skips_while_deletion_cleanup_is_pending(self):
         """중앙 삭제 결과가 아직 불명(prepared)이면 이번 실행은 건너뛰고 완료로 표시하지 않는다."""
         matched = self._insert_report("R1")

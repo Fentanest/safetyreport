@@ -1,0 +1,81 @@
+{
+  "description": "커뮤니티 공유 재전송·사진 보충(fine_estimate_backfill / fine_estimate_resend)과 일반 캡처의 추정 판정 공통 사례. PC tests/test_community_backfill_vectors.py 와 모바일 test/community/backfill_vectors_test.dart 가 같은 파일(바이트 동일)을 읽는다. personal = 개인 DB 현재 행, journal_raw = journal 최신 관측을 만든 범칙금_과태료 원문, journal_override = 그 관측에 덮어쓸 amount.confirmed_won·fine_estimate(옛 규칙·옛 재전송이 남긴 값 흉내, null 이면 키 제거). expected.capture = 개인 행으로 새로 만든 일반 캡처 payload 일부, expected.backfill_fine_estimate = 보충 뒤 fine_estimate(null = 키 없음).",
+  "rule_version": "2026-10-13.2",
+  "cases": [
+    {
+      "name": "no_colon_amount_is_confirmed_in_text",
+      "personal": {"범칙금_과태료": "과태료 40,000원"},
+      "journal_raw": "과태료 40,000원",
+      "journal_override": {"fine_estimate": {"won": 40000, "rule": "parking", "rule_version": "2026-10-13.1"}},
+      "expected": {"capture": {"confirmed_won": null, "disposition": "fine", "violation_law": "도로교통법 제32조", "fine_estimate": null}, "backfill_fine_estimate": null}
+    },
+    {
+      "name": "reduced_amount_with_suffix",
+      "personal": {"범칙금_과태료": "과태료: 40,000원(감경 20%)"},
+      "journal_raw": "과태료: 40,000원(감경 20%)",
+      "journal_override": {"fine_estimate": {"won": 40000, "rule": "parking", "rule_version": "2026-10-13.1"}},
+      "expected": {"capture": {"confirmed_won": null, "disposition": "fine", "violation_law": "도로교통법 제32조", "fine_estimate": null}, "backfill_fine_estimate": null}
+    },
+    {
+      "name": "zero_won_keeps_estimate",
+      "personal": {"범칙금_과태료": "과태료: 0원"},
+      "journal_raw": "과태료: 0원",
+      "journal_override": {"fine_estimate": null},
+      "expected": {"capture": {"confirmed_won": 0, "disposition": "fine", "violation_law": "도로교통법 제32조", "fine_estimate": {"won": 40000, "rule": "parking", "rule_version": "2026-10-13.2"}}, "backfill_fine_estimate": {"won": 40000, "rule": "parking", "rule_version": "2026-10-13.2"}}
+    },
+    {
+      "name": "penalty_and_fine_disposition",
+      "personal": {"범칙금_과태료": "범칙금 및 과태료 처분"},
+      "journal_raw": "범칙금 및 과태료 처분",
+      "journal_override": {"fine_estimate": null},
+      "expected": {"capture": {"confirmed_won": null, "disposition": "penalty", "violation_law": "도로교통법 제32조", "fine_estimate": {"won": 40000, "rule": "parking", "rule_version": "2026-10-13.2"}}, "backfill_fine_estimate": {"won": 40000, "rule": "parking", "rule_version": "2026-10-13.2"}}
+    },
+    {
+      "name": "warning_and_fine_disposition",
+      "personal": {"범칙금_과태료": "경고 및 과태료 부과"},
+      "journal_raw": "경고 및 과태료 부과",
+      "journal_override": {"fine_estimate": null},
+      "expected": {"capture": {"confirmed_won": null, "disposition": "warning", "violation_law": "도로교통법 제32조", "fine_estimate": {"won": 40000, "rule": "parking", "rule_version": "2026-10-13.2"}}, "backfill_fine_estimate": {"won": 40000, "rule": "parking", "rule_version": "2026-10-13.2"}}
+    },
+    {
+      "name": "amount_table_fix_reads_confirmed_amount",
+      "personal": {"범칙금_과태료": "과태료: 120,0000원", "위반법규": "도로교통법 제32조\n도로교통법 제33조"},
+      "journal_raw": "과태료: 120,0000원",
+      "journal_override": {"confirmed_won": null, "fine_estimate": {"won": 40000, "rule": "parking", "rule_version": "2026-10-13.1"}},
+      "expected": {"capture": {"confirmed_won": 120000, "disposition": "fine", "violation_law": "도로교통법 제32조", "fine_estimate": null}, "backfill_fine_estimate": null}
+    },
+    {
+      "name": "personal_lags_confirmed_journal",
+      "personal": {"범칙금_과태료": "과태료"},
+      "journal_raw": "과태료: 90,000원",
+      "journal_override": {},
+      "expected": {"capture": {"confirmed_won": null, "disposition": "fine", "violation_law": "도로교통법 제32조", "fine_estimate": {"won": 40000, "rule": "parking", "rule_version": "2026-10-13.2"}}, "backfill_fine_estimate": null}
+    },
+    {
+      "name": "unknown_amount_photo_span_updates_estimate",
+      "personal": {"범칙금_과태료": "과태료", "사진_첫촬영": "2026-09-01 10:00:00", "사진_끝촬영": "2026-09-01 12:01:00"},
+      "journal_raw": "과태료",
+      "journal_override": {"fine_estimate": {"won": 40000, "rule": "parking", "rule_version": "2026-10-13.1"}},
+      "expected": {"capture": {"confirmed_won": null, "disposition": "fine", "violation_law": "도로교통법 제32조", "fine_estimate": {"won": 50000, "rule": "parking", "rule_version": "2026-10-13.2"}}, "backfill_fine_estimate": {"won": 50000, "rule": "parking", "rule_version": "2026-10-13.2"}}
+    }
+  ],
+  "base_personal": {
+    "처리상태": "수용",
+    "신고번호": "SPP-2609-0001",
+    "신고명": "불법주정차 위반",
+    "신고일": "2026-09-01",
+    "답변일": "2026-09-10",
+    "처리기관": "서울특별시 중구청",
+    "담당자": "홍길동",
+    "차량번호": "12가3456",
+    "위반장소": "서울특별시 중구 세종대로 110",
+    "위반법규": "도로교통법 제32조",
+    "벌점": "",
+    "발생시각": "10:00",
+    "entry_value": "불법주정차신고",
+    "ssnpc_cd": "EP",
+    "ssnpc_type": "02",
+    "사진_첫촬영": null,
+    "사진_끝촬영": null
+  }
+}
