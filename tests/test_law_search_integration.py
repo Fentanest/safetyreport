@@ -45,6 +45,20 @@ class LawSearchIntegrationTests(unittest.TestCase):
                 page=get_report_page(self.engine,'traffic',limit=200,mode='raw',search_filter={'law':q,'lawExact':True})
                 self.assertEqual({r['ID'] for r in page['data']},expected);self.assertEqual(page['total'],len(expected))
 
+    def test_overview_bar_counts_equal_law_filter_and_list(self):
+        # /stats/overview·/api/v1/stats/overview 의 위반법규 막대 건수 == 그 filter 의 통계 필터 total == 목록(lawExact) 행 수.
+        extra=[('6','도로교통법'),('7','도로교통법 제5조, 제6조'),('8','도로교통법 제32조의21항'),('9','주차장법 제33조')]
+        rows=[dict(self.rows[0],ID=i,신고번호=f'SYN-{int(i):04}',위반법규=law) for i,law in extra]
+        with self.engine.begin() as c:c.execute(models.report_effective_table.insert(),rows)
+        bars=get_stats_overview(self.engine,mode='raw',taxonomy=5)['traffic']['violation_laws']
+        self.assertIn('도로교통법 제5조, 제6조',[b['name'] for b in bars])
+        for bar in bars:
+            with self.subTest(bar=bar['name']):
+                filtered=get_stats_overview(self.engine,{'law':bar['filter']},mode='raw',taxonomy=5)['traffic']
+                self.assertEqual(filtered['total'],bar['count'])
+                listed=get_category_records(self.engine,'traffic',{'law':bar['filter'],'lawExact':True},mode='raw')
+                self.assertEqual(len(listed),bar['count'])
+
     def test_stats_options_hierarchy_and_unique_money(self):
         stats=get_agency_stats(self.engine,mode='raw',taxonomy=5)['traffic']
         self.assertEqual(stats['total_fine_amount'],200000)
