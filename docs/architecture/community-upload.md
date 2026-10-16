@@ -173,27 +173,43 @@
   `rule` enum = `bus_lane|parking|hydrant|school_zone|ev_charging|disabled_parking|fire_lane|waste|overnight_truck`). 스키마 이름·`observation-v5` 는 그대로(가산적·선택 필드라 버전 안 올림).
 - parser_version `pc-parser-7`.
 - **기존 신고 다시 보내기**: `services/community_capture.resend_fine_estimate_updates(engine, data_dir=None)` — `main.py` 시작 때(사진 촬영 시각 한 번 훑기와 같은 자리,
-  `skip_in_fixture("startup fine estimate resend")`) 백그라운드 스레드로 한 번 돈다. 개인 DB의 신고 ID를 순회하며 journal 최신 payload의 `fine_estimate`만
-  다시 계산해 기존 `capture()` 경로로 보낸다. 개인 DB의 금액 원문으로 후보를 거르지 않는다(최신 journal과 다를 수 있음). 추정 필드가 바뀐 것만 이벤트가 되고 outbox에 들어간다. 완료 표시는 community.db
+  `skip_in_fixture("startup fine estimate resend")`) 백그라운드 스레드로 한 번 돈다. 후보는 현재 로컬 데이터셋의 `report_latest` 중 그 journal 이
+  `deleted_by_user` 가 아닌 신고를 ID 순으로(모바일 `resendFineEstimateIfNeeded` 와 같은 후보 규칙, 2026-10-16). 공유 캡처된 적 없는 개인 DB 신고는 보지 않는다.
+  개인 DB의 금액 원문으로 후보를 거르지 않는다. 신고마다 journal 최신 payload의 `fine_estimate`만 다시 정해 기존 `capture()` 경로로 보낸다.
+  추정 필드가 바뀐 것만 이벤트가 되고 outbox에 들어간다. 계정 상태(`community_cloud.capture_context`, 계정 상태 파일)는 실행 시작 때 한 번 읽어
+  모든 신고에 쓴다(`capture(account_context=...)`) — 업로더가 전송 때 현재 문맥과 다시 대조한다. 완료 표시는 community.db
   `meta['fine_estimate_resend_done']`(규칙 버전 `fine_estimate.RULE_VERSION` + `PARSER_VERSION`) 기준이라 둘 중 하나가 바뀌면 다시 돈다. 삭제 정리가 안 끝났으면
   (`deletion_cleanup_pending`) 이번 실행은 건너뛰고 완료로 표시하지 않는다. 한 건이라도 실패하면 완료로 표시하지 않되, `capture()` 가 이미 반영된 건은 no-op 이라
   다음 실행이 전체를 다시 훑어도 실패한 건만 실제로 새로 처리된다. 동의·계정 문맥이 없거나 철회됐으면(기존 규칙) journal 만 쓰고 outbox 에 넣지 않는다.
   사용자 조작·초기화 크롤링 없음, 기존 outbox 배치·재시도·쿨다운 규칙을 그대로 쓴다(한 번에 몰아치지 않음).
 - 재전송 후보의 값은 재사용하지 않는다. 신고마다 개인 DB `BEGIN IMMEDIATE` 뒤 추정 입력만 다시 읽고 캡처까지 연결을 유지한다.
-  삭제된 신고는 건너뛴다. 실시간 저장도 같은 쓰기 잠금을 캡처 전부터 개인 DB 커밋까지 유지한다.
+  개인 DB에 없는 신고는 건너뛴다. 실시간 저장도 같은 쓰기 잠금을 캡처 전부터 개인 DB 커밋까지 유지한다.
   연결 유지 중에는 복원 장벽이 DB 교체·데이터셋 회전을 기다린다.
   신고 사이에 데이터셋이 회전하면 실행을 중단하며 완료 마커도 실행 당시 local_dataset_id에 묶어 복원된 DB에 재사용하지 않는다.
 - `fine_estimate_backfill` 캡처는 community.db 쓰기 트랜잭션 안에서 같은 로컬 데이터셋·신고의 **최대 revision payload**를 기준으로 삼는다.
   계정 전환·staging 여부와 관계없이 최신 관측을 읽고, 개인 저장 상태(`pending`/`failed`/`saved`)로 보충을 차단하지 않는다.
-  개인 DB에서는 접수 메뉴·분류 코드·차량번호·사진 시각·발생시각·신고명만 읽는다. 위반법규는 최신 payload에서 읽는다.
-  최신 payload의 `amount.kind`가 `fine`이고 `amount.confirmed_won`이 `null`일 때만 추정 규칙을 적용하며,
-  확정 금액이 있거나 과태료가 아니거나 규칙이 맞지 않으면 `fine_estimate`를 제거한다.
-  `fine_estimate` 이외의 payload 필드와 journal 신고번호는 최신 관측 그대로 보존한다. 구버전 파서의 금액도 보충 경로에서 재해석하지 않는다.
+  `report_latest` 가 가리키는 journal 이나 최신 journal 이 `deleted_by_user` 면 새 revision 을 만들지 않는다 — 삭제 뒤 새 연결에서도 사진 보충·재전송이
+  지운 자료를 되살리지 않는다(BL-1 해결, 모바일 capture 의 삭제 차단과 같음). 후보 조회 뒤 삭제가 끼어들 수 있어 발급 트랜잭션 안에서 확인한다.
+- **추정 판정(2026-10-16, 일반 캡처와 같은 함수)**: 개인 DB 현재 행에서 일반 캡처와 같은 추정 입력(`BACKFILL_PERSONAL_FIELDS` — 접수 메뉴·분류 코드·차량번호·
+  사진 시각·발생시각·신고명·**범칙금_과태료 원문·위반법규**)을 읽어 `build_payload` 와 같은 `_fine_record`/`_fine_estimate_field`(= `estimate_if_unknown`)를 적용한다.
+  위반법규는 어댑터 단계에서 `primary_law` 로 대표 법규만 고른다(일반 캡처와 같음). 단, 그 원문을 지금 규칙으로 읽은 금액 판정
+  `(amount.confirmed_won, amount.kind, disposition)` 이 journal 최신 payload 의 것과 **같을 때만** 적용한다. 다르면 추정을 싣지 않는다(기존 추정은 걷어 낸다):
+  - 개인 DB 가 journal 보다 늦은 경우(실시간 캡처 뒤 개인 저장 실패·중단) — 개인 원문으로 journal 관측에 추정을 붙이면 확정 금액 있는 관측에 추정이 실릴 수 있다.
+  - 금액표 보정(규칙 2026-10-13.2 등)으로 옛 journal 의 `confirmed_won=null` 원문에서 지금은 확정 금액이 읽히는 경우 — 예: 일반 주정차 + 제32조 +
+    `과태료: 120,0000원` 은 새로 캡처하면 확정 120,000원·추정 없음이므로, 옛 journal(추정 40,000/2026-10-13.1)의 재전송은 추정을 걷어 내고 새 규칙 버전의 추정을 붙이지 않는다.
+  결과: `과태료 40,000원`(콜론 없음)·`과태료: 40,000원(감경…)` 처럼 확정 금액이 원문에 있으면 추정 없음, `과태료: 0원`·`범칙금 및 과태료 처분`·`경고 및 과태료 부과` 는
+  일반 캡처처럼 추정 있음(PROJECT_RULES 3-2). 공통 사례: `tests/fixtures/community_backfill_vectors.json`(모바일 `test/fixtures/` 와 바이트 동일).
+- **재전송은 journal 금액을 보존한다 — 관계 정리**: 보충은 `fine_estimate` 이외의 payload 필드(`amount`·`disposition`·`violation_law` 포함)와 journal 신고번호를
+  최신 관측 그대로 둔다. 금액표 보정으로 확정 금액이 새로 읽혀도 `amount.confirmed_won` 은 바꾸지 않는다(버전 상승만으로 과거 공유 확정 금액을 보정하지 않는다는
+  기존 결정 유지). 대신 위 일치 검사로 그런 관측에 추정을 싣지 않는다 — 그 동안 중앙에는 "과태료·확정 없음·추정 없음"으로 남고, 확정 금액은 다음 실시간 상세 수집이 갱신한다.
   최신 journal이 없거나 추정 필드가 바뀌지 않으면 이벤트가 없다. 조회와 revision 발급은 같은 트랜잭션이므로 그 사이 다른 관측이 끼어들지 않는다.
   실시간 크롤링은 계속 개인 DB에 저장할 원문으로 전체 payload를 만든다.
 - 사진 보충(`photo_capture_time.fill_one`)은 첨부 일치 검사·촬영 시각 저장·effective 갱신 뒤, 쓰기 잠금 안에서 같은 추정 보충 경로를 호출한다.
   재전송 완료 마커와 무관하게 수행하므로 재공유 이력, 개인 DB 커밋~saved 표시 사이, 개인 저장 실패 뒤 재시도 경로에서도 공유 추정액을 갱신한다.
-  최신 journal이 없거나 변경이 없어 이벤트가 생기지 않아도 개인 사진 시각은 저장한다. 캡처 예외는 사진 저장도 롤백하여 보충 대상으로 남긴다.
+  최신 journal이 없거나 변경이 없어 이벤트가 생기지 않아도 개인 사진 시각은 저장한다. **캡처 예외는 사진 저장을 롤백하지 않는다(2026-10-16)** —
+  촬영 시각은 커밋하고(다음 훑기마다 같은 사진을 다시 내려받지 않음) 그 신고를 S-03 재시도 의도(`community_capture_retry.json`, 사유
+  `photo_backfill_capture_failed`)에 남겨 다음 증분 수집이 공식 상세를 다시 읽어 전체 캡처하게 한다. 의도 기록까지 실패하면 경고 기록만 하고 사진 시각은 유지한다.
+  모바일 `MaintenanceService._fillOne` 도 같은 순서다(촬영 시각 저장 → `refreshFineEstimateFor` → 실패 시 `SyncEngine.queueCaptureRetry`).
   네트워크 사진 읽기는 계속 트랜잭션 밖에서 수행한다.
 
 ### 코드 대조 정정 — 추정 입력과 저장 순서
@@ -204,6 +220,9 @@
 | 개인 DB 트랜잭션 전 캡처·사진 보충과 1회 재전송은 독립 | 개인 DB 쓰기 잠금 안에서 캡처 후 원문 저장. 사진 보충마다 해당 신고 재캡처 |
 | 개인 저장 상태·payload 일치 검사로 오래된 관측을 차단 | 두 DB가 달라도 journal 최신 payload를 보존하고 개인 추정 입력으로 `fine_estimate`만 교체한다. 상태값으로 정상 보충을 차단하지 않는다 |
 | parser-5/6 금액 오타는 재전송에서 확정액으로 이관 | 보충은 금액 판정을 바꾸지 않는다. 금액 등 원문 갱신은 다음 실시간 상세 수집이 맡는다 |
+| (2026-10-16 이전) 추정은 journal `amount.kind=='fine' and confirmed_won is None` 일 때, 위반법규는 journal payload 에서 | 일반 캡처와 같은 `estimate_if_unknown` 을 개인 DB 현재 원문(범칙금_과태료·위반법규 포함)에 적용하고, 그 원문의 지금 금액 판정이 journal 과 같을 때만. 종전 판정은 확정 금액이 원문에 있는 신고(`과태료 40,000원`)에 추정을 싣고, `과태료: 0원`·`범칙금 및 과태료 처분` 의 추정을 지웠다 |
+| (2026-10-16 이전) 재전송 후보는 개인 DB 모든 신고 ID, 신고마다 계정 상태 파일 읽기 | `report_latest` 중 삭제되지 않은 신고만, 계정 상태는 실행당 한 번(모바일과 같음) |
+| (2026-10-16 이전) 사진 보충의 캡처 예외는 사진 저장도 롤백 | 사진 저장은 유지하고 S-03 재시도 의도에 남긴다 |
 
 
 ## 기관코드 전체자료 대조와 통계 키 전환 (registry 2026-09-29.1, 2026-09-29)
