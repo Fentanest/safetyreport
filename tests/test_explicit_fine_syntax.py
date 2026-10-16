@@ -46,3 +46,12 @@ class ExplicitFineSyntaxTests(unittest.TestCase):
         self.assertEqual(metrics['_metric_fine_amount'].iloc[0], 100000)
         self.assertEqual(metrics['_metric_estimated_amount'].iloc[0], 0)
         self.assertEqual(community_capture._parse_amount(raw, r), (100000, 'fine'))
+
+    def test_huge_digit_runs_are_not_amounts(self):
+        # Beyond Python's int() digit limit; must not raise and must match Dart.
+        for text in ('과태료 ' + '1' * 5000 + '만원', '과태료 ' + '1' * 5000 + '원',
+                     '과태료 40,000원, 안내 ' + '9' * 5000 + '원'):
+            self.assertIsNone(explicit_fine_number(text))
+        detail = {'C_NOW': 10, 'C_APP_GUBUN_NM': RECORD['entry_value'],
+                  'answers': [{'C_MANAGER_TYPE_NM': '수용', 'C_MANAGE_CONTENTS': '과태료 ' + '1' * 5000 + '만원'}]}
+        self.assertEqual(parser.parse_json_details(detail)['penalty_amount'], '과태료')

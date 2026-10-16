@@ -30,7 +30,8 @@
     "자동차튜닝에관한규정": "자동차 튜닝에 관한 규정",
     "2025년경찰청공익신고접수기준표": "2025년 경찰청 공익신고 접수기준표"
   },
-  "article_pattern": "제?(?P<a>\\d+)조(?P<sub>의\\d+)?(?:\\([^()]*\\))?(?:제?(?P<p>\\d+)항)?(?:제?(?P<i>\\d+)호(?P<isub>의\\d+)?)?(?:[\\(「]?(?P<l>[가-하])[\\)」]?목)?",
-  "short_pattern": "제?(?P<p>\\d+)항(?:제?(?P<i>\\d+)호)?|제?(?P<i_only>\\d+)호(?P<isub>의\\d+)?",
+  "article_pattern": "제?(?P<a>[0-9]+)조(?P<sub>의[0-9]+)?(?:\\([^()]*\\))?(?: ?제?(?P<p>[0-9]+)항)?(?: ?제?(?P<i>[0-9]+)호(?P<isub>의[0-9]+)?)?(?:[\\(「]?(?P<l>[가-하])[\\)」]?목)?",
+  "short_pattern": "제?(?P<p>[0-9]+)항(?:제?(?P<i>[0-9]+)호)?|제?(?P<i_only>[0-9]+)호(?P<isub>의[0-9]+)?",
+  "normalization_policy": "Recognition copy: decode only semicolon-terminated HTML entities (HTML5 numeric table; surrogates and > U+10FFFF become U+FFFD), NFKC, remove middle dots and whitespace (union of Python and Dart whitespace incl. U+001C-U+001F, U+0085, U+FEFF), but keep one space for a whitespace run between two ASCII digits. Digits are [0-9] only.",
   "unbound_policy": "Never guess a statute; never repair article numbers into item numbers."
 }
