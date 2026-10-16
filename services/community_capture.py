@@ -399,7 +399,8 @@ def read_account_context(store) -> tuple:
     from services import community_cloud
     try:
         return community_cloud.capture_context(store.context())
-    except Exception:
+    except Exception as exc:
+        note_fallback("community_capture.read_account_context", exc)
         return None, 'unverified_owner'
 
 
