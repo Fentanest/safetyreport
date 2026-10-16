@@ -9,11 +9,20 @@ import re
 _FINAL = frozenset({"수용", "일부수용", "불수용", "기타", "답변완료"})
 _ENTITIES = {"amp": "&", "lt": "<", "gt": ">", "quot": '"', "apos": "'", "nbsp": " "}
 _ENTITY = re.compile(r"&(#x[0-9a-fA-F]+|#X[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos|nbsp);")
-_SPACE = re.compile(r"[ \t\r\n\f\v\u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]+")
-_BOUNDARY = re.compile(r"(?<=[다요])[.。!?]|\n\s*\n|(?<=\n)(?=\s*(?:\d+|[가-하])[.)]\s)|(?<=\n)(?=\s*[○※])")
+# Explicit whitespace set shared with Dart (union of Python and Dart \s).
+_SPACE_SET = r"\t\n\x0b\x0c\r\x1c-\x20\x85\xa0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+_SPACE = re.compile("[" + _SPACE_SET + "]+")
+_S = "[" + _SPACE_SET + "]"
+_BOUNDARY = re.compile(r"(?<=[다요])[.。!?]|\n" + _S + "*\n|(?<=\n)(?=" + _S + "*(?:[0-9]+|[가-하])[.)]" + _S + ")|(?<=\n)(?=" + _S + "*[○※])")
 _ACTION = re.compile(r"과태료(?:를)?부과(?:할예정|처리|로결정|되었|하였|절차를진행|및징수절차진행|하도록하겠|하겠습니다|합니다)")
 _PROOF = re.compile(r"불법주[·ㆍ]?정차로판단되어|불법행위\(충전방해행위\)에해당하여|(?:확인|검토)(?:한)?결과.{0,350}(?:확인되어|확인됨에따라|파악되어|위반차량으로)|위반행위가확인되어|위반(?:한)?사실이확인되어|위반한행위로확인되어|위반에해당되어|이중주차행위\(주차위반\)에해당되어")
-_CONDITION = re.compile(r"미이행|불이행|불응|않을경우|않는경우|않을시|재위반|재차|경우|최대|이하|상한")
+# Conditional or future wording ("다시 적발될 시", "적발되면", "~할 시", "~하면").
+_CONDITION = re.compile(r"미이행|불이행|불응|않을경우|않는경우|않을시|재위반|재차|경우|최대|이하|상한"
+                        r"|다시적발|재적발|적발시|적발될시|적발되면|위반시|위반하면|될시|할시|되면|하면|않으면")
+# The answer already reports a warning/guidance action for this case.
+_WARNED = re.compile(r"경고(?:조치|처분|처리)?(?:를|을)?(?:하였|했|되었|됨|함)|경고장(?:을|를)?(?:발부|부착|발송|교부)"
+                     r"|계도(?:조치|처분|처리)?(?:를|을)?(?:하였|했|되었|됨|함)|계도장(?:을|를)?(?:발부|부착|발송|교부)"
+                     r"|교통질서안내장(?:을|를)?발송")
 _NEGATIVE = re.compile(r"과태료.{0,30}(?:부과(?:가|하기|에)?(?:어려|곤란|불가)|부과할수없|부과하지|처분이불가|처분은하지)|과태료미부과")
 _CASE_NEGATIVE = re.compile(r"(?:자료|영상|사진).{0,25}확인|처리결과|식별되지않|확증할수없|통고처분이나과태료처분")
 _STRUCTURED = re.compile(r"처리결과[:：]수용\(과태료부과\)")
@@ -39,6 +48,8 @@ def _normalize(text: str) -> str:
 
 def supplement_case_fine(status: str, penalty: str, answer: str) -> tuple[str, str]:
     if status not in _FINAL or penalty not in ("", "미확인"):
+        return status, penalty
+    if _WARNED.search(_normalize(answer or "")):
         return status, penalty
     positive = negative = structured = False
     for sentence in _BOUNDARY.split(answer or ""):
