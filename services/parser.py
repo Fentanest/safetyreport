@@ -209,19 +209,27 @@ def _select_answer(answers: list, raw_status: str) -> dict:
     return selected
 
 
+# The legacy regex runs on both platforms (Dart: law_values.legacyViolationLaw,
+# non-unicode JS-style RegExp). Python \s and \d differ from Dart, so the
+# Dart whitespace set and ASCII digits are spelled out here.
+_JS_SPACE = '[\\t\\n\\x0b\\x0c\\r \\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff]'
+_LEGACY_LAW = re.compile(
+    '(?:「' + _JS_SPACE + '*([가-힣·' + _JS_SPACE[1:-1] + ']{1,40}?법)' + _JS_SPACE + '*」|(도로교통법))' + _JS_SPACE
+    + '*제' + _JS_SPACE + '*([0-9]+' + _JS_SPACE + '*조(?:' + _JS_SPACE + '*의' + _JS_SPACE + '*[0-9]+)?)(?:'
+    + _JS_SPACE + '*(제?' + _JS_SPACE + '*[0-9]{1,2}' + _JS_SPACE + '*항))?')
+_LEGACY_SPACES = re.compile(_JS_SPACE + '+')
+
+
 def _legacy_violation_law(processing_content: str) -> str:
     """3단계: 답변 본문의 위반 법규(법 이름 + 조·항)."""
     if not processing_content:
         return ""
-    violation_law_match = re.search(
-        r'(?:「\s*([가-힣·\s]{1,40}?법)\s*」|(도로교통법))\s*제\s*(\d+\s*조(?:\s*의\s*\d+)?)(?:\s*(제?\s*\d{1,2}\s*항))?',
-        processing_content,
-    )
+    violation_law_match = _LEGACY_LAW.search(processing_content)
     if not violation_law_match:
         return ""
-    law_name = re.sub(r'\s+', '', violation_law_match.group(1) or violation_law_match.group(2))
-    article = re.sub(r'\s+', '', violation_law_match.group(3))
-    paragraph = re.sub(r'\s+', '', violation_law_match.group(4) or '')
+    law_name = _LEGACY_SPACES.sub('', violation_law_match.group(1) or violation_law_match.group(2))
+    article = _LEGACY_SPACES.sub('', violation_law_match.group(3))
+    paragraph = _LEGACY_SPACES.sub('', violation_law_match.group(4) or '')
     return f"{law_name} 제{article}{paragraph}"
 
 

@@ -4,13 +4,17 @@ A warning is not a negative finding. General guidance and case decisions are
 kept separate. Recognition evidence is retained for regression diagnostics.
 """
 import re
-import html
 import unicodedata
 from services import law_citations as base
 
+_SPACE = base.SPACE_CLASS
+_SPACES = re.compile(_SPACE + '+')
+
+
 def norm(s):
-    return re.sub('[\\s\\ufeff]+', '', unicodedata.normalize('NFKC', html.unescape(s)))
-BOUNDARY = re.compile('(?<=[다요])[.。!?](?!\\s*\\()|\\n\\s*\\n|(?<=\\n)(?=\\s*(?:[가-하]|\\d+)[.)]\\s)|(?=그러나|다만[,\\s]|추가로|※)')
+    # Same entity rule (';' required) and whitespace set as Dart normalizeLawText.
+    return _SPACES.sub('', unicodedata.normalize('NFKC', base.decode_entities(s)))
+BOUNDARY = re.compile('(?<=[다요])[.。!?](?!' + _SPACE + '*\\()|\\n' + _SPACE + '*\\n|(?<=\\n)(?=' + _SPACE + '*(?:[가-하]|[0-9]+)[.)]' + _SPACE + ')|(?=그러나|다만(?:,|' + _SPACE + ')|추가로|※)')
 FINDING = re.compile('위반행위로판단|에저촉되어|위반에따라|위반되는사항|적합하지않다고판단|해당하는사실을확인|위반(?:한)?(?:사실|사항|행위)(?:이|가|을|를|은|는)?확인|위반(?:으로)?확인|위반한(?:사실|사항|불법|행위)|위반(?:으로|한행위로)판단|위반(?:사항|행위)?에해당(?:되어|하여|하므로|되나)|위반하였|위반하여|위반사항을통지|위반을확인|위반,|위반으로원상복구')
 SANCTION = re.compile('과태료(?:를)?부과(?:할예정|예정|처분|처리|하였|합니다|하겠습니다|대상)|과태료[0-9,.]+원을부과하고자|과태료처분(?:예정|대상)|과태료(?:를)?부과절차(?:를)?진행|행정처분하겠')
 REMEDY = re.compile('(?:원상복구|시정|정비)(?:명령|조치|요청)|원상복구(?:및[^.]{0,20})?(?:하도록|명령|의견진술)|번호판교체에대하여안내|행정조치하였|계도조치|행정계도|점검하여안전운행하도록행정지도')
