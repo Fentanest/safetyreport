@@ -25,6 +25,7 @@
 | 목록 초기화 | 현행 언어 URL은 HTTPS. 최초 검색/자동 상세/폭 조정은 `initComplete`를 기다리고 모든 이벤트 등록 뒤 수행한다. CDN 실패는 라이브러리 기본 언어로 동작한다. | 정정 |
 | 목록 검색칸 반응형 | DataTables의 Bootstrap 두 열 도구 모음에서도 검색 input은 부모 폭 안에서 축소한다. viewport 폭만으로 판단하지 않으며 표 자체의 내부 가로 스크롤은 유지한다. | 정정 |
 | HTTP 관리자 인증 | 임의 `Upgrade: websocket` 헤더는 세션 예외가 아니다. 실제 WebSocket ASGI scope는 HTTP middleware 밖에서 기존 WS 인증·protocol 검사로 처리한다. | 정정 |
+| 리버스 프록시 지원 (trusted_proxies) | 원문의 "`main.py` 모듈 레벨 uvicorn ProxyHeadersMiddleware 조건부 적용"은 2026-10-14 부터 사실이 아니다. `create_app()` 이 `TrustedProxyHeadersMiddleware` 를 항상 등록하고, 빈 값은 루프백만 신뢰한다(2026-10-16). | 정정 |
 | 통계 초기 셸·상세 이동 | 초기 버튼은 loader가 즉시 연결한다. 서버 `agency_key`로 행을 선택하고 완료 모집단을 목록/상세 지도에 전달한다. [통계 명세](../design/statistics-spec.md#9-6-코드-대조-정정) 참조. | 정정 |
 
 ## 이관 원문
@@ -69,9 +70,10 @@
 - `/health` → 인증 없이 `{"status": "ok"}` 반환 (cloudflared health check 전용)
 
 ### 리버스 프록시 지원 (trusted_proxies)
-`config.ini` `[SETTINGS] trusted_proxies` 에 쉼표 구분 IP 목록 저장.
-`main.py` 모듈 레벨에서 `uvicorn.middleware.proxy_headers.ProxyHeadersMiddleware` 조건부 적용.
-설정 변경 후 **서버 재시작 필요** (미들웨어는 앱 시작 시 1회 등록).
+`config.ini` `[SETTINGS] trusted_proxies` 에 쉼표 구분 IP/CIDR 목록 저장.
+`create_app()` 이 앱 가장 바깥에 `core/utils/proxy_headers.py` 의 `TrustedProxyHeadersMiddleware` 를 **항상** 등록한다
+(Uvicorn 의 ProxyHeadersMiddleware 는 쓰지 않고 `proxy_headers=False`/`--no-proxy-headers` 로 끈다). 비어 있으면 루프백만 신뢰한다.
+설정 변경 후 **서버 재시작 필요** (미들웨어는 앱 시작 시 1회 등록). 상세는 아래 "프록시 뒤 웹 이동·CSRF" 절.
 
 
 <!-- legacy CLAUDE.md 638-664 -->
@@ -198,10 +200,28 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 
 다섯 관리 메뉴의 정규 경로는 `/crawl/`, `/rating/`, `/watchlist/`, `/settings/`, `/devices/`다. 내부 링크·설정/JSON 저장 후303·기기 키 삭제 후303은 정규 경로를 직접 사용한다. 구 slash 없는 GET은 기존307 호환을 유지하며 쿼리도 보존한다. 설정 저장 안내 JS는 `saved`만 지우고 다른 쿼리와 hash를 보존한다. API 경로는 변경하지 않는다.
 
-`TrustedProxyHeadersMiddleware`는 앱 가장 바깥에서 원래 socket peer를 확인하고 URL을 복원한다. 이후 세션·인증·CSRF가 같은 scheme/Host를 본다. `trusted_proxies`는 실제 연결하는 프록시 IP/CIDR의 쉼표 목록이다. 빈 값은 비활성화; boolean처럼 쓴1/0, 임의 이름, wildcard와 전체주소 CIDR은 오류다. 잘못된 값은 전체 신뢰로 바꾸지 않으며 설정 저장은400, 앱 생성은 명확한 설정 오류로 중단한다.
+`TrustedProxyHeadersMiddleware`는 앱 가장 바깥에서 원래 socket peer를 확인하고 URL을 복원한다. 이후 세션·인증·CSRF가 같은 scheme/Host를 본다. `trusted_proxies`는 실제 연결하는 프록시 IP/CIDR의 쉼표 목록이다(2026-10-16 개정, 아래 표).
 
-예: 프록시가 실제로 loopback에서 접속한다면 `[SETTINGS]`의 `trusted_proxies = 127.0.0.1, ::1`. Docker의 별도 프록시는 앱이 보는 실제 peer IP 또는 제한된 전용 네트워크 CIDR을 사용한다. 예시 주소를 확인 없이 복사하지 않는다. 변경 후 서버/컨테이너 재시작이 필요하다. 운영 설정을 이 수정에서 자동 변경하지 않는다.
+| `trusted_proxies` 값 | 서버 시작 | 신뢰하는 peer | 설정 화면 저장 |
+|---|---|---|---|
+| 빈 값 | 정상 | 루프백만(`127.0.0.1`, `::1`) — 이전 Uvicorn 기본 `forwarded_allow_ips=127.0.0.1` 과 같은 범위 | 허용 |
+| IP/CIDR 목록 | 정상 | 그 목록만(루프백 기본값을 대체한다. 같은 PC 프록시도 쓰면 `127.0.0.1, ::1` 을 함께 적는다) | 허용 |
+| 빈 항목(끝 쉼표 `127.0.0.1,`) | 정상(빈 항목 무시) | 나머지 항목 | 허용(빈 항목 무시) |
+| `*` | 정상 + 경고 로그 | 모든 peer(이전 Uvicorn `*` 와 같은 범위. 단 이제 `X-Forwarded-Host` 도 따른다 — Uvicorn 은 Host 를 처리하지 않았다) | 400 |
+| 호스트 이름(`nginx`)·`1`/`0` 등 해석 불가 항목 | 정상 + 경고 로그, 그 항목만 무시 | 유효 항목. 유효 항목이 하나도 없으면 빈 값과 같이 루프백만 | 400 |
+| `0.0.0.0/0`·`::/0` | 정상 + 경고 로그 | 그 주소 계열 전체 | 400 |
 
-신뢰 peer에서만 `X-Forwarded-Proto`(http/https), 단일 `X-Forwarded-Host`, IP 목록인 `X-Forwarded-For`를 읽는다. 프록시는 외부 요청의 전달 헤더를 제거/덮어써야 한다. XFF는 오른쪽부터 신뢰 경계를 확인하고, original peer는 별도 scope 값으로 보존한다. 비신뢰 peer의 전달 헤더는 무시한다. Host/Proto의 복수·모호 값과 잘못된 신뢰 헤더는400(WS1008)으로 거절한다. 기본 포트를 포함한 scheme·host·port를 정규화해 Origin을 정확 비교하며, JSON·세션 토큰·cross-site 거절은 유지한다.
+시작 때는 잘못된 값으로 서버를 멈추지 않는다(Docker Watchtower 재시작 루프 방지). 경고는 코어 로그에 `[proxy]` 로 남는다. 설정 화면 저장은 엄격 검사(`trusted_proxy_networks`)로 잘못된 값을 400으로 진단한다 — 기존 `*`/호스트 이름이 저장된 사용자는 설정을 저장하려면 이 칸을 고쳐야 한다.
+
+예: 같은 PC의 cloudflared·Caddy·nginx 는 빈 값으로 동작한다. Docker의 별도 프록시는 앱이 보는 실제 peer IP 또는 제한된 전용 네트워크 CIDR을 사용한다(컨테이너 이름은 쓸 수 없다). 예시 주소를 확인 없이 복사하지 않는다. 변경 후 서버/컨테이너 재시작이 필요하다. 운영 설정을 이 수정에서 자동 변경하지 않는다.
+
+업그레이드 안내(2026-10-14 프록시 변경 이후 버전에서 올 때):
+- 같은 PC 리버스 프록시 + 빈 `trusted_proxies`: 2026-10-14 판에서는 X-Forwarded-* 를 버려 관리자 POST 가 전부 403(`reason=origin`)이고 `url_for` 절대 URL(`data_table.html`, `settings.html`)이 https 페이지에서 http 로 나갔다. 이제 설정 변경 없이 동작한다.
+- `*`·호스트 이름·끝 쉼표를 적은 사용자: 2026-10-14 판에서는 서버가 시작하지 않았다. 이제 시작하며, `*` 는 모든 peer 를 계속 신뢰하고 호스트 이름은 무시된다(이전 Uvicorn 도 호스트 이름 항목은 실제로 일치하지 않았다). 경고 로그를 보고 실제 프록시 IP/CIDR 로 바꾸기를 권한다.
+- Docker 브리지(예: `172.17.0.1`)·다른 PC의 프록시는 여전히 명시 설정이 필요하다.
+
+신뢰 peer에서만 `X-Forwarded-Proto`(http/https), 단일 `X-Forwarded-Host`, IP 목록인 `X-Forwarded-For`를 읽는다. 프록시는 외부 요청의 전달 헤더를 제거/덮어써야 한다. XFF는 오른쪽부터 신뢰 경계를 확인하고, original peer는 별도 scope 값으로 보존한다. 비신뢰 peer의 전달 헤더는 무시한다. Host/Proto의 복수·모호 값과 잘못된 신뢰 헤더는400(WS1008)으로 거절한다. 기본 포트를 포함한 scheme·host·port를 정규화해 Origin을 정확 비교하며(호스트는 영문·숫자·`.`·`-`·`_` — `http://my_pc:6819` 같은 Windows NetBIOS·Docker 컨테이너 이름 허용, 2026-10-16), JSON·세션 토큰·cross-site 거절은 유지한다.
+
+운영 주의: 신뢰 프록시가 클라이언트가 보낸 `X-Forwarded-Host` 를 그대로 넘기면 그 값이 요청 Host 가 된다(빈 값의 루프백 기본 신뢰와 `*` 도 같다). nginx 는 이 헤더를 스스로 지우지 않으므로 `proxy_set_header X-Forwarded-Host $host;`(또는 `""`)로 덮어쓴다.
 
 Uvicorn 기본 proxy 처리가 먼저 client를 바꾸면 원 socket peer를 복원할 수 없다. 공식 Docker entrypoint는 `--no-proxy-headers`, main 및 fixture 기동은 `proxy_headers=False`다. 별도 기동도 `uvicorn main:app --no-proxy-headers`로 실행한다. Uvicorn의 기본 ProxyHeadersMiddleware는 X-Forwarded-Host를 처리하지 않으므로 자동 지원을 가정하지 않는다.

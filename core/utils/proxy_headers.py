@@ -2,11 +2,20 @@
 
 Run Uvicorn with proxy_headers=False / --no-proxy-headers. A scope whose client
 has already been rewritten cannot establish the original connection's trust.
+
+trusted_proxies (2026-10-16):
+- empty → loopback only (127.0.0.1, ::1), the same default Uvicorn used before
+  (forwarded_allow_ips=127.0.0.1), so a reverse proxy on the same PC keeps working.
+- an explicit list replaces that default (like Uvicorn's forwarded_allow_ips).
+- startup never fails on this value: blank items are skipped, ``*`` trusts every
+  peer (old Uvicorn meaning) with a warning, unparsable items (host names etc.)
+  are skipped with a warning. The settings form still rejects them (strict check).
 """
 from __future__ import annotations
 
 import ipaddress
 import re
+from dataclasses import dataclass
 from urllib.parse import urlsplit
 
 from starlette.responses import PlainTextResponse
@@ -16,21 +25,65 @@ class ProxyConfigurationError(ValueError):
     pass
 
 
+LOOPBACK_NETWORKS = (ipaddress.ip_network('127.0.0.1/32'), ipaddress.ip_network('::1/128'))
+
+
+def _items(value) -> list[str]:
+    return [item.strip() for item in (value or '').split(',') if item.strip()]
+
+
 def trusted_proxy_networks(value: str):
-    """Empty means none. Only explicit IPs/CIDRs; never boolean or wildcard."""
-    if not value.strip():
-        return ()
+    """Strict check for the settings form: explicit IPs/CIDRs only (blank items ignored).
+
+    Empty means "no explicit list" (the middleware then trusts loopback only).
+    Booleans, host names, ``*`` and whole-address-space CIDRs are rejected.
+    """
     result = []
-    for item in value.split(','):
+    for item in _items(value):
         try:
-            network = ipaddress.ip_network(item.strip(), strict=False)
+            network = ipaddress.ip_network(item, strict=False)
         except ValueError as exc:
-            raise ProxyConfigurationError('trusted_proxies must contain comma-separated proxy IPs/CIDRs; '
-                             'booleans, hostnames and wildcards are not supported') from exc
+            raise ProxyConfigurationError(f'신뢰할 프록시 IP 항목 {item!r} 을 쓸 수 없습니다. 프록시가 서버에 접속하는 '
+                                          'IP 또는 CIDR 을 쉼표로 구분해 적으세요(1·0·*·호스트 이름 불가).') from exc
         if network.prefixlen == 0:
-            raise ProxyConfigurationError('trusted_proxies cannot trust every address')
+            raise ProxyConfigurationError(f'신뢰할 프록시 IP 항목 {item!r} 은 모든 주소를 신뢰하므로 쓸 수 없습니다.')
         result.append(network)
     return tuple(result)
+
+
+@dataclass(frozen=True)
+class TrustedProxyConfig:
+    networks: tuple
+    trust_all: bool = False
+    implicit_loopback: bool = False
+    warnings: tuple = ()
+
+
+def parse_trusted_proxies(value: str) -> TrustedProxyConfig:
+    """Lenient parse used at startup. Never raises; problems become warnings."""
+    networks, warnings, trust_all = [], [], False
+    items = _items(value)
+    for item in items:
+        if item == '*':
+            trust_all = True
+            warnings.append("trusted_proxies '*': 모든 연결의 X-Forwarded-* 를 신뢰합니다(이전 Uvicorn 동작). "
+                            "외부에서 직접 접속할 수 있으면 주소·HTTPS 정보를 위조할 수 있으니 실제 프록시 IP/CIDR 로 바꾸세요.")
+            continue
+        try:
+            network = ipaddress.ip_network(item, strict=False)
+        except ValueError:
+            warnings.append(f"trusted_proxies 항목 {item!r} 은 IP/CIDR 이 아니라 무시합니다"
+                            "(호스트 이름은 지원하지 않음 — 프록시가 서버에 접속하는 IP 또는 CIDR 을 적으세요).")
+            continue
+        if network.prefixlen == 0:
+            warnings.append(f"trusted_proxies 항목 {item!r} 은 모든 주소를 신뢰합니다. 실제 프록시 IP/CIDR 로 좁히세요.")
+        networks.append(network)
+    implicit = not networks and not trust_all
+    if implicit:
+        if items:
+            warnings.append('trusted_proxies 에 쓸 수 있는 항목이 없어 기본값(127.0.0.1, ::1 만 신뢰)을 씁니다.')
+        networks = list(LOOPBACK_NETWORKS)
+    return TrustedProxyConfig(tuple(networks), trust_all, implicit, tuple(warnings))
 
 
 def origin_tuple(value: str):
@@ -46,7 +99,7 @@ def origin_tuple(value: str):
         host = parts.hostname.lower()
         if ':' in host:
             host = str(ipaddress.IPv6Address(host))
-        elif not re.fullmatch(r'[a-z0-9.-]+', host):
+        elif not re.fullmatch(r'[a-z0-9._-]+', host):
             return None
         port = parts.port
         if parts.netloc.endswith(':') or port == 0:
@@ -59,9 +112,12 @@ def origin_tuple(value: str):
 class TrustedProxyHeadersMiddleware:
     def __init__(self, app, trusted_proxies: str = ''):
         self.app = app
-        self.networks = trusted_proxy_networks(trusted_proxies)
+        self.config = parse_trusted_proxies(trusted_proxies)
+        self.networks = self.config.networks
 
     def _trusted(self, host):
+        if self.config.trust_all:
+            return True
         try:
             address = ipaddress.ip_address(host)
         except ValueError:
