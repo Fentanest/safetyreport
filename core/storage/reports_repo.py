@@ -37,6 +37,10 @@ DETAIL_SITE_COLUMNS = tuple(c for c in models.DETAIL_COLUMN_NAMES if c not in DE
 # 모바일 LocalDbService._syncedAtTrackedKeys 와 같은 목록(category·entry_value·SSNPC·본문은 따로 비교). 계약의 change_tracked 와 테스트로 묶는다.
 CHANGE_TRACKED_COLUMNS = DETAIL_SITE_COLUMNS
 TITLE_IDENTITY_COLUMNS = ("상태", "신고번호", "신고명", "신고일")
+#: 재파싱 공유 캡처 입력에 쓰는 목록 열. 일반 크롤의 title_fields 에 들어가는 열 전부
+#: (`models.TITLE_COLUMN_NAMES` 에서 계산 표시값인 감시목록 제외 — `_title_values` 가
+#: DB 에 쓰는 키와 같은 집합이다). DB 목록 열 자체는 재파싱이 갱신하지 않는다.
+REPARSE_CAPTURE_TITLE_COLUMNS = ("상태", "신고번호", "신고명", "신고일", "만족도조사여부", "별점", "별점사유")
 OVERRIDABLE_COLUMNS = frozenset(DETAIL_SITE_COLUMNS)
 ATTACHMENT_COLUMNS = ("지도", "첨부사진", "첨부파일")
 EXPIRED_ATTACHMENT = "6개월 초과"
@@ -390,6 +394,8 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse") -> dict
 
     반환: 바뀐 신고의 change dict, 바뀌지 않았으면 None. 신고 행이 없으면 _ReparseSkipped.
     """
+    from dataclasses import replace
+
     from services import community_capture as _cap
     from services import geocode_service
 
@@ -401,6 +407,16 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse") -> dict
             existing = _find_row(conn, rec.id)
             if existing is None:
                 raise _ReparseSkipped("no_report")
+            # 공유 캡처 입력의 목록 값은 쓰기 잠금 안에서 읽은 기존 행으로 채운다(일반 크롤의
+            # title_fields 와 같은 집합). 재파싱 파서 출력에는 만족도 조회 값(별점·별점사유 등)이
+            # 없어 그대로 쓰면 같은 원본도 payload 가 달라져 새 completed_observation 이 나가고
+            # 공유 최신값(특히 별점)을 덮는다. DB 목록 열 자체는 갱신하지 않는다(아래 UPDATE 에 없음).
+            capture_rec = replace(
+                rec,
+                title_fields={c: existing[c] for c in REPARSE_CAPTURE_TITLE_COLUMNS
+                              if existing.get(c) not in (None, "")},
+                progress_status=existing.get("상태") or rec.progress_status,
+            )
             # GEO는 일반 저장(_prefetch_derived)과 같은 함수·같은 규칙으로 파싱 결과에서 계산해 쓴다.
             # 좌표는 파서가 만드는 값(상세 응답 C_A_W/C_A_E, 보완 시 SPLMNT_ 좌표)이다.
             geo = geocode_service.official_geo_payload(
@@ -410,7 +426,7 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse") -> dict
             photo_current = {c: existing.get(c) for c in PHOTO_COLUMNS}
             derived_for_capture = {**geo, **photo_current}
             try:
-                capture_result = _community_capture_for(rec, derived_for_capture, existing, trigger=trigger)
+                capture_result = _community_capture_for(capture_rec, derived_for_capture, existing, trigger=trigger)
             except _cap.CaptureStoreUnavailable:
                 raise
             except Exception as exc:
