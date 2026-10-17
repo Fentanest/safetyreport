@@ -77,6 +77,18 @@ def active_connections() -> int:
         return sum(_active.values())
 
 
+def generation() -> int:
+    """복원(exclusive)이 끝날 때마다 +1 — 최적화 작업의 시작 때와 비교해 DB 교체를 본다."""
+    with _cond:
+        return _generation
+
+
+def in_exclusive() -> bool:
+    """복원 장벽이 잡혀 있으면 True — 최적화는 현재 신고를 끝내고 멈춘다."""
+    with _cond:
+        return _owner is not None
+
+
 @contextmanager
 def exclusive(drain_seconds: float | None = None):
     """다른 스레드의 운영 DB 연결이 모두 반납되길 기다린 뒤, 블록이 끝날 때까지 새 연결을 막는다.

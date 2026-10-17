@@ -69,13 +69,18 @@
                     schedule(2000);
                 } else if (wasActive) {
                     var done = data.jobs.filter(function (j) { return j.state === 'completed'; });
+                    var failed = data.jobs.filter(function (j) { return j.state === 'error'; });
                     var doneOthers = done.filter(function (j) { return !isOptimize(j); });
                     var doneOpts = done.filter(isOptimize);
+                    var failedOthers = failed.filter(function (j) { return !isOptimize(j); });
+                    var failedOpts = failed.filter(isOptimize);
                     text.textContent = doneOthers.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); })
                         .concat(doneOpts.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); }))
+                        .concat(failedOthers.map(function (j) { return j.label + ' 오류' + (j.message ? ' · ' + j.message : ''); }))
+                        .concat(failedOpts.map(function (j) { return j.label + ' 오류' + (j.message ? ' · ' + j.message : ''); }))
                         .join('   |   ') || '작업 완료';
                     bar.classList.add('is-done');
-                    setLogVisible(doneOpts[0]);
+                    setLogVisible(doneOpts[0] || failedOpts[0]);
                     wasActive = false;
                     setTimeout(function () { bar.hidden = true; }, 6000);
                     schedule(30000);

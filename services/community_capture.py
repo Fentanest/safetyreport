@@ -476,6 +476,21 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
         if run_id and os.environ.get('SAFETYREPORT_CRAWL_RUN_ID'):
             from services.community_rebuild import assert_current_attempt
             assert_current_attempt(tx, run_id)
+        if trigger == "reparse" or trigger.startswith("reparse"):
+            # 재파싱은 옛 관측의 재해석이지 새 수집이 아니다 — 사용자가 지운 관측(deleted_by_user)을
+            # 되살리지 않는다(보충 경로와 같은 검사). 발급 트랜잭션 안에서 확인한다.
+            deleted = tx.execute(
+                "SELECT 1 FROM report_latest l JOIN source_journal j ON j.event_id=l.event_id"
+                " WHERE l.local_dataset_id=? AND l.source_report_id=? AND j.blocked_reason='deleted_by_user'",
+                (local_dataset_id, source_report_id)).fetchone()
+            if deleted is not None:
+                return CaptureResult(event_id=None, event_type=None, eligible=False, payload_sha256=sha)
+            latest_deleted = tx.execute(
+                "SELECT blocked_reason FROM source_journal WHERE local_dataset_id=? AND source_report_id=?"
+                " ORDER BY source_revision DESC LIMIT 1",
+                (local_dataset_id, source_report_id)).fetchone()
+            if latest_deleted is not None and latest_deleted["blocked_reason"] == "deleted_by_user":
+                return CaptureResult(event_id=None, event_type=None, eligible=False, payload_sha256=sha)
         if backfill:
             # 최신 관측 조회와 변경 발급은 같은 journal 쓰기 트랜잭션에서 수행한다.
             # personal_save_state는 보충 조건으로 사용하지 않는다.
