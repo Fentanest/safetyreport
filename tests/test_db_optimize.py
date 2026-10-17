@@ -78,12 +78,25 @@ def _journal_count():
 
 
 def _reset_optimize_state():
+    # 정리 중 후속 스레드 생성을 막고 살아 있는 스레드를 끝까지 기다린다 — 멈춤으로 끝난
+    # 스레드의 자동 재시작이 다음 시험 DB 로 쓰는 오염을 막는다.
     with db_optimize._lock:
-        db_optimize._thread = None
-        db_optimize._state.update({"state": "idle", "total": 0, "done": 0, "stage": "",
-                                   "message": "", "log": [], "finished_at": ""})
-    db_optimize._stop.clear()
-    db_optimize.resume_after_restore()
+        db_optimize._auto_restart = False
+    try:
+        db_optimize._stop.set()
+        with db_optimize._lock:
+            thread = db_optimize._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=15)
+    finally:
+        with db_optimize._lock:
+            db_optimize._thread = None
+            db_optimize._state.update({"state": "idle", "total": 0, "done": 0, "stage": "",
+                                       "message": "", "log": [], "finished_at": ""})
+            db_optimize._suppress_restart = False
+            db_optimize._auto_restart = True
+        db_optimize._stop.clear()
+        db_optimize.resume_after_restore()
 
 
 class OptimizeBase(unittest.TestCase):

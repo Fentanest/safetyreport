@@ -128,7 +128,7 @@ class PauseStopsOptimizeTests(PauseBase):
                 thread.join(timeout=10)
                 _resume_quietly()
 
-    def test_pause_timeout_refuses_and_clears_flag(self):
+    def test_pause_timeout_clears_stop_and_thread_continues_to_finish(self):
         ids = _report_ids(self.engine)
         self.assertGreaterEqual(len(ids), 1)
         entered = threading.Event()
@@ -142,15 +142,51 @@ class PauseStopsOptimizeTests(PauseBase):
         thread = self._start_bg(session_factory=lambda: object(), fetch_fn=fetch)
         try:
             self.assertTrue(entered.wait(timeout=10))
-            # 네트워크 재조회가 끝나지 않으면 합리적 시간 뒤 복원을 거절하고 표시를 푼다.
+            # 네트워크 재조회가 끝나지 않으면 복원을 거절하되, 멈춤 요청도 풀어
+            # 기존 스레드가 그대로 계속 진행·완료한다(표시도 함께 해제).
             with self.assertRaises(db_optimize.RestorePauseTimeout):
                 db_optimize.pause_for_restore(timeout=0.2)
             self.assertFalse(db_optimize.restore_paused())
+            self.assertFalse(db_optimize._stop.is_set())
+            release.set()
+            thread.join(timeout=30)
+            self.assertFalse(thread.is_alive())
+            meta = db_optimize.read_meta(self.engine)
+            self.assertTrue(meta.get("done"))
         finally:
             release.set()
             db_optimize.stop(timeout=10)
-            thread.join(timeout=15)
+            thread.join(timeout=10)
+            _resume_quietly()
+
+    def test_stopped_thread_restarts_when_no_pause(self):
+        ids = _report_ids(self.engine)
+        self.assertGreaterEqual(len(ids), 2)
+        proceed = threading.Event()
+
+        def fetch(report_id):
+            if not proceed.is_set():
+                self.assertTrue(proceed.wait(timeout=15))
+            return _envelope(report_id)
+
+        thread = self._start_bg(session_factory=lambda: object(), fetch_fn=fetch)
+        try:
+            # 멈춤 요청으로 끝난 스레드 — 복원 표시가 없으면 종료 시점에 다시 판단해
+            # 작업이 중단된 채 남지 않고 새 스레드가 이어서 끝낸다.
+            db_optimize._stop.set()
+            proceed.set()
+            thread.join(timeout=20)
             self.assertFalse(thread.is_alive())
+            deadline = time.monotonic() + 30
+            meta = None
+            while time.monotonic() < deadline:
+                meta = db_optimize.read_meta(self.engine)
+                if meta is not None and meta.get("done"):
+                    break
+                time.sleep(0.2)
+            self.assertTrue(meta is not None and meta.get("done"))
+        finally:
+            proceed.set()
             _resume_quietly()
 
     def test_maybe_start_ignored_while_paused_then_new_real_thread(self):
@@ -196,10 +232,11 @@ class RestorePausePathTests(PauseBase):
 
         self._patch_restore_path()
         order = []
+        token = object()
         with mock.patch.object(db_optimize, "pause_for_restore",
-                               side_effect=lambda **k: order.append("pause")), \
+                               side_effect=lambda **k: order.append("pause") or token), \
                 mock.patch.object(db_optimize, "resume_after_restore",
-                                  side_effect=lambda: order.append("resume")), \
+                                  side_effect=lambda *a, **k: order.append("resume")), \
                 mock.patch.object(exchange, "_restore_exclusive",
                                   side_effect=lambda *a: order.append("exclusive") or ("b", 1)), \
                 mock.patch("services.db_optimize.maybe_start",
@@ -218,6 +255,26 @@ class RestorePausePathTests(PauseBase):
             with self.assertRaises(exchange.RestoreRefused):
                 exchange.restore("/tmp/fixture.db", "server")
         self.assertFalse(rex.called)
+
+    def test_second_restore_precheck_failure_keeps_first_pause(self):
+        from core.storage import exchange
+
+        self._patch_restore_path()
+        token = db_optimize.pause_for_restore(timeout=5)
+        try:
+            self.assertTrue(db_optimize.restore_paused())
+            # 첫 복원 진행 중 두 번째 복원 요청이 사전 검사에서 거절되면 —
+            # 첫 복원의 표시를 끄지 않고 최적화를 다시 시작하지도 않는다.
+            with mock.patch("core.storage.exchange._integrity_check",
+                            side_effect=RuntimeError("손상")), \
+                    mock.patch("services.db_optimize.maybe_start") as ms:
+                with self.assertRaises(exchange.CorruptDatabaseRefused):
+                    exchange.restore("/tmp/fixture.db", "server")
+            self.assertTrue(db_optimize.restore_paused())
+            self.assertFalse(ms.called)
+        finally:
+            db_optimize.resume_after_restore(token)
+        self.assertFalse(db_optimize.restore_paused())
 
 
 class DeferredNoStartedTests(PauseBase):
