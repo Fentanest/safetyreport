@@ -238,17 +238,16 @@ class ReparseScopeTests(OptimizeBase):
         stale = dict(before)
         _insert_raw(self.engine, rid, _envelope(rid))
 
-        new_geo = {"위도": "37.9999", "경도": "126.9999", "지오코딩상태": "ok",
-                   "주소정규화": before["주소정규화"], "행정구역": before["행정구역"]}
         new_photo = {"사진_첫촬영": "2026-09-20 10:00:00", "사진_끝촬영": "2026-09-20 10:00:05",
                      "사진_촬영수": 2}
-        # 사진 보충이 끝난 현재값(실제 DB 갱신).
+        # 사진 보충이 끝난 현재값(실제 DB 갱신). GEO는 파서가 만드는 값이라 재파싱이
+        # 원본에서 다시 계산해 쓴다 — 사진 열만 현재 값을 유지한다.
         with self.engine.begin() as conn:
             conn.execute(models.report_table.update().where(
-                models.report_table.c.ID == rid).values(**new_geo, **new_photo))
+                models.report_table.c.ID == rid).values(**new_photo))
         # 재파싱의 잠금 전 읽기가 오래된 값을 들고 있는 경합: 첫 _find_row는 옛 값을 돌린다.
-        # 옛 코드는 그 옛 derived를 그대로 써서 새 값을 되돌리고, 새 코드는 좌표·사진 열을
-        # 쓰지 않으므로(캡처 입력만 현재값) 새 값이 남는다.
+        # GEO는 파싱 결과에서 다시 계산하므로 옛 값으로 되돌아가지 않고,
+        # 사진 열은 UPDATE에 포함하지 않으므로(캡처 입력만 잠금 안 현재값) 새 값이 남는다.
         real_find = reports_repo._find_row
         calls = {"n": 0}
 
@@ -278,9 +277,15 @@ class ReparseScopeTests(OptimizeBase):
             after = conn.execute(select(models.report_table).where(
                 models.report_table.c.ID == rid)).mappings().first()
         from core.storage.reports_repo import comparable
+        from services.geocode_service import official_geo_payload
 
-        for column, value in {**new_geo, **new_photo}.items():
+        for column, value in new_photo.items():
             self.assertEqual(comparable(after[column]), comparable(value))
+        # GEO는 원본에서 일반 저장과 같은 규칙으로 다시 계산된 값이다.
+        expected_geo = official_geo_payload(
+            rec.detail.get("위반장소") or "", rec.detail.get("위도"), rec.detail.get("경도"))
+        for column in reports_repo.GEO_COLUMNS:
+            self.assertEqual(comparable(after[column]), comparable(expected_geo[column]))
 
 
 class ErrorReleaseTests(OptimizeBase):

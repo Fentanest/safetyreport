@@ -379,8 +379,10 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse") -> dict
 
     `_save_one` 과 같은 캡처→개인 저장 잠금(`BEGIN IMMEDIATE`)·공유 캡처·화면용 표 갱신을 쓰지만,
     목록 크롤이 채우는 열(상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유)은 손대지 않는다.
-    좌표·사진 촬영 시각 등 다른 작업이 채우는 열도 읽지도 덮어쓰지도 않는다 — UPDATE 문에 포함하지 않고,
-    공유 캡처 입력에 쓸 현재 값은 쓰기 잠금 안에서 읽는다.
+    좌표(GEO_COLUMNS 5개)는 파서가 만드는 값이라 일반 상세 저장과 같은 함수·같은 규칙
+    (`geocode_service.official_geo_payload(위반장소, 위도, 경도)`)으로 파싱 결과에서 계산해
+    쓰기 잠금 안에서 쓴다. 사진 열(PHOTO_COLUMNS 3개)만 읽지도 덮어쓰지도 않는다 —
+    UPDATE 문에 포함하지 않고(현재 값 유지), 공유 캡처 입력에 쓸 사진 현재값은 쓰기 잠금 안에서 읽는다.
     사용자 수정값(`mysafety_report_override`)은 `refresh_effective_rows` 가 그대로 다시 얹는다.
     공유 payload 가 바뀌었을 때만 `capture()` 가 새 `completed_observation` 을 만든다(바뀌지 않으면 이벤트 없음).
     `rec` 에 원본 바이트가 실려 있으면(원본 표에 없던 신고를 다시 받아온 경우) 같은 트랜잭션에서 원본 표에
@@ -389,6 +391,7 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse") -> dict
     반환: 바뀐 신고의 change dict, 바뀌지 않았으면 None. 신고 행이 없으면 _ReparseSkipped.
     """
     from services import community_capture as _cap
+    from services import geocode_service
 
     capture_result = None
     try:
@@ -398,8 +401,14 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse") -> dict
             existing = _find_row(conn, rec.id)
             if existing is None:
                 raise _ReparseSkipped("no_report")
-            # 공유 캡처 입력에 쓸 좌표·사진 현재값도 잠금 안에서 읽는다(DB 에는 쓰지 않음).
-            derived_for_capture = {c: existing.get(c) for c in (*GEO_COLUMNS, *PHOTO_COLUMNS)}
+            # GEO는 일반 저장(_prefetch_derived)과 같은 함수·같은 규칙으로 파싱 결과에서 계산해 쓴다.
+            # 좌표는 파서가 만드는 값(상세 응답 C_A_W/C_A_E, 보완 시 SPLMNT_ 좌표)이다.
+            geo = geocode_service.official_geo_payload(
+                rec.detail.get("위반장소") or "", rec.detail.get("위도"), rec.detail.get("경도"))
+            geo = {c: geo.get(c) for c in GEO_COLUMNS}
+            # 공유 캡처 입력에 쓸 사진 현재값은 잠금 안에서 읽는다(DB 에는 쓰지 않음).
+            photo_current = {c: existing.get(c) for c in PHOTO_COLUMNS}
+            derived_for_capture = {**geo, **photo_current}
             try:
                 capture_result = _community_capture_for(rec, derived_for_capture, existing, trigger=trigger)
             except _cap.CaptureStoreUnavailable:
@@ -421,8 +430,8 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse") -> dict
                 change = None
 
             # 목록 열(_title_values)은 일부러 갱신하지 않는다 — 목록 크롤이 채운 값을 유지한다.
-            # 좌표·사진 열(GEO/PHOTO)도 갱신하지 않는다 — 다른 작업이 채우는 열이다.
-            row = {**site, **cls, "synced_at": now_ms if change else existing.get("synced_at")}
+            # 사진 열(PHOTO_COLUMNS)은 갱신하지 않는다 — 사진 보충이 채우는 열이라 현재 값을 유지한다.
+            row = {**site, **geo, **cls, "synced_at": now_ms if change else existing.get("synced_at")}
             conn.execute(update(REPORT).where(REPORT.c.ID == rec.id).values(**row))
             refresh_effective_rows(conn, [rec.id])
     except _ReparseSkipped:
