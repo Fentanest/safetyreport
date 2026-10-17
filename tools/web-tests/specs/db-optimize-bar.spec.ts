@@ -17,7 +17,7 @@ const LOG = [
 
 const optJob = (state: string, done: number, log: string[]) => ({
   key: 'db_optimize', label: 'DB 최적화 중입니다…', state, total: 24, done, stage: state,
-  message: state === 'paused' ? '로그인 뒤 이어서 합니다' : '', log,
+  message: state === 'paused' ? '로그인 뒤 이어서 합니다' : state === 'error' ? 'RuntimeError' : '', log,
 });
 
 test('optimize job shows progress and expands the step log', async ({ page }) => {
@@ -47,6 +47,22 @@ test('optimize job shows progress and expands the step log', async ({ page }) =>
   await expect(log).toBeHidden();
 });
 
+test('optimize error shows as error, not completed', async ({ page }) => {
+  let polls = 0;
+  const errLog = [...LOG, '2026-10-17 12:00:04 오류로 멈춤(RuntimeError)'];
+  await page.route('**/maintenance/status', (route) => {
+    polls += 1;
+    if (polls <= 2) {
+      return route.fulfill({ json: { active: true, jobs: [optJob('running', 7, LOG)] } });
+    }
+    return route.fulfill({ json: { active: false, jobs: [optJob('error', 7, errLog)] } });
+  });
+  await login(page);
+  await page.goto('/stats');
+  const bar = page.locator('#srJobBar');
+  await expect(bar).toContainText('오류');
+  await expect(bar).not.toContainText('작업 완료');
+});
 for (const [theme, width] of [['light', 1440], ['dark', 1440], ['dark', 390]] as const) {
   test(`optimize bar fits and expands (${theme} ${width})`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
