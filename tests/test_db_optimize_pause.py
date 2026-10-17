@@ -18,6 +18,7 @@ from services import db_optimize
 
 from tests.test_db_optimize import (
     OptimizeBase,
+    _align_no_new_activity,
     _envelope,
     _insert_raw,
     _report_ids,
@@ -115,6 +116,7 @@ class PauseStopsOptimizeTests(PauseBase):
                 time.sleep(0.01)
             return _envelope(report_id)
 
+        _align_no_new_activity(self.engine)
         with mock.patch.object(db_optimize, "_save_reparsed", side_effect=hooked):
             thread = self._start_bg(session_factory=lambda: object(), fetch_fn=fetch)
             try:
@@ -139,6 +141,7 @@ class PauseStopsOptimizeTests(PauseBase):
             self.assertTrue(release.wait(timeout=15))
             return _envelope(report_id)
 
+        _align_no_new_activity(self.engine)
         thread = self._start_bg(session_factory=lambda: object(), fetch_fn=fetch)
         try:
             self.assertTrue(entered.wait(timeout=10))
@@ -169,6 +172,7 @@ class PauseStopsOptimizeTests(PauseBase):
                 self.assertTrue(proceed.wait(timeout=15))
             return _envelope(report_id)
 
+        _align_no_new_activity(self.engine)
         thread = self._start_bg(session_factory=lambda: object(), fetch_fn=fetch)
         try:
             # 멈춤 요청으로 끝난 스레드 — 복원 표시가 없으면 종료 시점에 다시 판단해

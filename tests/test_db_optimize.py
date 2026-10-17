@@ -60,6 +60,16 @@ def _insert_raw(engine, report_id, envelope, source="crawl"):
             fetched_at="2026-10-17T12:00:00.000Z", source=source))
 
 
+def _align_no_new_activity(engine, report_id=None):
+    """네트워크 재조회 envelopes(C_NOW=10·답변일 2026-01-02)와 저장 행을 일치시켜
+    저장 경로를 타게 한다(명세 7-2 새 활동 판정에 걸리지 않게). report_id가 없으면 전행."""
+    with engine.begin() as conn:
+        stmt = models.report_table.update().values(상태="답변완료", 답변일="2026-01-02")
+        if report_id is not None:
+            stmt = stmt.where(models.report_table.c.ID == report_id)
+        conn.execute(stmt)
+
+
 def _report_ids(engine):
     with engine.connect() as conn:
         return [str(i) for i in conn.execute(
@@ -314,6 +324,7 @@ class ReuseTests(OptimizeBase):
 class RefetchTests(OptimizeBase):
     def test_missing_raw_is_fetched_saved_and_written(self):
         ids = _report_ids(self.engine)
+        _align_no_new_activity(self.engine)
         calls = []
 
         def fetch(report_id):
@@ -349,6 +360,7 @@ class RefetchTests(OptimizeBase):
             conn.execute(models.report_detail_raw_table.update().where(
                 models.report_detail_raw_table.c.ID == ids[0]).values(raw_zlib=broken))
         fetched = []
+        _align_no_new_activity(self.engine, ids[0])
 
         def fetch(report_id):
             fetched.append(report_id)
@@ -365,6 +377,7 @@ class RefetchTests(OptimizeBase):
 
     def test_login_required_pauses_and_resumes(self):
         ids = _report_ids(self.engine)
+        _align_no_new_activity(self.engine)
         attempts = {"n": 0}
 
         def factory():
@@ -384,6 +397,7 @@ class RefetchTests(OptimizeBase):
 
     def test_unreceivable_report_is_skipped_with_reason(self):
         ids = _report_ids(self.engine)
+        _align_no_new_activity(self.engine)
 
         def fetch(report_id):
             if report_id == ids[0]:
@@ -428,16 +442,20 @@ class SaveScopeTests(OptimizeBase):
         with self.engine.connect() as conn:
             before = conn.execute(select(models.report_table).where(
                 models.report_table.c.ID == rid)).mappings().first()
-        list_before = {c: before[c] for c in ("상태", "신고번호", "신고명", "신고일")}
+        list_before = {c: before[c] for c in ("신고번호", "신고명", "신고일")}
         with self.engine.begin() as conn:
+            # 새 답변 단계(C_NOW=10 → 답변완료)와 같은 목록 상태로 둔다 — 새 활동이 아니라 저장 경로다(명세 7-2).
             conn.execute(models.report_table.update().where(models.report_table.c.ID == rid)
-                           .values(상태="진행"))  # 목록 값 Tamper — 재파싱이 덮으면 안 됨
+                           .values(상태="답변완료", 답변일="2026-01-02"))
             conn.execute(models.report_override_table.insert().values(
                 ID=rid, column_name="처리기관", value="사용자 수정 기관", updated_at=1))
             reports_repo.refresh_effective_rows(conn, [rid])
         # 원본의 답변이 불수용이면 파서 열(처리상태·처리기관)은 바뀐다.
         fetched = _envelope(rid, status="불수용", agency="새 처리기관",
-                            amount_sentence="처분이 불가합니다.", c_now=14)
+                            amount_sentence="처분이 불가합니다.", c_now=10)
+        others = [i for i in _report_ids(self.engine) if i != rid]
+        for other in others:
+            _insert_raw(self.engine, other, _envelope(other))
         result = self._run(session_factory=lambda: object(),
                             fetch_fn=lambda report_id: fetched if report_id == rid else _envelope(report_id))
         self.assertTrue(result["finished"])
@@ -451,7 +469,7 @@ class SaveScopeTests(OptimizeBase):
         self.assertEqual(after["처리기관"], "새 처리기관")
         self.assertEqual(effective["처리상태"], "불수용")
         # 목록 열은 그대로.
-        self.assertEqual(after["상태"], "진행")
+        self.assertEqual(after["상태"], "답변완료")
         for column in ("신고번호", "신고명", "신고일"):
             self.assertEqual(after[column], list_before[column])
         # 사용자 수정값은 화면용 표에 그대로 얹힌다.

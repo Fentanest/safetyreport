@@ -22,6 +22,7 @@ from services.community_store import CommunityStore
 
 from tests.test_db_optimize import (
     OptimizeBase,
+    _align_no_new_activity,
     _envelope,
     _insert_raw,
     _journal_count,
@@ -84,6 +85,7 @@ class TransientRetryTests(OptimizeBase):
     def test_retryable_is_retried_then_done(self):
         ids = _report_ids(self.engine)
         target = ids[0]
+        _align_no_new_activity(self.engine)
         calls = {rid: 0 for rid in ids}
 
         def fetch(report_id):
@@ -101,9 +103,11 @@ class TransientRetryTests(OptimizeBase):
         self.assertTrue(meta.get("done"))
         self.assertEqual(meta.get("attempts", {}), {})
 
-    def test_three_transients_become_retry_exceeded_but_done(self):
+    def test_three_transients_become_holds_and_partial(self):
+        # 명세 7-1: 일시 실패 3회는 영구 완료가 아니라 보류 목록에 남고 상태 partial이다.
         ids = _report_ids(self.engine)
         target = ids[0]
+        _align_no_new_activity(self.engine)
 
         def fetch(report_id):
             if report_id == target:
@@ -111,10 +115,12 @@ class TransientRetryTests(OptimizeBase):
             return _envelope(report_id)
 
         result = self._run(session_factory=lambda: object(), fetch_fn=fetch)
-        self.assertTrue(result["finished"])
+        self.assertFalse(result["finished"])
         self.assertEqual(result["stats"]["skipped"].get(db_optimize.RETRY_EXCEEDED_REASON), 1)
         meta = db_optimize.read_meta(self.engine)
-        self.assertTrue(meta.get("done"))
+        self.assertFalse(meta.get("done"))
+        self.assertEqual(meta.get("holds", []), [target])
+        self.assertFalse(db_optimize.is_running())
 
     def test_save_failure_is_retried(self):
         ids = _report_ids(self.engine)
