@@ -208,8 +208,8 @@
   재전송 완료 마커와 무관하게 수행하므로 재공유 이력, 개인 DB 커밋~saved 표시 사이, 개인 저장 실패 뒤 재시도 경로에서도 공유 추정액을 갱신한다.
   최신 journal이 없거나 변경이 없어 이벤트가 생기지 않아도 개인 사진 시각은 저장한다. **캡처 예외는 사진 저장을 롤백하지 않는다(2026-10-16)** —
   촬영 시각은 커밋하고(다음 훑기마다 같은 사진을 다시 내려받지 않음) 그 신고를 S-03 재시도 의도(`community_capture_retry.json`, 사유
-  `photo_backfill_capture_failed`)에 남겨 다음 증분 수집이 공식 상세를 다시 읽어 전체 캡처하게 한다. 의도 기록까지 실패하면 경고 기록만 하고 사진 시각은 유지한다.
-  모바일 `MaintenanceService._fillOne` 도 같은 순서다(촬영 시각 저장 → `refreshFineEstimateFor` → 실패 시 `SyncEngine.queueCaptureRetry`).
+  `photo_backfill_capture_failed`)에 남겨 다음 증분 수집이 공식 상세를 다시 읽어 전체 캡처하게 한다. 의도 기록까지 실패하면 사진 시각도 롤백하고 실패로 돌려준다(2026-10-17) — 재전송 완료 표시가 있는 종결 신고는 달리 공유 추정을 고칠 경로가 없으므로, 다음 훑기가 사진부터 다시 받아 촬영 시각과 공유 추정을 함께 고친다.
+  모바일 `MaintenanceService._fillOne` 도 같은 순서다(촬영 시각 저장 → `refreshFineEstimateFor` → 실패 시 `SyncEngine.queueCaptureRetry` → 그것도 실패하면 `LocalDbService.clearPhotoCapture`).
   네트워크 사진 읽기는 계속 트랜잭션 밖에서 수행한다.
 
 ### 코드 대조 정정 — 추정 입력과 저장 순서

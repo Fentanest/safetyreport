@@ -154,12 +154,18 @@ def pending_photo_rows(engine, *, limit: int | None = None) -> list[tuple[str, s
 PHOTO_BACKFILL_RETRY_REASON = "photo_backfill_capture_failed"
 
 
+class _RetryIntentFailed(Exception):
+    """공유 캡처와 재시도 의도 저장이 모두 실패했다 — 촬영 시각 저장을 롤백한다."""
+
+
 def fill_one(engine, record_id: str, photos, *, fetch=None) -> bool:
     """한 신고의 촬영 시각을 읽어 저장한다(네트워크는 트랜잭션 밖). 네트워크 오류면 False — 다음에 다시.
 
     촬영 시각 저장은 공유 캡처 성공과 묶지 않는다: 캡처가 실패해도 개인 DB 의 촬영 시각은 커밋하고(다음 훑기마다
     같은 사진을 다시 받지 않게), 그 신고는 캡처 재시도 의도(community_capture_retry.json, S-03)에 남겨 다음 증분
-    수집이 공식 상세를 다시 읽어 전체 캡처하게 한다. 모바일 MaintenanceService._fillOne 과 같은 순서다.
+    수집이 공식 상세를 다시 읽어 전체 캡처하게 한다. 재시도 의도까지 못 남기면 촬영 시각도 롤백하고 False 다 —
+    재전송 완료 표시가 있는 종결 신고는 달리 공유 추정을 고칠 경로가 없으므로 다음 훑기에서 사진부터 다시 시도한다.
+    모바일 MaintenanceService._fillOne 과 같은 순서다.
     """
     from sqlalchemy import select, update
 
@@ -174,33 +180,33 @@ def fill_one(engine, record_id: str, photos, *, fetch=None) -> bool:
 
     detail = models.report_table
     capture_result = None
-    capture_failed = None
-    with engine.begin() as conn:
-        # 읽은 첨부가 지금도 같을 때만 쓴다. 네트워크를 기다리는 동안 DB 복원·재크롤링으로 첨부가 바뀌었으면
-        # 다른 사진의 촬영 정보를 저장하게 되므로 버린다(기술일지 A2-02). 다음 훑기에서 새 첨부로 다시 시도한다.
-        result = conn.execute(update(detail).where(
-            detail.c.ID == record_id, detail.c["사진_촬영수"].is_(None), detail.c["첨부사진"] == photos,
-        ).values(**collected))
-        if not result.rowcount:
-            return False
-        reports_repo.refresh_effective_rows(conn, [record_id])
-        # UPDATE 쓰기 잠금 안에서 추정 입력을 읽고 journal 최신 payload의 fine_estimate만 갱신한다(완료 마커와 무관).
-        # 캡처 예외는 여기서 잡아 촬영 시각 저장을 롤백하지 않는다.
-        try:
-            row = conn.execute(select(*(detail.c[key] for key in community_capture.BACKFILL_PERSONAL_FIELDS))
-                               .where(detail.c.ID == record_id)).mappings().one()
-            capture_result = community_capture.capture(
-                community_capture._resend_adapter_input(dict(row)), source_report_id=str(record_id),
-                trigger="fine_estimate_backfill")
-        except Exception as exc:
-            capture_failed = exc
-    if capture_failed is not None:
-        note_fallback("photo_capture_time.fill_one.capture", capture_failed)
-        try:
-            community_capture.add_retry_id(str(record_id), PHOTO_BACKFILL_RETRY_REASON)
-        except Exception as exc:
-            note_fallback("photo_capture_time.fill_one.retry_intent", exc)
-        return True
+    try:
+        with engine.begin() as conn:
+            # 읽은 첨부가 지금도 같을 때만 쓴다. 네트워크를 기다리는 동안 DB 복원·재크롤링으로 첨부가 바뀌었으면
+            # 다른 사진의 촬영 정보를 저장하게 되므로 버린다(기술일지 A2-02). 다음 훑기에서 새 첨부로 다시 시도한다.
+            result = conn.execute(update(detail).where(
+                detail.c.ID == record_id, detail.c["사진_촬영수"].is_(None), detail.c["첨부사진"] == photos,
+            ).values(**collected))
+            if not result.rowcount:
+                return False
+            reports_repo.refresh_effective_rows(conn, [record_id])
+            # UPDATE 쓰기 잠금 안에서 추정 입력을 읽고 journal 최신 payload의 fine_estimate만 갱신한다(완료 마커와 무관).
+            # 캡처 예외는 여기서 잡아 촬영 시각 저장을 롤백하지 않는다(재시도 의도를 남겼을 때만).
+            try:
+                row = conn.execute(select(*(detail.c[key] for key in community_capture.BACKFILL_PERSONAL_FIELDS))
+                                   .where(detail.c.ID == record_id)).mappings().one()
+                capture_result = community_capture.capture(
+                    community_capture._resend_adapter_input(dict(row)), source_report_id=str(record_id),
+                    trigger="fine_estimate_backfill")
+            except Exception as exc:
+                note_fallback("photo_capture_time.fill_one.capture", exc)
+                try:
+                    community_capture.add_retry_id(str(record_id), PHOTO_BACKFILL_RETRY_REASON)
+                except Exception as retry_exc:
+                    raise _RetryIntentFailed() from retry_exc
+    except _RetryIntentFailed as exc:
+        note_fallback("photo_capture_time.fill_one.retry_intent", exc.__cause__)
+        return False
     if capture_result is not None:
         try:
             community_capture.mark_personal_save(capture_result.event_id, True)

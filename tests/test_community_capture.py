@@ -1151,17 +1151,26 @@ class FineEstimateResendTests(unittest.TestCase):
         self.assertFalse(photo_capture_time.fill_one(self.engine, "R1", photos, fetch=fetch))
         self.assertEqual(len(fetched), 4)
 
-    def test_photo_capture_and_retry_intent_failure_still_keeps_photo_times(self):
+    def test_photo_capture_and_retry_intent_failure_rolls_back_photo_times(self):
+        # 재시도 의도까지 못 남기면 재전송 완료 표시가 있는 종결 신고의 공유 추정을 고칠 경로가 없다 —
+        # 촬영 시각을 롤백해 다음 훑기가 사진부터 다시 시도하게 한다(모바일 _fillOne 과 같음).
         from services import photo_capture_time
         photos = "https://fixture/first.jpg\nhttps://fixture/last.jpg"
         row = self._insert_report("R1", 첨부사진=photos)
         self._seed_pre_update_journal("R1", row)
+        cap.resend_fine_estimate_updates(self.engine, data_dir=self.tmp)
         fetch = lambda url: "2026-09-01 10:00:00" if "first" in url else "2026-09-01 12:01:00"
         with mock.patch.object(cap, "capture", side_effect=RuntimeError("journal unavailable")), \
                 mock.patch.object(cap, "add_retry_id", side_effect=OSError("disk full")):
-            self.assertTrue(photo_capture_time.fill_one(self.engine, "R1", photos, fetch=fetch))
+            self.assertFalse(photo_capture_time.fill_one(self.engine, "R1", photos, fetch=fetch))
         with self.engine.connect() as conn:
-            self.assertEqual(conn.execute(self.models.report_table.select()).mappings().one()["사진_촬영수"], 2)
+            stored = conn.execute(self.models.report_table.select()).mappings().one()
+        self.assertEqual((stored["사진_촬영수"], stored["사진_첫촬영"], stored["사진_끝촬영"]), (None, None, None))
+        self.assertEqual([r[0] for r in photo_capture_time.pending_photo_rows(self.engine)], ["R1"])
+        # 장애가 풀리면 다음 훑기가 촬영 시각과 공유 추정을 함께 고친다.
+        with mock.patch.object(cap, "_store", return_value=self.store):
+            self.assertTrue(photo_capture_time.fill_one(self.engine, "R1", photos, fetch=fetch))
+        self.assertEqual(self._latest_payload()["fine_estimate"]["won"], 50000)
 
     def test_photo_fill_during_realtime_prefetch_is_preserved(self):
         from core.storage import reports_repo as repo
