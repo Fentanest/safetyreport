@@ -1,0 +1,116 @@
+{
+  "description": "상세 원본 정규 직렬화 계약 벡터(2026-10-17 명세 1-1): result 객체의 신고자 키 5개 제거 → UTF-8·비ASCII 그대로·공백 없는 구분자. 서버·모바일 바이트 동일 사본.",
+  "reporter_keys": [
+    "C_NAME",
+    "C_EMAIL",
+    "C_PHONE",
+    "C_PHONE2",
+    "C_ID"
+  ],
+  "cases": [
+    {
+      "name": "basic_with_reporter_keys",
+      "input": {
+        "result": {
+          "C_NO": 90000001,
+          "C_NAME": "홍길동",
+          "C_EMAIL": "a@b.c",
+          "C_PHONE": "01012345678",
+          "C_PHONE2": "010-1234-5678",
+          "C_ID": "fixtureid1",
+          "C_NOW": 10,
+          "VHRNO": "12가3456",
+          "answers": [
+            {
+              "C_MANAGER_TYPE_NM": "수용",
+              "C_MANAGE_CONTENTS": "과태료 40,000원을 부과하였습니다.\n감사합니다.",
+              "C_MANAGE_MAN": "김담당",
+              "C_MANAGE_MAN_PHONE": "02-123-4567",
+              "C_MANAGE_MAN_EMAIL": "x@y.go.kr"
+            }
+          ],
+          "SPLMNT_RQSTR": null
+        },
+        "resultCode": "0000"
+      },
+      "canonical": "{\"result\":{\"C_NO\":90000001,\"C_NOW\":10,\"VHRNO\":\"12가3456\",\"answers\":[{\"C_MANAGER_TYPE_NM\":\"수용\",\"C_MANAGE_CONTENTS\":\"과태료 40,000원을 부과하였습니다.\\n감사합니다.\",\"C_MANAGE_MAN\":\"김담당\",\"C_MANAGE_MAN_PHONE\":\"02-123-4567\",\"C_MANAGE_MAN_EMAIL\":\"x@y.go.kr\"}],\"SPLMNT_RQSTR\":null},\"resultCode\":\"0000\"}",
+      "sha256": "5240cc122a067e258707c9a829721eba6e273bfe72ab3288b0a3c8de6c5c9cd0",
+      "size": 323
+    },
+    {
+      "name": "no_reporter_keys_key_order_kept",
+      "input": {
+        "resultCode": "0000",
+        "result": {
+          "Z": 1,
+          "A": [
+            1,
+            2,
+            {
+              "b": null,
+              "a": true
+            }
+          ],
+          "C_A_CONTENTS": "따옴표\" 역슬래시\\ 탭\t"
+        }
+      },
+      "canonical": "{\"resultCode\":\"0000\",\"result\":{\"Z\":1,\"A\":[1,2,{\"b\":null,\"a\":true}],\"C_A_CONTENTS\":\"따옴표\\\" 역슬래시\\\\ 탭\\t\"}}",
+      "sha256": "eeff7ade76eded767d9ddc38deae27de9f770150cd807cd817412c5c0297c534",
+      "size": 118
+    },
+    {
+      "name": "control_and_unicode",
+      "input": {
+        "result": {
+          "C_A_CONTENTS": "\u001c구분다음 줄 😀 ／전각",
+          "C_ID": "x",
+          "C_A_E": "126.123456",
+          "C_DATE": 1760000000000,
+          "F": 1.5,
+          "N": -0.25
+        }
+      },
+      "canonical": "{\"result\":{\"C_A_CONTENTS\":\"\\u001c구분다음 줄 😀 ／전각\",\"C_A_E\":\"126.123456\",\"C_DATE\":1760000000000,\"F\":1.5,\"N\":-0.25}}",
+      "sha256": "e0778597336a6b6e1c0228b81702a83f2f0f852576651c520eef39cfd62c4893",
+      "size": 133
+    },
+    {
+      "name": "reporter_keys_only_in_result",
+      "input": {
+        "C_NAME": "envelope level kept",
+        "result": {
+          "C_NAME": "removed",
+          "nested": {
+            "C_EMAIL": "nested kept"
+          }
+        }
+      },
+      "canonical": "{\"C_NAME\":\"envelope level kept\",\"result\":{\"nested\":{\"C_EMAIL\":\"nested kept\"}}}",
+      "sha256": "20f6dc44339dd786cee47cfc85d2fbefb1d686531823b42d3b47e3079607f08c",
+      "size": 78
+    },
+    {
+      "name": "result_not_object",
+      "input": {
+        "result": [
+          {
+            "C_NAME": "list item kept"
+          }
+        ],
+        "message": "ok"
+      },
+      "canonical": "{\"result\":[{\"C_NAME\":\"list item kept\"}],\"message\":\"ok\"}",
+      "sha256": "1c99034176c93780241ecec7992d2a627265c24236c8fb894d64bc0f4b6cb9ba",
+      "size": 55
+    },
+    {
+      "name": "empty_result",
+      "input": {
+        "result": {}
+      },
+      "canonical": "{\"result\":{}}",
+      "sha256": "1c9d64ce7719748bf26cd81580ea58245e2a130baf32cd5fc92e08602626c26c",
+      "size": 13
+    }
+  ]
+}
