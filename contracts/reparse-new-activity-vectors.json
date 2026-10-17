@@ -1,0 +1,111 @@
+{
+  "description": "DB 최적화 재조회의 새 활동 판정(명세 7-2). 상세 C_NOW 를 파서 진행 단계 표(_C_NOW_STATUS, 없으면 양수는 숫자 문자열·그 밖은 '진행')로 바꾼 값이 저장된 목록 상태와 다르거나, 파싱한 답변일이 저장된 답변일과 다르면(NULL 과 빈 문자열은 같음) 새 활동. 서버·모바일 바이트 동일 사본.",
+  "c_now_status": {
+    "0": "진행",
+    "10": "답변완료",
+    "11": "일부수용",
+    "12": "검토중",
+    "14": "불수용",
+    "15": "기타",
+    "20": "취하",
+    "30": "이송"
+  },
+  "cases": [
+    {
+      "name": "same_completed",
+      "stored_status": "답변완료",
+      "stored_answer_date": "2026-10-05",
+      "detail_c_now": 10,
+      "parsed_answer_date": "2026-10-05",
+      "new_activity": false
+    },
+    {
+      "name": "same_in_progress_no_answer",
+      "stored_status": "진행",
+      "stored_answer_date": "",
+      "detail_c_now": 0,
+      "parsed_answer_date": "",
+      "new_activity": false
+    },
+    {
+      "name": "new_answer_status_changed",
+      "stored_status": "진행",
+      "stored_answer_date": "",
+      "detail_c_now": 10,
+      "parsed_answer_date": "2026-10-16",
+      "new_activity": true
+    },
+    {
+      "name": "new_answer_same_status_new_date",
+      "stored_status": "답변완료",
+      "stored_answer_date": "2026-10-05",
+      "detail_c_now": 10,
+      "parsed_answer_date": "2026-10-15",
+      "new_activity": true
+    },
+    {
+      "name": "partial_accept_same",
+      "stored_status": "일부수용",
+      "stored_answer_date": "2026-09-01",
+      "detail_c_now": 11,
+      "parsed_answer_date": "2026-09-01",
+      "new_activity": false
+    },
+    {
+      "name": "reviewing_to_rejected",
+      "stored_status": "검토중",
+      "stored_answer_date": "2026-09-01",
+      "detail_c_now": 14,
+      "parsed_answer_date": "2026-09-20",
+      "new_activity": true
+    },
+    {
+      "name": "withdrawn_same",
+      "stored_status": "취하",
+      "stored_answer_date": "2026-08-01",
+      "detail_c_now": 20,
+      "parsed_answer_date": "2026-08-01",
+      "new_activity": false
+    },
+    {
+      "name": "unknown_c_now_band",
+      "stored_status": "16",
+      "stored_answer_date": "2026-08-01",
+      "detail_c_now": 16,
+      "parsed_answer_date": "2026-08-01",
+      "new_activity": false
+    },
+    {
+      "name": "unknown_c_now_changed",
+      "stored_status": "답변완료",
+      "stored_answer_date": "2026-08-01",
+      "detail_c_now": 16,
+      "parsed_answer_date": "2026-08-01",
+      "new_activity": true
+    },
+    {
+      "name": "c_now_string",
+      "stored_status": "답변완료",
+      "stored_answer_date": "2026-08-01",
+      "detail_c_now": "10",
+      "parsed_answer_date": "2026-08-01",
+      "new_activity": false
+    },
+    {
+      "name": "null_dates_equal_empty",
+      "stored_status": "진행",
+      "stored_answer_date": null,
+      "detail_c_now": 0,
+      "parsed_answer_date": null,
+      "new_activity": false
+    },
+    {
+      "name": "stored_status_empty",
+      "stored_status": "",
+      "stored_answer_date": "2026-08-01",
+      "detail_c_now": 10,
+      "parsed_answer_date": "2026-08-01",
+      "new_activity": true
+    }
+  ]
+}
