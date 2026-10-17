@@ -157,6 +157,14 @@ async def lifespan(app: FastAPI):
                              name="community-fine-estimate-resend", daemon=True).start()
         except Exception as exc:
             logger.LoggerFactory.logbot.warning(f"[community] 추정 과태료 다시 보내기 시작 실패: {exc}")
+    if not skip_in_fixture("startup db optimize"):
+        try:
+            # 2026-10-17 명세 3절: 파서 버전이 오르면 상세 원본 기반으로 다시 파싱한다(한 번, 백그라운드, 취소 불가).
+            # 할 일 없으면(meta target 일치·done) 아무 일도 하지 않는다. 도는 동안 크롤 시작 요청은 대기열 뒤에 붙는다.
+            from services import db_optimize
+            db_optimize.maybe_start(engine)
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f"[db_optimize] 시작 실패: {exc}")
     if not skip_in_fixture("startup scheduler"):
         scheduler.init_scheduler()
     if not skip_in_fixture("startup crawl pending retry"):
@@ -227,6 +235,11 @@ async def lifespan(app: FastAPI):
                 logger.LoggerFactory.logbot.warning('[rebuild] 종료 제한 시간 후 작업자가 아직 실행 중입니다.')
         except Exception as exc:
             logger.LoggerFactory.logbot.warning(f'[rebuild] 종료 실패: {type(exc).__name__}')
+        try:
+            from services import db_optimize
+            await stop_worker('db_optimize', db_optimize.stop)
+        except Exception as exc:
+            logger.LoggerFactory.logbot.warning(f'[db_optimize] 종료 실패: {type(exc).__name__}')
         try:
             from services import community_uploader
             await stop_worker('uploader', community_uploader.stop_background)

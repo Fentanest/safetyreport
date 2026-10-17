@@ -182,10 +182,14 @@
     </div>
 </div>
 
-<!-- 업데이트 뒤 한 번 훑기 작업 진행(사진 촬영 시각·지도 좌표). 작업이 있을 때만 보인다. services/maintenance_service.py -->
+<!-- 업데이트 뒤 한 번 훑기 작업 진행(사진 촬영 시각·DB 최적화). 작업이 있을 때만 보인다. services/maintenance_service.py -->
 <div class="sr-job-bar" id="srJobBar" role="status" aria-live="polite" hidden>
-    <span class="sr-busy" aria-hidden="true"></span>
-    <span class="sr-job-text" id="srJobText"></span>
+    <div class="sr-job-row">
+        <span class="sr-busy" aria-hidden="true"></span>
+        <span class="sr-job-text" id="srJobText"></span>
+        <button type="button" class="sr-job-toggle" id="srJobToggle" aria-expanded="false" aria-controls="srJobLog" hidden>단계 로그</button>
+    </div>
+    <ul class="sr-job-log" id="srJobLog" hidden></ul>
 </div>
 <script src="/static/ui/shell-polling.js?v={{ request.state.app_version }}"></script>
 <script src="/static/ui/theme.js?v={{ request.state.app_version }}"></script>

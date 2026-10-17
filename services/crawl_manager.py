@@ -638,6 +638,22 @@ class CrawlManager:
             if not pending:
                 return False
             try:
+                from services import db_optimize as _optimize
+
+                optimize_running = _optimize.is_running()
+            except Exception as exc:
+                # 확인 중 오류도 시작하지 않는다(_check_crawl_allowed 와 같은 fail-closed).
+                note_fallback("crawl_manager.optimize_gate", exc)
+                logger.LoggerFactory.logbot.info(f"[crawl] 대기 큐 {len(pending)}건 보류: DB 최적화 확인 실패")
+                self._schedule_retry()
+                return False
+            if optimize_running:
+                # DB 최적화가 도는 동안 대기 큐는 시작하지 않고 뒤에 붙인다(명세 3-3).
+                # 최적화가 끝나면 request_pending_launch 로 이어서 시작한다.
+                logger.LoggerFactory.logbot.info(f"[crawl] 대기 큐 {len(pending)}건 보류: DB 최적화 중")
+                self._schedule_retry()
+                return False
+            try:
                 from services import crawl_control
                 crawl_control._check_crawl_allowed()
             except Exception as exc:

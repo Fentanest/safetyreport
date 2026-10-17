@@ -142,5 +142,13 @@ def status(engine) -> dict:
     photo = photo_job_state()
     if photo["state"] != "idle":
         jobs.append(photo)
+    try:
+        from services import db_optimize
+
+        optimize = db_optimize.job_for_status()
+        if optimize is not None:
+            jobs.append(optimize)
+    except Exception as exc:
+        note_fallback("maintenance.db_optimize_status", exc)
     active = any(job["state"] in ("running", "paused") for job in jobs)
     return {"active": active, "jobs": jobs}

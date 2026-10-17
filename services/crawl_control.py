@@ -17,6 +17,50 @@ from services.ws_manager import ws_manager
 _launch_lock = threading.RLock()
 
 
+class CrawlDeferredByOptimize(RuntimeError):
+    """DB 최적화가 도는 동안 크롤 시작을 뒤로 미뤘다. `queued` 는 대기열 응답 dict."""
+
+    def __init__(self, queued: dict):
+        super().__init__("DB_OPTIMIZE_RUNNING")
+        self.queued = queued
+
+
+def _optimize_running() -> bool:
+    try:
+        from services import db_optimize
+
+        return bool(db_optimize.is_running())
+    except Exception as exc:
+        from core.utils.fallback import note_fallback
+
+        note_fallback("crawl_control.optimize_running", exc)
+        return False
+
+
+def _defer_numbers(numbers: list[str]) -> dict:
+    """최적화 중 번호 지정 크롤: 대기열에 붙이고 로그 한 줄 + 시작 요청. 끝나면 자동 시작."""
+    from services import db_optimize
+
+    queue_size = crawl_manager.append_many_to_pending(numbers)
+    db_optimize.note_crawl_deferred()
+    crawl_manager.request_pending_launch()
+    return {"status": "queued", "queue_size": queue_size, "queued_reason": "db_optimize"}
+
+
+def _defer_full_crawl(*, crawl_mode: str, queue_filename: str, header: str, broadcast_source: str) -> dict:
+    """최적화 중 번호 없는 수동 크롤: 끝나면 자동 시작하도록 미뤄 둔다."""
+    from core.database.engine import get_engine
+    from services import db_optimize
+
+    db_optimize.defer_full_crawl(get_engine(), {
+        "crawl_mode": crawl_mode, "queue_filename": queue_filename,
+        "header": header, "broadcast_source": broadcast_source})
+    db_optimize.note_crawl_deferred()
+    return {"status": "queued",
+            "message": "DB 최적화 중입니다. 최적화가 끝난 뒤 크롤링을 시작합니다.",
+            "queued_reason": "db_optimize"}
+
+
 def _serialized(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -234,6 +278,17 @@ def start_crawl(
     generation = crawl_manager.restore_generation()  # 검사 뒤 복원이 끼면 시작하지 않는다(R4-03)
     _check_crawl_allowed()
 
+    if _optimize_running():
+        # DB 최적화가 도는 동안 수동 시작은 바로 시작하지 않고 대기열 뒤에 붙인다(명세 3-3).
+        if queue_list.strip():
+            numbers = [number.strip() for number in queue_list.splitlines() if number.strip()]
+            _refuse_ambiguous(numbers)  # R8-02: 모호한 번호는 대기열에 넣지 않는다
+            raise CrawlDeferredByOptimize({**_defer_numbers(numbers),
+                "message": "DB 최적화 중입니다. 최적화가 끝난 뒤 크롤링을 시작합니다."})
+        raise CrawlDeferredByOptimize(_defer_full_crawl(
+            crawl_mode=normalize_crawl_mode(crawl_mode), queue_filename=queue_filename,
+            header=header, broadcast_source=broadcast_source))
+
     if queue_list.strip():
         _refuse_ambiguous(queue_list.splitlines())  # R8-02: 모바일 /crawl/start·웹 시작도 같은 거부
 
@@ -282,7 +337,17 @@ def enqueue_report(report_number: str):
     generation = crawl_manager.restore_generation()  # R4-03
     _check_crawl_allowed()
 
+    if _optimize_running() and not crawl_manager.is_crawling():
+        # 최적화 중 단건 크롤은 바로 시작하지 않고 대기열 뒤에 붙인다(명세 3-3).
+        deferred = _defer_numbers([normalized])
+        return {"status": deferred["status"], "queue_size": deferred["queue_size"],
+                "queued_reason": deferred["queued_reason"]}
+
     if crawl_manager.is_crawling():
+        if _optimize_running():
+            from services import db_optimize as _opt
+
+            _opt.note_crawl_deferred()
         queue_size = crawl_manager.append_to_pending(normalized)
         # 실행 중이던 크롤이 막 끝나 완료 훅이 번호 추가 전에 지나갔을 수 있다 — 한 번 더 시도(R5-02)
         crawl_manager.request_pending_launch()
@@ -330,6 +395,12 @@ def enqueue_notification(report_number: str, request_id: str, api_key: str):
     scope = hashlib.sha256(api_key.encode()).hexdigest()
     crawl_manager.append_notification(report_number, request_id, scope)
     crawl_manager.request_pending_launch()
+    if _optimize_running():
+        # 알림 크롤도 최적화가 끝난 뒤에 시작한다(명세 3-3) — launch_pending_crawl 이 미룬다.
+        from services import db_optimize as _opt
+
+        _opt.note_crawl_deferred()
+        return {"status": "accepted", "request_id": request_id, "queued_reason": "db_optimize"}
     return {"status": "accepted", "request_id": request_id}
 
 
@@ -359,7 +430,21 @@ def enqueue_reports(report_numbers: list[str], *, source: str = "web_selected"):
             "queue_size": queue_size,
         }
 
+    if _optimize_running() and not crawl_manager.is_crawling():
+        # 최적화 중 웹 선택 크롤은 바로 시작하지 않고 대기열 뒤에 붙인다(명세 3-3).
+        deferred = _defer_numbers(normalized)
+        return {
+            "status": "queued",
+            "requested_count": len(normalized),
+            "queue_size": deferred["queue_size"],
+            "queued_reason": deferred["queued_reason"],
+        }
+
     if crawl_manager.is_crawling():
+        if _optimize_running():
+            from services import db_optimize as _opt
+
+            _opt.note_crawl_deferred()
         result = _queue_all()
         crawl_manager.request_pending_launch()  # R5-02
         return result

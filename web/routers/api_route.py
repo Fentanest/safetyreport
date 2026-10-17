@@ -482,10 +482,13 @@ async def enqueue_crawl(request: Request, _: str = Depends(_require_api_key)):
         raise _community_runtime_error(exc) or HTTPException(status_code=500, detail=str(exc))
 
     if result["status"] == "queued":
-        return {
+        payload = {
             "status": "queued",
             "message": f"크롤링 완료 후 자동 실행됩니다. (대기 중: {result['queue_size']}건)",
         }
+        if result.get("queued_reason"):
+            payload["queued_reason"] = result["queued_reason"]
+        return payload
 
     return {
         "status": "success",
@@ -619,10 +622,21 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
             except RuntimeError as exc:  # 대기 큐 저장 실패(R3-03)
                 raise HTTPException(status_code=500, detail=str(exc))
             crawl_manager.request_pending_launch()  # 실행 중이던 크롤의 완료 훅이 이미 지나갔을 수 있다(R5-02)
-            return {
+            payload = {
                 "status": "queued",
                 "message": f"크롤링 완료 후 자동 실행됩니다. (대기 중: {crawl_manager.pending_count()}건)",
             }
+            try:
+                from services import db_optimize as _optimize
+
+                if _optimize.is_running():
+                    _optimize.note_crawl_deferred()
+                    payload["queued_reason"] = "db_optimize"
+            except Exception as exc:
+                from core.utils.fallback import note_fallback as _note
+
+                _note("api_route.optimize_queued", exc)
+            return payload
         raise HTTPException(status_code=409, detail="크롤링이 이미 실행 중입니다.")
 
     try:
@@ -636,6 +650,9 @@ async def mobile_start_crawl(request: Request, _: str = Depends(_require_api_key
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except crawl_control.CrawlDeferredByOptimize as exc:
+        # DB 최적화가 도는 동안은 대기열 등록으로 바꾼다(명세 3-3). 끝나면 자동 시작. 기존 필드는 그대로 두고 추가만.
+        return dict(exc.queued)
     except RuntimeError as exc:
         from services.community_crawl_upload import PendingUploadError
         if isinstance(exc, PendingUploadError):

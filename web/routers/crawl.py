@@ -59,6 +59,11 @@ def start_crawl(
             header="=== 크롤링 작업 시작 ===",
             broadcast_source="web_start",
         )
+    except crawl_control.CrawlDeferredByOptimize as exc:
+        # DB 최적화가 도는 동안은 바로 시작하지 않고 대기열 뒤에 붙인다(명세 3-3). 끝나면 자동 시작.
+        queued = exc.queued
+        return JSONResponse({"status": "queued", "queued_reason": queued.get("queued_reason", "db_optimize"),
+                             "message": queued.get("message", "DB 최적화 중입니다. 최적화가 끝난 뒤 크롤링을 시작합니다.")})
     except RuntimeError as exc:
         if isinstance(exc, PendingUploadError):
             return JSONResponse({"status": "error", "message": str(exc)}, status_code=503)
@@ -94,10 +99,13 @@ def enqueue_selected_crawl(req: QueueCrawlReq):
         return JSONResponse({"status": "error", "message": str(exc)})
 
     if result["status"] == "queued":
-        return JSONResponse({
+        payload = {
             "status": "queued",
             "message": f"선택한 {result['requested_count']}건이 현재 크롤링 종료 후 대기열에 추가되었습니다. (대기 중: {result['queue_size']}건)",
-        })
+        }
+        if result.get("queued_reason"):
+            payload["queued_reason"] = result["queued_reason"]
+        return JSONResponse(payload)
 
     return JSONResponse({
         "status": "success",

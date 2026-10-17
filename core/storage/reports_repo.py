@@ -262,7 +262,8 @@ class _CaptureFailed(RuntimeError):
     """공유 DTO 확정 실패 — 그 신고의 개인 저장을 건너뛰라는 신호."""
 
 
-def _community_capture_for(rec: CrawledDetail, derived: dict, existing: dict | None = None):
+def _community_capture_for(rec: CrawledDetail, derived: dict, existing: dict | None = None,
+                             *, trigger: str | None = None):
     """개인 DB 쓰기 잠금 안에서, 원문 쓰기 전에 공유 DTO 를 확정한다. 실패하면 개인 저장을 롤백한다.
 
     fine_estimate(2026-10-12) 입력: 사진 촬영 시각은 detail 이 아니라 _prefetch_derived() 결과(`derived`)에 있고,
@@ -281,7 +282,8 @@ def _community_capture_for(rec: CrawledDetail, derived: dict, existing: dict | N
                                        ssnpc_cd=rec.ssnpc_cd, ssnpc_type=rec.ssnpc_type,
                                        report_name=report_name,
                                        photo_first_at=derived.get("사진_첫촬영"), photo_last_at=derived.get("사진_끝촬영"))
-    trigger = _os.environ.get("SAFETYREPORT_REBUILD_RUN_ID") and "rebuild" or "realtime"
+    if trigger is None:
+        trigger = _os.environ.get("SAFETYREPORT_REBUILD_RUN_ID") and "rebuild" or "realtime"
     run_id = _os.environ.get("SAFETYREPORT_REBUILD_RUN_ID") or None
     try:
         _cap.add_retry_id(rec.id, "capture_started")
@@ -361,6 +363,86 @@ def _save_one(engine, rec: CrawledDetail) -> dict | None:
         _write_raw_file_best_effort(rec)
     except Exception as exc:
         note_fallback("reports_repo.raw_file_unexpected", exc)
+    if change is not None:
+        change["category"] = cls["category"]
+        if existing is not None and _has_detail(existing) and existing.get("category") != cls["category"]:
+            change["previous_category"] = existing.get("category")
+    return change
+
+
+class _ReparseSkipped(RuntimeError):
+    """DB 최적화 재파싱에서 그 신고를 건너뛰라는 신호(사유 문자열을 담는다)."""
+
+
+def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse") -> dict | None:
+    """DB 최적화(services/db_optimize.py)가 쓰는 파서 열만 갱신 저장.
+
+    `_save_one` 과 같은 캡처→개인 저장 잠금(`BEGIN IMMEDIATE`)·공유 캡처·화면용 표 갱신을 쓰지만,
+    목록 크롤이 채우는 열(상태·신고번호·신고명·신고일·만족도조사여부·별점·별점사유)은 손대지 않는다.
+    사용자 수정값(`mysafety_report_override`)은 `refresh_effective_rows` 가 그대로 다시 얹는다.
+    공유 payload 가 바뀌었을 때만 `capture()` 가 새 `completed_observation` 을 만든다(바뀌지 않으면 이벤트 없음).
+    `rec` 에 원본 바이트가 실려 있으면(원본 표에 없던 신고를 다시 받아온 경우) 같은 트랜잭션에서 원본 표에
+    upsert 한다. 이미 원본 표에 있는 신고는 원본 표를 손대지 않는다(`_save_raw` 가 None 이면 건너뜀).
+
+    반환: 바뀐 신고의 change dict, 바뀌지 않았으면 None. 신고 행이 없으면 _ReparseSkipped.
+    """
+    with engine.connect() as read:
+        existing_before = _find_row(read, rec.id)
+    if existing_before is None:
+        raise _ReparseSkipped("no_report")
+    # 네트워크 prefetch 없음: 공식 좌표·사진 촬영 시각은 저장된 값을 그대로 둔다.
+    derived = {c: existing_before.get(c) for c in (*GEO_COLUMNS, *PHOTO_COLUMNS)}
+    from services import community_capture as _cap
+
+    capture_result = None
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("BEGIN IMMEDIATE")
+            existing = _find_row(conn, rec.id)
+            if existing is None:
+                raise _ReparseSkipped("no_report")
+            try:
+                capture_result = _community_capture_for(rec, derived, existing, trigger=trigger)
+            except _cap.CaptureStoreUnavailable:
+                raise
+            except Exception as exc:
+                raise _CaptureFailed("community_capture_failed") from exc
+            now_ms = _now_ms()
+            site = {c: _clean(rec.detail.get(c)) for c in DETAIL_SITE_COLUMNS}
+            cls = _classification(rec, existing)
+            raw_changed = _save_body(conn, rec, now_ms)
+            _save_raw(conn, rec)
+
+            if not _has_detail(existing):
+                change = {"id": rec.id, "change_type": "신규"}
+            elif (raw_changed or _classification_changed(existing, cls)
+                    or any(comparable(existing.get(c)) != comparable(site[c]) for c in CHANGE_TRACKED_COLUMNS)):
+                change = {"id": rec.id, "change_type": "변경"}
+            else:
+                change = None
+
+            # 목록 열(_title_values)은 일부러 갱신하지 않는다 — 목록 크롤이 채운 값을 유지한다.
+            row = {**site, **derived, **cls, "synced_at": now_ms if change else existing.get("synced_at")}
+            conn.execute(update(REPORT).where(REPORT.c.ID == rec.id).values(**row))
+            refresh_effective_rows(conn, [rec.id])
+    except _ReparseSkipped:
+        raise
+    except Exception:
+        if capture_result is not None:
+            try:
+                _cap.mark_personal_save(capture_result.event_id, False)
+            except Exception as exc:
+                note_fallback("reports_repo.reparse_mark_personal_save_failed", exc)
+        raise
+    try:
+        _cap.mark_personal_save(capture_result.event_id, True)
+        _cap.remove_retry_id(rec.id)
+    except Exception as exc:
+        note_fallback("reports_repo.reparse_mark_personal_save_ok", exc)
+    try:
+        _write_raw_file_best_effort(rec)
+    except Exception as exc:
+        note_fallback("reports_repo.reparse_raw_file_unexpected", exc)
     if change is not None:
         change["category"] = cls["category"]
         if existing is not None and _has_detail(existing) and existing.get("category") != cls["category"]:

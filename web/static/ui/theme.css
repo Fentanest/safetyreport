@@ -131,10 +131,12 @@ table.dataTable tbody tr { background-color: var(--sr-surface); }
 /* 업데이트 뒤 한 번 훑기 작업 진행 — 화면 아래 한 줄 박스(로그 한 줄처럼) */
 .sr-job-bar {
     position: fixed; left: 1rem; bottom: 1rem; z-index: 1040; max-width: min(640px, calc(100vw - 2rem));
-    display: flex; align-items: center; gap: 0.6rem; padding: 0.45rem 0.9rem 0.45rem 0.65rem;
+    display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 0.45rem 0.9rem 0.45rem 0.65rem;
     background: var(--sr-surface); color: var(--sr-text); border: 1px solid var(--sr-border); border-radius: 999px;
     box-shadow: var(--sr-shadow); font-size: 0.82rem; font-variant-numeric: tabular-nums;
 }
+.sr-job-bar.is-open { border-radius: 16px; }
+.sr-job-row { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
 @media (min-width: 768px) { .sr-job-bar { left: calc(16.66667% + 1rem); } } /* 사이드바 오른쪽 본문 위 */
 .sr-job-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .sr-job-bar.is-paused .sr-job-text { color: var(--sr-text-muted); }
@@ -155,3 +157,28 @@ table.dataTable tbody tr { background-color: var(--sr-surface); }
 @keyframes sr-busy-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .sr-busy { animation-duration: 4s; } }
 @media (max-width: 575px) { .sr-job-bar { left: 0.5rem; right: 0.5rem; bottom: 0.5rem; max-width: none; } }
+/* DB 최적화 단계 로그 펼침(버튼·목록). 색은 테마 토큰만 쓴다. */
+.sr-job-toggle {
+    flex: 0 0 auto; border: 1px solid var(--sr-border); border-radius: 999px;
+    background: var(--sr-surface-2); color: var(--sr-text);
+    font-size: 0.75rem; font-weight: 600; padding: 0.15rem 0.7rem; cursor: pointer;
+}
+.sr-job-toggle:hover { background: var(--sr-surface-3); }
+.sr-job-toggle:focus-visible { outline: none; box-shadow: var(--sr-focus); }
+.sr-job-toggle[aria-expanded="true"] { background: var(--sr-surface-3); }
+.sr-job-log {
+    list-style: none; margin: 0.4rem 0 0; padding: 0.5rem 0.2rem 0.2rem;
+    border-top: 1px solid var(--sr-border);
+    max-height: 12rem; overflow-y: auto; min-width: 0;
+    font-size: 0.75rem; line-height: 1.5;
+}
+.sr-job-log li {
+    white-space: normal; overflow-wrap: anywhere;
+    color: var(--sr-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 0.08rem 0;
+}
+@media (max-width: 575px) {
+    .sr-job-bar.is-open { left: 0.5rem; right: 0.5rem; max-width: none; }
+    .sr-job-log { max-height: 10rem; }
+}

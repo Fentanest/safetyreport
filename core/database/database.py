@@ -538,8 +538,26 @@ def _migrate_6_to_7(engine, backup_dir: str) -> dict | None:
             backup = os.path.join(backup_dir, f"before_schema_v7_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
             _backup_file_db(db_path, backup)
             logger.LoggerFactory.logbot.info(f"[schema] 버전 6 → 7 변환 전 DB 백업: {backup}")
+            try:  # 하단 표시줄 단계 로그(기동 뒤 보이게 — 실패해도 변환을 막지 않음)
+                from services import db_optimize as _opt
+
+                _opt.record_migration_event(f"업그레이드 전 백업 완료({os.path.basename(backup)})")
+            except Exception as exc:
+                note_fallback("database.migrate_log", exc)
             conn.execute(str(CreateTable(report_detail_raw_table, if_not_exists=True).compile(dialect=dialect)))
+            try:
+                from services import db_optimize as _opt
+
+                _opt.record_migration_event("새 표 생성(스키마 7)")
+            except Exception as exc:
+                note_fallback("database.migrate_log", exc)
             conn.execute("PRAGMA user_version = 7")
+            try:
+                from services import db_optimize as _opt
+
+                _opt.record_migration_event("버전 기록(7)")
+            except Exception as exc:
+                note_fallback("database.migrate_log", exc)
             conn.execute("COMMIT")
         except BaseException as exc:
             if conn.in_transaction:
@@ -593,6 +611,12 @@ def migrate_schema(engine, backup_dir: str) -> dict | None:
             backup = os.path.join(backup_dir, f"{PRE_UPGRADE_BACKUP_PREFIX}{from_version}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
             _backup_file_db(db_path, backup)
             logger.LoggerFactory.logbot.info(f"[schema] 버전 {from_version} → {SCHEMA_VERSION} 변환 전 DB 백업: {backup}")
+            try:  # 하단 표시줄 단계 로그(기동 뒤 보이게 — 실패해도 변환을 막지 않음)
+                from services import db_optimize as _opt
+
+                _opt.record_migration_event(f"업그레이드 전 백업 완료({os.path.basename(backup)})")
+            except Exception as exc:
+                note_fallback("database.migrate_log", exc)
 
             pre = _v5_preflight(conn)
             orphans = _v5_orphan_entry_values(conn)

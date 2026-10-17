@@ -2,6 +2,8 @@
 (function () {
     var bar = document.getElementById('srJobBar');
     var text = document.getElementById('srJobText');
+    var toggle = document.getElementById('srJobToggle');
+    var logList = document.getElementById('srJobLog');
     if (!bar || !document.getElementById('mainSidebar')) return; // 로그인 전 화면에서는 부르지 않는다
     var wasActive = false, timer = null;
     function line(job) {
@@ -11,6 +13,43 @@
         if (job.message) parts.push(job.message);
         return parts.join(' · ');
     }
+    function optimizeLine(job) {
+        // DB 최적화 작업(services/db_optimize.py): 라벨·진행률·안내 문구만 보인다(stage 영문 키는 숨김).
+        var parts = [job.label];
+        if (job.total) parts.push(job.done + '/' + job.total);
+        if (job.message) parts.push(job.message);
+        return parts.join(' · ');
+    }
+    function isOptimize(job) { return job && job.key === 'db_optimize'; }
+    function renderLog(lines) {
+        if (!logList) return;
+        while (logList.firstChild) logList.removeChild(logList.firstChild);
+        (lines || []).forEach(function (msg) {
+            var li = document.createElement('li');
+            li.textContent = msg;
+            logList.appendChild(li);
+        });
+    }
+    function setLogVisible(job) {
+        if (!toggle || !logList) return;
+        if (job && job.log && job.log.length) {
+            renderLog(job.log);
+            toggle.hidden = false;
+        } else {
+            toggle.hidden = true;
+            logList.hidden = true;
+            toggle.setAttribute('aria-expanded', 'false');
+            bar.classList.remove('is-open');
+        }
+    }
+    if (toggle && logList) {
+        toggle.addEventListener('click', function () {
+            var open = logList.hidden;
+            logList.hidden = !open;
+            toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            bar.classList.toggle('is-open', open);
+        });
+    }
     function schedule(ms) { clearTimeout(timer); timer = setTimeout(poll, ms); }
     function poll() {
         fetch('/maintenance/status', { headers: { 'Accept': 'application/json' } })
@@ -19,16 +58,24 @@
                 if (!data) { schedule(60000); return; }
                 if (data.active) {
                     var running = data.jobs.filter(function (j) { return j.state === 'running' || j.state === 'paused'; });
-                    text.textContent = running.map(line).join('   |   ');
-                    bar.classList.toggle('is-paused', running.every(function (j) { return j.state === 'paused'; }));
+                    var others = running.filter(function (j) { return !isOptimize(j); });
+                    var opts = running.filter(isOptimize);
+                    text.textContent = others.map(line).concat(opts.map(optimizeLine)).join('   |   ');
+                    bar.classList.toggle('is-paused', running.length > 0 && running.every(function (j) { return j.state === 'paused'; }));
                     bar.classList.remove('is-done');
                     bar.hidden = false;
+                    setLogVisible(opts[0]);
                     wasActive = true;
                     schedule(2000);
                 } else if (wasActive) {
                     var done = data.jobs.filter(function (j) { return j.state === 'completed'; });
-                    text.textContent = done.length ? done.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); }).join('   |   ') : '작업 완료';
+                    var doneOthers = done.filter(function (j) { return !isOptimize(j); });
+                    var doneOpts = done.filter(isOptimize);
+                    text.textContent = doneOthers.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); })
+                        .concat(doneOpts.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); }))
+                        .join('   |   ') || '작업 완료';
                     bar.classList.add('is-done');
+                    setLogVisible(doneOpts[0]);
                     wasActive = false;
                     setTimeout(function () { bar.hidden = true; }, 6000);
                     schedule(30000);
