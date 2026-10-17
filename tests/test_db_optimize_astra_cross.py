@@ -69,3 +69,57 @@ class PartialWorkerRespectsBackoffTests(OptimizeBase):
         self.assertTrue(live is None or not live.is_alive())
         self.assertIsNotNone(db_optimize._retry_timer)
         self.assertTrue(db_optimize._retry_timer.is_alive())
+
+
+class ResumeWithLostCursorKeepsFullPassTests(OptimizeBase):
+    def test_cursor_missing_from_db_sweeps_everything_and_keeps_holds(self):
+        ids = _report_ids(self.engine)
+        _align_no_new_activity(self.engine)
+        # 복원된 DB에 옛 커서가 없다 — 바퀴 도중 메타이므로 보류만 처리하고 끝내면 안 된다.
+        db_optimize.write_meta(self.engine, {
+            "target": PARSER_VERSION, "cursor": "99999999", "done": False, "total": len(ids),
+            "stats": {}, "attempts": {}, "holds": [ids[0]], "round": 0})
+        seen = []
+
+        def fetch(report_id):
+            seen.append(report_id)
+            return _envelope(report_id)
+
+        result = self._run(session_factory=lambda: object(), fetch_fn=fetch)
+        self.assertEqual(seen, ids)
+        self.assertFalse(result["finished"])
+        meta = db_optimize.read_meta(self.engine)
+        self.assertFalse(meta.get("done"))
+        self.assertIn(ids[0], meta.get("holds") or [])
+
+
+class RestoreResumeRespectsBackoffTests(OptimizeBase):
+    def test_resume_after_restore_does_not_spawn_before_retry_time(self):
+        ids = _report_ids(self.engine)
+        _align_no_new_activity(self.engine)
+        due = time.time() + 3600
+        db_optimize.write_meta(self.engine, {
+            "target": PARSER_VERSION, "cursor": "", "done": False, "total": len(ids),
+            "stats": {}, "attempts": {}, "holds": [ids[0]], "round": 1,
+            "next_retry_at": db_optimize._format_next_retry(due)})
+        calls = []
+
+        def fetch(report_id):
+            calls.append(report_id)
+            return _envelope(report_id)
+
+        # 앞선 회차를 이 프로세스에서 돌린 뒤(엔진·실행 인자 기억) partial 로 쉬는 중이다.
+        with db_optimize._life_lock:
+            db_optimize._current_engine = self.engine
+            db_optimize._current_run_kwargs = dict(
+                is_crawling=lambda: False, rebuild_pending=lambda: False, interval=0,
+                wait_seconds=0, login_retry_seconds=0.01, sleep=lambda s: None,
+                session_factory=lambda: object(), fetch_fn=fetch)
+        token = db_optimize.pause_for_restore()
+        db_optimize.resume_after_restore(token)
+        time.sleep(0.3)
+        with db_optimize._life_lock:
+            live = db_optimize._thread
+        self.assertTrue(live is None or not live.is_alive())
+        self.assertEqual(calls, [])
+        self.assertIsNotNone(db_optimize._retry_timer)

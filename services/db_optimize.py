@@ -720,9 +720,11 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
     # 보류만 남은 채 끝난 회차(커서가 빈 partial) 다음에는 보류 목록만 다시 시도한다(시도 횟수 초기화).
     # 커서가 남은 메타는 바퀴 도중 멈춘 것이다 — 커서 다음부터 이어 하고, 그때까지 생긴 보류는 그대로 이어받는다
     # (보류만 처리하고 끝내면 커서 뒤 미방문 신고를 버리고 done 을 쓰게 된다 — Astra 교차 확인).
+    # 판단은 메타에 적힌 커서로 한다 — 복원 DB에 없어 비운 커서도 바퀴 도중이므로 처음부터
+    # 전체를 훑고 보류는 이어받는다(모바일과 같은 결정, Astra 재확인).
     resumed_holds: set[str] = set()
     if holds and _is_same_target(meta.get("target")) and not meta.get("done"):
-        if cursor:
+        if meta.get("cursor"):
             resumed_holds = set(holds)
         else:
             id_set = set(ids)
@@ -1734,7 +1736,7 @@ def pause_for_restore(timeout: float = RESTORE_PAUSE_TIMEOUT) -> object:
                 _stop.clear()
             # 수명 잠금 안에서는 기동 판단·스레드 생성만 한다. 보류 크롤 시작은
             # 잠금을 놓은 뒤 `_drain_deferred_if_done` 으로 실행한다(잠금 순서 규칙).
-            spawned = _try_spawn_locked()
+            spawned = _respawn_respecting_backoff_locked()
             if spawned is None and not _shutdown:
                 drain_engine = _current_engine
     if drain_engine is not None:
@@ -1769,7 +1771,8 @@ def resume_after_restore(token: object = _NO_TOKEN) -> None:
         _restore_pause = False
         # 수명 잠금 안에서는 기동 판단·스레드 생성만 한다. 보류 크롤 시작은
         # 잠금을 놓은 뒤 `_drain_deferred_if_done` 으로 실행한다(잠금 순서 규칙).
-        spawned = _try_spawn_locked()
+        # 보류 재시도 시각 전이면 복원 종료도 바로 띄우지 않는다(Astra 재확인).
+        spawned = _respawn_respecting_backoff_locked()
         if spawned is None and not _shutdown:
             drain_engine = _current_engine
     if drain_engine is not None:
@@ -1879,11 +1882,7 @@ def _spawn_locked(engine=None, run_kwargs=None, background: bool = True):
                 if not failed and run_kwargs.get("stop", _stop) is _stop:
                     # 보류 재시도 시각 전이면 바로 띄우지 않고 그 시각에 다시 판단한다
                     # (partial 직후 백오프 없이 회차를 반복하던 결함 — Astra 교차 확인).
-                    if _current_engine is not None and not _retry_allowed_by_backoff(_current_engine):
-                        spawned = None
-                        _schedule_backoff_retry(_current_engine)
-                    else:
-                        spawned = _try_spawn_locked()
+                    spawned = _respawn_respecting_backoff_locked()
                     if spawned is None and not _shutdown:
                         drain_engine = _current_engine
             if drain_engine is not None:
@@ -1897,6 +1896,21 @@ def _spawn_locked(engine=None, run_kwargs=None, background: bool = True):
     # `join` 한다 — `thread.run()` 을 잠금 안에서 직접 돌리지 않는다(잠금 역전 금지).
     thread.start()
     return thread
+
+
+def _respawn_respecting_backoff_locked():
+    """`_life_lock` 보유 가정. 작업자 종료·복원 종료 재판단용 — 보류 재시도 시각 전이면
+    띄우지 않고 그 시각에 다시 판단하는 타이머만 건다(`maybe_start` 와 같은 규칙)."""
+    engine = _current_engine
+    try:
+        allowed = engine is None or _retry_allowed_by_backoff(engine)
+    except Exception as exc:
+        note_fallback("db_optimize.respawn_backoff_read", exc)
+        allowed = True
+    if not allowed:
+        _schedule_backoff_retry(engine)
+        return None
+    return _try_spawn_locked()
 
 
 def _try_spawn_locked():
