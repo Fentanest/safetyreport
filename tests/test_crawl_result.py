@@ -47,7 +47,7 @@ class CrawlResultTest(unittest.TestCase):
             progress["list_ok"] = list_ok
             return titles, 1
 
-        def crawl_details(driver=None, report_ids=None, browser_fallback=False):
+        def crawl_details(driver=None, report_ids=None, browser_fallback=False, raw_source="crawl", **kw):
             for n, rid in enumerate(report_ids):
                 if stop_after is not None and n >= stop_after:
                     raise ConnectionError("끊김")

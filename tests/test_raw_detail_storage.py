@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import pandas as pd
 from sqlalchemy import create_engine, select
 
 import settings.settings as settings
@@ -311,9 +312,30 @@ class RawDetailRestoreTests(unittest.TestCase):
         self.assertEqual(self._server_rows(), {})
 
     def test_mobile_v18_raw_round_trips_byte_identical(self):
-        envelope = _envelope()
-        want = _raw_row("m1", envelope, source="crawl")
-        con = sqlite3.connect(self.upload)
+        """서버→모바일→서버 원본 왕복. 서버→모바일 표 복사는 SQL 로 BLOB 바이트를 그대로 옮긴다
+        (재인코딩·재압축 없음 — 실동작의 Dart importFromServerDb 대역. Dart 까지 포함한 전체 왕복은
+        scripts/dev/db_roundtrip_check.py --mobile-repo 로 확인한다: flutter·모바일 레포가 필요해
+        이 저장소 unittest 에서는 실행할 수 없다). 모바일→서버는 실제 exchange.restore 경로로 확인한다."""
+        from services import db_backup
+
+        for record_id, seed in (("90000001", ""), ("90000002", "바뀜")):
+            with get_engine().begin() as conn:
+                conn.execute(models.report_detail_raw_table.insert().values(
+                    **_raw_row(record_id, _envelope(seed=seed))))
+        exported = db_backup.export_clean_db()  # 실제 서버 내보내기 경로
+        self.addCleanup(lambda: os.path.exists(exported) and os.remove(exported))
+        con = sqlite3.connect(f"file:{exported}?mode=ro", uri=True)
+        con.row_factory = sqlite3.Row
+        try:
+            want = {r["ID"]: dict(r) for r in
+                    con.execute("SELECT ID, raw_zlib, raw_sha256, raw_size, fetched_at, source"
+                                " FROM mysafety_report_detail_raw")}
+        finally:
+            con.close()
+        self.assertEqual(set(want), {"90000001", "90000002"})
+
+        mobile = Path(self._tmp.name) / "m18.db"
+        con = sqlite3.connect(mobile)
         con.execute("PRAGMA user_version = 18")
         con.executescript(
             """
@@ -326,20 +348,27 @@ class RawDetailRestoreTests(unittest.TestCase):
               raw_size INTEGER NOT NULL, fetched_at TEXT NOT NULL, source TEXT NOT NULL);
             """
         )
-        con.execute("INSERT INTO reports VALUES ('m1','수용','SPP-2609-9000011','신호위반','2026-09-01','참여 완료',NULL,NULL,'N','수용','기관','','서울 강서구 1','Y','traffic','자동차·교통위반-신호위반','',NULL)")
-        con.execute("INSERT INTO report_detail_raw VALUES (?, ?, ?, ?, ?, ?)",
-                    (want["ID"], want["raw_zlib"], want["raw_sha256"], want["raw_size"], want["fetched_at"], want["source"]))
+        con.execute("INSERT INTO reports VALUES ('90000001','답변완료','SPP-2512-9000001','신호위반','2025-12-30 23:40:00','답변 대기',5,NULL,'N','수용','기관','김담당','서울 강서구 1','Y','traffic','자동차·교통위반-신호위반','',NULL)")
+        con.execute("INSERT INTO reports VALUES ('90000002','답변완료','SPP-2601-9000002','중앙선 침범','2026-01-03 08:10:00','답변 대기',4,NULL,'N','수용','기관','김담당','서울 강서구 2','Y','traffic','자동차·교통위반-신호위반','',NULL)")
+        # 서버 내보내기 파일에서 원본 표를 SQL 로 그대로 복사 — BLOB 바이트를 파이썬에서 다시 만들지 않는다.
+        con.execute("ATTACH DATABASE ? AS srv", (exported,))
+        con.execute("INSERT INTO report_detail_raw (ID, raw_zlib, raw_sha256, raw_size, fetched_at, source)"
+                    " SELECT ID, raw_zlib, raw_sha256, raw_size, fetched_at, source"
+                    " FROM srv.mysafety_report_detail_raw")
         con.commit()
         con.close()
-        exchange.restore(str(self.upload), "mobile")
-        got = self._server_rows()["m1"]
-        for column in ("ID", "raw_zlib", "raw_sha256", "raw_size", "fetched_at", "source"):
-            with self.subTest(column=column):
-                self.assertEqual(got[column], want[column])
-                self.assertIs(type(got[column]), type(want[column]))
-        # 서버→모바일 방향(같은 열 이름 그대로)도 바이트까지 같다
-        mobile_row = {c: got[c] for c in ("ID", "raw_zlib", "raw_sha256", "raw_size", "fetched_at", "source")}
-        self.assertEqual(mobile_row, want)
+        exchange.restore(str(mobile), "mobile")  # 실제 모바일→서버 복원 경로
+        got = self._server_rows()
+        self.assertEqual(set(got), {"90000001", "90000002"})
+        for record_id, expected in want.items():
+            with self.subTest(record_id=record_id):
+                row = got[record_id]
+                for column in ("ID", "raw_zlib", "raw_sha256", "raw_size", "fetched_at", "source"):
+                    self.assertEqual(row[column], expected[column])
+                    self.assertIs(type(row[column]), type(expected[column]))
+                # 해제+검증이 되면 BLOB·sha 가 원본 정규 바이트와 같은 것이다
+                self.assertEqual(raw_detail.verify(row["raw_zlib"], row["raw_sha256"]),
+                                 raw_detail.canonical_bytes(_envelope(seed="" if record_id == "90000001" else "바뀜")))
 
     def test_versions_outside_the_supported_range_are_refused(self):
         for version in (0, 1, 5):
@@ -374,6 +403,366 @@ class RawDetailRestoreTests(unittest.TestCase):
                 with self.assertRaises(exchange.LegacyDatabaseRefused):
                     exchange.restore(str(path), "mobile")
         self.assertEqual([p for p in os.listdir(settings.datapath) if p.startswith(".restore_staging_")], [])
+
+
+def _min_details():
+    """build_detail_result 가 요구하는 최소 상세 dict(합성, 외부 요청 없음)."""
+    return {
+        "processing_status": "수용",
+        "car_number": "",
+        "violation_law": "",
+        "penalty_amount": "",
+        "penalty_points": "",
+        "processing_agency": "",
+        "person_in_charge": "",
+        "response_date": "",
+        "occurrence_date": "",
+        "occurrence_time": "",
+        "violation_location": "",
+        "processing_finish": "Y",
+        "report_content": "",
+        "processing_content": "",
+        "map_image": "",
+        "attached_photos": "",
+        "attachment_files": "",
+        "entry_value": "자동차·교통위반-신호위반",
+    }
+
+
+class RawDetailFileSafetyTests(unittest.TestCase):
+    """Sol 독립 검수 1: 신고 ID 검증 없이 파일 경로에 넣으면 raw_details 밖에 쓸 수 있다."""
+
+    def setUp(self):
+        logger.LoggerFactory.create_logger(mode="crawl")
+
+    def test_traversal_ids_are_never_written(self):
+        bad_ids = ["../../outside", "..\\outside", "/abs/path", "a/b", "a.json",
+                   "", ".", "..", "90000001.json", "id with space", "한글/../..",
+                   None, b"90000001", "a" * 65]
+        for bad in bad_ids:
+            with self.subTest(bad=bad):
+                self.assertIsNone(raw_detail.write_raw_file(bad, {"result": {}}))
+        self.assertFalse((Path(settings.datapath).parent / "outside").exists())
+        self.assertFalse((Path(settings.datapath) / "outside").exists())
+
+    def test_valid_id_writes_only_under_raw_details(self):
+        target = Path(settings.raw_details_dir) / "90000001.json"
+        if target.exists():
+            target.unlink()
+        try:
+            path = raw_detail.write_raw_file("90000001", {"result": {"C_NO": 1}})
+            self.assertIsNotNone(path)
+            self.assertEqual(os.path.realpath(path), os.path.realpath(str(target)))
+            self.assertEqual(json.loads(Path(path).read_text(encoding="utf-8")),
+                             {"result": {"C_NO": 1}})
+        finally:
+            if target.exists():
+                target.unlink()
+
+
+#: makedirs 모의 실패 시험의 side_effect 가 위임할 진짜 함수(패치 전에 잡아둔다).
+_REAL_MAKEDIRS = os.makedirs
+
+
+class RawDetailFileFailureTests(unittest.TestCase):
+    """Sol 독립 검수 2: 폴더 생성 실패 시 tmp 참조 UnboundLocalError → DB 는 저장됐는데 실패로 보고."""
+
+    def setUp(self):
+        logger.LoggerFactory.create_logger(mode="crawl")
+        get_engine().dispose()
+        for ext in ("", "-wal", "-shm"):
+            if os.path.exists(settings.db_path + ext):
+                os.remove(settings.db_path + ext)
+        from scripts.dev import fixture_server
+
+        fixture_server.seed_engine(get_engine())
+
+    def tearDown(self):
+        get_engine().dispose()
+
+    @staticmethod
+    def _boom_raw_details_only(path, *args, **kwargs):
+        if os.fspath(path).endswith("raw_details"):
+            raise OSError("모의 폴더 생성 실패")
+        return _REAL_MAKEDIRS(path, *args, **kwargs)
+
+    def _crawled_record(self, record_id="90000001", envelope=None):
+        envelope = envelope if envelope is not None else _envelope()
+        canonical = raw_detail.canonical_bytes(envelope)
+        base = {}
+        with get_engine().connect() as conn:
+            found = conn.execute(select(models.report_table)
+                                 .where(models.report_table.c.ID == record_id)).mappings().first()
+            if found:
+                base = {c: found[c] for c in reports_repo.DETAIL_SITE_COLUMNS}
+        return reports_repo.CrawledDetail(
+            id=record_id, category="traffic", detail={"ID": record_id, **base},
+            raw_canonical=canonical, raw_sha256=raw_detail.sha256_hex(canonical),
+            raw_size=len(canonical), raw_source="crawl"), canonical
+
+    def test_write_returns_none_when_directory_cannot_be_created(self):
+        with mock.patch("os.makedirs", side_effect=self._boom_raw_details_only):
+            self.assertIsNone(raw_detail.write_raw_file("90000001", {"result": {}}))
+
+    def test_save_reports_success_despite_file_failure(self):
+        rec, canonical = self._crawled_record()
+        with mock.patch("os.makedirs", side_effect=self._boom_raw_details_only):
+            result = reports_repo.save_crawled(get_engine(), [rec])
+        self.assertEqual(result.saved, 1)
+        self.assertEqual(result.failed, [])
+        with get_engine().connect() as conn:
+            row = conn.execute(select(models.report_detail_raw_table)
+                               .where(models.report_detail_raw_table.c.ID == "90000001")).mappings().first()
+        self.assertIsNotNone(row)
+        self.assertEqual(row["raw_sha256"], raw_detail.sha256_hex(canonical))
+
+
+def _fail_raw_table_create():
+    """6→7 단계의 새 표 생성을 모의 실패시킨다(백업 뒤 표 만들기에서 실패)."""
+    import sqlalchemy.schema
+
+    real = sqlalchemy.schema.CreateTable
+
+    def _boom(table, *args, **kwargs):
+        if getattr(table, "name", "") == "mysafety_report_detail_raw":
+            raise RuntimeError("모의 6→7 실패")
+        return real(table, *args, **kwargs)
+
+    return mock.patch.object(sqlalchemy.schema, "CreateTable", side_effect=_boom)
+
+
+class RawDetailStepRetryTests(unittest.TestCase):
+    """Sol 독립 검수 3: 5→6 커밋 뒤 6→7 실패 → 버전 6 유지 → 다음 기동에 6→7 재시도."""
+
+    def setUp(self):
+        logger.LoggerFactory.create_logger(mode="crawl")
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.path = Path(self._dir.name) / "v6.db"
+        self.backups = Path(self._dir.name) / "backups"
+
+    def _seed_v6(self):
+        from scripts.dev import fixture_server
+
+        engine = create_engine(f"sqlite:///{self.path}")
+        self.addCleanup(engine.dispose)
+        fixture_server.seed_engine(engine)
+        engine.dispose()
+        _downgrade_to_v6(self.path)
+        return create_engine(f"sqlite:///{self.path}")
+
+    def _version(self, path=None):
+        con = sqlite3.connect(str(path or self.path))
+        try:
+            return con.execute("PRAGMA user_version").fetchone()[0]
+        finally:
+            con.close()
+
+    def _report_processing(self, engine, record_id="90000001"):
+        with engine.connect() as conn:
+            return conn.execute(select(models.report_table.c.처리내용)
+                                .where(models.report_table.c.ID == record_id)).scalar()
+
+    def test_6_to_7_step_failure_stays_at_6_and_retries(self):
+        engine = self._seed_v6()
+        with engine.begin() as conn:
+            conn.execute(models.report_table.update().where(models.report_table.c.ID == "90000001")
+                         .values(처리내용="6단계 실패 모의 보존값"))
+        with _fail_raw_table_create():
+            with self.assertLogs(logger.LoggerFactory.logbot, level="ERROR"):
+                with self.assertRaises(RuntimeError):
+                    database.migrate_schema(engine, str(self.backups))
+        # 뒤 단계 실패: 마지막 완료 버전(6)에 머물고 자료는 그대로
+        self.assertEqual(self._version(), 6)
+        self.assertEqual(self._report_processing(engine), "6단계 실패 모의 보존값")
+        con = sqlite3.connect(str(self.path))
+        try:
+            tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            con.close()
+        self.assertNotIn("mysafety_report_detail_raw", tables)
+        # 다음 기동 재시도: 6→7 성공, 자료 그대로
+        info = database.migrate_schema(engine, str(self.backups))
+        self.assertEqual(info["from_version"], 6)
+        self.assertEqual(self._version(), 7)
+        self.assertEqual(self._report_processing(engine), "6단계 실패 모의 보존값")
+
+    def test_5_chain_failure_after_6_commit_stays_at_6(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "test_storage_migration",
+            Path(__file__).resolve().parent / "test_storage_migration.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        path = Path(self._dir.name) / "v5.db"
+        module._build_v5_db(path)
+        engine = create_engine(f"sqlite:///{path}")
+        self.addCleanup(engine.dispose)
+        with _fail_raw_table_create():
+            with self.assertLogs(logger.LoggerFactory.logbot, level="ERROR"):
+                with self.assertRaises(RuntimeError):
+                    database.migrate_schema(engine, str(self.backups))
+        # 5→6 은 커밋됐고 6→7 만 실패: 버전 6, 옮긴 자료 그대로
+        con = sqlite3.connect(str(path))
+        try:
+            version = con.execute("PRAGMA user_version").fetchone()[0]
+            reports = con.execute("SELECT count(*) FROM mysafety_report").fetchone()[0]
+        finally:
+            con.close()
+        self.assertEqual(version, 6)
+        self.assertEqual(reports, 6)
+        # 다음 기동 재시도: 6→7 성공
+        info = database.migrate_schema(engine, str(self.backups))
+        self.assertEqual(info["from_version"], 6)
+        con = sqlite3.connect(str(path))
+        try:
+            version = con.execute("PRAGMA user_version").fetchone()[0]
+            reports = con.execute("SELECT count(*) FROM mysafety_report").fetchone()[0]
+        finally:
+            con.close()
+        self.assertEqual(version, 7)
+        self.assertEqual(reports, 6)
+
+
+class RawDetailSourceTests(unittest.TestCase):
+    """Sol 독립 검수 4: raw_source 가 항상 'crawl' 로 기록된다."""
+
+    def setUp(self):
+        logger.LoggerFactory.create_logger(mode="crawl")
+        get_engine().dispose()
+        for ext in ("", "-wal", "-shm"):
+            if os.path.exists(settings.db_path + ext):
+                os.remove(settings.db_path + ext)
+        from scripts.dev import fixture_server
+
+        fixture_server.seed_engine(get_engine())
+
+    def tearDown(self):
+        get_engine().dispose()
+
+    def _save_with_source(self, record_id="90000001", source="crawl", *, omit_source=False):
+        from core.crawler import detail_pipeline
+
+        extra = {} if omit_source else {"raw_source": source}
+        tup = detail_pipeline.build_detail_result(
+            record_id, _min_details(), progress_status="답변완료",
+            satisfaction_client=None, satisfaction_fetcher=lambda *a: (None, None),
+            raw_envelope=_envelope(), **extra)
+        rec = reports_repo.CrawledDetail.from_legacy_tuple(tup)
+        return reports_repo.save_crawled(get_engine(), [rec])
+
+    def _row_source(self, record_id="90000001"):
+        with get_engine().connect() as conn:
+            return conn.execute(select(models.report_detail_raw_table.c.source)
+                                .where(models.report_detail_raw_table.c.ID == record_id)).scalar()
+
+    def test_rebuild_source_is_recorded(self):
+        result = self._save_with_source(source="rebuild")
+        self.assertEqual(result.saved, 1)
+        self.assertEqual(self._row_source(), "rebuild")
+
+    def test_notification_source_is_recorded(self):
+        result = self._save_with_source(source="notification")
+        self.assertEqual(result.saved, 1)
+        self.assertEqual(self._row_source(), "notification")
+
+    def test_default_source_is_crawl(self):
+        result = self._save_with_source(omit_source=True)
+        self.assertEqual(result.saved, 1)
+        self.assertEqual(self._row_source(), "crawl")
+
+    def test_crawl_details_forwards_raw_source(self):
+        from core.crawler import crawldetail_api
+
+        details = _min_details()
+        for source, expected in (("rebuild", "rebuild"), (None, "crawl")):
+            with self.subTest(source=source):
+                kwargs = {} if source is None else {"raw_source": source}
+                with mock.patch.object(crawldetail_api.direct_login, "make_authorized_session",
+                                       return_value=(object(), None)), \
+                        mock.patch.object(crawldetail_api, "get_authorized_json",
+                                          return_value=(_envelope(), object())), \
+                        mock.patch("services.parser.parse_json_details", return_value=dict(details)):
+                    item = next(crawldetail_api.crawl_details(report_ids=["90000001"], **kwargs))
+                self.assertEqual(item[9]["raw_source"], expected)
+
+    def _capturing_crawl_details(self, captured):
+        from core.crawler import detail_pipeline
+
+        def fake(driver=None, report_ids=None, browser_fallback=False, status_sink=None,
+                 raw_source="crawl", **kwargs):
+            captured["raw_source"] = raw_source
+            for rid in report_ids or []:
+                yield detail_pipeline.build_detail_result(
+                    rid, _min_details(), progress_status="답변완료",
+                    satisfaction_client=None, satisfaction_fetcher=lambda *a: (None, None),
+                    raw_envelope=_envelope(), raw_source=raw_source)
+
+        return fake
+
+    def test_queue_crawl_records_notification_source(self):
+        import start
+
+        captured = {}
+        queue = Path(tempfile.mkdtemp()) / "mobile_queue.txt"
+        queue.write_text("SPP-2512-9000001\n", encoding="utf-8")
+        self.addCleanup(lambda: queue.exists() and queue.unlink())
+        with mock.patch.object(start.crawldetail_api, "crawl_details",
+                               side_effect=self._capturing_crawl_details(captured)):
+            start._run_crawling_process(
+                None, get_engine(),
+                start.CrawlOptions(queue_file=str(queue), page_range=None, force=False, rebuild=None), False)
+        self.assertEqual(captured.get("raw_source"), "notification")
+        self.assertEqual(self._row_source(), "notification")
+
+    def test_normal_crawl_records_crawl_source(self):
+        import start
+
+        captured = {}
+        titles = [pd.DataFrame({"ID": ["90000001"], "신고번호": ["SPP-2512-9000001"],
+                                "상태": ["진행"], "신고명": ["신호위반"],
+                                "신고일": ["2025-12-30 23:40:00"]})]
+
+        def fake_titles(driver=None, browser_fallback=False, progress=None, **kwargs):
+            progress["list_ok"] = True
+            return titles, 1
+
+        with mock.patch.object(start.crawltitle_api, "crawl_titles", side_effect=fake_titles), \
+                mock.patch.object(start.crawldetail_api, "crawl_details",
+                                  side_effect=self._capturing_crawl_details(captured)), \
+                mock.patch.object(start.database, "get_pending_detail_ids", return_value=["90000001"]):
+            start._run_crawling_process(
+                None, get_engine(),
+                start.CrawlOptions(queue_file=None, page_range=None, force=True, rebuild=None), False)
+        self.assertEqual(captured.get("raw_source"), "crawl")
+        self.assertEqual(self._row_source(), "crawl")
+
+    def test_rebuild_crawl_records_rebuild_source(self):
+        import start
+
+        captured = {}
+        titles = [pd.DataFrame({"ID": ["90000001"], "신고번호": ["SPP-2512-9000001"],
+                                "상태": ["진행"], "신고명": ["신호위반"],
+                                "신고일": ["2025-12-30 23:40:00"]})]
+
+        def fake_titles(driver=None, browser_fallback=False, progress=None, **kwargs):
+            progress["list_ok"] = True
+            return titles, 1
+
+        with mock.patch.object(start.crawltitle_api, "crawl_titles", side_effect=fake_titles), \
+                mock.patch.object(start.crawldetail_api, "crawl_details",
+                                  side_effect=self._capturing_crawl_details(captured)), \
+                mock.patch("services.community_rebuild._get_job", return_value={"state": "running"}), \
+                mock.patch("services.community_rebuild.register_list"), \
+                mock.patch("services.community_rebuild.pending_detail_ids", return_value=["90000001"]), \
+                mock.patch("services.community_rebuild.record_item"), \
+                mock.patch("services.community_rebuild.note_counts", create=True), \
+                mock.patch("services.community_rebuild.mark_paused_auth", create=True):
+            start._run_rebuild_process(None, get_engine(), {"rebuild": "run-test"}, False)
+        self.assertEqual(captured.get("raw_source"), "rebuild")
+        self.assertEqual(self._row_source(), "rebuild")
 
 
 if __name__ == "__main__":

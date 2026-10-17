@@ -906,7 +906,7 @@ class ExchangeRestoreTests(unittest.TestCase):
             f.write("\n".join(items))
         self.addCleanup(crawl_queue_report.remove_files, queue_file)
 
-        def fake_details(driver=None, report_ids=None, browser_fallback=False):
+        def fake_details(driver=None, report_ids=None, browser_fallback=False, raw_source="crawl", **kw):
             for rid in report_ids:
                 if details is not None and rid not in details:
                     raise ConnectionError("네트워크 끊김")
