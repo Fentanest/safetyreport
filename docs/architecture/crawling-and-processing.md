@@ -22,6 +22,42 @@
   감싸, DB 는 저장됐는데 저장 실패로 보고되는 일이 없다. ID 파일 이름 규칙·경로 제한은 `core/utils/raw_detail.py`.
 - 계약 벡터 `contracts/raw-detail-vectors.json`, 열 계약 `contracts/storage-contract.json`(`detail_raw`).
 
+## DB 최적화 작업 (2026-10-17 명세 3절, 백그라운드, 취소 불가)
+
+- `services/db_optimize.py`. DB 메타(`mysafety_sync_meta`) 키 `detail_raw_optimize` =
+  `{"target": "<파서 버전>", "cursor": "<마지막 처리 ID>", "done": bool, "total": int, "stats": {...}}`.
+  기동 때(`main.py`, 스키마 업그레이드 뒤) `target != 현재 파서 버전(pc-parser-13)`이거나 `done`이 아니면
+  백그라운드 스레드로 시작/이어서 한다. 할 일 없으면 아무 일도 하지 않는다. 이번 업데이트는
+  파서 버전을 `pc-parser-13`으로 올려 첫 실행에 한 번 돈다.
+- 시작 전·신고 사이: 크롤이 돌고 있으면 끝난 뒤 시작하고, 초기화(rebuild)가 필요하거나 돌고 있으면
+  초기화가 끝난 뒤 돈다. 크롤이 끼어들면(초기화 크롤) 기다렸다가 이어 간다.
+- 신고마다(ID 순, 커서로 이어서):
+  1. 원본 표에 행이 있고 sha가 맞으면 네트워크 없이 저장된 원본의 `result`로 다시 파싱한다.
+     sha가 안 맞으면(손상) 로그를 남기고 없는 것과 같이 다시 받는다.
+  2. 행이 없으면 `direct_login.make_authorized_session()` 세션으로 `_fetch_detail`을 다시 받아
+     (크롤과 같은 요청 간격 0.3초·`request_with_retry` 재시도) 1절 규칙대로 원본 표(`source='backfill'`)·파일에
+     저장하고 파싱한다. 세션을 못 만들면(로그인 필요) 작업을 멈추고 `stage='login_required'`로 보인 뒤
+     주기적으로 재시도한다. 받을 수 없는 신고(404·삭제 등)는 건너뛰고 사유를 통계·로그에 남긴다.
+  3. `reports_repo.reparse_one` (공유 trigger `'reparse'`): 파서가 만드는 열만 갱신한다
+     (상세 사이트 열·분류·본문, 목록 크롤이 채우는 상태·신고번호·신고명·신고일·만족도·별점은 손대지 않음,
+     사용자 override는 화면용 표에 그대로 다시 얹음, effective 갱신). 기존 저장 경로의 공유 캡처를 그대로 타서
+     공유 payload가 바뀐 신고만 새 `completed_observation`이 나간다. 바뀌지 않으면 이벤트 없음.
+     `resend_fine_estimate_updates`는 그대로 둔다.
+  4. 원본 파일이 없으면 만든다.
+  5. 진행 로그(시각+문구, 최근 50줄)와 done/total/stage를 갱신한다. 끝나면 `done=true`, 중복군 재생성(바뀐 게 있을 때만),
+     대기열 뒤에 붙은 크롤을 자동 시작한다.
+- 크롤과의 순서: 작업이 도는 동안 수동 크롤(웹 `/crawl` 시작, `/api/v1/crawl/start`)과 알림·단건 크롤은 바로
+  시작하지 않고 대기열 뒤에 붙인다. 번호 지정 요청은 `crawl_manager` 대기열에, 번호 없는 전체 크롤은
+  메타 키 `detail_raw_optimize_deferred_full`에 미뤄 둔다. 요청마다 크롤 창 로그(`current_crawl.log`)에
+  "DB 최적화 중입니다. 최적화가 끝난 뒤 크롤링을 시작합니다." 한 줄을 남기고, 작업이 끝나면
+  `request_pending_launch`·미뤄 둔 전체 크롤로 이어서 시작한다. 수동 시작 API는 최적화 중일 때만 대기열 등록으로
+  바뀌고 응답은 필드 추가만(`queued_reason: "db_optimize"`). 크롤 run 상태·진행/중지 버튼에는 넣지 않는다.
+- 표시: `maintenance_service.status()` 작업 `db_optimize`(`label` "DB 최적화 중입니다…", done/total, stage,
+  log 최근 50줄). 스키마 업그레이드 단계(백업·표 생성·버전)도 같은 로그에 남겨 기동 뒤 보이게 한다
+  (`database.migrate_schema` → `db_optimize.record_migration_event`, 실패해도 변환을 막지 않음).
+  웹 하단 표시줄(`base.html #srJobBar`, `shell-polling.js`)에 라벨·진행률을 보이고, "단계 로그" 버튼
+  (`aria-expanded`)으로 단계 로그를 펼친다. `/api/v1/maintenance/status`도 같은 추가 필드.
+
 ## 실행 접수·실패·초기화 작업의 수명
 
 - 일반/선택/초기화 크롤은 완료 watcher를 먼저 준비하고 프로세스를 인계한다. 실행 실패도 watcher에 None을 전달해 대기를 풀며, 알림 실패가 이미 실행한 프로세스를 실패 접수로 바꾸지 않는다. 로그용 Popen 부모 fd는 닫는다.

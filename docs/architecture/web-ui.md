@@ -196,6 +196,14 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
   모바일 앱은 지도 오른쪽 위 버튼으로 폰의 기본 브라우저 앱을 연다(앱 안 웹뷰 금지).
 
 
+## 2026-10-17 DB 최적화 하단 표시줄 (명세 3-4)
+
+- `base.html #srJobBar`는 사진 작업과 DB 최적화 작업(`key: 'db_optimize'`, 라벨 "DB 최적화 중입니다…")을 함께 보인다.
+  최적화 작업은 라벨·진행률(`done/total`)·안내 문구만 한 줄에 보이고, "단계 로그" 버튼(`#srJobToggle`,
+  `aria-expanded`, `#srJobLog` 제어)으로 단계 로그(최근 50줄)를 펼친다. 사진 작업 표시는 그대로다.
+- 색은 테마 토큰만 쓰고(`theme.css` `.sr-job-toggle`·`.sr-job-log`), 펼친 로그는 고정폭·줄바꿈,
+  최대 높이 안에서 내부 스크롤. 390px 폭에서도 표시줄 너비를 넘지 않는다. 동작은 `shell-polling.js`.
+
 ## 프록시 뒤 웹 이동·CSRF (2026-10-14)
 
 다섯 관리 메뉴의 정규 경로는 `/crawl/`, `/rating/`, `/watchlist/`, `/settings/`, `/devices/`다. 내부 링크·설정/JSON 저장 후303·기기 키 삭제 후303은 정규 경로를 직접 사용한다. 구 slash 없는 GET은 기존307 호환을 유지하며 쿼리도 보존한다. 설정 저장 안내 JS는 `saved`만 지우고 다른 쿼리와 hash를 보존한다. API 경로는 변경하지 않는다.

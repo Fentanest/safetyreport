@@ -82,6 +82,23 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
 - **스키마 버전**: 서버 `PRAGMA user_version` = `core/database/database.py SCHEMA_VERSION`(현재 7),
   모바일 `LocalDbService.dbVersion`(현재 18). 계약 `contracts/storage-contract.json`(현재 `contract_version` 4).
 
+## 2026-10-17 DB 최적화 — 메타·API 추가 필드 (명세 3절)
+
+- **메타 키** `mysafety_sync_meta.detail_raw_optimize` =
+  `{"target": "pc-parser-13", "cursor": "<마지막 처리 ID>", "done": bool, "total": int,
+    "stats": {"reused", "refetched", "changed", "events", "skipped": {사유: 건수}}}`.
+  `target`이 현재 파서 버전과 다르거나 `done`이 아니면 최적화 작업이 시작/이어서 한다.
+  번호 없는 수동 크롤 미루기는 `detail_raw_optimize_deferred_full`(전체 크롤 요청 목록, 최대 10개)에 둔다.
+- **정비 상태**(`services/maintenance_service.status()` → `/maintenance/status`,
+  `/api/v1/maintenance/status`): 작업 `db_optimize` 추가(기존 필드·의미 불변, 추가만).
+  `{"key": "db_optimize", "label": "DB 최적화 중입니다…", "state": idle|running|paused|completed|error,
+    "total", "done", "stage": running|waiting_crawl|waiting_rebuild|login_required|done|error,
+    "message", "log": ["시각 문구" 최대 50줄], "finished_at"}`.
+- **크롤 시작 API 추가 필드**(기존 필드 유지, 하위호환): 최적화 때문에 대기열에 붙을 때
+  `queued_reason: "db_optimize"`. 대상: `POST /api/v1/crawl/start`(실행 중이면 예외이던 경로가 최적화 중일 때만
+  대기열 등록으로 바뀜), `POST /api/v1/crawl/enqueue`(단건), `POST /api/v1/crawl/notification`(알림),
+  웹 `POST /crawl/start`·`POST /crawl/enqueue-selected`.
+
 ## 2026-10-11 서버 스키마 6 / 모바일 17 — 신고 한 건 한 행, 5분류 (이전 기준, 스키마 7 설명이 우선)
 
 이 절이 아래 모든 표 설명보다 우선한다. 계획·결정: `docs/plans/2026-10-11-report-taxonomy.md`.
