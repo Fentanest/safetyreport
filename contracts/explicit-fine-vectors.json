@@ -414,6 +414,30 @@
       "text": "과태료 100,000원을 부과하였습니다. 자진 납부 시 감경액의 상한은 20,000원입니다.",
       "number": "100,000",
       "amount": 100000
+    },
+    {
+      "name": "payment deadline is not a limit",
+      "text": "과태료 40,000원을 부과하였습니다. 감경 납부기한도 함께 안내드리니 32,000원을 납부하시기 바랍니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "refusal reason noun is not a refusal",
+      "text": "과태료 부과 불가 사유에 해당하지 않아 과태료 40,000원을 부과하였습니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "itemized result then surcharge notice line",
+      "text": "처리결과: 과태료 40,000원 부과 완료\r\n※ 기한 내 납부하면 가산금은 부과하지 않습니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "surcharge refusal in the same sentence",
+      "text": "과태료 40,000원을 부과하였으며, 기한 내 납부하면 가산금은 부과하지 않습니다.",
+      "number": "40,000",
+      "amount": 40000
     }
   ]
 }

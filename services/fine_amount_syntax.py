@@ -21,17 +21,21 @@ _LIMIT = re.compile(
     + '*(?:경우|시)|경우에?는?|부과하지|부과할' + _S + '*수' + _S + '*없'
     # Future conditions ("다시 적발될 시", "적발되면", "~할 시", "~하면").
     + '|(?:될|할|적발|위반)' + _S + '*시(?:에는?|에도)?' + _END + '|(?:하|되|않으)면' + _END)
-# A refusal/non-imposition decision from the amount's clause to the end of its sentence ("부과할
-# 예정이었으나, ... 부과하지 않습니다") withdraws that amount. One in another sentence or an earlier
-# clause is about another violation or charge ("가산금은 부과하지 않습니다") and does not.
-_REFUSAL = re.compile('부과하지|부과할' + _S + '*수' + _S + '*없|미부과(?:하|합|함|처리|결정|로)|부과(?:가|는)?' + _S + '*(?:불가(?!피)|어렵|곤란)')
-# A decision sentence ends at a sentence-final ending, not at a line break inside it ("예정이었으나,\n...").
-_DECISION_END = re.compile('。|(?<=[다요])[.!?]|(?<=[다요.!?])[\t\r \xa0\u3000]*\n')
+# A refusal from the amount's clause to the end of its sentence ("부과할 예정이었으나, ... 부과하지
+# 않습니다") withdraws that amount. A refusal of another charge ("가산금은 부과하지 않습니다"), a reason
+# noun ("부과 불가 사유") or one in another sentence does not.
+_REFUSAL = re.compile('(?:부과하지|부과할' + _S + '*수' + _S + '*없|부과(?:가|는)?' + _S + '*(?:불가(?!피)|어렵|곤란))'
+                      + '(?!는?' + _S + '*사유)')
+_SUBJECT = re.compile('([가-힣]+)(?:을|를|은|는|이|가)' + _S + '*$')
+# A decision sentence ends at a sentence-final mark or a line break, except a line ending with a comma
+# ("예정이었으나,\n...").
+_DECISION_END = re.compile('。|(?<=[다요])[.!?]|\n')
+_COMMA_TAIL = re.compile('[,，][\t\r \xa0\u3000]*$')
 # Another amount in a reduction clause ("경우 과태료 80,000원으로 감경") is a second stated amount
 # even when its clause is conditional.
 _REDUCTION = re.compile('감경|경감|감면')
 # A limit amount ("20만원 이하", "최대 200만원", "감경액의 상한은 2만원") is guidance, not a second stated amount.
-_LIMIT_BEFORE = re.compile('최대|상한|한도')
+_LIMIT_BEFORE = re.compile('최대|상한|(?<!기)한도')
 _PREVIOUS_LIMIT = re.compile('(?:최대|상한|(?:미이행|불이행|불응)' + _S + '*시|않을' + _S + '*경우)' + _S + '*[:：]?' + _S + '*$')
 _FOLLOWING_LIMIT = re.compile(_S + '*\\)?' + _S + '*(?:이하|이상|미만|초과)')
 _CLOSE = re.compile(_S + '*\\)')
@@ -48,6 +52,15 @@ def _number(token, unit):
     if unit == '만' and re.fullmatch('[0-9]+', token):
         return str(int(token) * 10000)
     return None  # Decimal/mixed Korean units require an explicit supported grammar.
+
+
+def _refuses(text, start, end):
+    for refusal in _REFUSAL.finditer(text, start, end):
+        subject = _SUBJECT.search(text, start, refusal.start())
+        if subject and not (subject[1].endswith('과태료') or subject[1] == '원'):
+            continue  # Another charge ("가산금은 부과하지 않습니다").
+        return True
+    return False
 
 
 def _identity(n):
@@ -68,7 +81,8 @@ def explicit_fine_number(text):
     matches = list(_FINE.finditer(text))
     if not matches:
         return None
-    decision_ends = sorted({len(text)} | {m.end() for m in _DECISION_END.finditer(text)})
+    decision_ends = sorted({len(text)} | {m.end() for m in _DECISION_END.finditer(text)
+                                          if m[0] != '\n' or not _COMMA_TAIL.search(text, 0, m.start())})
     cuts = sorted({0, len(text)} | {m.end() for m in _SENTENCE.finditer(text)}
                   | {m.end() for m in _CLAUSE.finditer(text)})
 
@@ -88,7 +102,7 @@ def explicit_fine_number(text):
         if before.endswith('\n'):
             before = before[:-1]
         previous = before.split('\n')[-1] if a else ''
-        if (_REFUSAL.search(text, a, sentence_end) or _LIMIT.search(text[a:b]) or _PREVIOUS_LIMIT.search(previous)
+        if (_refuses(text, a, sentence_end) or _LIMIT.search(text[a:b]) or _PREVIOUS_LIMIT.search(previous)
                 or _FOLLOWING_LIMIT.match(text, match.end())):
             skipped.append(match.span())
             continue
