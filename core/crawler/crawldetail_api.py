@@ -22,13 +22,18 @@ def classify_fetch_error(error: str | None) -> str:
     """상세 조회 실패 분류: ok 이외는 retryable | permanent | auth 중 하나.
 
     - 네트워크·5xx·타임아웃·JSON 파싱 → retryable
-    - 접근 거절·삭제된 원본(404/410/403) → permanent
-    - 로그인 실패·토큰 만료(401/419) → auth
+    - 없음·삭제가 분명한 응답(404/410) → permanent
+    - 로그인 문제(401/419·403·로그인 화면) → auth (명세 7-1: 403을 not_found로 보지 않음)
     """
     text = str(error or "")
-    if "HTTP 401" in text or "HTTP 419" in text or "unauthorized" in text.lower():
+    lowered = text.lower()
+    if "http 401" in lowered or "http 419" in lowered or "unauthorized" in lowered:
         return "auth"
-    if "HTTP 404" in text or "HTTP 410" in text or "HTTP 403" in text:
+    if "http 403" in lowered or "forbidden" in lowered:
+        return "auth"
+    if "로그인" in text or "login" in lowered:
+        return "auth"
+    if "http 404" in lowered or "http 410" in lowered:
         return "permanent"
     return "retryable"
 

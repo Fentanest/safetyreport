@@ -378,7 +378,8 @@ class _ReparseSkipped(RuntimeError):
     """DB 최적화 재파싱에서 그 신고를 건너뛰라는 신호(사유 문자열을 담는다)."""
 
 
-def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse") -> dict | None:
+def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse",
+                expected: dict | None = None) -> dict | None:
     """DB 최적화(services/db_optimize.py)가 쓰는 파서 열만 갱신 저장.
 
     `_save_one` 과 같은 캡처→개인 저장 잠금(`BEGIN IMMEDIATE`)·공유 캡처·화면용 표 갱신을 쓰지만,
@@ -393,6 +394,10 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse") -> dict
     upsert 한다. 이미 원본 표에 있는 신고는 원본 표를 손대지 않는다(`_save_raw` 가 None 이면 건너뜀).
 
     반환: 바뀐 신고의 change dict, 바뀌지 않았으면 None. 신고 행이 없으면 _ReparseSkipped.
+
+    `expected` 는 최적화가 시도 시작 때 읽은 행 값(답변일·처리내용·상태)이다. 쓰기 잠금
+    안에서 그 행이 같은지 다시 확인하고(명세 7-4), 다르면 저장하지 않고
+    `_ReparseSkipped("changed_during_reparse")` 로 끝낸다.
     """
     from dataclasses import replace
 
@@ -407,6 +412,10 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse") -> dict
             existing = _find_row(conn, rec.id)
             if existing is None:
                 raise _ReparseSkipped("no_report")
+            if expected is not None:
+                for column in ("답변일", "처리내용", "상태"):
+                    if comparable(existing.get(column)) != comparable(expected.get(column)):
+                        raise _ReparseSkipped("changed_during_reparse")
             # 공유 캡처 입력의 목록 값은 쓰기 잠금 안에서 읽은 기존 행으로 채운다(일반 크롤의
             # title_fields 와 같은 집합). 재파싱 파서 출력에는 만족도 조회 값(별점·별점사유 등)이
             # 없어 그대로 쓰면 같은 원본도 payload 가 달라져 새 completed_observation 이 나가고

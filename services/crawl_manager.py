@@ -628,6 +628,20 @@ class CrawlManager:
             _optimize.maybe_start_deferred_from_crawl(_get_engine())
         except Exception as exc:
             note_fallback("crawl_manager.deferred_full_hook", exc)
+        # 크롤 성공 직후: 쉬는·멈춘 최적화를 다시 판단한다(명세 7-1·7-3 — 보류만 재시도, 백오프 무시).
+        # 실패 종료(outcome != succeeded)는 깨우기만 하고 재시작하지 않는다.
+        try:
+            if outcome.get('state') == 'succeeded':
+                from core.database.engine import get_engine as _get_engine2
+                from services import db_optimize as _optimize2
+
+                _optimize2.on_crawl_success(_get_engine2())
+            else:
+                from services import db_optimize as _optimize3
+
+                _optimize3.notify_crawl_success()
+        except Exception as exc:
+            note_fallback("crawl_manager.optimize_on_crawl_success", exc)
 
     def launch_pending_crawl(self) -> bool:
         """대기 큐의 신고번호로 새 크롤링을 시작한다(배경 스레드에서 호출 가능). 모든 자동 시작의 한 경계:

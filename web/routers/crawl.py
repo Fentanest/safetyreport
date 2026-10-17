@@ -10,7 +10,7 @@ import os
 import settings.settings as settings
 from core.database.engine import get_engine
 from core.utils.templating import templates
-from services import crawl_control, export_service
+from services import crawl_control, db_optimize, export_service
 from services.crawl_manager import crawl_manager
 from services.community_crawl_upload import PendingUploadError
 
@@ -64,6 +64,9 @@ def start_crawl(
         queued = exc.queued
         return JSONResponse({"status": "queued", "queued_reason": queued.get("queued_reason", "db_optimize"),
                              "message": queued.get("message", "DB 최적화 중입니다. 최적화가 끝난 뒤 크롤링을 시작합니다.")})
+    except db_optimize.DeferSaveFailed as exc:
+        # 보류 저장 실패(명세 7-5) — 같은 오류 형태, 사유만 있는 그대로(하위호환).
+        return JSONResponse({"status": "error", "message": str(exc)})
     except RuntimeError as exc:
         if isinstance(exc, PendingUploadError):
             return JSONResponse({"status": "error", "message": str(exc)}, status_code=503)
