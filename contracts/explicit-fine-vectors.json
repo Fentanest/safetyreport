@@ -354,6 +354,30 @@
       "text": "과태료 40,000원을 부과하였습니다.\n※ 최대 200만원까지 부과될 수 있습니다.",
       "number": "40,000",
       "amount": 40000
+    },
+    {
+      "name": "labelled reduced amount in a conditional clause",
+      "text": "과태료 100,000원을 부과하며, 자진 납부하는 경우 과태료 80,000원으로 감경됩니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "refusal phrased as impossible",
+      "text": "과태료 40,000원을 부과할 예정이었으나, 검토 결과 과태료 부과가 불가합니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "refused amount then imposed amount",
+      "text": "제19조 위반에 대한 과태료 100,000원은 부과하지 않습니다. 제38조 위반으로 과태료 40,000원을 부과하였습니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "surcharge refusal in a later sentence",
+      "text": "과태료 40,000원을 부과하였습니다. 기한 내 납부하면 가산금은 부과하지 않습니다.",
+      "number": "40,000",
+      "amount": 40000
     }
   ]
 }

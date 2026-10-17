@@ -21,9 +21,13 @@ _LIMIT = re.compile(
     + '*(?:경우|시)|경우에?는?|부과하지|부과할' + _S + '*수' + _S + '*없'
     # Future conditions ("다시 적발될 시", "적발되면", "~할 시", "~하면").
     + '|(?:될|할|적발|위반)' + _S + '*시(?:에는?|에도)?' + _END + '|(?:하|되|않으)면' + _END)
-# A refusal/non-imposition decision from the amount's clause onwards ("부과할 예정이었으나, ... 부과하지
-# 않습니다") overrides the amount; one before it is about another violation and does not.
-_REFUSAL = re.compile('부과하지|부과할' + _S + '*수' + _S + '*없|미부과')
+# A refusal/non-imposition decision from the amount's clause to the end of its sentence ("부과할
+# 예정이었으나, ... 부과하지 않습니다") withdraws that amount. One in another sentence or an earlier
+# clause is about another violation or charge ("가산금은 부과하지 않습니다") and does not.
+_REFUSAL = re.compile('부과하지|부과할' + _S + '*수' + _S + '*없|미부과|부과(?:가|는)?' + _S + '*(?:불가|어렵|곤란)')
+# Another amount in a reduction clause ("경우 과태료 80,000원으로 감경") is a second stated amount
+# even when its clause is conditional.
+_REDUCTION = re.compile('감경|경감|감면')
 # A limit amount ("20만원 이하", "최대 200만원") is guidance, not a second stated amount.
 _LIMIT_BEFORE = re.compile('(?:최대|상한)' + _S + '*(?:과태료)?' + _S + '*:?' + _S + '*$')
 _PREVIOUS_LIMIT = re.compile('(?:최대|상한|(?:미이행|불이행|불응)' + _S + '*시|않을' + _S + '*경우)' + _S + '*[:：]?' + _S + '*$')
@@ -54,16 +58,16 @@ def explicit_fine_number(text):
     A condition/limit qualifies only the clause that holds the amount. Generic
     guidance in another clause, sentence or line (a limit footer, a reduction
     notice without an amount) neither negates an explicit amount nor counts as
-    a second amount. A refusal from the amount's clause onwards, or any other
-    amount that is not itself a limit (a reduced amount, a surcharge), leaves
-    the amount unknown.
+    a second amount. A refusal from the amount's clause to the end of its
+    sentence withdraws that amount; any other amount that is not itself a
+    limit (a reduced amount, a surcharge) leaves the amount unknown.
     """
     text = str(text or '').translate(_TRANSLATE)
     matches = list(_FINE.finditer(text))
     if not matches:
         return None
-    cuts = sorted({0, len(text)} | {m.end() for m in _SENTENCE.finditer(text)}
-                  | {m.end() for m in _CLAUSE.finditer(text)})
+    sentence_ends = sorted({len(text)} | {m.end() for m in _SENTENCE.finditer(text)})
+    cuts = sorted({0} | set(sentence_ends) | {m.end() for m in _CLAUSE.finditer(text)})
 
     def clause(start, end):
         a = max(c for c in cuts if c <= start)
@@ -76,13 +80,12 @@ def explicit_fine_number(text):
         if match[1] and not _CLOSE.match(text, match.end()):
             return None
         a, b = clause(match.start(), match.end())
-        if _REFUSAL.search(text, a):
-            return None
+        sentence_end = min(e for e in sentence_ends if e >= match.end())
         before = text[:a]
         if before.endswith('\n'):
             before = before[:-1]
         previous = before.split('\n')[-1] if a else ''
-        if (_LIMIT.search(text[a:b]) or _PREVIOUS_LIMIT.search(previous)
+        if (_REFUSAL.search(text, a, sentence_end) or _LIMIT.search(text[a:b]) or _PREVIOUS_LIMIT.search(previous)
                 or _FOLLOWING_LIMIT.match(text, match.end())):
             skipped.append(match.span())
             continue
@@ -97,9 +100,11 @@ def explicit_fine_number(text):
     for money in _MONEY.finditer(text):
         if _identity(_number(money[1], money[2])) == _identity(candidates[0]):
             continue
+        a, b = clause(money.start(), money.end())
+        if _REDUCTION.search(text[a:b]):
+            return None
         if any(x <= money.start() < y for x, y in skipped):
             continue
-        a, _ = clause(money.start(), money.end())
         if _FOLLOWING_LIMIT.match(text, money.end()) or _LIMIT_BEFORE.search(text[a:money.start()]):
             continue
         return None
