@@ -84,21 +84,28 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
 
 ## 2026-10-17 DB 최적화 — 메타·API 추가 필드 (명세 3절)
 
-- **메타 키** `mysafety_sync_meta.detail_raw_optimize` =
+- **메타 키** `mysafety_sync_meta.detail_raw_optimize`(서버·모바일 같은 키·같은 의미, Opus P1) =
   `{"target": "pc-parser-13", "cursor": "<마지막 처리 ID>", "done": bool, "total": int,
-    "stats": {"reused", "refetched", "changed", "events", "skipped": {사유: 건수}},
-    "attempts": {"<ID>": 시도횟수}, "holds": ["<ID>", ...], "round": 회차,
-    "next_retry_at": 다음 재시도 epoch초}`.
-  `target`이 현재 파서 버전과 다르거나 `done`이 아니면 최적화 작업이 시작/이어서 한다.
-  버전이 다르면 커서·보류·통계·시도횟수를 버리고 처음부터 다시 훑는다.
+    "stats": {"reused", "refetched", "changed", "events", "forwarded", "skipped": {사유: 건수}},
+    "attempts": {"<ID>": 이번 회차 시도횟수}, "holds": ["<ID>", ...], "round": 회차(0에서 시작, 한 바퀴 끝날 때마다 +1),
+    "next_retry_at": "다음 재시도 UTC ISO8601(없으면 생략)"}`.
+  구 메타(`next_retry_at` epoch 숫자·모바일 구 `pending` 키)도 읽는다(하위호환).
+  `target`이 서버·모바일 현행 버전과 다르면 커서·보류·통계·시도횟수를 버리고 처음부터 다시 훑는다.
+  같은 세대 target의 partial 메타를 가져오면 `holds`만 이어서 처리한다.
   일시 실패(네트워크·5xx·타임아웃·저장 실패)는 `attempts`에 신고별 횟수를 남기고 커서는 넘기되
-  같은 회차 끝·다음 기동에 다시 시도한다. 3회 실패는 보류 목록(`holds`)에 남기고(영구 건너뜀이 아님),
+  같은 회차 끝·다음 기동에 다시 시도한다. 3번째 실패에서 보류 목록(`holds`)에 남기고 이번 회차는 건너뛴다(영구 건너뜀이 아님),
   `done=true`는 보류 목록이 비었을 때만 기록한다.
-  보류만 남은 채 한 바퀴를 끝내면 `done` 없이 `stage=partial` 로 끝나고, 다음 기동이나 크롤 성공 뒤
-  보류 목록만 다시 시도한다(회차마다 시도 횟수 초기화, 회차 사이 간격은 `next_retry_at` 지수 백오프·최대 1시간,
-  크롤 성공 직후 재시는 간격 무시).
+  보류만 남은 채 한 바퀴를 끝내면 `done` 없이 `state='partial'`(`paused` 아님, 실행 중 아님)로 끝나고,
+  다음 기동이나 크롤 성공 뒤 보류 목록만 다시 시도한다(회차마다 시도 횟수 초기화,
+  회차 사이 간격은 `next_retry_at` 지수 백오프·최대 1시간, 크롤 성공 직후 재시는 간격 무시).
   영구 실패는 404·410만, 403·401·로그인 화면은 로그인 문제(`auth`)로 본다.
-  연속 5건 일시 실패·로그인 문제는 신고별 횟수 없이 작업 전체를 쉰다(`outage`/`login_required`).
+  연속 5건 일시 실패·로그인 문제는 신고별 횟수 없이 작업 전체를 쉰다(`outage`/`login_required`,
+  모두 밑값 60초→2배→최대 1시간 지수 백오프, 크롤 성공 직후 깨움). 실패해도 요청 간격은 지킨다.
+  저장 직전 답변일·처리내용·상태가 바뀌면 처리 완료로 세지 않고 시도 횟수 증가 없이 `holds`로 넘긴다(Opus P6).
+  신고번호 없는 행의 새 활동은 저장(원본·파서 열·파일)·대기열 없이
+  로그 '새 답변 — 다음 일반 크롤에서 처리(신고번호 없음)' 뒤 처리 완료로 센다(Opus P5).
+  최적화가 어떤 경로로 끝나거나 쉬든(완료·partial·outage·login_required·오류) 보류 크롤을 배출한다(Opus P4).
+  직접 로그인 실패 때 토큰 파일 세션 재사용은 파일 계정(`username`)이 현재 설정 계정과 같을 때만 한다(Opus P7).
   쉬는 동안 이 크롤 게이트(`db_optimize.is_running()`)는 False — 실제로 신고를 처리 중일 때만 True다.
   번호 없는 수동 크롤 미루기는 `detail_raw_optimize_deferred_full`(합쳐진 단일 전체 크롤 요청 1건)에 둔다.
   보류 저장 실패는 예외를 올려 요청자(웹·`/api/v1/crawl/start`)가 기존 오류 형태로 받는다(하위호환).
@@ -112,9 +119,10 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
   `/api/v1/maintenance/status`): 작업 `db_optimize` 추가(기존 필드·의미 불변, 추가만).
   `{"key": "db_optimize", "label": "DB 최적화 중입니다…"(부분 완료·쉼 상태에서는
     "DB 최적화 부분 완료 — 보류가 있습니다"/"DB 최적화 쉬는 중입니다…"와 보류 건수·재시도 안내),
-    "state": idle|running|paused|completed|error,
+    "state": idle|running|paused|partial|completed|error,
     "total", "done", "stage": running|waiting_crawl|waiting_rebuild|login_required|outage|partial|done|error,
     "message", "log": ["시각 문구" 최대 50줄], "finished_at"}`.
+  `partial`은 실행 중이 아니다: 정비 상태 `active=false`, 표시줄은 '보류 N건, 다음 재시도 시각'만 조용히 보인다(Opus P3).
   새 활동 판정 계약 `contracts/reparse-new-activity-vectors.json`(읽기 전용, 수정 금지):
   상세 `C_NOW`→진행 단계 표(`services/parser.py` `_C_NOW_STATUS` 그대로)와 저장된 목록 상태·답변일 비교 규칙.
 - **크롤 시작 API 추가 필드**(기존 필드 유지, 하위호환): 최적화 때문에 대기열에 붙을 때
