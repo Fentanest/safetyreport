@@ -78,25 +78,26 @@ def _journal_count():
 
 
 def _reset_optimize_state():
-    # 정리 중 후속 스레드 생성을 막고 살아 있는 스레드를 끝까지 기다린다 — 멈춤으로 끝난
-    # 스레드의 자동 재시작이 다음 시험 DB 로 쓰는 오염을 막는다.
-    with db_optimize._lock:
-        db_optimize._auto_restart = False
-    try:
+    # 새 수명 시작처럼 초기화한다: 종료 요청을 켜고 살아 있는 스레드를 끝까지
+    # 기다린다(정리 중 후속 스레드가 다음 시험 DB 로 쓰는 오염을 막는다).
+    # 작업자 종료 시점의 재판단은 `_shutdown` 을 보고 띄우지 않는다.
+    with db_optimize._life_lock:
+        db_optimize._shutdown = True
         db_optimize._stop.set()
-        with db_optimize._lock:
-            thread = db_optimize._thread
-        if thread is not None and thread is not threading.current_thread():
-            thread.join(timeout=15)
-    finally:
-        with db_optimize._lock:
-            db_optimize._thread = None
-            db_optimize._state.update({"state": "idle", "total": 0, "done": 0, "stage": "",
-                                       "message": "", "log": [], "finished_at": ""})
-            db_optimize._suppress_restart = False
-            db_optimize._auto_restart = True
-        db_optimize._stop.clear()
-        db_optimize.resume_after_restore()
+        thread = db_optimize._thread
+    if thread is not None and thread is not threading.current_thread():
+        thread.join(timeout=15)
+    with db_optimize._life_lock:
+        db_optimize._thread = None
+        db_optimize._restore_tokens.clear()
+        db_optimize._restore_pause = False
+        db_optimize._pause_requested = False
+        db_optimize._shutdown = False
+        db_optimize._current_engine = None
+        db_optimize._current_run_kwargs = {}
+        db_optimize._state.update({"state": "idle", "total": 0, "done": 0, "stage": "",
+                                   "message": "", "log": [], "finished_at": ""})
+    db_optimize._stop.clear()
 
 
 class OptimizeBase(unittest.TestCase):
