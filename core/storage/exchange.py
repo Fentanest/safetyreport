@@ -443,34 +443,37 @@ def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
 
     장벽을 잡기 전에 `db_optimize.pause_for_restore` 로 실행 중 최적화를 멈춘다 —
     복원과 최적화가 동시에 돌지 않으므로 ID 목록·정체 경합이 없다(정체 확인은 방어용으로 유지).
-    성공·실패 공통 종료 경로에서 진행 표시를 끄고 새 DB 메타로 최적화를 다시 판단한다(`db_optimize.maybe_start`).
+    성공·실패 공통 종료 경로에서 자기가 획득한 경우에만 진행 표시를 끄고
+    새 DB 메타로 최적화를 다시 판단한다(`db_optimize.maybe_start`).
     """
     from core.database.engine import get_engine
 
     from services.crawl_manager import crawl_manager
 
     dst = settings.db_path
+    # 획득 전 사전 검사 — 실패하면 복원 표시를 건드리지 않는다(진행 중 첫 복원 유지).
+    try:
+        _integrity_check(uploaded_path, readonly=True)
+    except Exception as exc:
+        raise CorruptDatabaseRefused("손상된 DB 파일입니다. 정상적인 백업 파일을 선택하세요.") from exc
+    ensure_restore_allowed(get_engine())
+    if kind in ("server", "mobile"):
+        refuse_other_version(uploaded_path, kind)  # 이전(또는 더 새) 버전 DB 는 가져오지 않는다 — 무엇이든 바꾸기 전에
+        # 다른 카카오 계정(또는 주인을 모르는) DB 는 가져오지 않는다(services/account_data.py) — 무엇이든 바꾸기 전에
+        from services import account_data
+        account_data.refuse_foreign_owner(uploaded_path, kind, _current_kakao_id())
+    snapshot = read_mobile_db(uploaded_path) if kind == "mobile" else None  # 모르는 열 검사 포함 — 장벽 전에
+    # (0) 최적화 일시정지: 복원 진행 표시를 켜고 실행 중 최적화가 현재 신고 1건을
+    #     끝내고 멈출 때까지 기다린다. 시간 안에 안 끝나면 복원을 거절한다.
+    # (1) 크롤러(별도 프로세스라 쓰기 장벽 밖)는 검사와 같은 잠금 안에서 시작을 막는다 — 검사 직후 시작하는 경쟁 없음.
+    # (2) 스테이징 복사부터 교체까지 이 프로세스의 운영 DB 연결을 막는다. 이미 빌린 연결이 반납될 때까지 기다린다(SOL-04).
+    from services.crawl_manager import RestoreBlocked
+    from services import db_optimize as _optimize
+
+    token = None
     try:
         try:
-            _integrity_check(uploaded_path, readonly=True)
-        except Exception as exc:
-            raise CorruptDatabaseRefused("손상된 DB 파일입니다. 정상적인 백업 파일을 선택하세요.") from exc
-        ensure_restore_allowed(get_engine())
-        if kind in ("server", "mobile"):
-            refuse_other_version(uploaded_path, kind)  # 이전(또는 더 새) 버전 DB 는 가져오지 않는다 — 무엇이든 바꾸기 전에
-            # 다른 카카오 계정(또는 주인을 모르는) DB 는 가져오지 않는다(services/account_data.py) — 무엇이든 바꾸기 전에
-            from services import account_data
-            account_data.refuse_foreign_owner(uploaded_path, kind, _current_kakao_id())
-        snapshot = read_mobile_db(uploaded_path) if kind == "mobile" else None  # 모르는 열 검사 포함 — 장벽 전에
-        # (0) 최적화 일시정지: 복원 진행 표시를 켜고 실행 중 최적화가 현재 신고 1건을
-        #     끝내고 멈출 때까지 기다린다. 시간 안에 안 끝나면 복원을 거절한다.
-        # (1) 크롤러(별도 프로세스라 쓰기 장벽 밖)는 검사와 같은 잠금 안에서 시작을 막는다 — 검사 직후 시작하는 경쟁 없음.
-        # (2) 스테이징 복사부터 교체까지 이 프로세스의 운영 DB 연결을 막는다. 이미 빌린 연결이 반납될 때까지 기다린다(SOL-04).
-        from services.crawl_manager import RestoreBlocked
-        from services import db_optimize as _optimize
-
-        try:
-            _optimize.pause_for_restore()
+            token = _optimize.pause_for_restore()
         except _optimize.RestorePauseTimeout as exc:
             raise RestoreRefused(str(exc)) from None
         try:
@@ -479,14 +482,16 @@ def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
         except (RestoreBlocked, write_barrier.BarrierTimeout) as exc:
             raise RestoreRefused(str(exc)) from None
     finally:
-        # 복원 완료 지점(성공·실패 공통): 진행 표시를 끄고 새 DB 메타로 최적화를 다시 판단한다.
-        try:
-            from services import db_optimize as _optimize
+        # 자기가 획득한 경우에만 진행 표시를 끄고 새 DB 메타로 최적화를 다시 판단한다.
+        # 획득 전 사전 검사 실패·중첩된 두 번째 요청의 장벽 거절이 첫 복원의 표시를 끄지 않는다.
+        if token is not None:
+            try:
+                from services import db_optimize as _optimize2
 
-            _optimize.resume_after_restore()
-            _optimize.maybe_start(get_engine())
-        except Exception as exc:
-            note_fallback("exchange.restore_maybe_start", exc)
+                _optimize2.resume_after_restore(token)
+                _optimize2.maybe_start(get_engine())
+            except Exception as exc:
+                note_fallback("exchange.restore_maybe_start", exc)
 
 
 def _restore_exclusive(uploaded_path: str, kind: str, dst: str, snapshot: "MobileSnapshot | None") -> tuple[str, int]:

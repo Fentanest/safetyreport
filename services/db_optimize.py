@@ -52,7 +52,24 @@ _stop = threading.Event()
 #: 복원 진행 표시. 켜져 있는 동안 `maybe_start` 는 시작하지 않는다.
 #: DB 교체 경로(`exchange.restore` 등)가 장벽을 잡기 전에 `pause_for_restore` 로 켜고,
 #: 복원 종료(성공·실패 공통)에서 `resume_after_restore` 로 끈다.
+#: 중첩 호출을 견디도록 토큰 스택으로 소유자를 가린다 — 획득한 호출자만 해제한다.
 _restore_pause = False
+_restore_tokens: list = []
+#: `resume_after_restore` 구 호출(인자 없음, 시험 정리 등)용 표시. 새 코드는 토큰을 넘긴다.
+_NO_TOKEN: object = object()
+#: 멈춤 요청으로 끝난 스레드가 표시 없을 때 종료 시점에 `maybe_start` 로 다시 판단한다.
+#: 시험 정리(`_reset_optimize_state`)는 끄고 스레드를 죽인 뒤 다시 켠다 — 정리 중 후속
+#: 스레드가 살아 다음 시험 DB 로 쓰는 오염을 막는다(서버 종료 때는 꺼지지 않으며,
+#: 데몬이라 프로세스 종료와 함께 사라진다).
+_auto_restart = True
+#: 복원 일시정지가 멈춤을 요청했음(`pause_for_restore` 가 `stop_and_join` 으로).
+#: 시간 초과로 표시·`_stop` 을 풀었는데 스레드가 그 전에 멈췄으면 종료 시점에
+#: 다시 시작한다(작업 중단 방지). `stop()`(서버 종료·시험 정리)은 일반 멈춤이라
+#: 재시작하지 않는다 — 아래 `_suppress_restart` 로 구분한다.
+_pause_stop = False
+#: `stop()` 이 살아 있는 스레드에 요청한 일반 멈춤. 스레드 종료 1회에 소비되며
+#: 재시작하지 않는다. `pause_for_restore` 는 멈춤을 걸 때 끈다.
+_suppress_restart = False
 #: 복원 시작 때 실행 중 최적화가 현재 신고 1건을 끝내고 멈추길 기다리는 시간(초).
 #: 네트워크 재조회 1건이 끝나는 정도를 본다 — 넘으면 복원을 거절한다.
 RESTORE_PAUSE_TIMEOUT = 60.0
@@ -1024,30 +1041,70 @@ def stop_and_join(timeout: float = RESTORE_PAUSE_TIMEOUT) -> bool:
     return not thread.is_alive()
 
 
-def pause_for_restore(timeout: float = RESTORE_PAUSE_TIMEOUT) -> None:
+def pause_for_restore(timeout: float = RESTORE_PAUSE_TIMEOUT) -> object:
     """DB 교체 경로가 장벽을 잡기 전에 부른다: 복원 진행 표시를 켜고 실행 중 최적화에
     멈춤을 요청해 현재 처리 중인 신고 1건(네트워크 재조회 중이면 그 저장을 하지 않고)을
     끝내고 스레드가 끝날 때까지 기다린다. 이렇게 하면 복원과 최적화가 동시에 돌지
     않으므로 ID 목록·정체 경합이 없다(정체 확인은 방어용으로 유지).
 
-    시간 안에 끝나지 않으면 표시를 풀고 RestorePauseTimeout — 호출자는 복원을
-    명확한 오류로 거절한다."""
-    global _restore_pause
+    성공하면 소유 토큰을 돌려준다 — 호출자는 `finally` 에서
+    `resume_after_restore(token)` 으로 자기가 획득한 경우에만 해제한다(중첩된 두 번째
+    복원이 먼저 끝나도 첫 복원의 표시가 꺼지지 않는다).
+
+    시간 안에 끝나지 않으면 표시를 풀고 `_stop` 도 풀어 기존 스레드가 그대로 계속
+    진행·완료하게 한 뒤 RestorePauseTimeout — 호출자는 복원을 명확한 오류로 거절한다.
+    중첩 호출(표시가 이미 켜져 있음)이 시간 안에 끝나지 않으면 자기 토큰만 거두고
+    첫 복원의 표시·멈춤 요청은 그대로 둔다.
+    멈춤 요청 사실(`_pause_stop`)은 남긴다 — 스레드가 그 멈춤으로 끝났는데 표시가
+    없으면 종료 시점에 `maybe_start` 로 다시 판단한다(`stop()` 의 일반 멈춤과 구분)."""
+
+    global _restore_pause, _pause_stop, _suppress_restart
+    token = object()
     with _lock:
+        _restore_tokens.append(token)
         _restore_pause = True
+        _suppress_restart = False
+        _pause_stop = True
     if stop_and_join(timeout):
-        return
+        return token
     with _lock:
-        _restore_pause = False
+        try:
+            _restore_tokens.remove(token)
+        except ValueError:
+            pass
+        outermost = not _restore_tokens
+        if outermost:
+            _restore_pause = False
+    if outermost:
+        # 첫(바깥) 복원 요청의 시간 초과 — 복원은 거절되므로 기존 스레드의 멈춤 요청을
+        # 풀어 중단된 채 남지 않고 그대로 계속하게 한다(표시도 함께 해제됨).
+        _stop.clear()
     raise RestorePauseTimeout(
         "DB 최적화가 끝나지 않아 복원하지 않았습니다. 잠시 뒤 다시 시도하세요.")
 
 
-def resume_after_restore() -> None:
-    """복원 종료(성공·실패 공통)에서 복원 진행 표시를 끈다. 호출 뒤 maybe_start 로 다시 판단한다."""
-    global _restore_pause
+def resume_after_restore(token: object = _NO_TOKEN) -> None:
+    """복원 종료(성공·실패 공통)에서 복원 진행 표시를 끈다. 호출 뒤 maybe_start 로 다시 판단한다.
+
+    토큰을 넘기면 스택에 그 토큰이 있을 때만(자기가 획득한 경우에만) 거두고,
+    스택이 비어야 표시가 꺼진다 — 획득 전 사전 검사 실패(토큰 없음)는 표시를
+    건드리지 않는다. 인자 없이 부르면(시험 정리·구 경로 호환) 전부 해제한다.
+    스택이 비면 복원 멈춤 요청(`_pause_stop`)도 거둔다.
+    """
+    global _restore_pause, _pause_stop
     with _lock:
-        _restore_pause = False
+        if token is _NO_TOKEN:
+            _restore_tokens.clear()
+            _restore_pause = False
+            _pause_stop = False
+            return
+        try:
+            _restore_tokens.remove(token)
+        except ValueError:
+            return
+        if not _restore_tokens:
+            _restore_pause = False
+            _pause_stop = False
 
 
 # ── 시작/종료 ────────────────────────────────────────────────────────────────
@@ -1056,7 +1113,7 @@ def maybe_start(engine, *, background: bool = True, **run_kwargs) -> threading.T
     """스키마 업그레이드 뒤 기동 때 한 번. 할 일 없으면 None(아무 일도 하지 않는다).
 
     최적화가 이미 done이어도 미뤄 둔 전체 크롤이 있으면 기동 경로에서 꺼내 시작한다."""
-    global _thread
+    global _thread, _pause_stop, _suppress_restart
     with _lock:
         # 복원 진행 중에는 시작하지 않는다 — 멈추고 끝난 옛 스레드를 반환하는 경로도 없다.
         if _restore_pause:
@@ -1073,6 +1130,9 @@ def maybe_start(engine, *, background: bool = True, **run_kwargs) -> threading.T
                 note_fallback("db_optimize.deferred_on_startup", exc)
             return None
         _stop.clear()
+        # 새 스레드가 새 주기로 돈다 — 이전 복원 멈춤 요청·일반 멈춤 억제는 거둔다.
+        _pause_stop = False
+        _suppress_restart = False
         meta = read_meta(engine) or {}
         with engine.connect() as conn:
             try:
@@ -1087,9 +1147,13 @@ def maybe_start(engine, *, background: bool = True, **run_kwargs) -> threading.T
             f"[db_optimize] 시작: 대상 {len(total)}건, 파서 {PARSER_VERSION}")
 
         def _run():
+            global _thread, _suppress_restart, _pause_stop
+            result = None
+            failed = False
             try:
-                process_all(engine, **run_kwargs)
+                result = process_all(engine, **run_kwargs)
             except Exception as exc:
+                failed = True
                 _update(state="error", stage="error", message=type(exc).__name__)
                 append_log(f"오류로 멈춤({type(exc).__name__})")
                 logger.LoggerFactory.logbot.error(f"[db_optimize] 오류로 멈춤: {exc}")
@@ -1100,6 +1164,25 @@ def maybe_start(engine, *, background: bool = True, **run_kwargs) -> threading.T
             finally:
                 with _lock:
                     _thread = None
+                    paused = _restore_pause
+                    suppress = _suppress_restart
+                    _suppress_restart = False
+                    pause_stop = _pause_stop
+                    _pause_stop = False
+                if (not failed and isinstance(result, dict) and not result.get("finished")
+                        and not paused and _auto_restart
+                        and run_kwargs.get("stop", _stop) is _stop
+                        and not suppress
+                        and (pause_stop or _stop.is_set())):
+                    # 멈춤 요청으로 끝났는데 복원 표시가 없으면 작업이 중단된 채 남지 않게
+                    # 스레드 종료 시점에 다시 판단한다. 시간 초과로 `_stop` 이 풀린 뒤
+                    # 뒤늦게 멈춘 경우(`_pause_stop`)와 표시 없는 일반 멈춤(`_stop` 잔류) —
+                    # 복원 중이면 표시가 있어 여기로 오지 않고 복원 종료 경로의
+                    # maybe_start 가 맡는다. `stop()` 의 일반 멈춤은 재시작하지 않는다.
+                    try:
+                        maybe_start(engine, background=True, **run_kwargs)
+                    except Exception as exc:
+                        note_fallback("db_optimize.restart_after_stop", exc)
 
         thread = threading.Thread(target=_run, name="db-optimize", daemon=True)
         _thread = thread
@@ -1111,7 +1194,17 @@ def maybe_start(engine, *, background: bool = True, **run_kwargs) -> threading.T
 
 
 def stop(timeout: float = 5.0) -> bool:
-    """서버 종료 때: 다음 신고 경계에서 멈추고 스레드를 기다린다."""
+    """서버 종료 때: 다음 신고 경계에서 멈추고 스레드를 기다린다.
+
+    일반 멈춤이라 스레드 종료 시점에 다시 시작하지 않는다(`pause_for_restore` 의
+    멈춤 요청과 구분 — `_suppress_restart` 로 1회 소비)."""
+    global _pause_stop, _suppress_restart
+    with _lock:
+        thread = _thread
+        alive = thread is not None and thread.is_alive()
+        if alive and thread is not threading.current_thread():
+            _suppress_restart = True
+        _pause_stop = False
     _stop.set()
     with _lock:
         thread = _thread

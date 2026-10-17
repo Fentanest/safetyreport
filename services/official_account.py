@@ -120,9 +120,10 @@ def save_settings(command, persist):
         exchange.ensure_restore_allowed(engine)
         from services import db_optimize as _optimize
 
+        token = None
         try:
             try:
-                _optimize.pause_for_restore()
+                token = _optimize.pause_for_restore()
             except _optimize.RestorePauseTimeout as exc:
                 raise exchange.RestoreRefused(str(exc)) from None
             with gate._gate._refresh_lock, crawl_manager.hold_for_restore(), write_barrier.exclusive():
@@ -168,14 +169,16 @@ def save_settings(command, persist):
         except (AccountApiError, cas.CommunityAuthError) as exc:
             raise BindingError(exc.code if exc.code in MESSAGES else "cloud_unavailable") from None
         finally:
-            # 교체 종료(성공·실패 공통): 진행 표시를 끄고 새 DB 메타로 최적화를 다시 판단한다.
-            try:
-                from core.utils.fallback import note_fallback as _note
+            # 교체 종료(성공·실패 공통): 자기가 획득한 경우에만 진행 표시를 끄고
+            # 새 DB 메타로 최적화를 다시 판단한다.
+            if token is not None:
+                try:
+                    from core.utils.fallback import note_fallback as _note
 
-                _optimize.resume_after_restore()
-                _optimize.maybe_start(engine)
-            except Exception as exc:
-                _note("official_account.wipe_maybe_start", exc)
+                    _optimize.resume_after_restore(token)
+                    _optimize.maybe_start(engine)
+                except Exception as exc:
+                    _note("official_account.wipe_maybe_start", exc)
         # New connections are registered only after the local wipe + config save succeeded.
         gate.refresh_now()
         return result
