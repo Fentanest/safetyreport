@@ -77,6 +77,7 @@ def _prepare_database(engine, reset=False):
             database.duplicate_member_table,
             database.duplicate_group_table,
             database.report_body_table,
+            database.report_detail_raw_table,
             database.report_effective_table,
             database.report_table,
         ]

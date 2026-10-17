@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -76,6 +77,12 @@ class CrawledDetail:
     raw_type: str = ""
     ssnpc_cd: str | None = None
     ssnpc_type: str | None = None
+    # 상세 원본(2026-10-17 명세 1-1·1-3): 정규 직렬화 바이트와 sha·크기·받은 경로.
+    # 크롤러가 실어 보내면 _save_one 의 같은 트랜잭션에서 원본 표에 upsert 한다. 없으면 원본 표는 손대지 않는다.
+    raw_canonical: bytes | None = None
+    raw_sha256: str | None = None
+    raw_size: int | None = None
+    raw_source: str | None = None
 
     def __post_init__(self):
         self.ssnpc_cd, self.ssnpc_type = report_category.normalize_code(self.ssnpc_cd, self.ssnpc_type)
@@ -86,19 +93,75 @@ class CrawledDetail:
 
     @classmethod
     def from_legacy_tuple(cls, item) -> "CrawledDetail":
-        """크롤러 튜플 (df, category, entry_value, progress_status, title_fields, raw_content, raw_type, ssnpc_cd, ssnpc_type).
-        뒤쪽 원소는 없어도 된다(2~9개)."""
-        fields = list(item) + [None] * (9 - len(item))
-        df, category, entry_value, progress_status, title_fields, raw_content, raw_type, ssnpc_cd, ssnpc_type = fields[:9]
+        """크롤러 튜플 (df, category, entry_value, progress_status, title_fields, raw_content, raw_type, ssnpc_cd, ssnpc_type[, raw_info]).
+        뒤쪽 원소는 없어도 된다(2~10개). 10번째 raw_info 는 detail_pipeline.build_detail_result 가 붙인
+        {"raw_canonical": bytes, "raw_sha256": str, "raw_size": int, "raw_source": str} 이다."""
+        fields = list(item) + [None] * (10 - len(item))
+        df, category, entry_value, progress_status, title_fields, raw_content, raw_type, ssnpc_cd, ssnpc_type, raw_info = fields[:10]
         rows = df.to_dict("records")
         if not rows:
             raise ValueError("빈 상세 데이터")
         row = {k: _clean(v) for k, v in rows[0].items()}
+        raw = _coerce_raw_info(raw_info)
         return cls(
             id=str(row["ID"]), category=category or "other", detail=row,
             entry_value=entry_value, progress_status=progress_status, title_fields=title_fields,
             raw_content=raw_content, raw_type=raw_type or "", ssnpc_cd=ssnpc_cd, ssnpc_type=ssnpc_type,
+            raw_canonical=raw.get("raw_canonical"), raw_sha256=raw.get("raw_sha256"),
+            raw_size=raw.get("raw_size"), raw_source=raw.get("raw_source"),
         )
+
+
+def _coerce_raw_info(raw_info) -> dict:
+    """10번째 원소를 검증해 돌려준다. 없거나 모양이 틀리면 빈 dict(원본 표는 손대지 않음)."""
+    if not isinstance(raw_info, dict):
+        return {}
+    canonical = raw_info.get("raw_canonical")
+    sha = raw_info.get("raw_sha256")
+    size = raw_info.get("raw_size")
+    source = raw_info.get("raw_source") or "crawl"
+    if not isinstance(canonical, (bytes, bytearray)) or not isinstance(sha, str) or not isinstance(size, int):
+        return {}
+    if size != len(canonical):
+        return {}
+    return {"raw_canonical": bytes(canonical), "raw_sha256": sha, "raw_size": size, "raw_source": source}
+
+
+def _save_raw(conn, rec: CrawledDetail) -> None:
+    """상세 원본을 같은 트랜잭션에서 원본 표에 upsert 한다(같은 ID 로 다시 받으면 덮어씀).
+
+    크롤러가 원본을 실어 보내지 않은 저장(옛 튜플·수동 경로)이면 아무것도 하지 않는다.
+    """
+    if rec.raw_canonical is None or rec.raw_sha256 is None or rec.raw_size is None:
+        return
+    from core.utils import raw_detail as _raw
+
+    table = models.report_detail_raw_table
+    blob = _raw.compress(bytes(rec.raw_canonical))
+    values = {"ID": rec.id, "raw_zlib": blob, "raw_sha256": rec.raw_sha256,
+              "raw_size": rec.raw_size, "fetched_at": _raw.utc_now_fetched_at(),
+              "source": rec.raw_source or "crawl"}
+    stmt = insert(table).values(**values)
+    conn.execute(stmt.on_conflict_do_update(
+        index_elements=["ID"],
+        set_={c: values[c] for c in ("raw_zlib", "raw_sha256", "raw_size", "fetched_at", "source")},
+    ))
+
+
+def _write_raw_file_best_effort(rec: CrawledDetail) -> None:
+    """원본 파일(`<datapath>/raw_details/<ID>.json`)을 새로 쓴다. 실패해도 DB 저장은 그대로 둔다."""
+    if rec.raw_canonical is None:
+        return
+    from core.utils import raw_detail as _raw
+
+    try:
+        sanitized = json.loads(bytes(rec.raw_canonical).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        note_fallback("reports_repo.raw_file_decode", exc)
+        return
+    if not isinstance(sanitized, dict):
+        return
+    _raw.write_raw_file(rec.id, sanitized)
 
 
 @dataclass
@@ -260,6 +323,7 @@ def _save_one(engine, rec: CrawledDetail) -> dict | None:
             site = {c: _clean(rec.detail.get(c)) for c in DETAIL_SITE_COLUMNS}
             cls = _classification(rec, existing)
             raw_changed = _save_body(conn, rec, now_ms)
+            _save_raw(conn, rec)
 
             if not _has_detail(existing):
                 change = {"id": rec.id, "change_type": "신규"}
@@ -291,6 +355,7 @@ def _save_one(engine, rec: CrawledDetail) -> dict | None:
         _cap.remove_retry_id(rec.id)
     except Exception as exc:
         note_fallback("reports_repo.mark_personal_save_ok", exc)
+    _write_raw_file_best_effort(rec)
     if change is not None:
         change["category"] = cls["category"]
         if existing is not None and _has_detail(existing) and existing.get("category") != cls["category"]:

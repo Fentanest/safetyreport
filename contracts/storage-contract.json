@@ -1,6 +1,6 @@
 {
- "contract_version": 3,
- "updated": "2026-10-11",
+ "contract_version": 4,
+ "updated": "2026-10-17",
  "description": "서버·모바일 저장 계약(PROJECT_RULES §3-1). 두 레포의 같은 경로 contracts/storage-contract.json 에 바이트 동일하게 둔다(scripts/dev/db_roundtrip_check.py 가 sha256 비교). R0 판은 현재 스키마를 그대로 적은 것이고, NULL·기본값 정렬은 R1 에서 한다.",
  "null_rule": "NULL = 모름/아직 안 해 봄. '' = 비어 있음이 확인됨. 정규화는 파서 출력 한 곳에서만 하고 저장·변환·API 는 값을 바꾸지 않는다.",
  "owners": {
@@ -12,8 +12,8 @@
   "legacy": "옛 열. 새 코드는 쓰지 않는다."
  },
  "schema_version": {
-  "server": 6,
-  "mobile": 17,
+  "server": 7,
+  "mobile": 18,
   "note": "서버는 PRAGMA user_version(core/database/database.py SCHEMA_VERSION), 모바일은 openDatabase version."
  },
  "change_tracked": {
@@ -1115,6 +1115,68 @@
      "mobile": true,
      "exchange": true,
      "note": "epoch ms"
+    }
+   ]
+  },
+  {
+   "entity": "detail_raw",
+   "server_table": "mysafety_report_detail_raw",
+   "mobile_table": "report_detail_raw",
+   "note": "상세 원본(2026-10-17 명세 1-1·1-2): 안전신문고 상세 API 응답 envelope 전체에서 result 객체의 신고자 키 5개만 뺀 정규 바이트를 zlib 압축한 BLOB. 교환·백업은 저장된 BLOB 바이트를 그대로 옮긴다(재압축 금지). 신고 행과 1:1, 같은 ID 로 다시 받으면 덮어쓴다. 올려 받은 예전 DB(서버 6, 모바일 17)의 원본 표는 비어 있다(최적화 작업이 채움).",
+   "columns": [
+    {
+     "name": "ID",
+     "type": "text",
+     "owner": "site",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "pk": true
+    },
+    {
+     "name": "raw_zlib",
+     "type": "blob",
+     "owner": "site",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "note": "정규 바이트의 zlib(RFC 1950, 레벨 6) 압축. 바이트 그대로 교환한다."
+    },
+    {
+     "name": "raw_sha256",
+     "type": "text",
+     "owner": "site",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "note": "압축 전 정규 바이트의 sha256(hex 소문자). 읽을 때 대조한다."
+    },
+    {
+     "name": "raw_size",
+     "type": "integer",
+     "owner": "site",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "note": "압축 전 정규 바이트 수."
+    },
+    {
+     "name": "fetched_at",
+     "type": "text",
+     "owner": "site",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "note": "받은 시각(UTC ISO8601, 밀리초, Z)."
+    },
+    {
+     "name": "source",
+     "type": "text",
+     "owner": "site",
+     "server": true,
+     "mobile": true,
+     "exchange": true,
+     "note": "받은 경로(crawl | backfill | notification | rebuild 등)."
     }
    ]
   },

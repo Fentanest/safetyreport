@@ -103,6 +103,7 @@ def crawl_details(driver=None, report_ids=None, browser_fallback: bool = False, 
                 progress_status=details.get("progress_status", ""),
                 satisfaction_client=satisfaction_client,
                 satisfaction_fetcher=satisfaction_fetcher.fetch_score_via_api,
+                raw_envelope=data if isinstance(data, dict) else None,
             )
             if status_sink is not None:
                 status_sink[link] = ("ok", "")

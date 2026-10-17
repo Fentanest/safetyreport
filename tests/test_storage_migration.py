@@ -522,8 +522,9 @@ class MigrateSchemaTests(unittest.TestCase):
 
     def test_migrates_rows_categories_body_and_user_tables(self):
         info = database.migrate_schema(self.engine, str(self.backups))
-        self.assertEqual(self._version(), 6)
+        self.assertEqual(self._version(), 7)
         self.assertEqual(info["from_version"], 5)
+        self.assertIsNotNone(info["raw_upgrade"])  # 5 → 6 → 7 체인
         self.assertEqual(info["reports"], 6)
         self.assertEqual(info["detailed"], 4)  # 목록만 본 2건은 상세가 없다
         self.assertEqual(info["moved_categories"], 2)  # other → living 두 건(v5-other-1·2)

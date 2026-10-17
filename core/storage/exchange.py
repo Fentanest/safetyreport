@@ -38,7 +38,10 @@ class RestoreRefused(RuntimeError):
 
 
 # 모바일 앱 DB 스키마 버전(openDatabase version). contracts/storage-contract.json 의 schema_version.mobile 과 같아야 한다(테스트가 확인).
-MOBILE_SCHEMA_VERSION = 17
+MOBILE_SCHEMA_VERSION = 18
+#: 가져오기 지원 하한(2026-10-17 명세 2절): 이보다 낮은 DB 는 지금처럼 거절한다. 하한~현재는 올려서 받는다.
+SERVER_MIN_SUPPORTED_SCHEMA = 6
+MOBILE_MIN_SUPPORTED_SCHEMA = 17
 
 
 class LegacyDatabaseRefused(RestoreRefused):
@@ -75,16 +78,17 @@ def _file_user_version(path: str) -> int:
 
 
 def refuse_other_version(path: str, kind: str) -> None:
-    """가져올 DB 의 스키마 버전이 이 프로그램과 정확히 같아야 한다. 낮으면(이전 버전 DB) 이번 릴리스는 옮기지 않고 거절하고,
-    높으면 모르는 구조라 거절한다. 모바일 LocalDbService 의 가져오기 검사와 같은 규칙."""
+    """지원 범위(서버 6~7, 모바일 앱 17~18)의 DB 는 올려서 받는다. 더 새 버전은 모르는 구조라 거절하고,
+    더 오래된 버전은 지금처럼 거절한다. 모바일 LocalDbService 의 가져오기 검사와 같은 규칙."""
     from core.database import database
 
     expected = database.SCHEMA_VERSION if kind == "server" else MOBILE_SCHEMA_VERSION
+    minimum = SERVER_MIN_SUPPORTED_SCHEMA if kind == "server" else MOBILE_MIN_SUPPORTED_SCHEMA
     label = "서버" if kind == "server" else "모바일 앱"
     version = _file_user_version(path)
-    if version < expected:
+    if version < minimum:
         raise LegacyDatabaseRefused(
-            f"같은 버전에서 만든 백업만 복원할 수 있습니다. 이전 버전 {label} DB(스키마 {version}), 지원 스키마 {expected}. "
+            f"지원 범위 밖의 이전 버전 {label} DB(스키마 {version}), 지원 스키마 {minimum}~{expected}. "
             "초기화 크롤링으로 안전신문고에서 다시 수집하세요.")
     if version > expected:
         raise FutureDatabaseRefused(
@@ -104,6 +108,7 @@ class MobileSnapshot:
     duplicate_member: list[dict] | None
     report_override: list[dict] | None
     duplicate_decision: list[dict] | None
+    detail_raw: list[dict] | None
     tables: set[str] = field(default_factory=set)
 
 
@@ -129,6 +134,7 @@ def known_mobile_columns() -> dict[str, set[str]]:
         "duplicate_member": set(_columns(models.duplicate_member_table)),
         "report_override": set(_columns(models.report_override_table)),
         "duplicate_decision": set(_columns(models.duplicate_decision_table)),
+        "report_detail_raw": set(_columns(models.report_detail_raw_table)),
     }
 
 
@@ -185,6 +191,7 @@ def read_mobile_db(path: str) -> MobileSnapshot:
             duplicate_member=_read_table(conn, tables, "duplicate_member"),
             report_override=_read_table(conn, tables, "report_override"),
             duplicate_decision=_read_table(conn, tables, "duplicate_decision"),
+            detail_raw=_read_table(conn, tables, "report_detail_raw"),
             tables=tables,
         )
     finally:
@@ -263,6 +270,7 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
             report_rows.append(row)
 
         for table in (models.report_effective_table, models.report_body_table,
+                      models.report_detail_raw_table,
                       models.duplicate_member_table, models.duplicate_group_table):
             conn.execute(table.delete())
         # 목록에서만 본 신고(category NULL — 상세 미저장)는 모바일 DB 에 없다(모바일 가져오기도 옮기지 않음).
@@ -274,6 +282,10 @@ def apply_mobile_snapshot(engine, snapshot: MobileSnapshot) -> int:
             conn.execute(report.delete().where(report.c.ID.in_(snapshot_ids[i:i + BATCH])))
         _insert(conn, models.report_table, report_rows)
         _insert(conn, models.report_body_table, raw_rows)
+        if snapshot.detail_raw:
+            raw_cols = _columns(models.report_detail_raw_table)
+            _insert(conn, models.report_detail_raw_table,
+                    [{c: row.get(c) for c in raw_cols} for row in snapshot.detail_raw])
 
         # 감시목록: 앱에 키가 있으면 그것이 원천, 없으면(구앱) 서버 것을 유지.
         if WATCHLIST_META_KEY in meta:
@@ -464,6 +476,8 @@ def _restore_exclusive(uploaded_path: str, kind: str, dst: str, snapshot: "Mobil
             _copy_sqlite(uploaded_path, staged)
             engine = create_engine(f"sqlite:///{staged}")
             try:
+                # 지원 범위(서버 6~7)의 예전 백업은 같은 업그레이드 로직으로 올려서 받는다(원본 표는 비어 있음).
+                database.migrate_schema(engine, os.path.join(os.path.dirname(dst), "backups"))
                 database.upgrade_schema(engine)
                 database.repair_stale_effective(engine, raise_on_error=True)
                 with engine.connect() as conn:

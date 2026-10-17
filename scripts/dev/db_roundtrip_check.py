@@ -21,10 +21,11 @@ import tempfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-# 스키마 6: 신고 한 건 = mysafety_report 한 행(목록+상세+분류). 본문은 mysafety_report_body.
+# 스키마 7: 신고 한 건 = mysafety_report 한 행(목록+상세+분류). 본문은 mysafety_report_body, 상세 원본은 mysafety_report_detail_raw.
 # 화면용 mysafety_report_effective 는 mysafety_report 에서 다시 만드는 값이라 왕복 비교 대상이 아니다.
-SERVER_TABLES_BY_ID = ["mysafety_report", "mysafety_report_body"]
-MOBILE_TABLES = {"reports": "ID", "report_raw": "ID", "sync_meta": "key", "geocode_cache": "주소정규화"}
+SERVER_TABLES_BY_ID = ["mysafety_report", "mysafety_report_body", "mysafety_report_detail_raw"]
+MOBILE_TABLES = {"reports": "ID", "report_raw": "ID", "report_detail_raw": "ID", "sync_meta": "key",
+                 "geocode_cache": "주소정규화"}
 # 가져오기·복원은 주인(카카오 회원번호)이 지금 로그인한 계정과 같은 DB 만 받는다(2026-09-27). 이 검사는 fixture 계정으로 로그인한 것으로 둔다.
 KAKAO_ID = "910001"
 KAKAO_META_KEY = "kakao_member_id"
@@ -74,7 +75,20 @@ with engine.begin() as conn:
     conn.execute(text("INSERT OR REPLACE INTO mysafety_geocode_cache(주소정규화, 원본주소, 행정구역, 위도, 경도, 상태, source, error_message, updated_at) "
                       "VALUES ('서울특별시 없는구 1', '서울 없는구 1', '', NULL, NULL, 'failed', 'kakao', 'not found', 1790000000456)"))
 from core.database import database
+from core.utils import raw_detail as _raw
 database.rebuild_effective(engine)
+# 상세 원본 2건(신고자 키 5개 포함 합성 envelope → 정규화 저장). BLOB·sha·모든 열의 왕복 일치를 본다.
+for _rid, _seed in (("90000001", ""), ("90000002", "바뀜")):
+    _envelope = {"resultCode": "0000", "result": {"C_NO": 90000001, "C_NAME": "홍길동" + _seed,
+        "C_EMAIL": "a@b.c", "C_PHONE": "01012345678", "C_PHONE2": "010-1234-5678", "C_ID": "fixtureid1",
+        "C_NOW": 10, "C_A_CONTENTS": "불법주정차 신고합니다." + _seed}}
+    _canonical = _raw.canonical_bytes(_envelope)
+    with engine.begin() as _conn:
+        _conn.execute(text("INSERT OR REPLACE INTO mysafety_report_detail_raw "
+                           "(ID, raw_zlib, raw_sha256, raw_size, fetched_at, source) "
+                           "VALUES (:i, :z, :s, :n, '2026-10-17T12:00:00.000Z', 'crawl')"),
+                      {"i": _rid, "z": _raw.compress(_canonical),
+                       "s": _raw.sha256_hex(_canonical), "n": len(_canonical)})
 database.set_meta(engine, database.KAKAO_MEMBER_META_KEY, sys.argv[1])
 with engine.begin() as conn:
     conn.execute(text("UPDATE mysafety_duplicate_group SET status='not_duplicate', representative_mode='manual', representative_id='90000012', note='사용자 메모: 서로 다른 건'"))
@@ -279,7 +293,7 @@ def main() -> int:
         # 저장 계약은 두 레포에 바이트 동일해야 한다(저장 계층 재설계 R0).
         import hashlib
         # 두 레포가 바이트까지 같아야 하는 계약 파일(저장 계약, 파서 기대값, EXIF 판독 기대값, 별점 대상 판정)
-        for name in ("storage-contract.json", "parser-vectors.json", "exif-vectors.json", "rating-eligibility-vectors.json", "dark-palette.json"):
+        for name in ("storage-contract.json", "parser-vectors.json", "raw-detail-vectors.json", "exif-vectors.json", "rating-eligibility-vectors.json", "dark-palette.json"):
             contract_paths = [REPO_ROOT / "contracts" / name, args.mobile_repo.resolve() / "contracts" / name]
             digests = [hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None for p in contract_paths]
             if digests[0] is None or digests[0] != digests[1]:
@@ -304,11 +318,14 @@ def main() -> int:
         for table, key in MOBILE_TABLES.items():
             diffs += compare(f"B:{table}", _rows(m1, table, key), _rows(m3, table, key))
         diffs += compare("B:duplicate_decision", _rows(m1, "duplicate_decision", "group_id"), _rows(m3, "duplicate_decision", "group_id"))
+        diffs += compare("B:report_detail_raw", _rows(m1, "report_detail_raw", "ID"), _rows(m3, "report_detail_raw", "ID"))
         mo1 = {f'{r["ID"]}|{r["column_name"]}': r for r in _all(m1, "report_override")}
         mo3 = {f'{r["ID"]}|{r["column_name"]}': r for r in _all(m3, "report_override")}
         diffs += compare("B:report_override", mo1, mo3)
         # 교환 대상 표가 실제로 채워졌는지(빈 표끼리 같다고 통과하지 않도록). 합성 S0 에만 해당 — 운영 사본엔 아직 수정값이 없다.
-        for label, db, table in () if args.server_db else (("M1", m1, "report_override"), ("M1", m1, "duplicate_decision"), ("S2", s2, "mysafety_report_override")):
+        for label, db, table in () if args.server_db else (("M1", m1, "report_override"), ("M1", m1, "duplicate_decision"),
+                                                           ("M1", m1, "report_detail_raw"), ("S2", s2, "mysafety_report_override"),
+                                                           ("S2", s2, "mysafety_report_detail_raw")):
             if not _all(db, table):
                 diffs.append(f"[coverage] {label}.{table} 가 비어 있음 — 교환이 새 표를 옮기지 않음")
         # 주인 표시(카카오 회원번호)가 네 DB 모두에 같은 값으로 남아야 한다 — 빠지면 다음 가져오기가 거절된다.

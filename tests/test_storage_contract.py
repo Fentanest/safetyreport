@@ -10,7 +10,7 @@ from pathlib import Path
 from core.database import models
 
 CONTRACT = json.loads((Path(__file__).resolve().parents[1] / "contracts" / "storage-contract.json").read_text(encoding="utf-8"))
-SQL_TYPES = {"String": "text", "Integer": "integer", "Float": "real"}
+SQL_TYPES = {"String": "text", "Integer": "integer", "Float": "real", "LargeBinary": "blob"}
 
 
 def _server_columns(table_name):

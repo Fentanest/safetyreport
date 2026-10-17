@@ -1,4 +1,4 @@
-from sqlalchemy import Table, MetaData, Column, String, Integer, Float
+from sqlalchemy import Table, MetaData, Column, String, Integer, Float, LargeBinary
 
 metadata = MetaData()
 
@@ -81,6 +81,17 @@ report_body_table = Table('mysafety_report_body', metadata,
                           Column('raw_content', String, nullable=False, default=''),
                           Column('raw_type', String, nullable=False, default=''),
                           Column('saved_at', Integer))
+
+# 상세 원본(2026-10-17 명세 1-2, 스키마 7): 안전신문고 상세 API 응답 envelope 전체.
+# `result` 객체의 신고자 키 5개만 뺀 정규 바이트를 zlib 압축한 BLOB. 교환·백업은 BLOB 바이트를 그대로 옮긴다.
+# 신고 행과 1:1, 같은 ID 로 다시 받으면 덮어쓴다. 신고 행을 지우는 경로(reset·로그아웃 비우기·모바일 복원)는 이 표도 같이 지운다.
+report_detail_raw_table = Table('mysafety_report_detail_raw', metadata,
+                                Column('ID', String, primary_key=True),
+                                Column('raw_zlib', LargeBinary, nullable=False),
+                                Column('raw_sha256', String, nullable=False),
+                                Column('raw_size', Integer, nullable=False),
+                                Column('fetched_at', String, nullable=False),
+                                Column('source', String, nullable=False))
 
 watchlist_table = Table('mysafety_watchlist', metadata,
                         Column('신고번호', String, primary_key=True))

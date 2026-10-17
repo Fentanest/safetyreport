@@ -151,15 +151,16 @@ class ExchangeRestoreTests(unittest.TestCase):
         with get_engine().connect() as conn:
             self.assertEqual(conn.execute(select(models.report_override_table.c.value)).scalar(), "서버에서 고침")
 
-    def test_every_older_or_newer_db_version_is_refused_before_touching_live_db(self):
+    def test_versions_outside_the_supported_range_are_refused_before_touching_live_db(self):
+        """지원 범위(서버 6~7, 모바일 17~18) 밖은 복원 전에 거절한다. 범위 안의 예전 DB 는 올려서 받는다(아래 별도 시험)."""
         before = self._count(models.report_table)
-        for version in (0, 1, 10, exchange.MOBILE_SCHEMA_VERSION - 1, exchange.MOBILE_SCHEMA_VERSION + 1):
+        for version in (0, 1, 10, 16, exchange.MOBILE_SCHEMA_VERSION + 1):
             with self.subTest(kind="mobile", version=version):
                 path = Path(self._tmp.name) / f"mobile_v{version}.db"
                 _mobile_db(path, version=version)
                 with self.assertRaises(exchange.LegacyDatabaseRefused):
                     exchange.restore(str(path), "mobile")
-        for version in range(0, database.SCHEMA_VERSION):
+        for version in (0, 1, 5, database.SCHEMA_VERSION + 1):
             with self.subTest(kind="server", version=version):
                 path = Path(self._tmp.name) / f"server_v{version}.db"
                 exchange._copy_sqlite(settings.db_path, str(path))
@@ -169,9 +170,28 @@ class ExchangeRestoreTests(unittest.TestCase):
                 con.close()
                 with self.assertRaises(exchange.LegacyDatabaseRefused) as ctx:
                     exchange.restore(str(path), "server")
-                self.assertIn(f"이전 버전 서버 DB(스키마 {version})", str(ctx.exception))
+                if version < database.SCHEMA_VERSION:
+                    self.assertIn(f"이전 버전 서버 DB(스키마 {version})", str(ctx.exception))
         self.assertEqual(self._count(models.report_table), before)
         self.assertEqual([p for p in os.listdir(settings.datapath) if p.startswith(".restore_staging_")], [])
+
+    def test_supported_older_dbs_are_upgraded_on_restore(self):
+        """지원 범위의 예전 DB(서버 6, 모바일 17)는 같은 업그레이드 로직으로 올려서 받는다. 원본 표는 비어 있다."""
+        server_old = Path(self._tmp.name) / "server_v6.db"
+        exchange._copy_sqlite(settings.db_path, str(server_old))
+        con = sqlite3.connect(server_old)
+        con.execute("DROP TABLE IF EXISTS mysafety_report_detail_raw")
+        con.execute("PRAGMA user_version = 6")
+        con.commit()
+        con.close()
+        exchange.restore(str(server_old), "server")
+        self.assertEqual(database.get_schema_version(get_engine()), 7)
+        mobile_old = Path(self._tmp.name) / "mobile_v17.db"
+        _mobile_db(mobile_old, version=17)
+        _, count = exchange.restore(str(mobile_old), "mobile")
+        self.assertEqual(count, 1)
+        with get_engine().connect() as conn:
+            self.assertEqual(conn.execute(select(models.report_detail_raw_table)).fetchall(), [])
 
     def test_mobile_schema_version_matches_the_contract(self):
         import json

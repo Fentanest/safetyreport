@@ -121,6 +121,7 @@ def build_detail_result(
     progress_status: str,
     satisfaction_client,
     satisfaction_fetcher,
+    raw_envelope: dict | None = None,
 ):
     entry_value = details.get("entry_value", "")
     # 분류: 상세 응답의 SSNPC 코드가 있으면 코드로, 없으면 접수 메뉴 문구로(services/report_category.py)
@@ -133,6 +134,13 @@ def build_detail_result(
         satisfaction_client=satisfaction_client,
         satisfaction_fetcher=satisfaction_fetcher,
     )
+    raw_info = None
+    if raw_envelope is not None:
+        from core.utils import raw_detail as _raw
+
+        canonical = _raw.canonical_bytes(raw_envelope)
+        raw_info = {"raw_canonical": canonical, "raw_sha256": _raw.sha256_hex(canonical),
+                    "raw_size": len(canonical), "raw_source": "crawl"}
     return (
         build_detail_dataframe(report_id, details),
         category,
@@ -143,4 +151,5 @@ def build_detail_result(
         raw_type,
         ssnpc_cd,
         ssnpc_type,
+        raw_info,
     )

@@ -6,7 +6,8 @@ from core.utils.fallback import note_fallback
 import os
 from datetime import datetime
 
-from .models import (metadata, report_table, report_effective_table, report_body_table, watchlist_table,
+from .models import (metadata, report_table, report_effective_table, report_body_table, report_detail_raw_table,
+                     watchlist_table,
                      admin_users_table, api_keys_table, sync_meta_table, duplicate_group_table, duplicate_member_table)
 
 
@@ -59,9 +60,12 @@ def upgrade_schema(engine, *, maintenance: bool = True, backup_dir: str | None =
 
 # 서버 DB 스키마 버전(PRAGMA user_version). contracts/storage-contract.json 의 schema_version.server 와 같아야 한다.
 # 6(2026-10-11): 신고 한 건 = mysafety_report 한 행, category 열(5분류), SSNPC 코드 열, 화면용 mysafety_report_effective.
-SCHEMA_VERSION = 6
+# 7(2026-10-17): 상세 원본 표 mysafety_report_detail_raw 추가(명세 1-2). 자료를 그대로 두는 추가만 하는 제자리 변환.
+SCHEMA_VERSION = 7
 #: 이 버전부터는 제자리 변환(migrate_schema)으로 올린다. 더 낮은 DB 는 reset_legacy_database 로 백업 뒤 비운다.
 IN_PLACE_FROM = 5
+#: 제자리 변환 체인: 5 → 6 → 7. 6 미만 규칙 유지(5 미만은 백업 뒤 비우기).
+MIGRATE_CHAIN = (5, 6)
 
 
 def _index_statements() -> list[str]:
@@ -504,10 +508,57 @@ def _digest(rows, columns) -> str:
     return h.hexdigest()
 
 
+def _migrate_6_to_7(engine, backup_dir: str) -> dict | None:
+    """버전 6 DB 에 상세 원본 표(mysafety_report_detail_raw)를 더해 7 로 올린다(명세 1-2·2절).
+
+    추가만 하는 제자리 변환: 업그레이드 전 백업(`before_schema_v7_*.db`) → 새 표 생성 → 버전 기록.
+    실패하면 DB 를 바꾸지 않는다(ROLLBACK). 자료는 그대로 둔다. 반환: {from_version, backup} (할 일 없으면 None)."""
+    import sqlite3
+    from sqlalchemy.schema import CreateTable
+
+    from .models import report_detail_raw_table
+
+    _refuse_newer_schema(engine)
+    if get_schema_version(engine) != 6:
+        return None
+    db_path = engine.url.database
+    if not db_path or db_path == ":memory:" or not os.path.exists(db_path):
+        raise LegacyDatabase("파일이 아닌 DB 는 제자리 변환하지 않습니다.")
+    dialect = engine.dialect
+    engine.dispose()
+    conn = sqlite3.connect(db_path, isolation_level=None, timeout=LEGACY_RESET_LOCK_TIMEOUT)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            from_version = int(conn.execute("PRAGMA user_version").fetchone()[0] or 0)
+            if from_version != 6:
+                conn.execute("ROLLBACK")  # 다른 프로세스가 먼저 끝냈다
+                return None
+            os.makedirs(backup_dir, exist_ok=True)
+            backup = os.path.join(backup_dir, f"before_schema_v7_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db")
+            _backup_file_db(db_path, backup)
+            logger.LoggerFactory.logbot.info(f"[schema] 버전 6 → 7 변환 전 DB 백업: {backup}")
+            conn.execute(str(CreateTable(report_detail_raw_table, if_not_exists=True).compile(dialect=dialect)))
+            conn.execute("PRAGMA user_version = 7")
+            conn.execute("COMMIT")
+        except BaseException:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+    finally:
+        conn.close()
+    info = {"from_version": from_version, "backup": backup}
+    logger.LoggerFactory.logbot.warning(f"[schema] DB 스키마 6 → 7 제자리 변환 완료(상세 원본 표 추가): {info}")
+    return info
+
+
 def migrate_schema(engine, backup_dir: str) -> dict | None:
-    """버전 5 DB 를 6 으로 제자리 변환한다. 반환: {from_version, backup, reports, detailed, moved_categories} (할 일 없으면 None).
+    """버전 5 DB 를 6 으로, 버전 6 DB 를 7 로 제자리 변환한다. 체인: 5 → 6 → 7 (6 미만 규칙 유지).
+
+    반환: 5 → 6 일 때 {from_version, backup, reports, detailed, moved_categories, orphan_entry_values, raw_upgrade},
+    6 → 7 일 때 {from_version, backup} (할 일 없으면 None).
     쓰기 잠금(BEGIN IMMEDIATE) 한 트랜잭션: 먼저 통째로 백업 → 새 표 만들고 옮기기 → 같은 트랜잭션 안에서 행 수·값 해시 대조 →
-    옛 표 지우기 → 버전 6 → COMMIT. 대조가 어긋나면 되돌리고 MigrationVerifyFailed. 화면용 표·중복군은 커밋 뒤 다시 만든다."""
+    옛 표 지우기 → 버전 올리기 → COMMIT. 대조가 어긋나면 되돌리고 MigrationVerifyFailed. 화면용 표·중복군은 커밋 뒤 다시 만든다."""
     import sqlite3
     from sqlalchemy.schema import CreateIndex, CreateTable
 
@@ -515,6 +566,8 @@ def migrate_schema(engine, backup_dir: str) -> dict | None:
     from .models import REPORT_COLUMN_NAMES, DETAIL_COLUMN_NAMES, TITLE_COLUMN_NAMES
 
     _refuse_newer_schema(engine)
+    if get_schema_version(engine) == 6:
+        return _migrate_6_to_7(engine, backup_dir)
     if get_schema_version(engine) != IN_PLACE_FROM:
         return None
     db_path = engine.url.database
@@ -594,7 +647,7 @@ def migrate_schema(engine, backup_dir: str) -> dict | None:
                 conn.execute(statement)
             for index in (*report_table.indexes, *report_effective_table.indexes, *report_body_table.indexes):
                 conn.execute(str(CreateIndex(index).compile(dialect=dialect)))
-            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            conn.execute("PRAGMA user_version = 6")
             conn.execute("COMMIT")
         except BaseException:
             if conn.in_transaction:
@@ -605,7 +658,9 @@ def migrate_schema(engine, backup_dir: str) -> dict | None:
     rebuild_effective(engine)
     info = {"from_version": from_version, "backup": backup, "reports": len(old_rows), "detailed": detailed_old,
             "moved_categories": moved, "orphan_entry_values": pre["orphan_entry_values"]}
-    logger.LoggerFactory.logbot.warning(f"[schema] DB 스키마 {from_version} → {SCHEMA_VERSION} 제자리 변환 완료: {info}")
+    logger.LoggerFactory.logbot.warning(f"[schema] DB 스키마 {from_version} → 6 제자리 변환 완료: {info}")
+    raw_upgrade = _migrate_6_to_7(engine, backup_dir)
+    info["raw_upgrade"] = raw_upgrade
     return info
 
 

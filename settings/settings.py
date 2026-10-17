@@ -109,6 +109,7 @@ class AppSettings:
         self.logpath = os.path.join(self.datapath, 'logs')
         self.google_api_auth_file = os.path.join(self.datapath, 'auth/gspread.json')
         self.db_path = os.path.join(self.datapath, 'data.db')
+        self.raw_details_dir = os.path.join(self.datapath, 'raw_details')
         self.google_sheet_key = self.config.get('GOOGLESHEET', 'sheet_key', fallback=None)
 
         self.google_sheet_enabled = os.path.exists(self.google_api_auth_file) and self.google_sheet_key is not None
