@@ -48,7 +48,7 @@ class AppFactoryTest(unittest.TestCase):
         after = report["after"]
         self.assertTrue(after["same"])
         self.assertTrue(after["logger"] and after["sigint"])
-        self.assertEqual(after["dirs"], ["auth", "logs", "results"])
+        self.assertEqual(after["dirs"], ["auth", "logs", "raw_details", "results"])
         self.assertEqual(after["middleware"][:2], ["TrustedProxyHeadersMiddleware", "_WebSocketSafeSessionMiddleware"])
         self.assertEqual(after["middleware"][2:], ["auth_middleware", "request_timings", "community_gate_middleware",
                                                    "inject_version_middleware", "taxonomy_compat_middleware"])

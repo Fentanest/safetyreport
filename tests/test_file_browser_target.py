@@ -27,17 +27,21 @@ class FileBrowserTargetTests(unittest.TestCase):
         app.add_middleware(SessionMiddleware, secret_key="file-browser-fixture")
         app.include_router(route.router)
         with TestClient(app) as client, mock.patch.object(
-            route.file_service, "list_browser_groups", return_value={"logs": [], "results": []}
+            route.file_service, "list_browser_groups",
+            return_value={"logs": [], "results": [], "raw_details": []}
         ):
             for query, selected in (("", "results"), ("?target=logs", "logs"),
-                                    ("?target=results", "results"), ("?target=invalid", "results")):
+                                    ("?target=results", "results"),
+                                    ("?target=raw_details", "raw_details"),
+                                    ("?target=invalid", "results")):
                 with self.subTest(query=query):
                     response = client.get("/file-browser" + query)
                     self.assertEqual(response.status_code, 200)
-                    explicit = selected if query in ("?target=logs", "?target=results") else None
+                    explicit = (selected if query in ("?target=logs", "?target=results",
+                                                      "?target=raw_details") else None)
                     self.assertEqual(response.context["explicit_target"], explicit)
                     elements = Elements(response.text).by_id
-                    for target in ("logs", "results"):
+                    for target in ("logs", "results", "raw_details"):
                         tab = elements[target + "-tab"]
                         panel = elements[target + "-pane"]
                         active = target == selected
