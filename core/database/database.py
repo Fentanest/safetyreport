@@ -541,9 +541,14 @@ def _migrate_6_to_7(engine, backup_dir: str) -> dict | None:
             conn.execute(str(CreateTable(report_detail_raw_table, if_not_exists=True).compile(dialect=dialect)))
             conn.execute("PRAGMA user_version = 7")
             conn.execute("COMMIT")
-        except BaseException:
+        except BaseException as exc:
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
+            # 단계별 원자성: 6→7 단계가 실패하면 DB 는 버전 6 그대로다. 다음 기동 때 6→7 을 다시 시도한다.
+            # 실패는 예외 종류만 남긴다(경로·값은 로그에 넣지 않는다).
+            logger.LoggerFactory.logbot.error(
+                "[schema] 버전 6 → 7 변환 실패 — DB 는 버전 6 그대로이며 다음 기동 때 6 → 7 을 다시 시도합니다: %s",
+                type(exc).__name__)
             raise
     finally:
         conn.close()
@@ -659,7 +664,14 @@ def migrate_schema(engine, backup_dir: str) -> dict | None:
     info = {"from_version": from_version, "backup": backup, "reports": len(old_rows), "detailed": detailed_old,
             "moved_categories": moved, "orphan_entry_values": pre["orphan_entry_values"]}
     logger.LoggerFactory.logbot.warning(f"[schema] DB 스키마 {from_version} → 6 제자리 변환 완료: {info}")
-    raw_upgrade = _migrate_6_to_7(engine, backup_dir)
+    try:
+        raw_upgrade = _migrate_6_to_7(engine, backup_dir)
+    except BaseException as exc:
+        # 5→6 은 이미 커밋됐고 6→7 만 실패: 버전 6 에 머물고 다음 기동 때 6→7 을 다시 시도한다.
+        logger.LoggerFactory.logbot.error(
+            "[schema] 5 → 6 변환은 끝났고 6 → 7 이 실패해 버전 6 에 머뭅니다. "
+            "다음 기동 때 6 → 7 을 다시 시도합니다: %s", type(exc).__name__)
+        raise
     info["raw_upgrade"] = raw_upgrade
     return info
 

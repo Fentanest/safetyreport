@@ -13,11 +13,13 @@
 - `core/crawler/crawldetail_api.py` 의 `crawl_details` 는 상세 API 응답 envelope(`data`)를 받은 직후
   `core/utils/raw_detail.py` 로 정규화(신고자 키 5개 제거 → 공백 없는 JSON → sha256)해
   `core/crawler/detail_pipeline.py` 의 `build_detail_result` 결과 튜플 10번째(`raw_info`)에 실는다.
+  `raw_info` 의 `raw_source` 는 호출 경로가 넘긴다(초기화 `rebuild`·큐 지정 `notification`·일반 `crawl`).
 - `core/storage/reports_repo.py` 의 `CrawledDetail.from_legacy_tuple` 은 10번째 원소를 읽고(없어도 됨),
   `_save_one` 의 같은 트랜잭션에서 `mysafety_report_detail_raw` 에 upsert 한다(초기화·일반·단건 모두).
   파서 입력은 지금처럼 `result` 이다. 파서는 신고자 키 5개를 쓰지 않는다(`tests/test_raw_detail_vectors.py`).
 - 원본 파일 `<datapath>/raw_details/<ID>.json`(들여쓰기 2칸, 임시 파일→rename)은 DB 커밋 뒤에 쓰고,
-  실패해도 DB 저장을 막지 않고 대체 진단 기록(`note_fallback`)만 남긴다.
+  실패해도 DB 저장을 막지 않고 대체 진단 기록(`note_fallback`)만 남긴다. 파일 쓰기 호출 자체도 예외를 밖으로 내지 않게
+  감싸, DB 는 저장됐는데 저장 실패로 보고되는 일이 없다. ID 파일 이름 규칙·경로 제한은 `core/utils/raw_detail.py`.
 - 계약 벡터 `contracts/raw-detail-vectors.json`, 열 계약 `contracts/storage-contract.json`(`detail_raw`).
 
 ## 실행 접수·실패·초기화 작업의 수명

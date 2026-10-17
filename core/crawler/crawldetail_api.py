@@ -52,12 +52,14 @@ def _fetch_detail_via_browser(driver, c_no):
     return driver.execute_async_script(script, str(c_no))
 
 
-def crawl_details(driver=None, report_ids=None, browser_fallback: bool = False, status_sink=None):
+def crawl_details(driver=None, report_ids=None, browser_fallback: bool = False, status_sink=None,
+                  raw_source: str = "crawl"):
     """성공한 상세만 yield 한다(기존 동작 유지).
 
     status_sink dict 를 주면 시도한 모든 ID 의 결과를 기록한다:
     status_sink[report_id] = (outcome, note). outcome 은 ok | retryable | permanent | auth.
     초기화 크롤(start.py --rebuild)이 item 상태 갱신에 쓴다.
+    raw_source 는 상세 원본 표의 source 열에 그대로 기록한다(초기화 "rebuild"·큐 지정 "notification"·일반 "crawl").
     """
     if report_ids is None:
         report_ids = []
@@ -104,6 +106,7 @@ def crawl_details(driver=None, report_ids=None, browser_fallback: bool = False, 
                 satisfaction_client=satisfaction_client,
                 satisfaction_fetcher=satisfaction_fetcher.fetch_score_via_api,
                 raw_envelope=data if isinstance(data, dict) else None,
+                raw_source=raw_source,
             )
             if status_sink is not None:
                 status_sink[link] = ("ok", "")

@@ -122,6 +122,7 @@ def build_detail_result(
     satisfaction_client,
     satisfaction_fetcher,
     raw_envelope: dict | None = None,
+    raw_source: str = "crawl",
 ):
     entry_value = details.get("entry_value", "")
     # 분류: 상세 응답의 SSNPC 코드가 있으면 코드로, 없으면 접수 메뉴 문구로(services/report_category.py)
@@ -139,8 +140,10 @@ def build_detail_result(
         from core.utils import raw_detail as _raw
 
         canonical = _raw.canonical_bytes(raw_envelope)
+        # 받은 경로(명세 1-2 source): 초기화 크롤은 "rebuild", 큐 지정(알림·단건·웹 선택)은
+        # "notification", 그 밖 일반 크롤은 "crawl". 호출자가 넘긴 값을 그대로 기록한다.
         raw_info = {"raw_canonical": canonical, "raw_sha256": _raw.sha256_hex(canonical),
-                    "raw_size": len(canonical), "raw_source": "crawl"}
+                    "raw_size": len(canonical), "raw_source": raw_source or "crawl"}
     return (
         build_detail_dataframe(report_id, details),
         category,

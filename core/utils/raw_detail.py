@@ -19,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import zlib
 from datetime import datetime, timezone
 
@@ -26,6 +27,13 @@ from core.utils.fallback import note_fallback
 
 #: `result` 객체에서만 지우는 신고자 키 5개. 순서 고정(계약 벡터와 같은 순서).
 REPORTER_KEYS = ("C_NAME", "C_EMAIL", "C_PHONE", "C_PHONE2", "C_ID")
+
+#: 원본 파일 이름에 쓸 수 있는 신고 ID. 실제 ID 는 안전신문고 C_NO 숫자 문자열이다.
+#: 파일 경로에 그대로 넣어도 디렉터리를 벗어날 수 없는 문자(영숫자·`_`·`-`)만 허용하고,
+#: 슬래시·역슬래시·점·공백·빈 값 등 그 밖은 쓰지 않고 진단만 기록한다.
+_REPORT_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+_RAW_DIRNAME = "raw_details"
 
 _FETCHED_AT_FORMAT = "%Y-%m-%dT%H:%M:%S.%f"  # 밀리초 3자리 + Z (아래에서 자름)
 
@@ -70,6 +78,23 @@ def verify(blob: bytes, expected_sha256: str) -> bytes:
     return payload
 
 
+def is_safe_report_id(report_id) -> bool:
+    """원본 파일 이름에 그대로 넣어도 되는 신고 ID 인지. 아니면 False."""
+    return isinstance(report_id, str) and _REPORT_ID_RE.fullmatch(report_id) is not None
+
+
+def raw_file_path(report_id: str, directory: str) -> str | None:
+    """`directory/<ID>.json` 정규화 경로. ID 가 파일 이름 규칙에 안 맞거나 정규화한 최종 경로가
+    `directory` 를 벗어나면 None(쓰지 않고 호출자가 진단만 기록한다)."""
+    if not is_safe_report_id(report_id):
+        return None
+    base = os.path.realpath(directory)
+    path = os.path.realpath(os.path.join(base, f"{report_id}.json"))
+    if os.path.dirname(path) != base:
+        return None
+    return path
+
+
 def utc_now_fetched_at() -> str:
     """UTC ISO8601, 밀리초, `Z`(예: `2026-10-17T12:34:56.789Z`)."""
     now = datetime.now(timezone.utc)
@@ -79,12 +104,18 @@ def utc_now_fetched_at() -> str:
 def write_raw_file(report_id: str, sanitized: dict) -> str | None:
     """`<datapath>/raw_details/<ID>.json` 에 들여쓰기 2칸 JSON 쓰기(임시 파일→rename).
 
-    실패하면 DB 저장을 막지 않고 대체 진단 기록만 남기고 None 을 돌려준다.
+    ID 가 파일 이름 규칙에 안 맞거나 최종 경로가 `raw_details` 를 벗어나면 쓰지 않고
+    대체 진단 기록만 남기고 None 을 돌려준다. 폴더 생성 실패를 포함한 모든 파일 쓰기 실패는
+    예외를 밖으로 내지 않고 진단 기록만 남기고 None 을 돌려준다(DB 저장을 막지 않는다).
     """
     import settings.settings as settings
 
-    directory = os.path.join(settings.datapath, "raw_details")
-    path = os.path.join(directory, f"{report_id}.json")
+    directory = os.path.join(settings.datapath, _RAW_DIRNAME)
+    path = raw_file_path(report_id, directory)
+    if path is None:
+        note_fallback("raw_detail.write_file_invalid_id", ValueError("unsafe report id"))
+        return None
+    tmp: str | None = None
     try:
         os.makedirs(directory, exist_ok=True)
         payload = json.dumps(sanitized, ensure_ascii=False, indent=2).encode("utf-8")
@@ -96,7 +127,7 @@ def write_raw_file(report_id: str, sanitized: dict) -> str | None:
     except Exception as exc:  # 파일 쓰기 실패는 DB 저장을 막지 않는다
         note_fallback("raw_detail.write_file", exc)
         try:
-            if os.path.exists(tmp):
+            if tmp is not None and os.path.exists(tmp):
                 os.remove(tmp)
         except OSError:
             pass

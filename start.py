@@ -319,6 +319,7 @@ def _run_rebuild_process(driver, engine, args, api_browser_fallback=False):
         report_ids=targets,
         browser_fallback=api_browser_fallback,
         status_sink=sink,
+        raw_source="rebuild",  # 상세 원본 표의 source 열(명세 1-2)
     )
     return _rebuild_consume_details(engine, run_id, targets, detail_stream, sink, list_labels)
 
@@ -482,8 +483,10 @@ def _resolve_queue_targets(driver, engine, options: CrawlOptions, api_browser_fa
     return _QueueTargets(detaillist, id_to_items, missing_rnums, queue_not_found, queue_ambiguous)
 
 
-def _consume_details(driver, engine, detail_ids, api_browser_fallback: bool, result: CrawlResult) -> set:
-    """상세를 받는 대로 저장한다. 대상 전부를 저장했고 저장·스트림 오류가 없어야 detail_complete."""
+def _consume_details(driver, engine, detail_ids, api_browser_fallback: bool, result: CrawlResult,
+                     *, raw_source: str = "crawl") -> set:
+    """상세를 받는 대로 저장한다. 대상 전부를 저장했고 저장·스트림 오류가 없어야 detail_complete.
+    raw_source 는 상세 원본 표의 source 열(큐 지정 크롤은 "notification", 일반은 "crawl")."""
     logger.LoggerFactory.logbot.info(f"상세 크롤링 대상 ID: {len(detail_ids)} 건 (순차 처리)")
     if api_browser_fallback:
         logger.LoggerFactory.logbot.info("[API 방식 - Selenium fallback] 상세 데이터 추출 시작")
@@ -493,12 +496,19 @@ def _consume_details(driver, engine, detail_ids, api_browser_fallback: bool, res
         driver=driver,
         report_ids=detail_ids,
         browser_fallback=api_browser_fallback,
+        raw_source=raw_source,
     )
     saved_ids = set()
     result.changed = _save_details_as_they_arrive(engine, detail_stream, saved_ids, result=result)
     result.detail_complete = (set(map(str, detail_ids)) <= saved_ids and not result.save_errors
                               and not result.stream_error)
     return saved_ids
+
+
+def _raw_source_for_options(options: CrawlOptions) -> str:
+    """상세 원본 표의 source 열(명세 1-2). 큐 지정 크롤(알림·단건·웹 선택)은 "notification",
+    초기화 크롤은 호출자가 "rebuild" 를 직접 넘기고, 그 밖 일반 크롤은 "crawl"."""
+    return "notification" if options.queue_file else "crawl"
 
 
 def _run_crawling_process(driver, engine, args, api_browser_fallback=False) -> CrawlResult:
@@ -531,7 +541,8 @@ def _run_crawling_process(driver, engine, args, api_browser_fallback=False) -> C
         result.detail_complete = not (queue and queue.missing) or bool(queue.not_found or queue.ambiguous)
         return result
 
-    saved_ids = _consume_details(driver, engine, detaillist, api_browser_fallback, result)
+    saved_ids = _consume_details(driver, engine, detaillist, api_browser_fallback, result,
+                                 raw_source=_raw_source_for_options(options))
     if queue is not None:
         processed = [item for rid in saved_ids for item in queue.id_to_items.get(str(rid), [])]
         _write_queue_report(options.queue_file, processed, queue.not_found, queue.ambiguous)

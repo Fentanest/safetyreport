@@ -355,7 +355,12 @@ def _save_one(engine, rec: CrawledDetail) -> dict | None:
         _cap.remove_retry_id(rec.id)
     except Exception as exc:
         note_fallback("reports_repo.mark_personal_save_ok", exc)
-    _write_raw_file_best_effort(rec)
+    try:
+        # 원본 파일은 DB 커밋 뒤 별도로 쓴다. 어떤 실패도 예외를 밖으로 내지 않는다
+        # (DB 는 저장됐는데 저장 실패로 보고되는 일이 없게 — 명세 1-4).
+        _write_raw_file_best_effort(rec)
+    except Exception as exc:
+        note_fallback("reports_repo.raw_file_unexpected", exc)
     if change is not None:
         change["category"] = cls["category"]
         if existing is not None and _has_detail(existing) and existing.get("category") != cls["category"]:
