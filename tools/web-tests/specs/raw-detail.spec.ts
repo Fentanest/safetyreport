@@ -94,6 +94,14 @@ test('closing the raw modal returns to the detail modal', async ({ page }) => {
   await openDetailFor(page, 'SPP-2512-9000001');
   await page.getByRole('button', { name: '원본 응답' }).click();
   await expect(page.locator('#rawDetailModal')).toBeVisible();
+  // Sol P3 [중간]: 상세 모달 hide() 직후 원본을 열면 상세 hidden 전환이 늦게 끝나
+  // body 의 modal-open·스크롤 잠금을 푼다. 원본이 열린 동안 잠금이 유지되는지 확인한다.
+  await page.waitForTimeout(700);
+  expect(await page.evaluate(() => document.body.classList.contains('modal-open'))).toBe(true);
+  const y0 = await page.evaluate(() => window.scrollY);
+  await page.evaluate(() => window.scrollBy(0, 300));
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => window.scrollY)).toBe(y0);
   // 원본을 보는 동안 상세 모달은 숨는다(두 모달의 포커스 트랩 충돌 방지)
   await expect(page.locator('#reportDetailModal')).toBeHidden();
   await page.locator('#rawDetailModal .modal-footer button').click();

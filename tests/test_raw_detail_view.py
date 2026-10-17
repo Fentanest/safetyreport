@@ -105,6 +105,28 @@ class RawDetailServiceTests(_IsolatedEngine):
         with self.assertRaises(raw_detail_service.RawDetailCorrupt):
             raw_detail_service.read(self.engine, "90000001")
 
+    def test_non_object_envelope_raises_corrupt_with_diagnosis(self):
+        # Sol P3 [낮음]: sha 는 맞지만 최상위가 객체가 아닌 원본도 다른 손상 분기처럼
+        # 진단 기록(note_fallback)·경고 로그를 남긴다.
+        from services import raw_detail_service
+
+        canonical = json.dumps(["not", "an", "object"], ensure_ascii=False,
+                               separators=(",", ":")).encode("utf-8")
+        with self.engine.begin() as conn:
+            conn.execute(models.report_detail_raw_table.insert().values(
+                ID="90000001", raw_zlib=raw_detail.compress(canonical),
+                raw_sha256=raw_detail.sha256_hex(canonical), raw_size=len(canonical),
+                fetched_at="2026-10-17T12:00:00.000Z", source="crawl"))
+        with mock.patch.object(raw_detail_service, "note_fallback") as noted, \
+                mock.patch.object(raw_detail_service.logger.LoggerFactory.logbot,
+                                  "warning") as warned:
+            with self.assertRaises(raw_detail_service.RawDetailCorrupt):
+                raw_detail_service.read(self.engine, "90000001")
+        noted.assert_called_once()
+        self.assertEqual(noted.call_args.args[0], "raw_detail_view.shape")
+        warned.assert_called_once()
+        self.assertIn("90000001", warned.call_args.args[0])
+
     def test_rewrite_regenerates_the_file(self):
         from services import raw_detail_service
 
