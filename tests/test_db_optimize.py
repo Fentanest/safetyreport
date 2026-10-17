@@ -83,6 +83,7 @@ def _reset_optimize_state():
         db_optimize._state.update({"state": "idle", "total": 0, "done": 0, "stage": "",
                                    "message": "", "log": [], "finished_at": ""})
     db_optimize._stop.clear()
+    db_optimize.resume_after_restore()
 
 
 class OptimizeBase(unittest.TestCase):
