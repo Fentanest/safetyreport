@@ -24,14 +24,14 @@ _LIMIT = re.compile(
 # A refusal/non-imposition decision from the amount's clause to the end of its sentence ("부과할
 # 예정이었으나, ... 부과하지 않습니다") withdraws that amount. One in another sentence or an earlier
 # clause is about another violation or charge ("가산금은 부과하지 않습니다") and does not.
-_REFUSAL = re.compile('부과하지|부과할' + _S + '*수' + _S + '*없|미부과|부과(?:가|는)?' + _S + '*(?:불가(?!피)|어렵|곤란)')
+_REFUSAL = re.compile('부과하지|부과할' + _S + '*수' + _S + '*없|미부과(?:하|합|함|처리|결정|로)|부과(?:가|는)?' + _S + '*(?:불가(?!피)|어렵|곤란)')
 # A decision sentence ends at a sentence-final ending, not at a line break inside it ("예정이었으나,\n...").
-_DECISION_END = re.compile('。|(?<=[다요])[.!?]|(?<=[다요.!?])\n')
+_DECISION_END = re.compile('。|(?<=[다요])[.!?]|(?<=[다요.!?])[\t\r \xa0\u3000]*\n')
 # Another amount in a reduction clause ("경우 과태료 80,000원으로 감경") is a second stated amount
 # even when its clause is conditional.
 _REDUCTION = re.compile('감경|경감|감면')
-# A limit amount ("20만원 이하", "최대 200만원") is guidance, not a second stated amount.
-_LIMIT_BEFORE = re.compile('(?:최대|상한)' + _S + '*(?:과태료)?' + _S + '*:?' + _S + '*$')
+# A limit amount ("20만원 이하", "최대 200만원", "감경액의 상한은 2만원") is guidance, not a second stated amount.
+_LIMIT_BEFORE = re.compile('최대|상한|한도')
 _PREVIOUS_LIMIT = re.compile('(?:최대|상한|(?:미이행|불이행|불응)' + _S + '*시|않을' + _S + '*경우)' + _S + '*[:：]?' + _S + '*$')
 _FOLLOWING_LIMIT = re.compile(_S + '*\\)?' + _S + '*(?:이하|이상|미만|초과)')
 _CLOSE = re.compile(_S + '*\\)')

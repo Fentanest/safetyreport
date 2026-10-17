@@ -396,6 +396,24 @@
       "text": "과태료 100,000원을 부과하였습니다. 자진 납부 시 최대 20,000원까지 감경됩니다.",
       "number": "100,000",
       "amount": 100000
+    },
+    {
+      "name": "no-refusal reason is not a refusal",
+      "text": "미부과 사유가 없어 과태료 40,000원을 부과하였습니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "surcharge refusal after CRLF",
+      "text": "과태료 40,000원을 부과하였습니다\r\n기한 내 납부하면 가산금은 부과하지 않습니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "reduction limit described before the amount",
+      "text": "과태료 100,000원을 부과하였습니다. 자진 납부 시 감경액의 상한은 20,000원입니다.",
+      "number": "100,000",
+      "amount": 100000
     }
   ]
 }
