@@ -328,6 +328,159 @@ class DeferredNoStartedTests(PauseBase):
         self.assertEqual(db_optimize.peek_deferred_fulls(self.engine), [])
 
 
+class LifeRaceTests(PauseBase):
+    """작업자 수명 경합 3건(Sol 5차 확인). 실제 스레드 + Event 동기화로 순서를 강제한다."""
+
+    def _patch_lifecycle(self, calls, proceed=None, release2=None, need_more=None):
+        """process_all/needs_run 을 가짜로 바꾼다. 호출자가 with 밖에서 정리한다."""
+        def fake_process(engine, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                if proceed is not None:
+                    self.assertTrue(proceed.wait(timeout=15))
+                return {"total": 1, "done": 0, "finished": False, "stats": {}}
+            if release2 is not None:
+                self.assertTrue(release2.wait(timeout=15))
+            return {"total": 1, "done": 1, "finished": True, "stats": {}}
+
+        p1 = mock.patch.object(db_optimize, "process_all", side_effect=fake_process)
+        p2 = mock.patch.object(db_optimize, "needs_run",
+                               side_effect=lambda e: bool(need_more["value"]) if need_more else True)
+        p1.start()
+        p2.start()
+        self.addCleanup(p1.stop)
+        self.addCleanup(p2.stop)
+
+    def test_finally_then_timeout_restarts(self):
+        """작업자 finally 판단 직후 시간 초과 → 다시 시작돼야 한다."""
+        calls = []
+        proceed = threading.Event()
+        release2 = threading.Event()
+        need_more = {"value": True}
+        self._patch_lifecycle(calls, proceed=proceed, release2=release2, need_more=need_more)
+
+        def gated_stop_and_join(timeout=0):
+            db_optimize._stop.set()
+            with db_optimize._lock:
+                thread = db_optimize._thread
+            if thread is None:
+                return True
+            thread.join(max(0, timeout))  # 만료: 작업자는 아직 proceed 대기
+            proceed.set()  # 작업자를 지금 끝낸다 — finally 판단이 시간 초과 정리보다 먼저
+            thread.join(timeout=10)  # finally 판단이 끝날 때까지(스레드 사망) 기다린다
+            return False
+
+        with mock.patch.object(db_optimize, "stop_and_join", side_effect=gated_stop_and_join):
+            thread = db_optimize.maybe_start(self.engine, background=True)
+            self.assertIsNotNone(thread)
+            try:
+                with self.assertRaises(db_optimize.RestorePauseTimeout):
+                    db_optimize.pause_for_restore(timeout=0.2)
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline and len(calls) < 2:
+                    time.sleep(0.05)
+                # 시간 초과 정리가 끝난 뒤에도 작업이 중단된 채 남으면 안 된다.
+                self.assertEqual(len(calls), 2)
+            finally:
+                need_more["value"] = False
+                release2.set()
+                proceed.set()
+                with db_optimize._lock:
+                    current = db_optimize._thread
+                if current is not None and current is not threading.current_thread():
+                    current.join(timeout=15)
+
+    def test_stop_during_pause_wait_survives_timeout(self):
+        """일시정지 대기 중 stop() 뒤 시간 초과 → 종료 요청 유지·재시작 없음."""
+        calls = []
+        release = threading.Event()
+        timeout_err = []
+
+        def fake_process(engine, **kwargs):
+            calls.append(1)
+            self.assertTrue(release.wait(timeout=20))
+            return {"total": 1, "done": 1, "finished": True, "stats": {}}
+
+        def do_pause():
+            try:
+                db_optimize.pause_for_restore(timeout=0.6)
+            except db_optimize.RestorePauseTimeout as exc:
+                timeout_err.append(exc)
+
+        with mock.patch.object(db_optimize, "process_all", side_effect=fake_process), \
+                mock.patch.object(db_optimize, "needs_run", side_effect=lambda e: True):
+            thread = db_optimize.maybe_start(self.engine, background=True)
+            self.assertIsNotNone(thread)
+            try:
+                pauser = threading.Thread(target=do_pause, daemon=True)
+                pauser.start()
+                deadline = time.monotonic() + 5
+                while not db_optimize.restore_paused() and time.monotonic() < deadline:
+                    time.sleep(0.02)
+                self.assertTrue(db_optimize.restore_paused())
+                db_optimize.stop(timeout=0.1)
+                pauser.join(timeout=10)
+                self.assertEqual(len(timeout_err), 1)
+                # 시간 초과가 서버 종료 요청까지 지우면 안 된다.
+                self.assertTrue(db_optimize._stop.is_set())
+                self.assertTrue(getattr(db_optimize, "_shutdown", False))
+                self.assertIs(thread, db_optimize._thread)
+                self.assertTrue(thread.is_alive())
+                self.assertEqual(len(calls), 1)
+            finally:
+                release.set()
+                thread.join(timeout=15)
+                self.assertFalse(thread.is_alive())
+
+    def test_stop_between_thread_clear_and_decide_starts_no_second_run(self):
+        """작업자 _thread=None 직후 stop() → 두 번째 실행 없음."""
+        calls = []
+        proceed = threading.Event()
+        release2 = threading.Event()
+        decided = threading.Event()
+
+        def fake_process(engine, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                self.assertTrue(proceed.wait(timeout=15))
+                return {"total": 2, "done": 1, "finished": False, "stats": {}}
+            self.assertTrue(release2.wait(timeout=15))
+            return {"total": 2, "done": 2, "finished": True, "stats": {}}
+
+        def gated_needs_run(engine):
+            if len(calls) >= 1 and not decided.is_set():
+                # 작업자 종료 판단 직전에 stop()이 끼어든 순서 강제(같은 스레드에서 동기 호출).
+                db_optimize.stop(timeout=5)
+                decided.set()
+            return True
+
+        with mock.patch.object(db_optimize, "process_all", side_effect=fake_process), \
+                mock.patch.object(db_optimize, "needs_run", side_effect=gated_needs_run):
+            thread = db_optimize.maybe_start(self.engine, background=True)
+            self.assertIsNotNone(thread)
+            try:
+                # 작업자가 멈춤 신호를 보고 끝내서 종료 시점에 재판단하게 한다.
+                # (구 코드 finally는 _stop 없이는 maybe_start를 부르지 않음)
+                db_optimize._stop.set()
+                proceed.set()
+                self.assertTrue(decided.wait(timeout=15))
+                deadline = time.monotonic() + 2
+                while time.monotonic() < deadline and len(calls) < 2:
+                    time.sleep(0.05)
+                # stop()이 끝난 뒤에 새 작업자가 시작되면 안 된다.
+                self.assertEqual(len(calls), 1)
+            finally:
+                release2.set()
+                proceed.set()
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    with db_optimize._lock:
+                        current = db_optimize._thread
+                    if current is None or not current.is_alive():
+                        break
+                    time.sleep(0.05)
+
+
 class WriteBarrierDrainTests(unittest.TestCase):
     def test_two_checkouts_no_deadlock_and_drain_refuses_then_succeeds(self):
         engine = create_engine("sqlite://", connect_args={"check_same_thread": False},
