@@ -21,27 +21,21 @@ _LIMIT = re.compile(
     + '*(?:경우|시)|경우에?는?|부과하지|부과할' + _S + '*수' + _S + '*없'
     # Future conditions ("다시 적발될 시", "적발되면", "~할 시", "~하면").
     + '|(?:될|할|적발|위반)' + _S + '*시(?:에는?|에도)?' + _END + '|(?:하|되|않으)면' + _END)
-# A refusal from the amount's clause to the end of its sentence ("부과할 예정이었으나, ... 부과하지
-# 않습니다") withdraws that amount. A refusal of another charge ("가산금은 부과하지 않습니다"), a reason
-# noun ("부과 불가 사유") or one in another sentence does not.
-_REFUSAL = re.compile('(?:부과하지|부과할' + _S + '*수' + _S + '*없|부과(?:가|는)?' + _S + '*(?:불가(?!피)|어렵|곤란))'
-                      + '(?!는?' + _S + '*사유)')
-_SUBJECT = re.compile('([가-힣]+)(?:을|를|은|는|이|가)' + _S + '*$')
-# A decision sentence ends at a sentence-final mark or a line break, except a line ending with a comma
-# ("예정이었으나,\n...").
-_DECISION_END = re.compile('。|(?<=[다요])[.!?]|\n')
-_COMMA_TAIL = re.compile('[,，][\t\r \xa0\u3000]*$')
-# Another amount in a reduction clause ("경우 과태료 80,000원으로 감경") is a second stated amount
-# even when its clause is conditional.
-_REDUCTION = re.compile('감경|경감|감면')
-# A limit amount ("20만원 이하", "최대 200만원", "감경액의 상한은 2만원") is guidance, not a second stated amount.
-_LIMIT_BEFORE = re.compile('최대|상한|(?<!기)한도')
 _PREVIOUS_LIMIT = re.compile('(?:최대|상한|(?:미이행|불이행|불응)' + _S + '*시|않을' + _S + '*경우)' + _S + '*[:：]?' + _S + '*$')
 _FOLLOWING_LIMIT = re.compile(_S + '*\\)?' + _S + '*(?:이하|이상|미만|초과)')
 _CLOSE = re.compile(_S + '*\\)')
 # Sentence ends and post-predicate clause connectives ("부과할 예정이며, ...").
 _SENTENCE = re.compile('\\n|。|(?<=[다요])[.!?]')
 _CLAUSE = re.compile('(?:며|으나|지만|는데|(?:였|했|하|되)고)(?=,|' + _S + ')')
+# A planned amount withdrawn by the contrasting sentence that follows ("부과할 예정이었으나, … 부과하지 않습니다").
+_PLANNED = re.compile('예정')
+_CONTRAST_END = re.compile('(?:으나|지만|는데)$')
+_WITHDRAWAL = re.compile('부과하지|부과할' + _S + '*수' + _S + '*없|부과(?:가|는)?' + _S + '*(?:불가(?!피)|어렵|곤란)')
+# The sentence after a contrast ends at a sentence-final mark or a line break not following a comma.
+_SENTENCE_END = re.compile('。|(?<=[다요])[.!?]|\n')
+_COMMA_TAIL = re.compile('[,，][\t\r \xa0\u3000]*$')
+# An amount the fine is reduced to ("80,000원으로 감경") is a second stated amount.
+_REDUCED_TO = re.compile(_S + '*(?:으로|로)' + _S + '*(?:감경|경감|감면)')
 
 
 def _number(token, unit):
@@ -54,13 +48,13 @@ def _number(token, unit):
     return None  # Decimal/mixed Korean units require an explicit supported grammar.
 
 
-def _refuses(text, start, end):
-    for refusal in _REFUSAL.finditer(text, start, end):
-        subject = _SUBJECT.search(text, start, refusal.start())
-        if subject and not (subject[1].endswith('과태료') or subject[1] == '원'):
-            continue  # Another charge ("가산금은 부과하지 않습니다").
-        return True
-    return False
+def _withdrawn(text, a, b):
+    """The amount's clause [a, b) is a plan and the next sentence withdraws it."""
+    if not (_PLANNED.search(text, a, b) and _CONTRAST_END.search(text, a, b)):
+        return False
+    end = next((m.end() for m in _SENTENCE_END.finditer(text, b)
+                if m[0] != '\n' or not _COMMA_TAIL.search(text, 0, m.start())), len(text))
+    return bool(_WITHDRAWAL.search(text, b, end))
 
 
 def _identity(n):
@@ -72,17 +66,14 @@ def explicit_fine_number(text):
 
     A condition/limit qualifies only the clause that holds the amount. Generic
     guidance in another clause, sentence or line (a limit footer, a reduction
-    notice without an amount) neither negates an explicit amount nor counts as
-    a second amount. A refusal from the amount's clause to the end of its
-    sentence withdraws that amount; any other amount that is not itself a
-    limit (a reduced amount, a surcharge) leaves the amount unknown.
+    notice) neither negates an explicit amount nor counts as a second amount.
+    A planned amount withdrawn by the contrasting next sentence, or another
+    amount the fine is reduced to, leaves the amount unknown.
     """
     text = str(text or '').translate(_TRANSLATE)
     matches = list(_FINE.finditer(text))
     if not matches:
         return None
-    decision_ends = sorted({len(text)} | {m.end() for m in _DECISION_END.finditer(text)
-                                          if m[0] != '\n' or not _COMMA_TAIL.search(text, 0, m.start())})
     cuts = sorted({0, len(text)} | {m.end() for m in _SENTENCE.finditer(text)}
                   | {m.end() for m in _CLAUSE.finditer(text)})
 
@@ -97,12 +88,11 @@ def explicit_fine_number(text):
         if match[1] and not _CLOSE.match(text, match.end()):
             return None
         a, b = clause(match.start(), match.end())
-        sentence_end = min(e for e in decision_ends if e >= match.end())
         before = text[:a]
         if before.endswith('\n'):
             before = before[:-1]
         previous = before.split('\n')[-1] if a else ''
-        if (_refuses(text, a, sentence_end) or _LIMIT.search(text[a:b]) or _PREVIOUS_LIMIT.search(previous)
+        if (_LIMIT.search(text[a:b]) or _withdrawn(text, a, b) or _PREVIOUS_LIMIT.search(previous)
                 or _FOLLOWING_LIMIT.match(text, match.end())):
             skipped.append(match.span())
             continue
@@ -117,12 +107,12 @@ def explicit_fine_number(text):
     for money in _MONEY.finditer(text):
         if _identity(_number(money[1], money[2])) == _identity(candidates[0]):
             continue
-        a, b = clause(money.start(), money.end())
-        if _FOLLOWING_LIMIT.match(text, money.end()) or _LIMIT_BEFORE.search(text[a:money.start()]):
-            continue
-        if _REDUCTION.search(text[a:b]):
-            return None
+        if _REDUCED_TO.match(text, money.end()):
+            return None  # Even in a conditional clause ("경우 (과태료) 80,000원으로 감경").
         if any(x <= money.start() < y for x, y in skipped):
+            continue
+        a, b = clause(money.start(), money.end())
+        if _LIMIT.search(text[a:b]):
             continue
         return None
     return candidates[0]

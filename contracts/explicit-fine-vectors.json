@@ -438,6 +438,36 @@
       "text": "과태료 40,000원을 부과하였으며, 기한 내 납부하면 가산금은 부과하지 않습니다.",
       "number": "40,000",
       "amount": 40000
+    },
+    {
+      "name": "surcharge refusal with an adverb",
+      "text": "과태료 40,000원을 부과하였으며, 기한 내 납부하면 가산금은 별도로 부과하지 않습니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "adnominal refusal reason is not a refusal",
+      "text": "과태료 부과가 불가한 사유에 해당하지 않아 과태료 40,000원을 부과하였습니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "payment time limit is not a limit",
+      "text": "과태료 40,000원을 부과하였습니다. 감경 납부시한도 함께 안내드리니 32,000원을 납부하시기 바랍니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "refusal of another report after an itemized result",
+      "text": "처리결과: 과태료 40,000원 부과 완료. 별도 신고하신 위반사항은 증거 부족으로 과태료 부과가 불가합니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "refused amount mentioning reduction then imposed amount",
+      "text": "감경 대상인 제19조 위반 과태료 100,000원은 부과하지 않습니다. 제38조 위반으로 과태료 40,000원을 부과하였습니다.",
+      "number": "40,000",
+      "amount": 40000
     }
   ]
 }
