@@ -39,7 +39,8 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
 `DB_FILE_INVALID`(SQLite 아님), `DB_CORRUPT`, `DB_KIND_UNSUPPORTED`, `DB_LEGACY_UNSUPPORTED`,
 `DB_SCHEMA_UNSUPPORTED`(미래 스키마), `DB_ACCOUNT_MISMATCH`를 구분한다.
 복원 거절은 HTTP 409 `{status:"error",code,detail,message}`이며 detail/message를 화면에 계속 표시한다.
-구형 DB 안내는 "이전 버전 DB는 이 버전에서 복원할 수 없습니다"다. 자동 변환 허용으로 바꾸지 않았다.
+지원 범위(서버 6~7, 모바일 앱 17~18)의 예전 DB 는 같은 업그레이드 로직으로 올려서 받는다(원본 표는 비어 있음).
+더 새 버전은 `DB_SCHEMA_UNSUPPORTED`, 더 오래된 버전은 `DB_LEGACY_UNSUPPORTED` 로 거절한다.
 거절 전에 현재 DB 교체·dataset 회전·소유자·초기화 상태 변경은 없다. 임시 업로드만 정리한다.
 
 ## 공식 신고 위치 (현재 dev)
@@ -52,7 +53,32 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
 
 2026-09-24 에 기존 루트 `CLAUDE.md`(725줄)에서 옮겼다. 아래 '이관 원문' 은 문구를 바꾸지 않고 옮긴 것이며, 원본 전체는 [legacy-claude-reference.md](legacy-claude-reference.md)에 있다.
 
-## 2026-10-11 서버 스키마 6 / 모바일 17 — 신고 한 건 한 행, 5분류 (현재 기준)
+## 2026-10-17 상세 원본 저장 — 스키마 7 / 모바일 18 (현재 기준)
+
+이 절이 아래 모든 표 설명보다 우선한다. 명세: `docs/plans/2026-10-17-raw-detail-reparse.md` 1·2절(3~5절은 아직 하지 않음).
+
+- **정규 직렬화**(서버 `core/utils/raw_detail.py`, 모바일 대응): 응답 envelope 전체에서 `result` 객체의 신고자 키 5개
+  (`C_NAME` `C_EMAIL` `C_PHONE` `C_PHONE2` `C_ID`)만 지운다. 다른 위치의 같은 이름은 건드리지 않고, 키 순서를 유지한다.
+  공백 없는 JSON(UTF-8, 비ASCII 그대로)의 sha256(`raw_sha256`)을 구하고, 그 바이트를 zlib(레벨 6) 압축한 BLOB 을 저장한다.
+  읽을 때는 해제 뒤 sha 가 맞는지 확인한다. 안 맞으면 그 행은 "손상"으로 보고 원본 보기·재파싱에서 쓰지 않는다(로그 남김).
+  정본: `contracts/raw-detail-vectors.json`(서버·모바일 바이트 동일).
+- **새 표**: 서버 `mysafety_report_detail_raw`, 모바일 `report_detail_raw`. 열은 같다:
+  `ID TEXT PRIMARY KEY`, `raw_zlib BLOB NOT NULL`, `raw_sha256 TEXT NOT NULL`, `raw_size INTEGER NOT NULL`(압축 전 바이트 수),
+  `fetched_at TEXT NOT NULL`(UTC ISO8601, 밀리초, `Z`), `source TEXT NOT NULL`(받은 경로).
+  신고 행과 1:1, 같은 ID 로 다시 받으면 덮어쓴다(upsert). 신고 행을 지우는 경로(reset·로그아웃 비우기·모바일 복원)는 원본 행도 같이 지운다.
+- **저장 시점**: `crawldetail_api.crawl_details` 가 `data` 를 받은 직후 정규화해 결과 튜플(`CrawledDetail` 10번째 `raw_info`)에 실고,
+  `reports_repo._save_one` 의 같은 트랜잭션에서 원본 표에 upsert 한다(초기화·일반·단건 모두). 파서 입력은 지금처럼 `result` 이다
+  (파서는 신고자 키 5개를 쓰지 않음을 시험으로 고정). 원본 파일 `<datapath>/raw_details/<ID>.json`(들여쓰기 2칸, 임시 파일→rename)은
+  DB 저장과 별도로 쓰고, 실패하면 DB 저장을 막지 않고 대체 진단 기록만 남긴다.
+- **업그레이드**: 6 → 7 은 추가만 하는 제자리 변환(업그레이드 전 백업 `before_schema_v7_*.db` → 새 표 생성 → 버전 기록, 실패하면 DB 무변경).
+  체인: 5 → 6 → 7. 5 미만 규칙(백업 뒤 비우기) 유지. 크롤러 단독 실행은 서버가 먼저 올리기 전에는 멈춘다.
+- **교환·복원**: 지원 범위(서버 6~7, 모바일 앱 17~18)면 올려서 받고, 더 새 버전·더 오래된 버전은 기존처럼 거절한다.
+  서버 6·모바일 17 DB 를 올려 받은 뒤 원본 표는 비어 있다(최적화 작업이 채움). 원본 표는 BLOB 바이트 그대로 양방향 교환한다(재압축 금지).
+  왕복 시험에서 원본 표의 모든 열 값이 바이트까지 같아야 한다. 계약 열 목록은 이 문서 한 곳.
+- **스키마 버전**: 서버 `PRAGMA user_version` = `core/database/database.py SCHEMA_VERSION`(현재 7),
+  모바일 `LocalDbService.dbVersion`(현재 18). 계약 `contracts/storage-contract.json`(현재 `contract_version` 4).
+
+## 2026-10-11 서버 스키마 6 / 모바일 17 — 신고 한 건 한 행, 5분류 (이전 기준, 스키마 7 설명이 우선)
 
 이 절이 아래 모든 표 설명보다 우선한다. 계획·결정: `docs/plans/2026-10-11-report-taxonomy.md`.
 
@@ -73,7 +99,7 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
 
 ## 코드 대조 정정 (기준 17df6cb)
 
-현재 dev 기준은 아래 **2026-09-27 이전 버전 DB 처리** 절이다. 이 문서의 2026-09-24 R1 절과 이관 원문의 자동 업그레이드 설명은 당시 기록이며 현재 값이 아니다. 현재 서버 스키마는 `core/database/database.py`의 `SCHEMA_VERSION=6`(2026-10-11, 위 절); 버전 5 는 제자리 변환, 그 미만은 서버 시작 때 백업 후 초기화한다. 현재 모바일 스키마는 `contracts/storage-contract.json`의 `schema_version.mobile=17`이다. 제품 VERSION 및 self-host protocol 3과 별개다.
+현재 dev 기준은 위 **2026-10-17 상세 원본 저장** 절이다. 이 문서의 2026-09-24 R1 절과 이관 원문의 자동 업그레이드 설명은 당시 기록이며 현재 값이 아니다. 현재 서버 스키마는 `core/database/database.py`의 `SCHEMA_VERSION=7`(2026-10-17, 위 절); 6 은 제자리 변환, 5 는 5 → 6 → 7 체인, 그 미만은 서버 시작 때 백업 후 초기화한다. 현재 모바일 스키마는 `contracts/storage-contract.json`의 `schema_version.mobile=18`이다. 제품 VERSION 및 self-host protocol 3과 별개다.
 
 | 원문 절 | 현재 코드 | 조치 |
 |---|---|---|
@@ -295,8 +321,10 @@ by_law (법규별, 같은 필드 + law)
 - `duplicate_group_service.get_duplicate_groups()`(웹 관리 화면, `/api/v1/duplicates/groups`) 그룹마다 `user_decided`(판단 표에 행이 있음), `decided_at`(epoch ms), `decided_at_text`("YYYY-MM-DD HH:MM") 추가. 기존 필드는 그대로.
 - 판단 표는 그룹별 **마지막** 사용자 판단만 보관한다. 여러 번의 변경 이력은 저장하지 않는다(필요하면 서버·앱 계약에 이력 표를 새로 넣어야 함).
 
-## 2026-09-27 이전 버전 DB 처리 — 초기화 크롤링 릴리스 (서버·모바일 함께)
-이번 릴리스는 이전 DB 를 새 구조로 옮기지 않는다. 아래 "2026-09-25 업데이트 때 DB 처리" 의 업그레이드 로직(업그레이드 전 백업, 열 추가 ALTER,
+## 2026-09-27 이전 버전 DB 처리 — 초기화 크롤링 릴리스 (서버·모바일 함께, 2026-10-17 변경으로 일부 바뀜)
+2026-10-17 부터 지원 범위(서버 6~7, 모바일 앱 17~18)의 예전 DB 는 `migrate_schema` 로 올려서 받는다(위 절). 아래 "옮기지 않는다"는
+그보다 오래된 DB(서버 5 이하·모바일 16 이하)에만 해당한다. 5 → 6 → 7 체인, 5 미만은 백업 뒤 비우기.
+당시 릴리스는 이전 DB 를 새 구조로 옮기지 않았다. 아래 "2026-09-25 업데이트 때 DB 처리" 의 업그레이드 로직(업그레이드 전 백업, 열 추가 ALTER,
 번호 붙은 마이그레이션, 감시목록 열 이관, entry_value 재분류, synced_at 백필, 상태 정규화)은 `core/database/database.py upgrade_schema` 안에 **주석으로 남겨 비활성**했다.
 함수 본체(`_apply_versioned_migrations`·`_migration_*`·`backup_before_upgrade` 등)는 다음 스키마 변경 때 다시 켜려고 남겼다.
 - `upgrade_schema`: 새 DB(표 없음)는 지금 스키마로 만들고 `user_version=SCHEMA_VERSION` 을 적는다. 지금 버전 DB 는 빠진 표만 만들고 인덱스(`_index_statements`, IF NOT EXISTS)를 매번 확인한다.
@@ -313,9 +341,10 @@ by_law (법규별, 같은 필드 + law)
   `mysafety_watchlist`, `mysafety_geocode_cache`. 그 밖(신고·상세·병합·원문·entry_value·중복군·sync_meta·수정값·중복 판단·변경 기록)은 비운다.
   예전에 직접 고친 값·중복 판단·메모는 옮기지 않는다(백업 파일에만 남음).
 - 기록 `mysafety_sync_meta[legacy_reset]` = JSON `{from_version, backup, kept, dropped, at}` (`legacy_reset_info`). 초기화 크롤링 판정과 안내 화면이 쓴다.
-- 가져오기 거절(`core/storage/exchange.refuse_other_version`, `restore()` 첫 단계): 서버 DB 는 `user_version == SCHEMA_VERSION`, 모바일 DB 는
-  `user_version == MOBILE_SCHEMA_VERSION`(계약 `schema_version.mobile`, 테스트가 확인)만 받는다. 아니면 `LegacyDatabaseRefused`(RestoreRefused → 라우트 409):
-  `이전 버전 {서버|모바일 앱} DB(스키마 N)는 가져올 수 없습니다(지금 M). …` / `더 새 버전 … 프로그램을 먼저 업데이트하세요.` — 쓰기 장벽·스테이징 전에 멈춘다.
+- 가져오기 거절(`core/storage/exchange.refuse_other_version`, `restore()` 첫 단계, 2026-10-17 변경 전): 서버 DB 는 `user_version == SCHEMA_VERSION`,
+  모바일 DB 는 `user_version == MOBILE_SCHEMA_VERSION`(계약 `schema_version.mobile`, 테스트가 확인)만 받았다.
+  2026-10-17 부터는 지원 범위(서버 6~7, 모바일 앱 17~18)면 올려서 받고, 범위 밖만 `LegacyDatabaseRefused`(너무 오래됨)/
+  `FutureDatabaseRefused`(더 새 버전)로 거절한다(RestoreRefused → 라우트 409) — 쓰기 장벽·스테이징 전에 멈춘다.
 - 모바일은 같은 규칙(`LocalDbService.resetLegacyDatabase`·`_refuseOtherVersion`, 모바일 레포 `docs/architecture/data-contracts.md`). 계약: `contracts/community-ingest/rebuild.md` "이전 버전 개인 DB".
 - 되돌리기: 서버를 멈추고 `data/data.db`(와 `-wal`/`-shm`)를 `legacy_v*` 백업으로 바꾼 뒤 **이전 버전 서버**로 띄운다(이번 서버로 띄우면 다시 비운다).
 

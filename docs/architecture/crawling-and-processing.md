@@ -8,6 +8,18 @@
 `_violation_law`·`_penalty`·`_apply_penalty_corrections`·`_final_status`(canonical 상태 순서) → 취하 처분 제거 → `supplement_case_fine`(빈 처분/미확인만 보완) → `_supplement`·`_title_fields`. 입력 dict 를 바꾸지 않는다.
 분리 전후 결과는 공용 파서 벡터와 그 변형 1만 1,600건에서 같았다(예외가 나던 입력은 같은 예외). 모바일 standalone_parser.dart 와 같은 벡터를 쓴다.
 
+## 상세 원본 저장 (2026-10-17 명세 1절, 스키마 7)
+
+- `core/crawler/crawldetail_api.py` 의 `crawl_details` 는 상세 API 응답 envelope(`data`)를 받은 직후
+  `core/utils/raw_detail.py` 로 정규화(신고자 키 5개 제거 → 공백 없는 JSON → sha256)해
+  `core/crawler/detail_pipeline.py` 의 `build_detail_result` 결과 튜플 10번째(`raw_info`)에 실는다.
+- `core/storage/reports_repo.py` 의 `CrawledDetail.from_legacy_tuple` 은 10번째 원소를 읽고(없어도 됨),
+  `_save_one` 의 같은 트랜잭션에서 `mysafety_report_detail_raw` 에 upsert 한다(초기화·일반·단건 모두).
+  파서 입력은 지금처럼 `result` 이다. 파서는 신고자 키 5개를 쓰지 않는다(`tests/test_raw_detail_vectors.py`).
+- 원본 파일 `<datapath>/raw_details/<ID>.json`(들여쓰기 2칸, 임시 파일→rename)은 DB 커밋 뒤에 쓰고,
+  실패해도 DB 저장을 막지 않고 대체 진단 기록(`note_fallback`)만 남긴다.
+- 계약 벡터 `contracts/raw-detail-vectors.json`, 열 계약 `contracts/storage-contract.json`(`detail_raw`).
+
 ## 실행 접수·실패·초기화 작업의 수명
 
 - 일반/선택/초기화 크롤은 완료 watcher를 먼저 준비하고 프로세스를 인계한다. 실행 실패도 watcher에 None을 전달해 대기를 풀며, 알림 실패가 이미 실행한 프로세스를 실패 접수로 바꾸지 않는다. 로그용 Popen 부모 fd는 닫는다.
