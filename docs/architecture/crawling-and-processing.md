@@ -34,26 +34,42 @@
 - 신고마다(ID 순, 커서로 이어서):
   1. 원본 표에 행이 있고 sha가 맞으면 네트워크 없이 저장된 원본의 `result`로 다시 파싱한다.
      sha가 안 맞으면(손상) 로그를 남기고 없는 것과 같이 다시 받는다.
+     `target`이 바뀌었으면 커서·통계·시도횟수를 버리고 처음부터 훑는다.
+     매 신고 처리 때 DB 정체(community 데이터셋·복원 장벽 세대)를 확인해 복원이 끼면
+     현재 신고를 끝내고 멈춘다 — 옛 ID 목록·커서·done을 복원된 DB에 쓰지 않고,
+     복원된 DB의 메타를 새로 읽어 처음부터 판단한다.
   2. 행이 없으면 `direct_login.make_authorized_session()` 세션으로 `_fetch_detail`을 다시 받아
      (크롤과 같은 요청 간격 0.3초·`request_with_retry` 재시도) 1절 규칙대로 원본 표(`source='backfill'`)·파일에
      저장하고 파싱한다. 세션을 못 만들면(로그인 필요) 작업을 멈추고 `stage='login_required'`로 보인 뒤
-     주기적으로 재시도한다. 받을 수 없는 신고(404·삭제 등)는 건너뛰고 사유를 통계·로그에 남긴다.
+     주기적으로 재시도한다. 없는 신고·삭제(영구, 404 등)만 사유를 남기고 건너뛴다.
+     일시 실패(네트워크·타임아웃·저장 실패·로그인 갱신 중 예외)는 메타 `attempts`에 신고별
+     시도 횟수를 남기고 커서는 넘기되 이번 회차 끝·다음 기동에 다시 시도한다.
+     3회 실패는 `skipped.retry_exceeded`로 건너뛴다. `done=true`는 전부 처리됐거나
+     영구·재시도 초과 건너뜀일 때만 기록한다.
   3. `reports_repo.reparse_one` (공유 trigger `'reparse'`): 파서가 만드는 열만 갱신한다
      (상세 사이트 열·분류·본문, 목록 크롤이 채우는 상태·신고번호·신고명·신고일·만족도·별점은 손대지 않음,
-     사용자 override는 화면용 표에 그대로 다시 얹음, effective 갱신). 기존 저장 경로의 공유 캡처를 그대로 타서
+      좌표·사진 촬영 시각 등 다른 작업이 채우는 열은 읽지도 덮어쓰지도 않음 — 공유 캡처 입력에 쓸
+      현재값은 쓰기 잠금 안에서 읽음, 사용자 override는 화면용 표에 그대로 다시 얹음, effective 갱신).
+     기존 저장 경로의 공유 캡처를 그대로 타서
      공유 payload가 바뀐 신고만 새 `completed_observation`이 나간다. 바뀌지 않으면 이벤트 없음.
+     사용자가 지운 공유 관측(`deleted_by_user`)은 되살리지 않는다(보충 경로와 같은 검사).
      `resend_fine_estimate_updates`는 그대로 둔다.
   4. 원본 파일이 없으면 만든다.
   5. 진행 로그(시각+문구, 최근 50줄)와 done/total/stage를 갱신한다. 끝나면 `done=true`, 중복군 재생성(바뀐 게 있을 때만),
-     대기열 뒤에 붙은 크롤을 자동 시작한다.
+     대기열 뒤에 붙은 크롤을 자동 시작한다. 작업 예외(`error`)면 크롤 보류를 풀어 대기 중인
+     크롤(번호·전체)을 정상 실행하고, 최적화는 크롤이 끝난 뒤·다음 기동에 다시 시도한다.
 - 크롤과의 순서: 작업이 도는 동안 수동 크롤(웹 `/crawl` 시작, `/api/v1/crawl/start`)과 알림·단건 크롤은 바로
   시작하지 않고 대기열 뒤에 붙인다. 번호 지정 요청은 `crawl_manager` 대기열에, 번호 없는 전체 크롤은
-  메타 키 `detail_raw_optimize_deferred_full`에 미뤄 둔다. 요청마다 크롤 창 로그(`current_crawl.log`)에
+  메타 키 `detail_raw_optimize_deferred_full`에 하나로 합쳐 미뤄 둔다. 요청마다 크롤 창 로그(`current_crawl.log`)에
   "DB 최적화 중입니다. 최적화가 끝난 뒤 크롤링을 시작합니다." 한 줄을 남기고, 작업이 끝나면
-  `request_pending_launch`·미뤄 둔 전체 크롤로 이어서 시작한다. 수동 시작 API는 최적화 중일 때만 대기열 등록으로
+  `request_pending_launch`·미뤄 둔 전체 크롤로 이어서 시작한다. 미뤄 둔 전체 크롤은 실제로 시작될 때까지
+  DB 메타에 남기고(시작 성공 뒤에 지움), 크롤이 돌고 있으면 지우지 않고 다음에 다시 미룬다.
+  최적화가 이미 done인데 서버가 끝났어도 재시작 때 기동 경로에서 꺼내 시작한다.
+  수동 시작 API는 최적화 중일 때만 대기열 등록으로
   바뀌고 응답은 필드 추가만(`queued_reason: "db_optimize"`). 크롤 run 상태·진행/중지 버튼에는 넣지 않는다.
 - 표시: `maintenance_service.status()` 작업 `db_optimize`(`label` "DB 최적화 중입니다…", done/total, stage,
-  log 최근 50줄). 스키마 업그레이드 단계(백업·표 생성·버전)도 같은 로그에 남겨 기동 뒤 보이게 한다
+  log 최근 50줄, `error` 때는 활성 작업과 구분해 '오류'와 로그 — '작업 완료'로 보이지 않음).
+  스키마 업그레이드 단계(백업·표 생성·버전)도 같은 로그에 남겨 기동 뒤 보이게 한다
   (`database.migrate_schema` → `db_optimize.record_migration_event`, 실패해도 변환을 막지 않음).
   웹 하단 표시줄(`base.html #srJobBar`, `shell-polling.js`)에 라벨·진행률을 보이고, "단계 로그" 버튼
   (`aria-expanded`)으로 단계 로그를 펼친다. `/api/v1/maintenance/status`도 같은 추가 필드.

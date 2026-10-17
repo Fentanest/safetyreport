@@ -86,9 +86,15 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
 
 - **메타 키** `mysafety_sync_meta.detail_raw_optimize` =
   `{"target": "pc-parser-13", "cursor": "<마지막 처리 ID>", "done": bool, "total": int,
-    "stats": {"reused", "refetched", "changed", "events", "skipped": {사유: 건수}}}`.
+    "stats": {"reused", "refetched", "changed", "events", "skipped": {사유: 건수}},
+    "attempts": {"<ID>": 시도횟수}}`.
   `target`이 현재 파서 버전과 다르거나 `done`이 아니면 최적화 작업이 시작/이어서 한다.
-  번호 없는 수동 크롤 미루기는 `detail_raw_optimize_deferred_full`(전체 크롤 요청 목록, 최대 10개)에 둔다.
+  버전이 다르면 커서·통계·시도횟수를 버리고 처음부터 다시 훑는다.
+  일시 실패(네트워크·타임아웃·저장 실패)는 `attempts`에 신고별 횟수를 남기고 커서는 넘기되
+  이번 회차 끝·다음 기동에 다시 시도한다. 3회 실패는 `skipped.retry_exceeded`로 건너뛰고,
+  `done=true`는 전부 처리됐거나 영구(`not_found` 등)·재시도 초과 건너뜀일 때만 기록한다.
+  번호 없는 수동 크롤 미루기는 `detail_raw_optimize_deferred_full`(합쳐진 단일 전체 크롤 요청 1건)에 둔다.
+  시작 성공 뒤에만 지우고, 실행 중이면 지우지 않고 다음 기동·다음 완료 때 시작한다(유실 금지).
 - **정비 상태**(`services/maintenance_service.status()` → `/maintenance/status`,
   `/api/v1/maintenance/status`): 작업 `db_optimize` 추가(기존 필드·의미 불변, 추가만).
   `{"key": "db_optimize", "label": "DB 최적화 중입니다…", "state": idle|running|paused|completed|error,

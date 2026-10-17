@@ -201,6 +201,9 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 - `base.html #srJobBar`는 사진 작업과 DB 최적화 작업(`key: 'db_optimize'`, 라벨 "DB 최적화 중입니다…")을 함께 보인다.
   최적화 작업은 라벨·진행률(`done/total`)·안내 문구만 한 줄에 보이고, "단계 로그" 버튼(`#srJobToggle`,
   `aria-expanded`, `#srJobLog` 제어)으로 단계 로그(최근 50줄)를 펼친다. 사진 작업 표시는 그대로다.
+  작업 예외(`state: 'error'`)는 활성 작업(`running`·`paused`)과 구분해 라벨 + ' 오류' + 안내 문구와
+  단계 로그를 보인다('작업 완료'로 보이지 않음). 로그 문구는 `textContent`로 실어 이스케이프를 유지한다.
+  동작은 `shell-polling.js`.
 - 색은 테마 토큰만 쓰고(`theme.css` `.sr-job-toggle`·`.sr-job-log`), 펼친 로그는 고정폭·줄바꿈,
   최대 높이 안에서 내부 스크롤. 390px 폭에서도 표시줄 너비를 넘지 않는다. 동작은 `shell-polling.js`.
 
