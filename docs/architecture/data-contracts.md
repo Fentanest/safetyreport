@@ -94,7 +94,10 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
   이번 회차 끝·다음 기동에 다시 시도한다. 3회 실패는 `skipped.retry_exceeded`로 건너뛰고,
   `done=true`는 전부 처리됐거나 영구(`not_found` 등)·재시도 초과 건너뜀일 때만 기록한다.
   번호 없는 수동 크롤 미루기는 `detail_raw_optimize_deferred_full`(합쳐진 단일 전체 크롤 요청 1건)에 둔다.
-  시작 성공 뒤에만 지우고, 실행 중이면 지우지 않고 다음 기동·다음 완료 때 시작한다(유실 금지).
+  시작 직전에 `detail_raw_optimize_deferred_full_started`(시각·run 식별)를 먼저 기록하고 시작한다.
+  시작 성공 뒤에만 지우고, 삭제 실패로 남아도 다음 기동·크롤 종료 훅에서 started가 있으면 다시 시작하지 않고
+  정리만 한다. 시작 실패 시 started를 되돌린다. 실행 중이면 지우지 않고 다음 기동·다음 완료 때 시작한다(유실 금지).
+  모든 크롤 종료 경로(`run_after_crawl`)에서도 보류가 남아 있으면 pending/retry 장치로 시작한다(최적화 중이면 보류 유지).
 - **정비 상태**(`services/maintenance_service.status()` → `/maintenance/status`,
   `/api/v1/maintenance/status`): 작업 `db_optimize` 추가(기존 필드·의미 불변, 추가만).
   `{"key": "db_optimize", "label": "DB 최적화 중입니다…", "state": idle|running|paused|completed|error,
@@ -280,6 +283,9 @@ by_law (법규별, 같은 필드 + law)
   - entry_value: 서버 `mysafety_entry_value` 행 없음 ↔ 모바일 `reports.entry_value` NULL, 행의 값(빈 문자열 포함) ↔ 같은 값.
     앱에 열이 있으면 앱 값이 원천(빈 문자열도 덮어씀), 열이 없는 구앱이면 서버 값 유지.
   - 복원 중 동시 쓰기: 스테이징 복사부터 파일 교체까지 `core/database/write_barrier.exclusive()` 가 운영 DB 연결을 막는다.
+    최적화 신고 1건(읽기·재조회 저장·재파싱 저장·메타 쓰기)은 `write_barrier.shared()` 공유 구간 안에서
+    정체 확인 뒤에만 수행한다. 복원은 이 1건이 끝날 때까지 기다리고, 복원 중 새 1건은 공유 구간에 들어가지 못한다.
+    복원 완료 지점(성공·실패 공통)에서는 `db_optimize.maybe_start` 로 새 DB 메타를 다시 판단한다.
     이미 빌린 연결이 반납될 때까지 기다리고(20초 넘으면 409), 그동안 새 연결은 기다렸다가 교체된 새 파일로 다시 연다.
     크롤러는 별도 프로세스라 이 장벽 밖이므로, 복원은 `crawl_manager.hold_for_restore()` 로 크롤 시작 검사와 **같은 잠금 안에서**
     "복원 중" 을 표시한다. 그동안 크롤 시작은 `CrawlBlockedByRestore`(화면 문장), 대기 큐 자동 시작은 신고번호를 큐로 되돌린다(Sol 재검증 SOL-04).
