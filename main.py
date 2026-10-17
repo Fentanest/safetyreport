@@ -48,7 +48,7 @@ import signal
 from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route, devices_route
 from web.routers import auth_route, api_route, ws_route, db_editor_route, backup_route, maintenance_route
 from web.routers import duplicate_route, media_route, community_route, community_onboarding_route
-from web.routers import community_upload_route, community_rebuild_route
+from web.routers import community_upload_route, community_rebuild_route, raw_detail_route
 import subprocess
 
 from core.utils.path_utils import resource_path, is_frozen
@@ -68,7 +68,7 @@ def _init_runtime() -> None:
     """서버 프로세스 준비(EO R-04: import 가 아니라 앱을 만들 때 한 번): 코어 로거와 데이터 하위 폴더."""
     if logger.LoggerFactory.logbot is None:
         logger.LoggerFactory.create_logger()
-    for sub in ("", "auth", "logs", "results"):
+    for sub in ("", "auth", "logs", "results", "raw_details"):
         os.makedirs(os.path.join(settings.datapath, sub), exist_ok=True)
 
 # DB Init
@@ -621,6 +621,7 @@ _ROUTERS = (
     community_route.router, community_route.api_router, community_route.gate_api_router,
     community_onboarding_route.router, community_upload_route.router, community_upload_route.api_router,
     community_rebuild_route.router, community_rebuild_route.api_router, api_route.router, ws_route.router,
+    raw_detail_route.router,
 )
 
 

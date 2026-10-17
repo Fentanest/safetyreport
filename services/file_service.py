@@ -14,8 +14,32 @@ from core.utils import logger
 ALLOWED_BROWSER_DIRS = {
     "logs": settings.logpath,
     "results": settings.resultpath,
+    # 2026-10-17 명세 4절: 상세 원본 사람이 보는 사본(`<datapath>/raw_details/<ID>.json`,
+    # core/utils/raw_detail.write_raw_file). 보기·다운로드만 허용한다(삭제 금지 — 아래 _READ_ONLY_BROWSER_DIRS).
+    "raw_details": settings.raw_details_dir,
 }
 ALLOWED_API_ROOTS = frozenset(ALLOWED_BROWSER_DIRS.keys())
+
+#: 브라우저·API 파일 삭제 금지 루트(원본은 DB 에서 다시 만들 뿐 지우지 않는다).
+_READ_ONLY_BROWSER_DIRS = frozenset({"raw_details"})
+
+
+def _read_only_target(abs_path: str) -> bool:
+    for label in _READ_ONLY_BROWSER_DIRS:
+        root = ALLOWED_BROWSER_DIRS.get(label)
+        if not root:
+            continue
+        try:
+            _under_root(abs_path, root)
+        except PermissionError:
+            continue
+        return True
+    return False
+
+
+def _refuse_read_only(abs_path: str) -> None:
+    if _read_only_target(abs_path):
+        raise PermissionError("읽기 전용 폴더의 파일은 삭제할 수 없습니다.")
 
 
 def get_protected_paths() -> set[str]:
@@ -241,6 +265,7 @@ def build_api_download_zip(paths):
 
 def delete_file(path: str):
     abs_path = ensure_browser_file(path)
+    _refuse_read_only(abs_path)
     if _protected(abs_path, get_protected_paths()):
         raise RuntimeError("현재 사용 중인 로그 파일은 삭제할 수 없습니다.")
     _unlink_file(abs_path)
@@ -256,6 +281,9 @@ def delete_files(paths):
             abs_path = ensure_browser_file(path)
         except (PermissionError, FileNotFoundError) as exc:
             errors.append(f"{os.path.basename(str(path))}: {exc}")
+            continue
+        if _read_only_target(abs_path):
+            errors.append(f"{os.path.basename(path)}: 읽기 전용 폴더의 파일은 삭제할 수 없습니다.")
             continue
         if _protected(abs_path, protected):
             errors.append(f"{os.path.basename(path)}: 현재 사용 중인 로그 파일은 삭제 대상에서 제외되었습니다.")
@@ -289,6 +317,9 @@ def delete_api_files(paths):
             continue
 
         abs_path = os.path.abspath(resolved)
+        if _read_only_target(abs_path):
+            errors.append(f"{os.path.basename(path)}: 읽기 전용 폴더의 파일은 삭제할 수 없습니다.")
+            continue
         if _protected(abs_path, protected):
             errors.append(
                 f"{os.path.basename(path)}: 현재 사용 중인 로그 파일은 삭제 대상에서 제외되었습니다."
@@ -307,6 +338,8 @@ def delete_all_in_target(target: str):
     directory = ALLOWED_BROWSER_DIRS.get(target)
     if not directory:
         raise ValueError("Invalid target")
+    if target in _READ_ONLY_BROWSER_DIRS:
+        raise PermissionError("읽기 전용 폴더는 일괄 삭제할 수 없습니다.")
     if not os.path.exists(directory):
         return 0
 

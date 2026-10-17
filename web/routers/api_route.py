@@ -2,7 +2,7 @@ import os
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, Query
 from starlette.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
 from starlette.background import BackgroundTask
 
@@ -61,6 +61,25 @@ def _report_categories(request: Request, category: str):
     if category == "other" and not taxonomy_compat.wants_five(request):
         return report_category.expand_legacy("other"), "other"
     return (category,), None
+
+
+@router.get("/reports/{report_id}/raw-detail")
+def get_report_raw_detail(report_id: str, _: str = Depends(_require_api_key)):
+    """상세 원본 보기(Client 모드용, 2026-10-17 명세 4절, 추가만).
+
+    → `{id, fetched_at, source, raw_sha256, json}`(`json` 은 신고자 키 5개가
+    이미 빠진 저장 원본 그대로, 객체). 없음 404 `{error: "raw_detail_missing"}`,
+    손상 409 `{error: "raw_detail_corrupt"}`. ID 검증 실패(경로 이탈 시도)도
+    구분해 알리지 않고 404 로 답한다.
+    """
+    from services import raw_detail_service
+
+    try:
+        return raw_detail_service.read(engine, report_id)
+    except raw_detail_service.RawDetailMissing:
+        return JSONResponse({"error": "raw_detail_missing"}, status_code=404)
+    except raw_detail_service.RawDetailCorrupt:
+        return JSONResponse({"error": "raw_detail_corrupt"}, status_code=409)
 
 
 @router.get("/reports/{category}")
@@ -755,9 +774,13 @@ def get_app_config(_: str = Depends(_require_api_key)):
             # community_account: /api/v1/community-auth/* (서버의 커뮤니티 계정 연결, 2026-09-25).
             # law_search_v2(2026-10-16): 법규를 개별 키로 정규화해 검색하고 검색 필터 `lawExact`(저장 키 소속 판정)를 받는다.
             # 이 신호가 없는 서버(v3.3.0 이하)에는 앱이 예전처럼 저장 원문 값을 보낸다. 기존 필드는 그대로 두고 추가만 한다.
-            "capabilities": ["rating_cause", "community_account", "report_search_v1", "law_search_v2"],
+            # raw_detail_v1(2026-10-17): `GET /api/v1/reports/{id}/raw-detail` 원본 보기. 없으면 404, 손상이면 409.
+            # 이 신호가 없는 구서버에는 Client 가 원본 보기 동작을 보이지 않는다.
+            "capabilities": ["rating_cause", "community_account", "report_search_v1", "law_search_v2",
+                             "raw_detail_v1"],
             "report_search_version": 1,
             "law_search_version": 2,
+            "raw_detail_version": 1,
             "rating_cause_max": rating_eligibility.RATING_CAUSE_MAX,
         },
     }

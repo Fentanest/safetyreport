@@ -129,7 +129,8 @@ def seed(data_dir: Path) -> dict:
     from core.utils import logger
 
     logger.LoggerFactory.create_logger()
-    result = seed_engine(get_engine())
+    # 브라우저 fixture: 원본 있는 신고(90000001)와 없는 신고(90000002)로 원본 보기를 확인한다.
+    result = seed_engine(get_engine(), with_raw_detail=True)
     if result.get("api_key"):
         (data_dir / "fixture-api-key.txt").write_text(result.pop("api_key") + "\n", encoding="utf-8")
     return result
@@ -145,8 +146,52 @@ def _end_of_day_ms(day: str) -> int | None:
     return int((start + timedelta(days=1)).timestamp() * 1000) - 1
 
 
-def seed_engine(engine) -> dict:
-    """합성 신고 24건 + 관리자 + API 키를 engine 에 넣는다. 테스트에서도 재사용한다."""
+def _seed_raw_detail_row(conn) -> None:
+    """브라우저 fixture 용 상세 원본 1건(90000001, 신고자 키 5개 포함 envelope).
+
+    90000002 는 일부러 비워 원본 없음 안내를 확인한다. DB 행과 사람이 보는
+    사본(`raw_details/90000001.json`)을 함께 만든다.
+    """
+    from core.database import models
+    from core.utils import raw_detail
+
+    envelope = {
+        "resultCode": "0000",
+        "result": {
+            "C_NO": "90000001",
+            "C_NAME": "(fixture) 신고자",
+            "C_EMAIL": "fixture@example.com",
+            "C_PHONE": "010-0000-0000",
+            "C_PHONE2": "010-0000-0001",
+            "C_ID": "fixture-reporter",
+            "C_NOW": 1,
+            "VHRNO": "10가1000",
+            "C_A_CONTENTS": "(fixture) 신호위반 신고 본문 90000001",
+            "answers": [
+                {
+                    "C_MANAGER_TYPE_NM": "수용",
+                    "C_MANAGE_CONTENTS": "(fixture) 과태료 40,000원을 부과하였습니다.",
+                    "C_MANAGE_MAN": "김담당",
+                    "C_MANAGE_MAN_PHONE": "02-000-0000",
+                }
+            ],
+        },
+    }
+    canonical = raw_detail.canonical_bytes(envelope)
+    conn.execute(models.report_detail_raw_table.insert().values(
+        ID="90000001", raw_zlib=raw_detail.compress(canonical),
+        raw_sha256=raw_detail.sha256_hex(canonical), raw_size=len(canonical),
+        fetched_at="2026-10-17T12:00:00.000Z", source="crawl"))
+    raw_detail.write_raw_file("90000001", raw_detail.sanitize_envelope(envelope))
+
+
+def seed_engine(engine, *, with_raw_detail: bool = False) -> dict:
+    """합성 신고 24건 + 관리자 + API 키를 engine 에 넣는다. 테스트에서도 재사용한다.
+
+    `with_raw_detail=True`(브라우저 fixture 경로 `seed()`만 사용)면 90000001 의
+    상세 원본 1건도 넣는다(합성 envelope 에 신고자 키 5개를 넣어 제거를 확인,
+    90000002 는 일부러 비워 둠). unittest 는 기본값(False)으로 기존 동작 그대로 둔다.
+    """
     from core.database import database, models
     from services import report_category
     from services.geocode_service import official_geo_payload
@@ -186,6 +231,8 @@ def seed_engine(engine) -> dict:
         for rnum in _WATCHLIST:
             conn.execute(models.watchlist_table.insert().values(신고번호=rnum))
         conn.execute(models.sync_meta_table.insert().values(key="last_sync", value="2026-09-23T09:00:00"))
+        if with_raw_detail:
+            _seed_raw_detail_row(conn)
         database.refresh_watch_flags(conn)
 
     database.rebuild_effective(engine)

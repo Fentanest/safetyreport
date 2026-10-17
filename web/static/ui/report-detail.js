@@ -351,6 +351,13 @@
         document.getElementById('rdViewBtn').onclick = function() {
             openSafetyReport(record['ID']);
         };
+        var fallbackRawBtn = document.getElementById('rdRawBtn');
+        if (fallbackRawBtn) {
+            fallbackRawBtn.dataset.reportId = normalizeDisplayValue(record['ID']);
+            fallbackRawBtn.onclick = function() {
+                if (window.SrRawDetail) window.SrRawDetail.open(fallbackRawBtn.dataset.reportId);
+            };
+        }
         getModal().show();
     }
 
@@ -505,6 +512,15 @@
                 openSafetyReport(record['ID']);
             };
 
+            // 원본 응답 버튼(2026-10-17 명세 4절): ID 만 넘기고 내용은 모달이 직접 읽는다
+            var rawBtn = document.getElementById('rdRawBtn');
+            if (rawBtn) {
+                rawBtn.dataset.reportId = normalizeDisplayValue(record['ID']);
+                rawBtn.onclick = function() {
+                    if (window.SrRawDetail) window.SrRawDetail.open(rawBtn.dataset.reportId);
+                };
+            }
+
             getModal().show();
         } catch (error) {
             showDetailRenderFallback(record, error);
@@ -516,4 +532,298 @@
         e.preventDefault();
         try { window.showReportDetail(JSON.parse($(this).attr('data-report'))); } catch(_) {}
     });
+})();
+
+/* 상세 원본 보기(2026-10-17 명세 4절): 신고 상세 모달의 "원본 응답" 버튼 → 별도 모달.
+   내용은 textContent/텍스트 노드로만 넣어 XSS 를 막고, 검색 일치는 <mark> 로 감싼다.
+   전역 접점: SrRawDetail.open(reportId). */
+(function() {
+    var _rawModal = null;
+    var state = { id: '', pretty: '', matchCount: 0, matchIndex: -1, returnToDetail: false };
+
+    function el(id) { return document.getElementById(id); }
+
+    function getRawModal() {
+        if (!_rawModal) {
+            _rawModal = new bootstrap.Modal(el('rawDetailModal'));
+        }
+        return _rawModal;
+    }
+
+    function setNotice(text, isError) {
+        var notice = el('rawDetailNotice');
+        if (!text) {
+            notice.hidden = true;
+            notice.textContent = '';
+            return;
+        }
+        notice.hidden = false;
+        notice.textContent = text;
+        notice.classList.toggle('alert-danger', !!isError);
+        notice.classList.toggle('alert-info', !isError);
+    }
+
+    function updateCount() {
+        var count = el('rawDetailCount');
+        var query = el('rawDetailSearch').value;
+        if (!query) {
+            count.textContent = state.matchCount ? ('총 ' + state.matchCount + '건') : '';
+        } else if (!state.matchCount) {
+            count.textContent = '0건';
+        } else {
+            count.textContent = (state.matchIndex + 1) + '/' + state.matchCount + '건';
+        }
+    }
+
+    function markCurrent() {
+        var code = el('rawDetailCode');
+        var marks = code.querySelectorAll('mark');
+        for (var i = 0; i < marks.length; i++) {
+            marks[i].classList.toggle('rd-raw-current', i === state.matchIndex);
+        }
+        var current = marks[state.matchIndex];
+        if (current && current.scrollIntoView) {
+            try { current.scrollIntoView({ block: 'nearest' }); } catch (_) {}
+        }
+        updateCount();
+    }
+
+    // JSON 텍스트를 텍스트 노드로만 넣어 렌더한다. 검색어가 있으면 일치 구간을 <mark> 로 감싼다(대소문자 무시).
+    function render() {
+        var code = el('rawDetailCode');
+        code.replaceChildren();
+        state.matchCount = 0;
+        state.matchIndex = -1;
+        var query = el('rawDetailSearch').value;
+        if (!query) {
+            code.textContent = state.pretty;
+            updateCount();
+            return;
+        }
+        var lower = state.pretty.toLowerCase();
+        var needle = query.toLowerCase();
+        var positions = [];
+        var from = 0;
+        while (true) {
+            var at = lower.indexOf(needle, from);
+            if (at < 0) break;
+            positions.push(at);
+            from = at + needle.length;
+            if (positions.length > 2000) break;
+        }
+        state.matchCount = positions.length;
+        if (!positions.length) {
+            code.textContent = state.pretty;
+            updateCount();
+            return;
+        }
+        var cursor = 0;
+        positions.forEach(function(at) {
+            if (at > cursor) {
+                code.appendChild(document.createTextNode(state.pretty.slice(cursor, at)));
+            }
+            var mark = document.createElement('mark');
+            mark.textContent = state.pretty.slice(at, at + needle.length);
+            code.appendChild(mark);
+            cursor = at + needle.length;
+        });
+        if (cursor < state.pretty.length) {
+            code.appendChild(document.createTextNode(state.pretty.slice(cursor)));
+        }
+        state.matchIndex = 0;
+        markCurrent();
+    }
+
+    function stepMatch(delta) {
+        if (!state.matchCount) return;
+        state.matchIndex = (state.matchIndex + delta + state.matchCount) % state.matchCount;
+        markCurrent();
+    }
+
+    function showContent(payload) {
+        state.pretty = JSON.stringify(payload.json, null, 2);
+        state.matchCount = 0;
+        state.matchIndex = -1;
+        el('rawDetailSearch').value = '';
+        var meta = el('rawDetailMeta');
+        meta.textContent = 'ID ' + payload.id + ' · ' + payload.fetched_at + ' · ' + payload.source +
+            ' · sha256 ' + String(payload.raw_sha256).slice(0, 12) + '…';
+        el('rawDetailDownloadLabel').textContent = payload.id + '.json 내려받기';
+        el('rawDetailRewrite').hidden = false;
+        el('rawDetailPre').hidden = false;
+        setNotice('');
+        render();
+    }
+
+    function showState(message, isError, withContent) {
+        setNotice(message, isError);
+        el('rawDetailPre').hidden = !withContent;
+        if (!withContent) {
+            state.pretty = '';
+            state.matchCount = 0;
+            state.matchIndex = -1;
+            el('rawDetailCode').replaceChildren();
+            el('rawDetailMeta').textContent = '';
+            updateCount();
+        }
+    }
+
+    function open(reportId) {
+        var id = String(reportId == null ? '' : reportId).trim();
+        state.id = id;
+        el('rawDetailTitle').textContent = id ? ('원본 응답 ' + id) : '원본 응답';
+        el('rawDetailSearch').value = '';
+        el('rawDetailRewrite').hidden = true;
+        el('rawDetailDownloadLabel').textContent = '다운로드';
+        // 두 Bootstrap 모달을 겹치면 먼저 열린 상세 모달의 포커스 트랩이 새 모달의 포커스를
+        // 계속 빼앗는다(Firefox에서 입력 불가 확인). 원본을 보는 동안 상세 모달은 숨기고,
+        // 원본 모달이 닫히면 되돌린다.
+        var detailEl = el('reportDetailModal');
+        var detailInstance = (window.bootstrap && bootstrap.Modal.getInstance)
+            ? bootstrap.Modal.getInstance(detailEl) : null;
+        state.returnToDetail = !!(detailEl && detailEl.classList.contains('show') && detailInstance);
+        if (state.returnToDetail) detailInstance.hide();
+        getRawModal().show();
+        if (!id) {
+            showState('신고 ID 가 없어 원본을 불러올 수 없습니다.', true, false);
+            return;
+        }
+        showState('불러오는 중…', false, false);
+        fetch('/reports/' + encodeURIComponent(id) + '/raw-detail', {
+            headers: { 'Accept': 'application/json' },
+            cache: 'no-store'
+        }).then(function(response) {
+            return response.json().then(function(body) {
+                return { status: response.status, body: body };
+            });
+        }).then(function(result) {
+            if (state.id !== id) return;
+            if (result.status === 404) {
+                showState('아직 원본이 없습니다(DB 최적화가 채웁니다).', false, false);
+            } else if (result.status === 409) {
+                showState('원본이 손상되었습니다(sha 불일치). DB 최적화가 다시 채울 때까지 기다려 주세요.', true, false);
+            } else if (result.status !== 200) {
+                showState('원본을 불러오지 못했습니다(오류 ' + result.status + ').', true, false);
+            } else {
+                showContent(result.body);
+            }
+        }).catch(function() {
+            if (state.id !== id) return;
+            showState('원본을 불러오지 못했습니다(네트워크 오류).', true, false);
+        });
+    }
+
+    function copyPretty() {
+        if (!state.pretty) return;
+        function done(button, label) {
+            var original = button.innerHTML;
+            button.innerHTML = label;
+            window.setTimeout(function() { button.innerHTML = original; }, 1500);
+        }
+        var button = el('rawDetailCopy');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(state.pretty).then(function() {
+                done(button, '<i class="fas fa-check me-1"></i>복사됨');
+            }, function() {
+                setNotice('복사에 실패했습니다.', true);
+            });
+            return;
+        }
+        try {
+            var area = document.createElement('textarea');
+            area.value = state.pretty;
+            document.body.appendChild(area);
+            area.select();
+            document.execCommand('copy');
+            document.body.removeChild(area);
+            done(button, '<i class="fas fa-check me-1"></i>복사됨');
+        } catch (_) {
+            setNotice('복사에 실패했습니다.', true);
+        }
+    }
+
+    function downloadPretty() {
+        if (!state.pretty || !state.id) return;
+        var blob = new Blob([state.pretty], { type: 'application/json;charset=utf-8' });
+        var url = window.URL.createObjectURL(blob);
+        var link = document.createElement('a');
+        link.href = url;
+        link.download = state.id + '.json';
+        document.body.appendChild(link);
+        link.click();
+        window.setTimeout(function() {
+            if (link.parentNode) link.parentNode.removeChild(link);
+            window.URL.revokeObjectURL(url);
+        }, 0);
+    }
+
+    function rewriteFile() {
+        if (!state.id) return;
+        var button = el('rawDetailRewrite');
+        button.disabled = true;
+        // session-requests.js 가 같은 출처 JSON POST 에 X-CSRF-Token 을 자동으로 붙인다
+        fetch('/reports/' + encodeURIComponent(state.id) + '/raw-detail/rewrite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: '{}'
+        }).then(function(response) {
+            return response.json().then(function(body) {
+                return { status: response.status, body: body };
+            });
+        }).then(function(result) {
+            if (result.status === 200) {
+                setNotice('파일로 다시 썼습니다(' + (result.body.filename || (state.id + '.json')) + ').', false);
+                el('rawDetailPre').hidden = false;
+            } else if (result.status === 404) {
+                setNotice('아직 원본이 없습니다(DB 최적화가 채웁니다).', true);
+            } else if (result.status === 409) {
+                setNotice('원본이 손상되었습니다(sha 불일치).', true);
+            } else {
+                setNotice('파일로 다시 쓰지 못했습니다(오류 ' + result.status + ').', true);
+            }
+        }).catch(function() {
+            setNotice('파일로 다시 쓰지 못했습니다(네트워크 오류).', true);
+        }).finally(function() {
+            button.disabled = false;
+        });
+    }
+
+    function bind() {
+        el('rawDetailSearch').addEventListener('input', render);
+        el('rawDetailSearch').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                stepMatch(e.shiftKey ? -1 : 1);
+            }
+        });
+        el('rawDetailPrev').addEventListener('click', function() { stepMatch(-1); });
+        el('rawDetailNext').addEventListener('click', function() { stepMatch(1); });
+        el('rawDetailCopy').addEventListener('click', copyPretty);
+        el('rawDetailDownload').addEventListener('click', downloadPretty);
+        el('rawDetailRewrite').addEventListener('click', rewriteFile);
+        el('rawDetailModal').addEventListener('shown.bs.modal', function() {
+            el('rawDetailSearch').focus();
+        });
+        el('rawDetailModal').addEventListener('hidden.bs.modal', function() {
+            if (!state.returnToDetail) return;
+            state.returnToDetail = false;
+            var detailEl = el('reportDetailModal');
+            var detailInstance = (window.bootstrap && bootstrap.Modal.getInstance)
+                ? bootstrap.Modal.getInstance(detailEl) : null;
+            if (!detailInstance) return;
+            detailInstance.show();
+            // 상세 모달을 숨기면 hidden 리스너(resetProxyVideos)가 proxy 동영상 src 를 끊는다.
+            // 되돌아올 때 같은 스코프 규칙으로 다시 준비한다(동영상 없는 신고는 스코프가 없어 건너뜀).
+            var scope = detailEl.querySelector('[data-proxy-video-scope]');
+            if (scope && window.prepareProxyVideos) window.prepareProxyVideos(scope);
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bind);
+    } else {
+        bind();
+    }
+
+    window.SrRawDetail = { open: open, render: render };
 })();

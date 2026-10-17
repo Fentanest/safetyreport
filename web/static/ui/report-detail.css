@@ -14,3 +14,34 @@
 /* 사진·영상은 원본 비율 그대로 검은 바탕에 보인다(테마와 무관한 미디어 여백) */
 .rd-image { max-height: 340px; width: 100%; object-fit: contain; background: #000; }
 .rd-video { max-height: 340px; background: #000; }
+/* 신고 상세 모달 footer: 원본 응답 + 안전신문고 버튼. 좁은 화면에서는 세로로 쌓는다 */
+.rd-footer { display: flex; gap: .5rem; flex-wrap: wrap; }
+@media (max-width: 575.98px) {
+    .rd-footer .btn { flex: 1 1 100%; }
+}
+/* 원본 응답 보기(2026-10-17 명세 4절). 색은 테마 토큰만 쓴다 */
+.rd-raw-pre {
+    background: var(--sr-surface-2);
+    color: var(--sr-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: .78rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 60vh;
+    overflow: auto;
+}
+.rd-raw-pre mark {
+    background: var(--sr-primary-soft);
+    color: var(--sr-text);
+    outline: 1px solid var(--sr-primary);
+    border-radius: 2px;
+    padding: 0 1px;
+}
+.rd-raw-pre mark.rd-raw-current {
+    background: var(--sr-primary-fill);
+    color: #fff;
+    outline: 2px solid var(--sr-primary-fill);
+}
+.rd-raw-search { min-width: 140px; }
+.rd-raw-count { min-width: 3em; text-align: right; }

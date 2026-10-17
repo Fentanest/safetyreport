@@ -54,10 +54,57 @@
           </div>
         </div>
       </div>
-      <div class="modal-footer pt-2">
-        <button type="button" class="btn btn-primary w-100" id="rdViewBtn">
+      <div class="modal-footer pt-2 rd-footer">
+        <button type="button" class="btn btn-outline-secondary flex-shrink-0" id="rdRawBtn">
+          <i class="fas fa-file-code me-1"></i>원본 응답
+        </button>
+        <button type="button" class="btn btn-primary flex-grow-1" id="rdViewBtn">
           <i class="fas fa-external-link-alt me-1"></i>안전신문고 앱에서 보기
         </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 상세 원본 보기 모달 (2026-10-17 명세 4절): 신고자 키 5개가 빠진 저장 원본 그대로.
+     내용은 textContent 로만 넣어 XSS 를 막고, 검색 일치는 <mark> 로 감싼다. -->
+<div class="modal fade" id="rawDetailModal" tabindex="-1" aria-labelledby="rawDetailTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header pb-2">
+        <div class="flex-grow-1 me-2">
+          <h6 class="modal-title fw-bold mb-1" id="rawDetailTitle">원본 응답</h6>
+          <div class="small text-muted" id="rawDetailMeta"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="닫기"></button>
+      </div>
+      <div class="modal-body py-3">
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+          <label class="visually-hidden" for="rawDetailSearch">원본 JSON 검색</label>
+          <input type="search" class="form-control form-control-sm flex-grow-1 rd-raw-search" id="rawDetailSearch"
+                 placeholder="검색어 (Enter: 다음, Shift+Enter: 이전)" autocomplete="off">
+          <span class="small text-muted rd-raw-count" id="rawDetailCount" aria-live="polite"></span>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="rawDetailPrev">
+            <i class="fas fa-chevron-up me-1"></i>이전
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="rawDetailNext">
+            다음<i class="fas fa-chevron-down ms-1"></i>
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="rawDetailCopy">
+            <i class="fas fa-copy me-1"></i>복사
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="rawDetailDownload">
+            <i class="fas fa-download me-1"></i><span id="rawDetailDownloadLabel">다운로드</span>
+          </button>
+          <button type="button" class="btn btn-outline-secondary btn-sm" id="rawDetailRewrite" title="DB 원본으로 <ID>.json 파일을 다시 만듭니다">
+            <i class="fas fa-file-export me-1"></i>파일로 다시 쓰기
+          </button>
+        </div>
+        <div class="alert alert-info py-2 mb-0 rd-small-alert" id="rawDetailNotice" role="status" hidden></div>
+        <pre class="rounded border p-2 mb-0 rd-raw-pre" id="rawDetailPre" tabindex="0" hidden><code id="rawDetailCode"></code></pre>
+      </div>
+      <div class="modal-footer pt-2">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
       </div>
     </div>
   </div>

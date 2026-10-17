@@ -11,12 +11,12 @@ router = APIRouter(prefix="/file-browser", tags=["file-browser"])
 
 @router.get("", response_class=HTMLResponse)
 def list_files(request: Request, target: str | None = None):
-    active_target = target if target in {"logs", "results"} else "results"
+    active_target = target if target in {"logs", "results", "raw_details"} else "results"
     return templates.TemplateResponse(request, "file_browser.html", {
         "title": "파일 브라우저",
         "files": file_service.list_browser_groups(),
         "active_target": active_target,
-        "explicit_target": target if target in {"logs", "results"} else None
+        "explicit_target": target if target in {"logs", "results", "raw_details"} else None
     })
 
 @router.get("/download")
@@ -86,6 +86,8 @@ async def delete_all(request: Request):
     target = data.get("target") # "logs" or "results"
     try:
         deleted_count = await run_in_threadpool(file_service.delete_all_in_target, target)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Access denied")
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid target")
 
