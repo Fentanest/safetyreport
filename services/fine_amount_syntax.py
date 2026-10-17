@@ -30,12 +30,14 @@ _CLAUSE = re.compile('(?:며|으나|지만|는데|(?:였|했|하|되)고)(?=,|' 
 # A planned amount withdrawn by the contrasting sentence that follows ("부과할 예정이었으나, … 부과하지 않습니다").
 _PLANNED = re.compile('예정')
 _CONTRAST_END = re.compile('(?:으나|지만|는데)$')
-_WITHDRAWAL = re.compile('부과하지|부과할' + _S + '*수' + _S + '*없|부과(?:가|는)?' + _S + '*(?:불가(?!피)|어렵|곤란)')
+_WITHDRAWAL = re.compile('부과하지|부과할' + _S + '*수' + _S + '*없|부과(?:가|는)?' + _S + '*(?:불가(?!피)|어렵|곤란)'
+                         + '|부과(?:를|가|는)?' + _S + '*취소')
+_LEADING = re.compile('[,，' + _SPACE_SET + ']*')
 # The sentence after a contrast ends at a sentence-final mark or a line break not following a comma.
 _SENTENCE_END = re.compile('。|(?<=[다요])[.!?]|\n')
 _COMMA_TAIL = re.compile('[,，][\t\r \xa0\u3000]*$')
 # An amount the fine is reduced to ("80,000원으로 감경") is a second stated amount.
-_REDUCED_TO = re.compile(_S + '*(?:으로|로)' + _S + '*(?:감경|경감|감면)')
+_REDUCED_TO = re.compile(_S + '*\\)?' + _S + '*(?:으로|로)' + _S + '*(?:[0-9]+' + _S + '*%' + _S + '*)?(?:감경|경감|감면)')
 
 
 def _number(token, unit):
@@ -52,7 +54,8 @@ def _withdrawn(text, a, b):
     """The amount's clause [a, b) is a plan and the next sentence withdraws it."""
     if not (_PLANNED.search(text, a, b) and _CONTRAST_END.search(text, a, b)):
         return False
-    end = next((m.end() for m in _SENTENCE_END.finditer(text, b)
+    start = _LEADING.match(text, b).end()  # "예정이었으나,\n검토 결과 …": the next sentence starts after separators.
+    end = next((m.end() for m in _SENTENCE_END.finditer(text, start)
                 if m[0] != '\n' or not _COMMA_TAIL.search(text, 0, m.start())), len(text))
     return bool(_WITHDRAWAL.search(text, b, end))
 

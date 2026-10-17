@@ -468,6 +468,30 @@
       "text": "감경 대상인 제19조 위반 과태료 100,000원은 부과하지 않습니다. 제38조 위반으로 과태료 40,000원을 부과하였습니다.",
       "number": "40,000",
       "amount": 40000
+    },
+    {
+      "name": "withdrawal after a line break without a comma",
+      "text": "과태료 40,000원을 부과할 예정이었으나\n검토 결과 부과하지 않습니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "withdrawal as cancellation",
+      "text": "과태료 40,000원을 부과할 예정이었으나, 의견을 수용하여 부과를 취소하였습니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "bracketed reduced amount",
+      "text": "과태료 100,000원을 부과하며, 자진 납부하는 경우 과태료(80,000원)으로 감경됩니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "reduced amount with a rate",
+      "text": "과태료 100,000원을 부과하며, 자진 납부하는 경우 80,000원으로 20% 감경됩니다.",
+      "number": null,
+      "amount": 0
     }
   ]
 }
