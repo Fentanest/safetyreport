@@ -81,6 +81,13 @@ class UploadControlTest(unittest.TestCase):
     def setUp(self):
         # This suite tests the journal/uploader with synthetic writer contexts.
         # Owner/consent authorization is covered by test_community_offline.
+        # 이전 모듈이 남긴 uploader 전역(완료된 _active_run·대기 카운터)을 비운다 —
+        # 새 실행 판단·대기 합류 대기가 이전 값에 걸리지 않게 한다.
+        up.stop_background()
+        up._active_run = None
+        up._next_due = None
+        up._waiting_enqueue.clear()
+        up._wake_event.clear()
         context_patch = mock.patch('services.community_cloud.capture_context',
                                    side_effect=lambda ctx: (ctx, 'active' if ctx and ctx.get('state') == 'active' else 'none'))
         context_patch.start(); self.addCleanup(context_patch.stop)
@@ -121,6 +128,8 @@ class UploadControlTest(unittest.TestCase):
         CommunityStore._forget(os.path.join(self.tmp, "community.db"))
         up._active_run = None
         up._next_due = None
+        up._waiting_enqueue.clear()
+        up._wake_event.clear()
 
     def _http(self, url, headers, body, timeout):
         envelope = json.loads(body)
@@ -478,11 +487,23 @@ class UploadControlTest(unittest.TestCase):
         results = {}
         first = threading.Thread(target=lambda: results.__setitem__("rt", self.upload("realtime")))
         first.start()
-        time.sleep(0.3)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            with up._run_lock:
+                active = up._active_run
+            if active is not None and not active["finished"].is_set():
+                break
+            time.sleep(0.01)
         joiners = [threading.Thread(target=lambda i=i: results.__setitem__(f"m{i}", self.upload("manual"))) for i in range(4)]
         for t in joiners:
             t.start()
-        time.sleep(0.3)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            with up._run_lock:
+                arrived = up._waiting_enqueue.get("manual", 0)
+            if arrived >= 4:
+                break
+            time.sleep(0.01)
         gate.set()
         for t in [first, *joiners]:
             t.join(20)
