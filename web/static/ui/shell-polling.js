@@ -70,10 +70,12 @@
                 } else {
                     var done = data.jobs.filter(function (j) { return j.state === 'completed'; });
                     var failed = data.jobs.filter(function (j) { return j.state === 'error'; });
+                    var partials = data.jobs.filter(function (j) { return j.state === 'partial'; });
                     var doneOthers = done.filter(function (j) { return !isOptimize(j); });
                     var doneOpts = done.filter(isOptimize);
                     var failedOthers = failed.filter(function (j) { return !isOptimize(j); });
                     var failedOpts = failed.filter(isOptimize);
+                    var partialOpts = partials.filter(isOptimize);
                     if (failed.length) {
                         // 오류는 첫 poll에서도 표시줄에 '오류'와 로그를 보이고,
                         // 다음 상태 변화(재시도 시작·완료) 전까지 유지한다(자동으로 6초 뒤 숨기지 않음).
@@ -86,6 +88,16 @@
                         setLogVisible(failedOpts[0] || doneOpts[0] || failedOthers[0]);
                         bar.hidden = false;
                         wasActive = true;
+                        schedule(30000);
+                    } else if (partialOpts.length) {
+                        // 보류 partial은 실행 중이 아니다(active=false). 조용히 보류 건수·다음 재시도만
+                        // 보이고 무기한 실행 중처럼 보이지 않게 한다(Opus P3).
+                        text.textContent = partialOpts.map(optimizeLine).join('   |   ');
+                        bar.classList.add('is-done');
+                        bar.classList.add('is-paused');
+                        setLogVisible(partialOpts[0]);
+                        bar.hidden = false;
+                        wasActive = false;
                         schedule(30000);
                     } else if (wasActive) {
                         text.textContent = doneOthers.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); })

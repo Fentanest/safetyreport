@@ -59,10 +59,14 @@ MAX_RETRY_ATTEMPTS = 3
 RETRY_EXCEEDED_REASON = "retry_exceeded"
 #: 연속 일시 실패가 이 건수에 닿으면 신고별 횟수를 늘리지 않고 작업 전체를 쉰다(명세 7-1 전역 장애).
 GLOBAL_OUTAGE_THRESHOLD = 5
-#: 쉬는 동안 다시 시도하는 간격. outage는 지수 백오프(초기값→2배→최대 1시간),
-#: login_required는 고정 간격. 크롤 성공 직후에는 간격과 무관하게 바로 다시 시도한다.
+#: 쉬는 동안 다시 시도하는 간격. outage·login_required 모두 지수 백오프(밑값 60초→2배→최대 1시간),
+#: 크롤 성공 직후에는 간격과 무관하게 바로 다시 시도한다(Opus P2).
 OUTAGE_INITIAL_SECONDS = 60.0
 OUTAGE_MAX_SECONDS = 3600.0
+LOGIN_BACKOFF_MAX_SECONDS = 3600.0
+#: 상대(모바일) 파서 버전. 교환 DB의 partial 메타가 이 target이면 같은 세대로 보고
+#: holds만 이어서 처리한다(Opus P1). 쓰는 target은 서버 PARSER_VERSION 그대로다.
+MOBILE_PARSER_VERSION = "mobile-parser-13"
 #: 쉬는 중에도 멈추지 않는 전역 장애가 이 회수를 넘으면 남은 작업을 보류 목록에 넣어
 #: 이번 회차를 끝낸다(다음 기동·크롤 성공 뒤 보류만 재시도, 회차마다 시도 횟수 초기화).
 MAX_REST_EPISODES = 50
@@ -79,6 +83,9 @@ LABEL_PARTIAL = "DB 최적화 부분 완료 — 보류가 있습니다"
 LABEL_RESTING = "DB 최적화 쉬는 중입니다…"
 #: 새 답변이 온 신고를 일반 크롤로 넘길 때 남기는 로그(명세 7-2 고정 문구).
 NEW_ACTIVITY_LOG = "새 답변 — 일반 크롤로 넘김"
+#: 신고번호 없는 행에서 새 활동을 감지했을 때 남기는 로그(Opus P5 고정 문구).
+#: 저장(원본·파서 열·파일)·대기열 등록 없이 처리 완료로 센다.
+NEW_ACTIVITY_NO_NUMBER_LOG = "새 답변 — 다음 일반 크롤에서 처리(신고번호 없음)"
 #: 저장 직전 재확인(명세 7-4)이 비교하는 열. 최적화가 읽었을 때와 쓰기 잠금 안 값이 같아야 쓴다.
 RECHECK_COLUMNS = ("답변일", "처리내용", "상태")
 
@@ -130,10 +137,10 @@ RESTORE_PAUSE_TIMEOUT = 60.0
 _state: dict = {
     "key": "db_optimize",
     "label": "DB 최적화 중입니다…",
-    "state": "idle",  # idle | running | paused | completed | error
+    "state": "idle",  # idle | running | paused | partial | completed | error
     "total": 0,
     "done": 0,
-    "stage": "",  # running | waiting_crawl | waiting_rebuild | login_required | done | error + free text
+    "stage": "",  # running | waiting_crawl | waiting_rebuild | login_required | outage | partial | done | error + free text
     "message": "",
     "log": [],
     "finished_at": "",
@@ -142,6 +149,53 @@ _state: dict = {
 
 def _now_text() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_next_retry(timestamp: float) -> str:
+    """다음 재시도 시각을 UTC ISO8601 문자열로 만든다(Opus P1, 밀리초·Z)."""
+    from datetime import timezone
+
+    return (datetime.fromtimestamp(float(timestamp), tz=timezone.utc)
+            .strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z")
+
+
+def _parse_next_retry(value) -> float:
+    """`next_retry_at` 읽기: ISO8601 문자열·구 epoch 숫자 모두 받는다. 없으면 0."""
+    if value is None or value == "":
+        return 0.0
+    if isinstance(value, (int, float)):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+    text = str(value).strip()
+    if not text:
+        return 0.0
+    try:
+        # "2026-10-17T12:00:00.000Z" → UTC epoch
+        iso = text.replace("Z", "+00:00")
+        return datetime.fromisoformat(iso).timestamp()
+    except ValueError:
+        pass
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _is_same_target(target) -> bool:
+    """holds 이어 처리를 허용하는 target: 서버·모바일 현행 파서 버전(Opus P1)."""
+    return target in (PARSER_VERSION, MOBILE_PARSER_VERSION)
+
+
+def _meta_holds(meta: dict) -> list[str]:
+    """메타 보류 목록: `holds`(현행) — 구 모바일 `pending`도 fallback으로 읽는다."""
+    raw = meta.get("holds")
+    if not isinstance(raw, list):
+        raw = meta.get("pending")
+    if not isinstance(raw, list):
+        return []
+    return [str(h) for h in raw]
 
 
 def _update(**changes) -> None:
@@ -273,6 +327,8 @@ def _reuse_last_crawl_session():
     최적화의 직접 로그인이 실패하면 크롤과 같은 토큰 파일(`direct_login` 이
     크롤 성공 때 저장한 `data/auth_token.json`)을 읽어 세션을 만든다.
     만료됐어도 서버가 받아 주면 이어서 한다. 없거나 만들 수 없으면 None.
+    토큰 파일의 계정(`username`)이 현재 설정 계정과 다르면 재사용하지 않는다
+    (이전 계정 세션으로 상세를 요청하지 않게, Opus P7).
     """
     try:
         from core.crawler import direct_login
@@ -285,6 +341,15 @@ def _reuse_last_crawl_session():
         note_fallback("db_optimize.reuse_session_load", exc)
         return None
     if not info or not info.get("access_token"):
+        return None
+    try:
+        import settings.settings as _settings
+
+        current = _settings.username
+    except Exception as exc:
+        note_fallback("db_optimize.reuse_session_account", exc)
+        return None
+    if not current or info.get("username") != current:
         return None
     try:
         session = direct_login._make_session()
@@ -313,10 +378,10 @@ def notify_crawl_success() -> None:
 def _retry_allowed_by_backoff(engine) -> bool:
     """보류 재시도 회차 간격(지수 백오프)이 지났으면 True. 크롤 성공 경로는 무시한다."""
     meta = read_meta(engine)
-    if not meta or not meta.get("holds"):
+    if not meta or not _meta_holds(meta):
         return True
     try:
-        return float(meta.get("next_retry_at") or 0) <= time.time()
+        return _parse_next_retry(meta.get("next_retry_at")) <= time.time()
     except (TypeError, ValueError):
         return True
 
@@ -592,8 +657,9 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
     total = len(ids)
     meta = read_meta(engine) or {}
     next_retry_at = 0.0
-    # target이 현재 파서 버전과 다르면 cursor·보류·통계·시도횟수를 버리고 처음부터(통계도 초기화).
-    if meta.get("target") != PARSER_VERSION:
+    # target이 서버·모바일 현행 버전과 다르면 cursor·보류·통계·시도횟수를 버리고 처음부터(통계도 초기화).
+    # 상대 partial 메타(모바일 target)도 같은 세대로 보고 holds만 이어서 처리한다(Opus P1).
+    if not _is_same_target(meta.get("target")):
         cursor = ""
         stats = {}
         attempts: dict[str, int] = {}
@@ -605,35 +671,40 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         raw_attempts = meta.get("attempts") or {}
         attempts = {str(k): int(v) for k, v in raw_attempts.items()
                     if isinstance(v, int) and v > 0} if isinstance(raw_attempts, dict) else {}
-        holds = [str(h) for h in (meta.get("holds") or [])] if isinstance(meta.get("holds"), list) else []
+        holds = _meta_holds(meta)
         try:
             round_no = int(meta.get("round") or 0)
         except (TypeError, ValueError):
             round_no = 0
         try:
-            next_retry_at = float(meta.get("next_retry_at") or 0)
+            next_retry_at = _parse_next_retry(meta.get("next_retry_at"))
         except (TypeError, ValueError):
             next_retry_at = 0.0
         # 복원된 DB에 옛 커서가 가리키는 ID가 없으면 처음부터(복원 DB에 옛 커서를 쓰지 않음).
         if cursor and cursor not in ids:
             cursor = ""
     # 보류만 남은 채 끝난 회차 다음에는 보류 목록만 다시 시도한다(시도 횟수 초기화).
-    if holds and meta.get("target") == PARSER_VERSION and not meta.get("done"):
+    if holds and _is_same_target(meta.get("target")) and not meta.get("done"):
         id_set = set(ids)
         ids = [h for h in holds if h in id_set]
         attempts = {}
         cursor = ""
+    # 저장 직전 충돌로 다음 회차로 넘긴 신고(Opus P6, 시도 횟수 증가 없음).
+    carried_holds: set[str] = set()
     # stats 는 중단·재개에 걸쳐 쌓이는 작업 전체 통계(메타에 저장), run 은 이번 실행분(반환값)이다.
     stats.setdefault("reused", 0)
     stats.setdefault("refetched", 0)
     stats.setdefault("changed", 0)
     stats.setdefault("events", 0)
+    stats.setdefault("forwarded", 0)
     stats.setdefault("skipped", {})
-    run = {"reused": 0, "refetched": 0, "changed": 0, "events": 0, "skipped": {}}
+    run = {"reused": 0, "refetched": 0, "changed": 0, "events": 0,
+           "forwarded": 0, "skipped": {}}
     # 시작 때 DB 정체(데이터셋·장벽 세대)를 잡는다 — 매 신고 처리 때 비교해 다르면 복원으로 보고 멈춘다.
     start_identity = _capture_identity()
 
-    def _tally(*, reused=False, refetched=False, changed=False, event=False, skipped=None):
+    def _tally(*, reused=False, refetched=False, changed=False, event=False,
+               forwarded=False, skipped=None):
         for target in (stats, run):
             if reused:
                 target["reused"] = target.get("reused", 0) + 1
@@ -643,6 +714,8 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
                 target["changed"] = target.get("changed", 0) + 1
             if event:
                 target["events"] = target.get("events", 0) + 1
+            if forwarded:
+                target["forwarded"] = target.get("forwarded", 0) + 1
             if skipped:
                 missing = dict(target.get("skipped") or {})
                 missing[skipped] = missing.get(skipped, 0) + 1
@@ -650,11 +723,14 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
 
     def _write_progress(cursor_id: str) -> None:
         live_holds = sorted({rid for rid, count in attempts.items()
-                             if int(count) >= MAX_RETRY_ATTEMPTS})
-        write_meta(engine, {"target": PARSER_VERSION, "cursor": cursor_id, "done": False,
-                            "total": total, "stats": stats, "attempts": attempts,
-                            "holds": live_holds, "round": round_no,
-                            "next_retry_at": next_retry_at})
+                             if int(count) >= MAX_RETRY_ATTEMPTS} | set(carried_holds))
+        payload: dict = {"target": PARSER_VERSION, "cursor": cursor_id, "done": False,
+                         "total": total, "stats": stats, "attempts": attempts,
+                         "holds": live_holds, "round": round_no}
+        # next_retry_at은 없으면 생략한다(Opus P1).
+        if next_retry_at > 0:
+            payload["next_retry_at"] = _format_next_retry(next_retry_at)
+        write_meta(engine, payload)
 
     def _restored() -> bool:
         return bool(_restore_hold() or _identity_changed(start_identity))
@@ -681,7 +757,14 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         attempts.pop(report_id, None)
 
     def _wait_any(seconds: float) -> None:
-        """종료·복원·크롤 성공 중 하나가 오거나 간격이 지날 때까지 쉰다."""
+        """종료·복원·크롤 성공 중 하나가 오거나 간격이 지날 때까지 쉰다.
+        시험 주입 sleep이 있으면 실제로 기다리지 않고 바로 돌아간다 —
+        지수 백오프가 커져도 시험이 느려지지 않게 한다(요청 간격 sleep 기록과 분리).
+        실동작(sleep=None)은 크롤 성공 신호에 즉시 깨운다."""
+        if sleep is not None:
+            if _crawl_success.is_set():
+                _crawl_success.clear()
+            return
         end = time.monotonic() + max(0.0, float(seconds))
         while True:
             if stop_event.is_set() or _restored():
@@ -694,10 +777,20 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
                 return
             _crawl_success.wait(min(remaining, 1.0))
 
+    def _carry_next(report_id: str, note: str) -> None:
+        """저장 직전 충돌을 다음 회차로 넘긴다(시도 횟수 증가 없음, Opus P6)."""
+        carried_holds.add(report_id)
+        attempts.pop(report_id, None)
+        append_log(f"{report_id} 다음 회차에 다시 시도합니다({note})" if note
+                   else f"{report_id} 다음 회차에 다시 시도합니다")
+        logger.LoggerFactory.logbot.warning(f"[db_optimize] {report_id} 저장 직전 변경으로 다음 회차: {note}")
+
     def _do_rest(kind: str, note: str) -> str:
         """전역 장애 쉼. 반환: "again"(같은 신고부터 재시도) | "park"(보류로 회차 종료)
-        | "stop" | "restore". 신고별 시도 횟수는 늘리지 않는다(명세 7-1)."""
-        nonlocal rest_episodes, outage_backoff
+        | "stop" | "restore". 신고별 시도 횟수는 늘리지 않는다(명세 7-1).
+        outage·login_required 모두 지수 백오프(밑값→2배→최대 1시간, Opus P2).
+        쉬기 전 보류 크롤을 배출한다(Opus P4)."""
+        nonlocal rest_episodes, outage_backoff, login_backoff
         if stop_event.is_set() or _halt_for_restore():
             return "restore" if _halt_for_restore() else "stop"
         rest_episodes += 1
@@ -713,12 +806,18 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
                        + (f": {note}" if note else "") + ")")
             logger.LoggerFactory.logbot.warning(f"[db_optimize] 전역 장애로 쉼: {note}")
         else:
-            delay = login_retry_seconds
+            delay = login_backoff
+            login_backoff = min(login_backoff * 2.0, LOGIN_BACKOFF_MAX_SECONDS)
             _update(state="paused", stage="login_required", label=LABEL_RESTING,
-                    message="로그인 뒤 이어서 합니다")
-            append_log(f"로그인 필요 — 로그인 뒤 이어서 합니다({note})" if note
-                       else "로그인 필요 — 로그인 뒤 이어서 합니다")
-            logger.LoggerFactory.logbot.warning(f"[db_optimize] 로그인 필요로 쉼: {note}")
+                    message=f"로그인 뒤 이어서 합니다({int(delay)}초 뒤 재시도)")
+            append_log(f"로그인 필요 — 로그인 뒤 이어서 합니다({int(delay)}초 뒤 재시도"
+                       + (f": {note}" if note else "") + ")")
+            logger.LoggerFactory.logbot.warning(f"[db_optimize] 로그인 필요로 쉼({int(delay)}초): {note}")
+        # 쉬는 동안 크롤을 막지 않는다 — 보류 전체 크롤을 배출한다(Opus P4).
+        try:
+            _after_finish(engine)
+        except Exception as exc:
+            note_fallback("db_optimize.rest_drain", exc)
         _wait_any(delay)
         if stop_event.is_set():
             return "stop"
@@ -761,6 +860,7 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
     consec_transient = 0
     rest_episodes = 0
     outage_backoff = max(0.0, float(outage_retry_seconds))
+    login_backoff = max(0.0, float(login_retry_seconds))
 
     def _default_fetch(link):
         # 크롤 루프와 같은 세션 갱신(`crawl_details` 의 nonlocal session).
@@ -807,6 +907,7 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         """한 신고를 한 번 시도한다. 반환: (outcome, note).
 
         outcome: 'resolved' | 'forwarded'(새 활동, 일반 크롤로 넘김)
+        | 'carried'(저장 직전 변경 — 시도 횟수 없이 다음 회차 보류, Opus P6)
         | 'deferred_transient'(호출자가 시도 횟수 기록) | 'rest_auth'(로그인 쉼, 기록 없음)
         | 'login_wait'(세션 없음, 로그인 쉼, 기록 없음) | 'restored' | 'stopped'.
         시도 횟수 기록·쉼은 호출자가 맡는다. 복원·종료 앞에서는 아무 것도 쓰지 않는다.
@@ -839,8 +940,11 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
             try:
                 _save_reparsed(engine, rec, report_id, reused=True, tally=_tally,
                                expected={c: snapshot.get(c) for c in RECHECK_COLUMNS})
-            except reports_repo._ReparseSkipped:
-                # _save_reparsed 안에서 이미 tally·로그함 — 확정(다음 회차로, 시도 횟수 증가 없음)
+            except reports_repo._ReparseSkipped as exc:
+                if str(exc) == "changed_during_reparse":
+                    _carry_next(report_id, "changed_during_reparse")
+                    return ("carried", "")
+                # _save_reparsed 안에서 이미 tally·로그함(영구 건너뜀 확정)
                 return ("resolved", "")
             except _SaveTransient as exc:
                 return ("deferred_transient", f"저장 실패({exc})")
@@ -893,8 +997,12 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
                     return ("deferred_transient", f"일반 크롤 넘김 실패({type(exc).__name__})")
                 append_log(f"{NEW_ACTIVITY_LOG}({report_id})")
                 logger.LoggerFactory.logbot.info(f"[db_optimize] {NEW_ACTIVITY_LOG}: {report_id}")
+                _tally(forwarded=True)
                 return ("forwarded", "")
-            append_log(f"{report_id} 새 활동이나 신고번호가 없어 저장 경로로 갑니다")
+            # 신고번호 없는 행: 저장(원본·파서 열·파일)·대기열 모두 없이 처리 완료로 센다(Opus P5).
+            append_log(f"{report_id} {NEW_ACTIVITY_NO_NUMBER_LOG}")
+            logger.LoggerFactory.logbot.info(f"[db_optimize] {report_id} {NEW_ACTIVITY_NO_NUMBER_LOG}")
+            return ("resolved", "")
         rec = _build_rec(report_id, details)
         rec.raw_canonical = _raw.canonical_bytes(data)
         rec.raw_sha256 = _raw.sha256_hex(rec.raw_canonical)
@@ -908,7 +1016,10 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         try:
             _save_reparsed(engine, rec, report_id, reused=False, tally=_tally,
                            expected={c: snapshot.get(c) for c in RECHECK_COLUMNS})
-        except reports_repo._ReparseSkipped:
+        except reports_repo._ReparseSkipped as exc:
+            if str(exc) == "changed_during_reparse":
+                _carry_next(report_id, "changed_during_reparse")
+                return ("carried", "")
             return ("resolved", "")
         except _SaveTransient as exc:
             return ("deferred_transient", f"저장 실패({exc})")
@@ -919,10 +1030,12 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         return ("resolved", "")
 
     def _settle_attempt(report_id: str) -> str:
-        """한 신고 시도 뒤 처리. 반환: "advanced"(다음 신고로) | "retry"(같은 신고부터 다시)
-        | "stop" | "restore" | {"park": ...}(보류로 회차 종료 — 호출자가 그대로 반환).
+        """한 신고 시도 뒤 처리. 반환: "advanced"(다음 신고로) | "carried"(다음 신고로,
+        충돌 보류 포함) | "retry"(같은 신고부터 다시) | "stop" | "restore"
+        | {"park": ...}(보류로 회차 종료 — 호출자가 그대로 반환).
 
         - resolved/forwarded: 시도 횟수 초기화, 연속 실패 끊기.
+        - carried(저장 직전 변경): 시도 횟수 없이 다음 회차 보류, 연속 실패 끊기(Opus P6).
         - deferred_transient: 시도 횟수 기록. 연속 실패가 한도에 닿으면 신고별 횟수 없이
           작업 전체를 쉰다(`outage`).
         - rest_auth/login_wait: 시도 횟수 없이 로그인 쉰다(`login_required`).
@@ -935,6 +1048,9 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
             _record_resolved(report_id)
             consec_transient = 0
             return "advanced"
+        if outcome == "carried":
+            consec_transient = 0
+            return "carried"
         if outcome in ("rest_auth", "login_wait"):
             consec_transient = 0
             return ("rest", "login_required", note)
@@ -955,25 +1071,35 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         return "park"
 
     def _park_partial() -> dict:
-        """보류만 남기고 이번 회차를 끝낸다(상태 partial, 실행 중 아님 — 명세 7-1)."""
+        """보류만 남기고 이번 회차를 끝낸다(상태 partial, 실행 중 아님 — Opus P3).
+
+        정비 상태 active=false, 표시줄은 보류 건수·다음 재시도 시각만 조용히 보인다.
+        어떤 경로로 끝나거나 쉬든 보류 크롤을 배출한다(Opus P4).
+        """
         nonlocal next_retry_at
         hold_ids = sorted(
             {rid for rid, count in attempts.items() if int(count) >= MAX_RETRY_ATTEMPTS}
             | {rid for rid in pending_retry if int(attempts.get(rid, 0)) > 0}
             | {rid for rid, count in attempts.items() if int(count) > 0}
+            | set(carried_holds)
             | set(ids[index:]))
         new_round = round_no + 1
         delay = min(ROUND_BACKOFF_BASE_SECONDS * (2.0 ** (new_round - 1)),
                     ROUND_BACKOFF_MAX_SECONDS)
         next_retry_at = time.time() + delay
+        retry_text = _format_next_retry(next_retry_at)
         write_meta(engine, {"target": PARSER_VERSION, "cursor": "", "done": False,
                             "total": total, "stats": stats, "attempts": {},
                             "holds": hold_ids, "round": new_round,
-                            "next_retry_at": next_retry_at})
-        append_log(f"부분 완료 — 보류 {len(hold_ids)}건, 다음 기동·크롤 성공 뒤 재시도합니다")
-        _update(state="paused", stage="partial", label=LABEL_PARTIAL, done=done_count,
-                message=f"일시 실패 {len(hold_ids)}건 보류 — 다음 기동·크롤 성공 뒤 재시도")
+                            "next_retry_at": retry_text})
+        append_log(f"부분 완료 — 보류 {len(hold_ids)}건, 다음 기동·크롤 성공 뒤 재시도합니다(다음 재시도 {retry_text})")
+        _update(state="partial", stage="partial", label=LABEL_PARTIAL, done=done_count,
+                message=f"보류 {len(hold_ids)}건 — 다음 재시도 {retry_text}(다음 기동·크롤 성공 뒤)")
         logger.LoggerFactory.logbot.warning(f"[db_optimize] 부분 완료, 보류 {len(hold_ids)}건")
+        try:
+            _after_finish(engine)
+        except Exception as exc:
+            note_fallback("db_optimize.park_drain", exc)
         return {"total": total, "done": done_count, "finished": False, "stats": run}
 
     index = start_index
@@ -1097,11 +1223,13 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         pending_retry = [rid for rid in pending_retry if int(attempts.get(rid, 0)) < MAX_RETRY_ATTEMPTS]
 
     # 다음 기동 때 다시 시도할 일시 실패가 남아 있으면 done이 아니다.
-    # 보류(3회 초과)만 남았을 때도 done이 아니다 — 상태 partial로 끝낸다.
+    # 보류(3회 초과)·충돌 보류만 남았을 때도 done이 아니다 — 상태 partial로 끝낸다.
     has_pending = any(int(v) < MAX_RETRY_ATTEMPTS for v in attempts.values())
-    has_holds = any(int(v) >= MAX_RETRY_ATTEMPTS for v in attempts.values())
+    has_holds = (any(int(v) >= MAX_RETRY_ATTEMPTS for v in attempts.values())
+                 or bool(carried_holds))
     finished = (stopped_reason is None and index >= len(ids)
-                and not pending_retry and not has_pending and not has_holds)
+                and not pending_retry and not has_pending and not has_holds
+                and not carried_holds)
     if stopped_reason == "restore":
         # 복원된 DB에 옛 ID 목록·커서·done을 쓰지 않는다 — 메타를 그대로 둔다.
         append_log("DB 복원으로 멈춤 — 복원된 DB에서 처음부터 다시 판단합니다")
@@ -1111,13 +1239,16 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
     if not finished and stopped_reason is None:
         return _park_partial()
     if finished and not stop_event.is_set():
+        # 한 바퀴를 끝낼 때마다 round +1(Opus P1). next_retry_at은 없으므로 생략한다.
         write_meta(engine, {"target": PARSER_VERSION, "cursor": ids[-1] if ids else "",
                             "done": True, "total": total, "stats": stats, "attempts": {},
-                            "holds": [], "round": 0, "next_retry_at": 0.0})
+                            "holds": [], "round": round_no + 1})
         changed = stats.get("changed", 0)
         events = stats.get("events", 0)
+        forwarded = stats.get("forwarded", 0)
         skipped_total = sum(stats.get("skipped", {}).values())
         append_log(f"완료(재파싱 변경 {changed}건, 공유 재전송 {events}건"
+                   + (f", 일반 크롤로 넘김 {forwarded}건" if forwarded else "")
                    + (f", 건너뜀 {skipped_total}건" if skipped_total else "") + ")")
         _update(state="completed", stage="done", done=total,
                 finished_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -1145,7 +1276,9 @@ def _save_reparsed(engine, rec, report_id: str, *, reused: bool, tally,
     """`reparse_one` 한 건 + 통계 집계. 영구 건너뜀은 tally, 일시 저장 실패는 _SaveTransient.
 
     `expected` 는 최적화가 시도 시작 때 읽은 행 값(명세 7-4 재확인용) — 쓰기 잠금 안에서
-    다르면 저장하지 않고 `reports_repo._ReparseSkipped` 으로 끝낸다(시도 횟수 증가 없음).
+    다르면 저장하지 않고 `reports_repo._ReparseSkipped("changed_during_reparse")` 를
+    그대로 올려 호출자가 다음 회차 보류로 넘기게 한다(처리 완료 집계·시도 횟수 증가 없음,
+    Opus P6). 다른 건너뜀(`no_report` 등)은 여기서 tally·로그 뒤 끝낸다.
     """
     from core.storage import reports_repo
     from services import community_capture as _cap
@@ -1156,6 +1289,8 @@ def _save_reparsed(engine, rec, report_id: str, *, reused: bool, tally,
                                           expected=expected)
     except reports_repo._ReparseSkipped as exc:
         reason = str(exc) or "skipped"
+        if reason == "changed_during_reparse":
+            raise
         tally(skipped=reason)
         append_log(f"{report_id} 건너뜀({reason})")
         return
