@@ -378,6 +378,24 @@
       "text": "과태료 40,000원을 부과하였습니다. 기한 내 납부하면 가산금은 부과하지 않습니다.",
       "number": "40,000",
       "amount": 40000
+    },
+    {
+      "name": "refusal after a line break inside the sentence",
+      "text": "과태료 100,000원을 부과할 예정이었으나,\n검토 결과 부과하지 않습니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "unavoidable imposition is not a refusal",
+      "text": "과태료 40,000원은 부과가 불가피합니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "maximum reduction amount is a limit",
+      "text": "과태료 100,000원을 부과하였습니다. 자진 납부 시 최대 20,000원까지 감경됩니다.",
+      "number": "100,000",
+      "amount": 100000
     }
   ]
 }

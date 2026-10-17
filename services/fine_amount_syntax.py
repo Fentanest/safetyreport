@@ -24,7 +24,9 @@ _LIMIT = re.compile(
 # A refusal/non-imposition decision from the amount's clause to the end of its sentence ("부과할
 # 예정이었으나, ... 부과하지 않습니다") withdraws that amount. One in another sentence or an earlier
 # clause is about another violation or charge ("가산금은 부과하지 않습니다") and does not.
-_REFUSAL = re.compile('부과하지|부과할' + _S + '*수' + _S + '*없|미부과|부과(?:가|는)?' + _S + '*(?:불가|어렵|곤란)')
+_REFUSAL = re.compile('부과하지|부과할' + _S + '*수' + _S + '*없|미부과|부과(?:가|는)?' + _S + '*(?:불가(?!피)|어렵|곤란)')
+# A decision sentence ends at a sentence-final ending, not at a line break inside it ("예정이었으나,\n...").
+_DECISION_END = re.compile('。|(?<=[다요])[.!?]|(?<=[다요.!?])\n')
 # Another amount in a reduction clause ("경우 과태료 80,000원으로 감경") is a second stated amount
 # even when its clause is conditional.
 _REDUCTION = re.compile('감경|경감|감면')
@@ -66,8 +68,9 @@ def explicit_fine_number(text):
     matches = list(_FINE.finditer(text))
     if not matches:
         return None
-    sentence_ends = sorted({len(text)} | {m.end() for m in _SENTENCE.finditer(text)})
-    cuts = sorted({0} | set(sentence_ends) | {m.end() for m in _CLAUSE.finditer(text)})
+    decision_ends = sorted({len(text)} | {m.end() for m in _DECISION_END.finditer(text)})
+    cuts = sorted({0, len(text)} | {m.end() for m in _SENTENCE.finditer(text)}
+                  | {m.end() for m in _CLAUSE.finditer(text)})
 
     def clause(start, end):
         a = max(c for c in cuts if c <= start)
@@ -80,7 +83,7 @@ def explicit_fine_number(text):
         if match[1] and not _CLOSE.match(text, match.end()):
             return None
         a, b = clause(match.start(), match.end())
-        sentence_end = min(e for e in sentence_ends if e >= match.end())
+        sentence_end = min(e for e in decision_ends if e >= match.end())
         before = text[:a]
         if before.endswith('\n'):
             before = before[:-1]
@@ -101,11 +104,11 @@ def explicit_fine_number(text):
         if _identity(_number(money[1], money[2])) == _identity(candidates[0]):
             continue
         a, b = clause(money.start(), money.end())
+        if _FOLLOWING_LIMIT.match(text, money.end()) or _LIMIT_BEFORE.search(text[a:money.start()]):
+            continue
         if _REDUCTION.search(text[a:b]):
             return None
         if any(x <= money.start() < y for x, y in skipped):
-            continue
-        if _FOLLOWING_LIMIT.match(text, money.end()) or _LIMIT_BEFORE.search(text[a:money.start()]):
             continue
         return None
     return candidates[0]
