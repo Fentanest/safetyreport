@@ -441,7 +441,9 @@ def _current_kakao_id() -> str | None:
 def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
     """kind='server' | 'mobile'. (백업 경로, 신고 수) 반환. 실패하면 현재 DB 는 그대로다.
 
-    성공·실패 공통 종료 경로에서 새 DB 메타로 최적화를 다시 판단한다(`db_optimize.maybe_start`).
+    장벽을 잡기 전에 `db_optimize.pause_for_restore` 로 실행 중 최적화를 멈춘다 —
+    복원과 최적화가 동시에 돌지 않으므로 ID 목록·정체 경합이 없다(정체 확인은 방어용으로 유지).
+    성공·실패 공통 종료 경로에서 진행 표시를 끄고 새 DB 메타로 최적화를 다시 판단한다(`db_optimize.maybe_start`).
     """
     from core.database.engine import get_engine
 
@@ -460,21 +462,28 @@ def restore(uploaded_path: str, kind: str) -> tuple[str, int]:
             from services import account_data
             account_data.refuse_foreign_owner(uploaded_path, kind, _current_kakao_id())
         snapshot = read_mobile_db(uploaded_path) if kind == "mobile" else None  # 모르는 열 검사 포함 — 장벽 전에
+        # (0) 최적화 일시정지: 복원 진행 표시를 켜고 실행 중 최적화가 현재 신고 1건을
+        #     끝내고 멈출 때까지 기다린다. 시간 안에 안 끝나면 복원을 거절한다.
         # (1) 크롤러(별도 프로세스라 쓰기 장벽 밖)는 검사와 같은 잠금 안에서 시작을 막는다 — 검사 직후 시작하는 경쟁 없음.
         # (2) 스테이징 복사부터 교체까지 이 프로세스의 운영 DB 연결을 막는다. 이미 빌린 연결이 반납될 때까지 기다린다(SOL-04).
-        #     최적화 신고 1건 공유 구간도 함께 비운 뒤 들어간다.
         from services.crawl_manager import RestoreBlocked
+        from services import db_optimize as _optimize
 
+        try:
+            _optimize.pause_for_restore()
+        except _optimize.RestorePauseTimeout as exc:
+            raise RestoreRefused(str(exc)) from None
         try:
             with crawl_manager.hold_for_restore(), write_barrier.exclusive():
                 return _restore_exclusive(uploaded_path, kind, dst, snapshot)
         except (RestoreBlocked, write_barrier.BarrierTimeout) as exc:
             raise RestoreRefused(str(exc)) from None
     finally:
-        # 복원 완료 지점(성공·실패 공통): 새 DB 메타로 최적화를 다시 판단한다.
+        # 복원 완료 지점(성공·실패 공통): 진행 표시를 끄고 새 DB 메타로 최적화를 다시 판단한다.
         try:
             from services import db_optimize as _optimize
 
+            _optimize.resume_after_restore()
             _optimize.maybe_start(get_engine())
         except Exception as exc:
             note_fallback("exchange.restore_maybe_start", exc)

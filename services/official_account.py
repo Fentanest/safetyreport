@@ -118,7 +118,13 @@ def save_settings(command, persist):
         if not kakao_id or account_data.db_owner(engine) not in (None, kakao_id):
             raise BindingError("db_owner_mismatch")
         exchange.ensure_restore_allowed(engine)
+        from services import db_optimize as _optimize
+
         try:
+            try:
+                _optimize.pause_for_restore()
+            except _optimize.RestorePauseTimeout as exc:
+                raise exchange.RestoreRefused(str(exc)) from None
             with gate._gate._refresh_lock, crawl_manager.hold_for_restore(), write_barrier.exclusive():
                 if journal is None:
                     journal = {"target": target, "phase": "started", "user_id": user_id}
@@ -161,6 +167,15 @@ def save_settings(command, persist):
             raise exchange.RestoreRefused(str(exc)) from None
         except (AccountApiError, cas.CommunityAuthError) as exc:
             raise BindingError(exc.code if exc.code in MESSAGES else "cloud_unavailable") from None
+        finally:
+            # 교체 종료(성공·실패 공통): 진행 표시를 끄고 새 DB 메타로 최적화를 다시 판단한다.
+            try:
+                from core.utils.fallback import note_fallback as _note
+
+                _optimize.resume_after_restore()
+                _optimize.maybe_start(engine)
+            except Exception as exc:
+                _note("official_account.wipe_maybe_start", exc)
         # New connections are registered only after the local wipe + config save succeeded.
         gate.refresh_now()
         return result

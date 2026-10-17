@@ -12,6 +12,7 @@ import sqlite3
 from core.database import database
 from core.storage.exchange import RestoreRefused
 from core.utils import logger
+from core.utils.fallback import note_fallback
 
 KAKAO_MEMBER_META_KEY = database.KAKAO_MEMBER_META_KEY
 
@@ -59,13 +60,27 @@ def wipe_report_data(reason: str, *, then_owner: str | None = None) -> dict:
         from services.community_store import CommunityStore
         CommunityStore.open().rotate_dataset(reason)
 
+    from services import db_optimize as _optimize
+
     try:
-        with crawl_manager.hold_for_restore(), write_barrier.exclusive():
-            info = database.empty_report_data(engine, before_empty=rotate)
-            if then_owner:
-                database.set_meta(engine, KAKAO_MEMBER_META_KEY, then_owner)
-    except (RestoreBlocked, write_barrier.BarrierTimeout) as exc:
-        raise exchange.RestoreRefused(str(exc)) from None
+        try:
+            _optimize.pause_for_restore()
+        except _optimize.RestorePauseTimeout as exc:
+            raise exchange.RestoreRefused(str(exc)) from None
+        try:
+            with crawl_manager.hold_for_restore(), write_barrier.exclusive():
+                info = database.empty_report_data(engine, before_empty=rotate)
+                if then_owner:
+                    database.set_meta(engine, KAKAO_MEMBER_META_KEY, then_owner)
+        except (RestoreBlocked, write_barrier.BarrierTimeout) as exc:
+            raise exchange.RestoreRefused(str(exc)) from None
+    finally:
+        # 교체 종료(성공·실패 공통): 진행 표시를 끄고 새 DB 메타로 최적화를 다시 판단한다.
+        try:
+            _optimize.resume_after_restore()
+            _optimize.maybe_start(engine)
+        except Exception as exc:
+            note_fallback("account_data.wipe_maybe_start", exc)
     return info
 
 
