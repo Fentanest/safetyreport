@@ -95,6 +95,9 @@ def _reset_optimize_state():
         db_optimize._shutdown = True
         db_optimize._stop.set()
         thread = db_optimize._thread
+        retry_timer, db_optimize._retry_timer = db_optimize._retry_timer, None
+    if retry_timer is not None:
+        retry_timer.cancel()
     if thread is not None and thread is not threading.current_thread():
         thread.join(timeout=15)
     with db_optimize._life_lock:

@@ -386,6 +386,40 @@ def _retry_allowed_by_backoff(engine) -> bool:
         return True
 
 
+_retry_timer: threading.Timer | None = None
+
+
+def _schedule_backoff_retry(engine) -> None:
+    """보류 재시도 시각(`next_retry_at`)에 한 번 다시 판단하는 타이머를 건다(하나만 유지).
+
+    작업자 종료·기동 경로가 백오프 중이라 바로 띄우지 않을 때 쓴다 — 크롤 성공이 없어도
+    재시도 시각이 되면 이어 하게(명세 7-1). 서버 종료 요청 뒤에는 걸지 않는다."""
+    global _retry_timer
+    if engine is None or _shutdown:
+        return
+    try:
+        meta = read_meta(engine) or {}
+        due = _parse_next_retry(meta.get("next_retry_at"))
+    except Exception as exc:
+        note_fallback("db_optimize.schedule_backoff_read", exc)
+        return
+    delay = max(0.0, due - time.time()) + 0.5
+    timer = threading.Timer(delay, lambda: _backoff_timer_fired(engine))
+    timer.daemon = True
+    previous, _retry_timer = _retry_timer, timer
+    if previous is not None:
+        previous.cancel()
+    timer.start()
+
+
+def _backoff_timer_fired(engine) -> None:
+    try:
+        if not _shutdown:
+            maybe_start(engine)
+    except Exception as exc:
+        note_fallback("db_optimize.backoff_timer", exc)
+
+
 def on_crawl_success(engine, **run_kwargs) -> threading.Thread | None:
     """크롤 성공 종료 훅용: 쉬는·멈춘 최적화를 다시 판단한다.
 
@@ -683,14 +717,19 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         # 복원된 DB에 옛 커서가 가리키는 ID가 없으면 처음부터(복원 DB에 옛 커서를 쓰지 않음).
         if cursor and cursor not in ids:
             cursor = ""
-    # 보류만 남은 채 끝난 회차 다음에는 보류 목록만 다시 시도한다(시도 횟수 초기화).
+    # 보류만 남은 채 끝난 회차(커서가 빈 partial) 다음에는 보류 목록만 다시 시도한다(시도 횟수 초기화).
+    # 커서가 남은 메타는 바퀴 도중 멈춘 것이다 — 커서 다음부터 이어 하고, 그때까지 생긴 보류는 그대로 이어받는다
+    # (보류만 처리하고 끝내면 커서 뒤 미방문 신고를 버리고 done 을 쓰게 된다 — Astra 교차 확인).
+    resumed_holds: set[str] = set()
     if holds and _is_same_target(meta.get("target")) and not meta.get("done"):
-        id_set = set(ids)
-        ids = [h for h in holds if h in id_set]
-        attempts = {}
-        cursor = ""
-    # 저장 직전 충돌로 다음 회차로 넘긴 신고(Opus P6, 시도 횟수 증가 없음).
-    carried_holds: set[str] = set()
+        if cursor:
+            resumed_holds = set(holds)
+        else:
+            id_set = set(ids)
+            ids = [h for h in holds if h in id_set]
+            attempts = {}
+    # 저장 직전 충돌로 다음 회차로 넘긴 신고(Opus P6, 시도 횟수 증가 없음) — 이어 하는 바퀴의 기존 보류 포함.
+    carried_holds: set[str] = set(resumed_holds)
     # stats 는 중단·재개에 걸쳐 쌓이는 작업 전체 통계(메타에 저장), run 은 이번 실행분(반환값)이다.
     stats.setdefault("reused", 0)
     stats.setdefault("refetched", 0)
@@ -1838,7 +1877,13 @@ def _spawn_locked(engine=None, run_kwargs=None, background: bool = True):
                 # 경우도 `needs_run` 이 True이므로 시간 초과·resume 때 다시 뜬다.
                 # 모듈 `_stop` 이 아닌 주입 stop 으로 도는 시험 작업자는 재판단하지 않는다.
                 if not failed and run_kwargs.get("stop", _stop) is _stop:
-                    spawned = _try_spawn_locked()
+                    # 보류 재시도 시각 전이면 바로 띄우지 않고 그 시각에 다시 판단한다
+                    # (partial 직후 백오프 없이 회차를 반복하던 결함 — Astra 교차 확인).
+                    if _current_engine is not None and not _retry_allowed_by_backoff(_current_engine):
+                        spawned = None
+                        _schedule_backoff_retry(_current_engine)
+                    else:
+                        spawned = _try_spawn_locked()
                     if spawned is None and not _shutdown:
                         drain_engine = _current_engine
             if drain_engine is not None:
@@ -1900,6 +1945,7 @@ def maybe_start(engine, *, background: bool = True, ignore_backoff: bool = False
     보류 재시도 회차 간격(지수 백오프)이 차지 않았으면 시작하지 않는다 — 크롤 성공
     직후(`on_crawl_success`)는 `ignore_backoff=True` 로 바로 시작한다(명세 7-1)."""
     if not ignore_backoff and not _retry_allowed_by_backoff(engine):
+        _schedule_backoff_retry(engine)
         _drain_deferred_if_done(engine)
         return None
     with _life_lock:
@@ -1923,6 +1969,9 @@ def stop(timeout: float = 5.0) -> bool:
         _shutdown = True
         _stop.set()
         thread = _thread
+        timer = _retry_timer
+    if timer is not None:
+        timer.cancel()
     if thread is None:
         return True
     if thread is threading.current_thread():
