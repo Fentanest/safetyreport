@@ -50,6 +50,26 @@ def _mobile_db(path: Path, *, watchlist="SPP-2609-9000011", with_override=True, 
 class ExchangeRestoreTests(unittest.TestCase):
     def setUp(self):
         logger.LoggerFactory.create_logger(mode="crawl")
+        # 복원 뒤 최적화 재기동(`exchange.restore` finally의 `maybe_start`)이
+        # 이 파일의 크롤 대기열 시험과 섞이지 않게 여기서 막는다.
+        # 복원→최적화 재기동 자체는 tests/test_db_optimize_p2r2.py가 따로 본다.
+        from services import db_optimize as _opt
+
+        try:
+            _opt.stop()
+        except Exception:
+            pass
+        with _opt._lock:
+            _opt._thread = None
+            _opt._state.update({"state": "idle", "total": 0, "done": 0, "stage": "",
+                                "message": "", "log": [], "finished_at": ""})
+        try:
+            _opt._stop.clear()
+        except Exception:
+            pass
+        no_opt = mock.patch("services.db_optimize.maybe_start", return_value=None)
+        no_opt.start()
+        self.addCleanup(no_opt.stop)
         # 복원 뒤 재개 스레드가 실제 게이트 검사(네트워크 대기)를 하며 다음 테스트로 새지 않게 기본은 즉시 거부.
         # 대기 큐 시작을 시험하는 테스트는 _launch_env 가 이 위에 다시 패치한다.
         default_gate = mock.patch("services.crawl_control._check_crawl_allowed",
@@ -82,6 +102,20 @@ class ExchangeRestoreTests(unittest.TestCase):
     def tearDown(self):
         get_engine().dispose()
         self._tmp.cleanup()
+        try:
+            from services import db_optimize as _opt
+
+            _opt.stop()
+            with _opt._lock:
+                _opt._thread = None
+                _opt._state.update({"state": "idle", "total": 0, "done": 0, "stage": "",
+                                    "message": "", "log": [], "finished_at": ""})
+            try:
+                _opt._stop.clear()
+            except Exception:
+                pass
+        except Exception:
+            pass
 
     def _count(self, table):
         with get_engine().connect() as conn:

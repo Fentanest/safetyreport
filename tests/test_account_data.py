@@ -48,6 +48,25 @@ class KakaoMemberIdTests(unittest.TestCase):
 class _DbCase(unittest.TestCase):
     def setUp(self):
         logger.LoggerFactory.create_logger(mode="crawl")
+        # `exchange.restore` finally의 `maybe_start`가 이 파일과 무관한
+        # 최적화 스레드를 남겨 다음 모듈을 오염시키지 않게 막는다.
+        from services import db_optimize as _opt
+
+        try:
+            _opt.stop()
+        except Exception:
+            pass
+        with _opt._lock:
+            _opt._thread = None
+            _opt._state.update({"state": "idle", "total": 0, "done": 0, "stage": "",
+                                "message": "", "log": [], "finished_at": ""})
+        try:
+            _opt._stop.clear()
+        except Exception:
+            pass
+        no_opt = mock.patch("services.db_optimize.maybe_start", return_value=None)
+        no_opt.start()
+        self.addCleanup(no_opt.stop)
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         # 다른 시험 모듈이 import 때 만든 개인 DB 를 쓰므로(같은 SAFETYREPORT_DATA_DIR) 끝나면 원래 파일로 되돌린다

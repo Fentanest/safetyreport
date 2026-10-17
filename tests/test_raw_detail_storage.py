@@ -256,6 +256,23 @@ class RawDetailSaveTests(unittest.TestCase):
 class RawDetailRestoreTests(unittest.TestCase):
     def setUp(self):
         logger.LoggerFactory.create_logger(mode="crawl")
+        from services import db_optimize as _opt
+
+        try:
+            _opt.stop()
+        except Exception:
+            pass
+        with _opt._lock:
+            _opt._thread = None
+            _opt._state.update({"state": "idle", "total": 0, "done": 0, "stage": "",
+                                "message": "", "log": [], "finished_at": ""})
+        try:
+            _opt._stop.clear()
+        except Exception:
+            pass
+        no_opt = mock.patch("services.db_optimize.maybe_start", return_value=None)
+        no_opt.start()
+        self.addCleanup(no_opt.stop)
         default_gate = mock.patch("services.crawl_control._check_crawl_allowed",
                                   side_effect=RuntimeError("test default: crawl not allowed"))
         default_gate.start()
@@ -277,6 +294,14 @@ class RawDetailRestoreTests(unittest.TestCase):
 
     def tearDown(self):
         get_engine().dispose()
+        try:
+            from services import db_optimize as _opt
+
+            _opt.stop()
+            with _opt._lock:
+                _opt._thread = None
+        except Exception:
+            pass
 
     def _server_rows(self):
         with get_engine().connect() as conn:

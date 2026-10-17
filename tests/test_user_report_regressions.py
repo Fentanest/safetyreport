@@ -79,6 +79,25 @@ class StatisticsRegressions(unittest.TestCase):
 
 
 class RestoreImmutability(unittest.TestCase):
+    def setUp(self):
+        from services import db_optimize as _opt
+
+        try:
+            _opt.stop()
+        except Exception:
+            pass
+        with _opt._lock:
+            _opt._thread = None
+            _opt._state.update({"state": "idle", "total": 0, "done": 0, "stage": "",
+                                "message": "", "log": [], "finished_at": ""})
+        try:
+            _opt._stop.clear()
+        except Exception:
+            pass
+        no_opt = mock.patch("services.db_optimize.maybe_start", return_value=None)
+        no_opt.start()
+        self.addCleanup(no_opt.stop)
+
     def test_legacy_and_future_refusal_preserve_full_personal_and_rebuild_state(self):
         from test_community_rebuild import RebuildEnv
         from core.storage import exchange

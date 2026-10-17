@@ -63,6 +63,29 @@ test('optimize error shows as error, not completed', async ({ page }) => {
   await expect(bar).toContainText('오류');
   await expect(bar).not.toContainText('작업 완료');
 });
+test('first poll error shows bar with log and persists', async ({ page }) => {
+  const errLog = [...LOG, '2026-10-17 12:00:04 오류로 멈춤(RuntimeError)', '<b>escape-me</b>'];
+  await page.route('**/maintenance/status', (route) => route.fulfill({
+    json: { active: false, jobs: [optJob('error', 7, errLog)] },
+  }));
+  await login(page);
+  await page.goto('/stats');
+  const bar = page.locator('#srJobBar');
+  await expect(bar).toBeVisible();
+  await expect(bar).toContainText('오류');
+  await expect(bar).toContainText('RuntimeError');
+  const toggle = page.getByRole('button', { name: '단계 로그' });
+  await expect(toggle).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#srJobLog')).toBeVisible();
+  await expect(page.locator('#srJobLog')).toContainText('오류로 멈춤');
+  await expect(page.locator('#srJobLog b')).toHaveCount(0);
+  await page.waitForTimeout(7000);
+  await expect(bar).toBeVisible();
+  await expect(bar).toContainText('오류');
+});
 for (const [theme, width] of [['light', 1440], ['dark', 1440], ['dark', 390]] as const) {
   test(`optimize bar fits and expands (${theme} ${width})`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });

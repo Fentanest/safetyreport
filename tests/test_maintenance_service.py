@@ -15,6 +15,20 @@ from services import maintenance_service
 class PhotoBackfillJobTests(unittest.TestCase):
     def setUp(self):
         logger.LoggerFactory.create_logger(mode="crawl")
+        try:
+            from services import db_optimize as _opt
+
+            _opt.stop()
+            with _opt._lock:
+                _opt._thread = None
+                _opt._state.update({"state": "idle", "total": 0, "done": 0, "stage": "",
+                                    "message": "", "log": [], "finished_at": ""})
+            try:
+                _opt._stop.clear()
+            except Exception:
+                pass
+        except Exception:
+            pass
         self._dir = tempfile.TemporaryDirectory()
         self.engine = create_engine(f"sqlite:///{Path(self._dir.name) / 'data.db'}")
         fixture_server.seed_engine(self.engine)
