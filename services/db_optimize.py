@@ -7,6 +7,16 @@
 
 취소 수단 없음. 서버 종료 뒤에는 메타 커서부터 이어서 한다. 크롤과는 `is_running()` 으로
 순서를 맞춘다(최적화가 도는 동안 크롤 시작 요청은 대기열 뒤에 붙는다).
+
+잠금 순서 규칙(교착 금지):
+- `_life_lock`(수명: 스레드·토큰 스택·종료 요청·일시정지 요청) 안에서는 상태 판단
+  (`needs_run` 등 메타 읽기)·`_state` 갱신·스레드 생성만 한다. 보류 전체 크롤 시작
+  (`start_crawl` 등)·크롤 상태 조회(`crawl_manager.is_crawling` 등)처럼 다른 모듈의
+  잠금을 잡는 호출은 절대 하지 않는다. 보류 크롤 시작이 필요하면 수명 잠금을 놓은
+  뒤 별도로 실행한다.
+- 다른 모듈의 잠금(크롤 시작·크롤 상태 등)을 쥔 채 수명 잠금을 잡는 경로도 없다.
+  상태 조회(`is_running` 등)는 수명 잠금이 아니라 `_lock`(상태 잠금)만 잡는다.
+- 허용 방향은 `_life_lock` → `_lock` 한 방향뿐이다(역방향 중첩 금지).
 """
 from __future__ import annotations
 
@@ -47,10 +57,15 @@ LOGIN_RETRY_SECONDS = 60.0
 LOG_KEEP = 50
 
 _lock = threading.RLock()
-#: 작업자 수명 상태 기계용 단일 잠금(`_lock` 과 같은 객체). `_thread`, 일시정지
+#: `_state`(화면 표시용 상태) 전용 잠금(`_lock` 과 같은 객체). `is_running`,
+#: `job_for_status`, `_update`, `append_log` 이 쓴다. 수명 잠금을 쥔 채 다른 모듈의
+#: 잠금을 잡지 않는다는 규칙에 따라 상태 조회는 이 잠금만 잡는다.
+#: 작업자 수명 상태 기계용 단일 잠금. `_thread`, 일시정지
 #: 토큰 스택, `_shutdown`(서버 종료 요청), `_pause_requested` 를 지킨다. 이 값들은
 #: 잠금 안에서만 읽고 바꾼다(작업자 루프의 멈춤 확인 읽기는 예외 — `_stop` 이벤트로 본다).
-_life_lock = _lock
+#: 수명 잠금 안에서는 상태 판단·스레드 생성만 하고, 보류 크롤 시작·크롤 상태 조회처럼
+#: 다른 모듈 잠금을 잡는 호출을 하지 않는다(모듈 상단 잠금 순서 규칙).
+_life_lock = threading.RLock()
 _thread: threading.Thread | None = None
 _stop = threading.Event()
 #: 서버 종료 요청. `stop()` 만 켜고, 새 작업자 기동(`_spawn_locked` 실제 생성)과
@@ -909,6 +924,9 @@ def _clear_deferred_fulls(engine) -> None:
 def _launch_one_deferred(engine, entry: dict) -> str:
     """보류 전체 1건을 시작한다. 반환: 'started' | 'kept'.
 
+    `_life_lock` 을 잡지 않은 상태에서만 호출한다(크롤 시작은 다른 모듈 잠금을
+    잡으므로 수명 잠금 안에서 절대 부르지 않는다 — 모듈 상단 잠금 순서 규칙).
+
     크롤 시작이 성공한 뒤에만 보류를 지운다. 지우기 실패는 진단만 남긴다 —
     드물게 보류가 남아 다음에 한 번 더 시작될 수 있다(요청 유실보다 낫다).
     시작 실패·서버 종료면 보류는 그대로 남아 다음 훅·기동에서 시작한다.
@@ -1025,7 +1043,7 @@ class RestorePauseTimeout(RuntimeError):
 
 def restore_paused() -> bool:
     """복원 진행 표시가 켜져 있으면 True — 복원 경로가 최적화를 멈추게 한 상태."""
-    with _lock:
+    with _life_lock:
         return _restore_pause
 
 
@@ -1067,6 +1085,7 @@ def pause_for_restore(timeout: float = RESTORE_PAUSE_TIMEOUT) -> object:
         _restore_pause = True
     if stop_and_join(timeout):
         return token
+    drain_engine = None
     with _life_lock:
         try:
             _restore_tokens.remove(token)
@@ -1077,7 +1096,13 @@ def pause_for_restore(timeout: float = RESTORE_PAUSE_TIMEOUT) -> object:
             _restore_pause = False
             if not _shutdown:
                 _stop.clear()
-            _try_spawn_locked()
+            # 수명 잠금 안에서는 기동 판단·스레드 생성만 한다. 보류 크롤 시작은
+            # 잠금을 놓은 뒤 `_drain_deferred_if_done` 으로 실행한다(잠금 순서 규칙).
+            spawned = _try_spawn_locked()
+            if spawned is None and not _shutdown:
+                drain_engine = _current_engine
+    if drain_engine is not None:
+        _drain_deferred_if_done(drain_engine)
     raise RestorePauseTimeout(
         "DB 최적화가 끝나지 않아 복원하지 않았습니다. 잠시 뒤 다시 시도하세요.")
 
@@ -1091,6 +1116,7 @@ def resume_after_restore(token: object = _NO_TOKEN) -> None:
     인자 없이 부르면(시험 정리·구 경로 호환) 전부 해제만 하고 띄우지 않는다.
     """
     global _pause_requested, _restore_pause
+    drain_engine = None
     with _life_lock:
         if token is _NO_TOKEN:
             _restore_tokens.clear()
@@ -1105,7 +1131,13 @@ def resume_after_restore(token: object = _NO_TOKEN) -> None:
             return
         _pause_requested = False
         _restore_pause = False
-        _try_spawn_locked()
+        # 수명 잠금 안에서는 기동 판단·스레드 생성만 한다. 보류 크롤 시작은
+        # 잠금을 놓은 뒤 `_drain_deferred_if_done` 으로 실행한다(잠금 순서 규칙).
+        spawned = _try_spawn_locked()
+        if spawned is None and not _shutdown:
+            drain_engine = _current_engine
+    if drain_engine is not None:
+        _drain_deferred_if_done(drain_engine)
 
 
 # ── 작업자 수명 상태 기계 ────────────────────────────────────────────────────
@@ -1113,12 +1145,17 @@ def resume_after_restore(token: object = _NO_TOKEN) -> None:
 # `_shutdown` 은 `stop()` 만 켜고 새 수명 시작에서만 끈다. 모든 기동·재판단은
 # `_spawn_locked()` 하나만 쓴다: `_shutdown` 아님 + 토큰 없음 + 살아 있는 스레드
 # 없음 + 할 일 있음(`needs_run`)일 때만 새 스레드를 띄운다.
+# 잠금 순서 규칙(모듈 상단): 수명 잠금 안에서는 상태 판단·스레드 생성만 하고,
+# 보류 크롤 시작은 잠금을 놓은 뒤 `_drain_deferred_if_done` 으로 실행한다.
 
 def _spawn_locked(engine=None, run_kwargs=None, background: bool = True):
     """`_life_lock` 보유 가정. 조건이 맞을 때만 새 작업자를 띄우고 스레드를 돌려준다.
 
     살아 있는 스레드가 있으면 새로 띄우지 않고 그 스레드를 돌려준다.
     `maybe_start`·`resume_after_restore`·시간 초과 처리·작업자 종료가 모두 이 함수만 쓴다.
+    수명 잠금 안에서는 상태 판단·스레드 생성만 하므로 보류 크롤 시작은 하지 않는다 —
+    할 일 없이 끝났을 때 보류가 있으면 호출자가 잠금을 놓은 뒤
+    `_drain_deferred_if_done` 으로 시작한다.
     """
     global _thread, _shutdown, _pause_requested, _restore_pause
     global _current_engine, _current_run_kwargs
@@ -1150,12 +1187,8 @@ def _spawn_locked(engine=None, run_kwargs=None, background: bool = True):
         _restore_pause = True
         return None
     if not runnable:
-        # 재시작 때 보류 요청 시작(최적화 done 뒤 서버가 끝났어도 유실 없음).
-        try:
-            if peek_deferred_fulls(engine):
-                _after_finish(engine)
-        except Exception as exc:
-            note_fallback("db_optimize.deferred_on_startup", exc)
+        # 할 일 없음 — 보류 크롤 시작은 수명 잠금을 놓은 뒤 호출자가
+        # `_drain_deferred_if_done` 으로 실행한다(잠금 순서 규칙).
         return None
     # 새 수명 시작 — 여기서만 서버 종료 요청을 초기화한다.
     _shutdown = False
@@ -1179,10 +1212,9 @@ def _spawn_locked(engine=None, run_kwargs=None, background: bool = True):
 
     def _run():
         global _thread
-        result = None
         failed = False
         try:
-            result = process_all(engine, **run_kwargs)
+            process_all(engine, **run_kwargs)
         except Exception as exc:
             failed = True
             _update(state="error", stage="error", message=type(exc).__name__)
@@ -1193,16 +1225,22 @@ def _spawn_locked(engine=None, run_kwargs=None, background: bool = True):
             except Exception as exc2:
                 note_fallback("db_optimize.after_error", exc2)
         finally:
+            drain_engine = None
             with _life_lock:
                 # 자기 스레드일 때만 비운다 — 뒤에 뜬 새 스레드를 지우지 않는다.
                 if _thread is slot.get("thread"):
                     _thread = None
-                # 실패·완료 종료면 재시작하지 않는다(기존 규칙). 모듈 `_stop` 으로
-                # 도는 작업자가 미완료로 끝났으면 `_spawn_locked` 이 `needs_run` 으로 판단한다.
-                if (not failed
-                        and not (isinstance(result, dict) and result.get("finished"))
-                        and run_kwargs.get("stop", _stop) is _stop):
-                    _try_spawn_locked()
+                # 재시작 판단은 실행 결과(finished 등)가 아니라 메타 기준 `needs_run` 으로만
+                # 한다 — `_spawn_locked` 이 잠금 안에서 판단한다. 실패 종료는 재시작하지
+                # 않는다(예외 규칙 유지). 마지막 신고 뒤 일시정지로 done 기록을 건너뛴
+                # 경우도 `needs_run` 이 True이므로 시간 초과·resume 때 다시 뜬다.
+                # 모듈 `_stop` 이 아닌 주입 stop 으로 도는 시험 작업자는 재판단하지 않는다.
+                if not failed and run_kwargs.get("stop", _stop) is _stop:
+                    spawned = _try_spawn_locked()
+                    if spawned is None and not _shutdown:
+                        drain_engine = _current_engine
+            if drain_engine is not None:
+                _drain_deferred_if_done(drain_engine)
 
     thread = threading.Thread(target=_run, name="db-optimize", daemon=True)
     slot["thread"] = thread
@@ -1223,12 +1261,45 @@ def _try_spawn_locked():
         return None
 
 
+def _drain_deferred_if_done(engine) -> None:
+    """보류 전체 크롤을 시작한다 — `_life_lock` 을 잡지 않은 상태에서만 호출한다.
+
+    크롤 시작(`start_crawl` 등)은 다른 모듈의 잠금을 잡으므로 수명 잠금을 쥔 채
+    절대 부르지 않는다(모듈 상단 잠금 순서 규칙). 할 일이 남았거나(`needs_run`)
+    일시정지·종료 중이거나 살아 있는 작업자가 있으면 시작하지 않고 보류를 둔다.
+    """
+    try:
+        if engine is None or restore_paused():
+            return
+        with _life_lock:
+            if _shutdown:
+                return
+            thread = _thread
+        if thread is not None and thread.is_alive():
+            return
+        if needs_run(engine):
+            return
+        if not peek_deferred_fulls(engine):
+            return
+    except Exception as exc:
+        note_fallback("db_optimize.deferred_drain_gate", exc)
+        return
+    try:
+        _after_finish(engine)
+    except Exception as exc:
+        note_fallback("db_optimize.deferred_on_startup", exc)
+
+
 def maybe_start(engine, *, background: bool = True, **run_kwargs) -> threading.Thread | None:
     """스키마 업그레이드 뒤 기동 때 한 번. 할 일 없으면 None(아무 일도 하지 않는다).
 
-    최적화가 이미 done이어도 미뤄 둔 전체 크롤이 있으면 기동 경로에서 꺼내 시작한다."""
+    최적화가 이미 done이어도 미뤄 둔 전체 크롤이 있으면 기동 경로에서 꺼내 시작한다 —
+    보류 시작은 수명 잠금을 놓은 뒤 실행한다(잠금 순서 규칙)."""
     with _life_lock:
-        return _spawn_locked(engine, run_kwargs, background)
+        thread = _spawn_locked(engine, run_kwargs, background)
+    if thread is None:
+        _drain_deferred_if_done(engine)
+    return thread
 
 
 def stop(timeout: float = 5.0) -> bool:
