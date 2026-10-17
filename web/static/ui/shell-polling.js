@@ -67,26 +67,39 @@
                     setLogVisible(opts[0]);
                     wasActive = true;
                     schedule(2000);
-                } else if (wasActive) {
+                } else {
                     var done = data.jobs.filter(function (j) { return j.state === 'completed'; });
                     var failed = data.jobs.filter(function (j) { return j.state === 'error'; });
                     var doneOthers = done.filter(function (j) { return !isOptimize(j); });
                     var doneOpts = done.filter(isOptimize);
                     var failedOthers = failed.filter(function (j) { return !isOptimize(j); });
                     var failedOpts = failed.filter(isOptimize);
-                    text.textContent = doneOthers.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); })
-                        .concat(doneOpts.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); }))
-                        .concat(failedOthers.map(function (j) { return j.label + ' 오류' + (j.message ? ' · ' + j.message : ''); }))
-                        .concat(failedOpts.map(function (j) { return j.label + ' 오류' + (j.message ? ' · ' + j.message : ''); }))
-                        .join('   |   ') || '작업 완료';
-                    bar.classList.add('is-done');
-                    setLogVisible(doneOpts[0] || failedOpts[0]);
-                    wasActive = false;
-                    setTimeout(function () { bar.hidden = true; }, 6000);
-                    schedule(30000);
-                } else {
-                    bar.hidden = true;
-                    schedule(30000);
+                    if (failed.length) {
+                        // 오류는 첫 poll에서도 표시줄에 '오류'와 로그를 보이고,
+                        // 다음 상태 변화(재시도 시작·완료) 전까지 유지한다(자동으로 6초 뒤 숨기지 않음).
+                        text.textContent = doneOthers.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); })
+                            .concat(doneOpts.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); }))
+                            .concat(failedOthers.map(function (j) { return j.label + ' 오류' + (j.message ? ' · ' + j.message : ''); }))
+                            .concat(failedOpts.map(function (j) { return j.label + ' 오류' + (j.message ? ' · ' + j.message : ''); }))
+                            .join('   |   ') || '작업 오류';
+                        bar.classList.add('is-done');
+                        setLogVisible(failedOpts[0] || doneOpts[0] || failedOthers[0]);
+                        bar.hidden = false;
+                        wasActive = true;
+                        schedule(30000);
+                    } else if (wasActive) {
+                        text.textContent = doneOthers.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); })
+                            .concat(doneOpts.map(function (j) { return j.label + ' 완료' + (j.message ? ' · ' + j.message : ''); }))
+                            .join('   |   ') || '작업 완료';
+                        bar.classList.add('is-done');
+                        setLogVisible(doneOpts[0]);
+                        wasActive = false;
+                        setTimeout(function () { bar.hidden = true; }, 6000);
+                        schedule(30000);
+                    } else {
+                        bar.hidden = true;
+                        schedule(30000);
+                    }
                 }
             })
             .catch(function () { schedule(60000); });

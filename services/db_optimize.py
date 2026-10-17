@@ -412,6 +412,25 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         write_meta(engine, {"target": PARSER_VERSION, "cursor": cursor_id, "done": False,
                             "total": total, "stats": stats, "attempts": attempts})
 
+    def _write_progress_shared(cursor_id: str) -> bool:
+        """커서 메타 쓰기를 공유(일반 쓰기) 구간 안에서 정체 확인 뒤에만 한다.
+        복원으로 정체가 바뀌었으면 아무 것도 쓰지 않고 False."""
+        from core.database import write_barrier
+
+        try:
+            with write_barrier.shared():
+                if _identity_changed(start_identity) or _restore_hold():
+                    return False
+                _write_progress(cursor_id)
+                return True
+        except write_barrier.BarrierTimeout as exc:
+            note_fallback("db_optimize.progress_barrier", exc)
+            return False
+        except Exception as exc:
+            # 쓰기 실패는 다음 신고 때 다시 시도한다 — 복원으로 오인해 멈추지 않는다.
+            note_fallback("db_optimize.progress_write", exc)
+            return True
+
     def _restored() -> bool:
         return bool(_restore_hold() or _identity_changed(start_identity))
 
@@ -476,38 +495,52 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         return False
 
     def _attempt_report(report_id: str) -> str:
-        """한 신고를 한 번 시도한다. 반환: 'resolved' (성공·영구 건너뜀) | 'deferred' (일시 실패, 나중에 다시)."""
+        """한 신고를 한 번 시도한다. 반환: 'resolved' | 'deferred' | 'login_wait' | 'restored'.
+
+        DB 읽기·재조회 저장·재파싱 저장·은 공유(일반 쓰기) 구간 안에서 정체 확인 뒤에만 한다.
+        복원(exclusive)은 이 1건이 끝날 때까지 기다리고, 복원 중에는 새 1건이 공유 구간에 들어가지 못한다.
+        네트워크 재조회는 공유 구간 밖에서 하고, 그 결과 저장은 다시 공유 구간에 들어가 정체 확인 뒤에만 한다.
+        """
+        from core.database import write_barrier
         from core.storage import reports_repo
 
         nonlocal session
         fetch_note = ""
-        envelope, raw_state = _stored_result(engine, report_id)
-        if raw_state == "ok":
-            result = envelope.get("result") if isinstance(envelope, dict) else None
-            if not isinstance(result, dict):
-                _tally(skipped="result_not_object")
-                append_log(f"{report_id} 건너뜀(result 없음)")
-                _record_resolved(report_id)
-                return "resolved"
-            details = _parse_result(report_id, result)
-            if details is None:
-                _tally(skipped="parse_failed")
-                _record_resolved(report_id)
-                return "resolved"
-            rec = _build_rec(report_id, details)
-            try:
-                _save_reparsed(engine, rec, report_id, reused=True, tally=_tally)
-            except reports_repo._ReparseSkipped as exc:
-                # _save_reparsed 안에서 이미 tally·로그함 — 영구 건너뜀으로 확정
-                _record_resolved(report_id)
-                return "resolved"
-            except _SaveTransient as exc:
-                _record_transient(report_id, f"저장 실패({exc})")
-                return "deferred"
-            _record_resolved(report_id)
-            _ensure_raw_file(report_id, envelope)
-            return "resolved"
-        # 원본 없음·손상 → 다시 받기
+        # ── 1차: 저장 원본 읽기 + 재사용 저장은 한 공유 구간 안에서 ──
+        try:
+            with write_barrier.shared():
+                if _identity_changed(start_identity) or _restore_hold():
+                    return "restored"
+                envelope, raw_state = _stored_result(engine, report_id)
+                if raw_state == "ok":
+                    result = envelope.get("result") if isinstance(envelope, dict) else None
+                    if not isinstance(result, dict):
+                        _tally(skipped="result_not_object")
+                        append_log(f"{report_id} 건너뜀(result 없음)")
+                        _record_resolved(report_id)
+                        return "resolved"
+                    details = _parse_result(report_id, result)
+                    if details is None:
+                        _tally(skipped="parse_failed")
+                        _record_resolved(report_id)
+                        return "resolved"
+                    rec = _build_rec(report_id, details)
+                    try:
+                        _save_reparsed(engine, rec, report_id, reused=True, tally=_tally)
+                    except reports_repo._ReparseSkipped as exc:
+                        # _save_reparsed 안에서 이미 tally·로그함 — 영구 건너뜀으로 확정
+                        _record_resolved(report_id)
+                        return "resolved"
+                    except _SaveTransient as exc:
+                        _record_transient(report_id, f"저장 실패({exc})")
+                        return "deferred"
+                    _record_resolved(report_id)
+                    _ensure_raw_file(report_id, envelope)
+                    return "resolved"
+        except write_barrier.BarrierTimeout as exc:
+            note_fallback("db_optimize.attempt_barrier", exc)
+            return "restored"
+        # 원본 없음·손상 → 다시 받기(네트워크는 공유 구간 밖).
         if not _ensure_session():
             return "login_wait"
         auth_tries = 0
@@ -550,17 +583,26 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         rec.raw_sha256 = _raw.sha256_hex(rec.raw_canonical)
         rec.raw_size = len(rec.raw_canonical)
         rec.raw_source = BACKFILL_SOURCE
+        # ── 2차: 재조회 결과 저장은 다시 공유 구간에 들어가 정체 확인 뒤에만 ──
         try:
-            _save_reparsed(engine, rec, report_id, reused=False, tally=_tally)
-        except reports_repo._ReparseSkipped:
-            _record_resolved(report_id)
-            return "resolved"
-        except _SaveTransient as exc:
-            _record_transient(report_id, f"저장 실패({exc})")
-            return "deferred"
-        _record_resolved(report_id)
-        _tally(refetched=True)
-        return "resolved"
+            with write_barrier.shared():
+                if _identity_changed(start_identity) or _restore_hold():
+                    return "restored"
+                try:
+                    _save_reparsed(engine, rec, report_id, reused=False, tally=_tally)
+                except reports_repo._ReparseSkipped:
+                    _record_resolved(report_id)
+                    return "resolved"
+                except _SaveTransient as exc:
+                    _record_transient(report_id, f"저장 실패({exc})")
+                    return "deferred"
+                _record_resolved(report_id)
+                _tally(refetched=True)
+                return "resolved"
+        except write_barrier.BarrierTimeout as exc:
+            note_fallback("db_optimize.attempt_save_barrier", exc)
+            # 네트워크로 받은 내용을 새 DB에 쓰지 않고 멈춘다(시도 횟수는 메모리에만 남아 유실).
+            return "restored"
 
     index = start_index
     stopped_reason: str | None = None  # None | "stop" | "restore"
@@ -594,6 +636,9 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         report_id = ids[index]
 
         outcome = _attempt_report(report_id)
+        if outcome == "restored":
+            stopped_reason = "restore"
+            break
         if outcome == "login_wait":
             if not _wait_login():
                 stopped_reason = "restore" if _restored() else "stop"
@@ -602,7 +647,7 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         if outcome == "deferred":
             if report_id not in pending_retry:
                 pending_retry.append(report_id)
-        # 매 신고 처리 때 DB 정체 확인 — 복원이 끼면 옛 커서를 복원 DB에 쓰지 않고 멈춘다.
+        # 매 신고 처리 때 공유 구간 안에서 DB 정체 확인 — 복원이 끼면 옛 커서를 복원 DB에 쓰지 않고 멈춘다.
         if _restored():
             stopped_reason = "restore"
             break
@@ -610,8 +655,9 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         index += 1
         done_count = index
         _update(done=done_count)
-        if not _restored():
-            _write_progress(ids[index - 1])
+        if not _write_progress_shared(report_id):
+            stopped_reason = "restore"
+            break
 
     # 이번 회차 끝 재시도: 일시 실패분 중 아직 3회 미만인 것만 같은 회차에서 다시 시도한다.
     retry_round = 0
@@ -637,6 +683,10 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
                 pending_retry.extend(current[current.index(report_id):])
                 break
             outcome = _attempt_report(report_id)
+            if outcome == "restored":
+                stopped_reason = "restore"
+                pending_retry.extend(current[current.index(report_id):])
+                break
             if outcome == "login_wait":
                 if not _wait_login():
                     stopped_reason = "restore" if _restored() else "stop"
@@ -644,14 +694,20 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
                     break
                 outcome2 = _attempt_report(report_id)
                 outcome = outcome2
+                if outcome == "restored":
+                    stopped_reason = "restore"
+                    pending_retry.extend(r for r in current[current.index(report_id) + 1:]
+                                         if int(attempts.get(r, 0)) < MAX_RETRY_ATTEMPTS)
+                    break
             if outcome == "deferred" and int(attempts.get(report_id, 0)) < MAX_RETRY_ATTEMPTS:
                 if report_id not in pending_retry:
                     pending_retry.append(report_id)
             if _restored():
                 stopped_reason = "restore"
                 break
-            if not _restored():
-                _write_progress(ids[index - 1] if index else "")
+            if not _write_progress_shared(ids[index - 1] if index else ""):
+                stopped_reason = "restore"
+                break
         # 다음 바퀴에서 다신 시도할 게 없으면 끝
         pending_retry = [rid for rid in pending_retry if int(attempts.get(rid, 0)) < MAX_RETRY_ATTEMPTS]
 
@@ -666,8 +722,22 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         logger.LoggerFactory.logbot.warning("[db_optimize] DB 복원으로 멈춤(옛 커서 미기록)")
         return {"total": total, "done": done_count, "finished": False, "stats": run}
     if finished and not stop_event.is_set():
-        write_meta(engine, {"target": PARSER_VERSION, "cursor": ids[-1] if ids else "",
-                            "done": True, "total": total, "stats": stats, "attempts": {}})
+        from core.database import write_barrier as _barrier
+
+        try:
+            with _barrier.shared():
+                if _identity_changed(start_identity) or _restore_hold():
+                    append_log("DB 복원으로 멈춤 — 복원된 DB에서 처음부터 다시 판단합니다")
+                    _update(state="idle", stage="", message="DB 복원으로 멈춤 — 다음 기동 때 다시 판단합니다")
+                    logger.LoggerFactory.logbot.warning("[db_optimize] DB 복원으로 멈춤(옛 커서 미기록)")
+                    return {"total": total, "done": done_count, "finished": False, "stats": run}
+                write_meta(engine, {"target": PARSER_VERSION, "cursor": ids[-1] if ids else "",
+                                    "done": True, "total": total, "stats": stats, "attempts": {}})
+        except _barrier.BarrierTimeout as exc:
+            note_fallback("db_optimize.finish_barrier", exc)
+            append_log("DB 복원으로 멈춤 — 복원된 DB에서 처음부터 다시 판단합니다")
+            _update(state="idle", stage="", message="DB 복원으로 멈춤 — 다음 기동 때 다시 판단합니다")
+            return {"total": total, "done": done_count, "finished": False, "stats": run}
         changed = stats.get("changed", 0)
         events = stats.get("events", 0)
         skipped_total = sum(stats.get("skipped", {}).values())
@@ -682,8 +752,16 @@ def process_all(engine, *, session_factory=None, fetch_fn=None,
         if changed:
             try:
                 from core.database import database
+                from core.database import write_barrier as _dup_barrier
 
-                database._refresh_duplicate_groups(engine)
+                try:
+                    with _dup_barrier.shared():
+                        if _identity_changed(start_identity) or _restore_hold():
+                            note_fallback("db_optimize.refresh_restore", RuntimeError("restored"))
+                        else:
+                            database._refresh_duplicate_groups(engine)
+                except _dup_barrier.BarrierTimeout as exc:
+                    note_fallback("db_optimize.refresh_duplicates", exc)
             except Exception as exc:
                 note_fallback("db_optimize.refresh_duplicates", exc)
         _after_finish(engine)
@@ -765,6 +843,10 @@ def _ensure_raw_file(report_id: str, envelope: dict) -> None:
 
 #: 미뤄 둔 전체 크롤 저장 키(`mysafety_sync_meta`). [{crawl_mode, queue_filename, header, ...}]
 DEFERRED_META_KEY = "detail_raw_optimize_deferred_full"
+#: 보류 전체 크롤 시작 직전 기록하는 started 표시 키. {"at", "run", "entry}.
+#: 시작 성공 뒤 보류 삭제를 시도하고, 삭제 실패로 보류가 남아도 다음 기동·훅에서는
+#: started가 있으면 다시 시작하지 않고 정리만 한다. 시작 실패 시에는 되돌린다.
+DEFERRED_STARTED_KEY = "detail_raw_optimize_deferred_full_started"
 
 
 def defer_full_crawl(engine, entry: dict) -> int:
@@ -840,6 +922,164 @@ def _clear_deferred_fulls(engine) -> None:
         note_fallback("db_optimize.defer_take", exc)
 
 
+def _read_meta_key(engine, key: str):
+    try:
+        with engine.connect() as conn:
+            value = conn.execute(select(models.sync_meta_table.c.value).where(
+                models.sync_meta_table.c.key == key)).scalar()
+    except Exception as exc:
+        note_fallback("db_optimize.defer_read", exc)
+        return None
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except ValueError:
+        return None
+
+
+def _write_meta_key(engine, key: str, payload) -> None:
+    table = models.sync_meta_table
+    with engine.begin() as conn:
+        conn.execute(table.delete().where(table.c.key == key))
+        conn.execute(table.insert().values(key=key, value=json.dumps(payload, ensure_ascii=False)))
+
+
+def _delete_meta_key(engine, key: str) -> None:
+    table = models.sync_meta_table
+    with engine.begin() as conn:
+        conn.execute(table.delete().where(table.c.key == key))
+
+
+def _read_deferred_started(engine):
+    try:
+        data = _read_meta_key(engine, DEFERRED_STARTED_KEY)
+    except Exception as exc:
+        note_fallback("db_optimize.defer_started_read", exc)
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _mark_deferred_started(engine, entry: dict) -> str:
+    """보류 전체 크롤 시작 직전 started 표시(시각·run 식별)를 먼저 기록한다. 반환: run 식별."""
+    import uuid
+
+    run_id = uuid.uuid4().hex
+    _write_meta_key(engine, DEFERRED_STARTED_KEY,
+                    {"at": _now_text(), "run": run_id, "entry": entry})
+    return run_id
+
+
+def _clear_deferred_started(engine) -> None:
+    try:
+        _delete_meta_key(engine, DEFERRED_STARTED_KEY)
+    except Exception as exc:
+        note_fallback("db_optimize.defer_started_clear", exc)
+
+
+def _cleanup_started_deferred(engine) -> None:
+    """started 표시가 있으면 다시 시작하지 않고 정리만 한다(삭제 실패로 남은 보류의 이중 시작 방지)."""
+    if _read_deferred_started(engine) is None:
+        return
+    _clear_deferred_fulls(engine)
+    # 보류 삭제가 실패해 남아 있으면 started를 유지해 다음 기동·훅에서도 시작하지 않고 정리만 한다.
+    if not peek_deferred_fulls(engine):
+        _clear_deferred_started(engine)
+
+
+def _launch_one_deferred(engine, entry: dict) -> str:
+    """보류 전체 1건을 시작한다. 반환: 'started' | 'kept' | 'cleaned'.
+
+    - started 표시가 이미 있으면 다시 시작하지 않고 정리만 한다('cleaned').
+    - 시작 직전 started를 먼저 기록하고, 성공 뒤 보류를 지운다. 삭제 실패로 남아도
+      started가 있으므로 다음에는 정리만 한다. 시작 실패 시 started를 되돌리고 보류는 둔다.
+    """
+    from services.crawl_manager import crawl_manager as _manager
+
+    if _read_deferred_started(engine) is not None:
+        _cleanup_started_deferred(engine)
+        return "cleaned"
+    # 최적화가 도는 동안에는 시작하지 않고 계속 보류한다.
+    try:
+        if is_running():
+            try:
+                _manager.request_pending_launch()
+            except Exception as exc:
+                note_fallback("db_optimize.deferred_full_retry", exc)
+            return "kept"
+    except Exception as exc:
+        note_fallback("db_optimize.deferred_full_gate", exc)
+        return "kept"
+    if _manager.is_crawling():
+        try:
+            _manager.request_pending_launch()
+        except Exception as exc:
+            note_fallback("db_optimize.deferred_full_retry", exc)
+        logger.LoggerFactory.logbot.info("[db_optimize] 미뤄 둔 전체 크롤 보류 유지: 크롤 실행 중")
+        return "kept"
+    try:
+        _mark_deferred_started(engine, entry)
+    except Exception as exc:
+        note_fallback("db_optimize.defer_started_write", exc)
+        return "kept"
+    try:
+        from services import crawl_control
+
+        crawl_control.start_crawl(
+            crawl_mode=entry.get("crawl_mode", "full"),
+            queue_list="",
+            queue_filename=entry.get("queue_filename", "queue.txt"),
+            header=entry.get("header", "=== 크롤링 작업 시작 ==="),
+            broadcast_source=entry.get("broadcast_source", "web_start"),
+        )
+    except Exception as exc:
+        note_fallback("db_optimize.deferred_full", exc)
+        logger.LoggerFactory.logbot.warning(f"[db_optimize] 미뤄 둔 크롤 시작 실패: {type(exc).__name__}")
+        # 시작 실패 시 started 표시를 되돌리고 보류는 둔다(다음 기동·훅에서 다시 시도).
+        try:
+            _clear_deferred_started(engine)
+        except Exception as exc2:
+            note_fallback("db_optimize.defer_started_revert", exc2)
+        if "이미 실행 중" in str(exc) or "already" in str(exc).lower():
+            try:
+                from services.crawl_manager import crawl_manager as _manager2
+
+                _manager2.request_pending_launch()
+            except Exception as exc2:
+                note_fallback("db_optimize.deferred_full_retry_launch", exc2)
+        return "kept"
+    else:
+        _clear_deferred_fulls(engine)
+        if not peek_deferred_fulls(engine):
+            _clear_deferred_started(engine)
+        # 삭제 실패로 보류가 남아도 started가 있으므로 다음에는 정리만 한다.
+        return "started"
+
+
+def maybe_start_deferred_from_crawl(engine) -> None:
+    """크롤 종료 훅용: 보류 전체 크롤이 남아 있으면 기존 pending/retry 장치로 시작한다.
+
+    최적화 진행 중이면 계속 보류한다. started 표시가 있으면 다시 시작하지 않고 정리한다."""
+    try:
+        entries = peek_deferred_fulls(engine)
+    except Exception as exc:
+        note_fallback("db_optimize.deferred_hook_read", exc)
+        return
+    if not entries:
+        # started만 남은 경우(보류 삭제 실패 뒤 정리)도 정리한다.
+        try:
+            if _read_deferred_started(engine) is not None:
+                _cleanup_started_deferred(engine)
+        except Exception as exc:
+            note_fallback("db_optimize.deferred_hook_cleanup", exc)
+        return
+    # 합쳐진 단일 보류만 한 번 시작한다.
+    try:
+        _launch_one_deferred(engine, entries[0])
+    except Exception as exc:
+        note_fallback("db_optimize.deferred_hook", exc)
+
+
 def _after_finish(engine) -> None:
     """최적화가 끝나면 대기열 뒤에 붙은 크롤을 자동 시작한다(기존 pending/retry 장치)."""
     try:
@@ -849,42 +1089,11 @@ def _after_finish(engine) -> None:
     except Exception as exc:
         note_fallback("db_optimize.after_finish", exc)
     for entry in peek_deferred_fulls(engine):
-        # 합쳐진 단일 보류만 시작한다 — 시작 성공 뒤에 지운다. 이미 크롤이 돌고 있으면
-        # 기존 pending/retry 장치로 다시 미루고 지우지 않는다(유실 금지).
+        # 합쳐진 단일 보류만 시작한다 — started 표시 뒤 시작, 성공 뒤에 지운다.
         try:
-            from services import crawl_control
-            from services.crawl_manager import crawl_manager as _manager
-
-            if _manager.is_crawling():
-                try:
-                    _manager.request_pending_launch()
-                except Exception as exc:
-                    note_fallback("db_optimize.deferred_full_retry", exc)
-                logger.LoggerFactory.logbot.info("[db_optimize] 미뤄 둔 전체 크롤 보류 유지: 크롤 실행 중")
-                break
-            crawl_control.start_crawl(
-                crawl_mode=entry.get("crawl_mode", "full"),
-                queue_list="",
-                queue_filename=entry.get("queue_filename", "queue.txt"),
-                header=entry.get("header", "=== 크롤링 작업 시작 ==="),
-                broadcast_source=entry.get("broadcast_source", "web_start"),
-            )
+            _launch_one_deferred(engine, entry)
         except Exception as exc:
             note_fallback("db_optimize.deferred_full", exc)
-            logger.LoggerFactory.logbot.warning(f"[db_optimize] 미뤄 둔 크롤 시작 실패: {type(exc).__name__}")
-            # 실행 중 충돌이면 보류를 유지하고 나중에 다시 — 지우지 않는다.
-            if "이미 실행 중" in str(exc) or "already" in str(exc).lower():
-                try:
-                    from services.crawl_manager import crawl_manager as _manager2
-
-                    _manager2.request_pending_launch()
-                except Exception as exc2:
-                    note_fallback("db_optimize.deferred_full_retry_launch", exc2)
-                break
-            # 그 외 실패도 이번에는 유지한다 — 다음 기동 때 다시 시작한다(유실 금지).
-            break
-        else:
-            _clear_deferred_fulls(engine)
         break  # 단일 합침 — 한 번만 시작한다
 
 
@@ -898,31 +1107,23 @@ def _after_error(engine) -> None:
         crawl_manager.request_pending_launch()
     except Exception as exc:
         note_fallback("db_optimize.after_error", exc)
-    # 번호 크롤은 위 장치로 이어서 실행된다. 전체 보류는 크롤이 안 돌 때만 시작하고,
-    # 돌고 있으면 DB에 남겨 다음 기동·다음 완료 때 시작한다(유실 금지).
-    try:
-        from services.crawl_manager import crawl_manager as _manager
-
-        if _manager.is_crawling():
-            return
-    except Exception as exc:
-        note_fallback("db_optimize.after_error_gate", exc)
+    # 번호 크롤은 위 장치로 이어서 실행된다. 전체 보류는 started 표시 뒤 시작하고,
+    # 크롤이 돌면 DB에 남겨 다음 기동·다음 완료 때 시작한다(유실 금지).
     for entry in peek_deferred_fulls(engine):
         try:
-            from services import crawl_control
-
-            crawl_control.start_crawl(
-                crawl_mode=entry.get("crawl_mode", "full"),
-                queue_list="",
-                queue_filename=entry.get("queue_filename", "queue.txt"),
-                header=entry.get("header", "=== 크롤링 작업 시작 ==="),
-                broadcast_source=entry.get("broadcast_source", "web_start"),
-            )
+            result = _launch_one_deferred(engine, entry)
         except Exception as exc:
             note_fallback("db_optimize.deferred_full_after_error", exc)
             break
-        else:
-            _clear_deferred_fulls(engine)
+        # _launch_one_deferred 안에서 크롤 실행 중·최적화 중이면 보류 유지한다.
+        if result == "kept" and entry is not None:
+            try:
+                from services.crawl_manager import crawl_manager as _manager
+
+                if _manager.is_crawling():
+                    return
+            except Exception as exc:
+                note_fallback("db_optimize.after_error_gate", exc)
         break
 
 

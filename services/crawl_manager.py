@@ -619,6 +619,16 @@ class CrawlManager:
         if self.pending_count():
             self.launch_pending_crawl()
 
+        # 모든 크롤 종료 경로: 보류 전체 크롤이 남아 있으면 기존 pending/retry 장치로 시작한다.
+        # 최적화 진행 중이면 계속 보류한다. started 표시가 있으면 다시 시작하지 않고 정리한다.
+        try:
+            from core.database.engine import get_engine as _get_engine
+            from services import db_optimize as _optimize
+
+            _optimize.maybe_start_deferred_from_crawl(_get_engine())
+        except Exception as exc:
+            note_fallback("crawl_manager.deferred_full_hook", exc)
+
     def launch_pending_crawl(self) -> bool:
         """대기 큐의 신고번호로 새 크롤링을 시작한다(배경 스레드에서 호출 가능). 모든 자동 시작의 한 경계:
         - 한 번에 하나만(R4-02): 같은 번호를 두 실행이 맡지 않는다.

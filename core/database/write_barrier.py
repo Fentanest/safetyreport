@@ -5,8 +5,10 @@
 
 - `exclusive()` 동안 다른 스레드의 새 연결은 끝날 때까지 기다린다. 기다리는 동안 이미 열린 연결은 옛 파일을
   가리키므로 버리고 새로 연다(세대 번호) — 교체 뒤 쓰기는 새 파일에 들어간다.
-- `exclusive()` 는 이미 빌려 간 연결이 모두 반납될 때까지 기다린 뒤 들어간다. 제한 시간 안에 반납되지 않으면
-  복원을 거절한다(데이터를 잃지 않는 쪽).
+- `exclusive()` 는 이미 빌려 간 연결과 `shared()` 공유 구간이 모두 반납될 때까지 기다린 뒤 들어간다.
+  제한 시간 안에 반납되지 않으면 복원을 거절한다(데이터를 잃지 않는 쪽).
+- `shared()` 는 신고 1건 같은 일반 쓰기 구간이다. 복원은 이 1건이 끝날 때까지 기다리고,
+  복원 중에는 새 1건이 공유 구간에 들어가지 못한다. 들어간 직후 DB 정체를 확인하고 다르면 쓰지 않는다.
 - 크롤러는 별도 프로세스라 여기 걸리지 않는다 — 복원은 크롤링 중이면 거부한다(`exchange.ensure_restore_allowed`).
   텔레그램 봇 프로세스는 읽기만 한다.
 """
@@ -20,6 +22,7 @@ from sqlalchemy import event, exc
 
 _cond = threading.Condition()
 _active: dict[int, int] = {}  # 연결을 빌린 스레드 → 빌린 수
+_shared: dict[int, int] = {}  # 공유(일반 쓰기) 구간에 들어간 스레드 → 진입 수
 _owner: int | None = None  # exclusive 를 잡은 스레드
 _generation = 0  # exclusive 가 끝날 때마다 +1 — 그 전에 연 연결은 교체된 옛 파일을 가리킨다
 
@@ -77,6 +80,12 @@ def active_connections() -> int:
         return sum(_active.values())
 
 
+def shared_holders() -> int:
+    """공유(일반 쓰기) 구간에 들어간 스레드 수 — 복원(exclusive)은 0이 될 때까지 기다린다."""
+    with _cond:
+        return sum(_shared.values())
+
+
 def generation() -> int:
     """복원(exclusive)이 끝날 때마다 +1 — 최적화 작업의 시작 때와 비교해 DB 교체를 본다."""
     with _cond:
@@ -87,6 +96,35 @@ def in_exclusive() -> bool:
     """복원 장벽이 잡혀 있으면 True — 최적화는 현재 신고를 끝내고 멈춘다."""
     with _cond:
         return _owner is not None
+
+
+@contextmanager
+def shared(wait_seconds: float | None = None):
+    """일반 쓰기(신고 1건 등) 공유 구간. 복원(exclusive)은 이 구간이 끝날 때까지 기다리고,
+    복원 중에는 새 공유 구간에 들어가지 못한다.
+
+    들어간 직후 호출자가 DB 정체(데이터셋 id·장벽 세대)를 확인하고 다르면 아무 것도 쓰지 않아야 한다.
+    """
+    me = threading.get_ident()
+    wait = CHECKOUT_WAIT_SECONDS if wait_seconds is None else wait_seconds
+    with _cond:
+        deadline = time.monotonic() + wait
+        while _owner is not None and _owner != me:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise BarrierTimeout("DB 복원이 끝나지 않아 쓰기를 시작하지 못했습니다. 잠시 뒤 다시 시도하세요.")
+            _cond.wait(left)
+        _shared[me] = _shared.get(me, 0) + 1
+    try:
+        yield
+    finally:
+        with _cond:
+            n = _shared.get(me, 0) - 1
+            if n > 0:
+                _shared[me] = n
+            else:
+                _shared.pop(me, None)
+            _cond.notify_all()
 
 
 @contextmanager
@@ -107,7 +145,7 @@ def exclusive(drain_seconds: float | None = None):
             _cond.wait(left)
         _owner = me
         try:
-            while any(n for t, n in _active.items() if t != me):
+            while any(n for t, n in _active.items() if t != me) or any(n for t, n in _shared.items() if t != me):
                 left = deadline - time.monotonic()
                 if left <= 0:
                     raise BarrierTimeout("DB 를 쓰는 다른 작업이 끝나지 않아 복원하지 않았습니다. 잠시 뒤 다시 시도하세요.")
