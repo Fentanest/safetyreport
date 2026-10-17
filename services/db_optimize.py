@@ -17,6 +17,13 @@
 - 다른 모듈의 잠금(크롤 시작·크롤 상태 등)을 쥔 채 수명 잠금을 잡는 경로도 없다.
   상태 조회(`is_running` 등)는 수명 잠금이 아니라 `_lock`(상태 잠금)만 잡는다.
 - 허용 방향은 `_life_lock` → `_lock` 한 방향뿐이다(역방향 중첩 금지).
+- 보류 배출 직렬화: `_drain_lock` 안에서 수명 잠금을 잠깐 잡는 것은 허용하고,
+  수명 잠금 안에서 `_drain_lock` 을 잡는 것은 금지한다. 배출은 `_drain_lock` 을
+  논블로킹으로 잡아 한 번에 하나만 돈다(이미 진행 중이면 기다리지 않고 건너뜀 —
+  진행 중인 배출이 끝에서 다시 확인한다). 보류 목록은 그 잠금 안에서 다시 읽고,
+  크롤 시작 직전에 복원 일시정지·종료 요청을 수명 잠금으로 잠깐 다시 확인한다.
+  `pause_for_restore` 는 표시를 켠 뒤 `_drain_lock` 을 한 번 잡았다 놓아 진행 중인
+  배출이 끝났음을 보장한다(수명 잠금을 쥔 채 잡지 않고, 표시 설정 뒤 순차로 잡는다).
 """
 from __future__ import annotations
 
@@ -66,6 +73,12 @@ _lock = threading.RLock()
 #: 수명 잠금 안에서는 상태 판단·스레드 생성만 하고, 보류 크롤 시작·크롤 상태 조회처럼
 #: 다른 모듈 잠금을 잡는 호출을 하지 않는다(모듈 상단 잠금 순서 규칙).
 _life_lock = threading.RLock()
+#: 보류 크롤 배출 직렬화 잠금(single-flight). `_drain_deferred_if_done`·`_after_finish`·
+#: `_after_error`·`maybe_start_deferred_from_crawl` 이 논블로킹으로 잡아 한 번에
+#: 하나만 돈다. 이미 진행 중이면 기다리지 않고 건너뛰고, 진행 중인 배출이 끝에서
+#: 다시 확인한다. 이 잠금 안에서는 수명 잠금을 잠깐 잡을 수 있고(허용 방향),
+#: 수명 잠금 안에서는 이 잠금을 잡지 않는다(역방향 금지 — 모듈 상단 규칙).
+_drain_lock = threading.RLock()
 _thread: threading.Thread | None = None
 _stop = threading.Event()
 #: 서버 종료 요청. `stop()` 만 켜고, 새 작업자 기동(`_spawn_locked` 실제 생성)과
@@ -951,6 +964,16 @@ def _launch_one_deferred(engine, entry: dict) -> str:
             note_fallback("db_optimize.deferred_full_retry", exc)
         logger.LoggerFactory.logbot.info("[db_optimize] 미뤄 둔 전체 크롤 보류 유지: 크롤 실행 중")
         return "kept"
+    # 크롤 시작 직전에 복원 일시정지·종료 요청을 수명 잠금으로 잠깐 다시 확인한다.
+    # 배출 게이트를 통과한 뒤 `pause_for_restore()` 가 표시를 켰으면 시작하지 않고
+    # 보류를 둔다(잠금 순서: 배출 잠금 안에서 수명 잠금을 잠깐 잡는 것은 허용).
+    try:
+        with _life_lock:
+            if _shutdown or _restore_pause or bool(_restore_tokens):
+                return "kept"
+    except Exception as exc:
+        note_fallback("db_optimize.deferred_full_restore_gate", exc)
+        return "kept"
     try:
         from services import crawl_control
 
@@ -980,59 +1003,125 @@ def _launch_one_deferred(engine, entry: dict) -> str:
         return "started"
 
 
+def _drain_locked(engine, *, always_request: bool, require_done: bool = False) -> None:
+    """`_drain_lock` 보유 가정. 보류 전체 크롤을 시작한다(단일 합침 — 한 번만).
+
+    보류 목록은 이 잠금 안에서 다시 읽는다. 크롤 시작 직전에는 복원 일시정지·
+    종료 요청을 수명 잠금으로 잠깐 다시 확인하고(`_launch_one_deferred` 안 최종
+    게이트) 걸려 있으면 시작하지 않는다. 한 번 시도한 뒤 다시 확인해 건너뛴
+    동시 배출의 몫까지 처리한다 — 시작 성공 뒤 새 보류가 보이면 한 번 더 시도하고,
+    시작 실패(kept)·게이트 불충족이면 둔다(즉시 재시도 무한 루프 금지).
+
+    `require_done` 이 True인 기동 경로(`_drain_deferred_if_done`)에서만 살아 있는
+    작업자·`needs_run`·크롤 실행 중 게이트를 본다. 완료·오류·훅 경로
+    (`_after_finish`·`_after_error`·`maybe_start_deferred_from_crawl`)는 기존처럼
+    보류가 있으면 시작한다 — 크롤 실행 중·최적화 진행 중 여부는
+    `_launch_one_deferred` 안 게이트가 판단한다.
+    """
+    if always_request:
+        try:
+            from services.crawl_manager import crawl_manager
+
+            crawl_manager.request_pending_launch()
+        except Exception as exc:
+            note_fallback("db_optimize.after_finish", exc)
+    while True:
+        try:
+            with _life_lock:
+                if _shutdown or _restore_pause or bool(_restore_tokens):
+                    return
+                thread = _thread
+            if require_done:
+                if thread is not None and thread.is_alive():
+                    return
+                if is_running():
+                    return
+                try:
+                    from services.crawl_manager import crawl_manager as _manager
+
+                    if _manager.is_crawling():
+                        try:
+                            _manager.request_pending_launch()
+                        except Exception as exc:
+                            note_fallback("db_optimize.deferred_full_retry", exc)
+                        return
+                except Exception as exc:
+                    note_fallback("db_optimize.deferred_drain_crawl_gate", exc)
+                    return
+                if engine is None or needs_run(engine):
+                    return
+            entries = peek_deferred_fulls(engine)
+            if not entries:
+                return
+        except Exception as exc:
+            note_fallback("db_optimize.deferred_drain_gate", exc)
+            return
+        try:
+            result = _launch_one_deferred(engine, entries[0])
+        except Exception as exc:
+            note_fallback("db_optimize.deferred_full", exc)
+            return
+        # 끝에서 재확인 — 건너뛴 동시 배출의 몫이 있으면 한 번 더 시도한다.
+        # kept(게이트·실패로 보류 유지)면 즉시 재시도하지 않고 둔다.
+        if result != "started":
+            return
+        try:
+            if not peek_deferred_fulls(engine):
+                return
+        except Exception as exc:
+            note_fallback("db_optimize.deferred_drain_recheck", exc)
+            return
+        # 새 보류가 보이면 루프가 게이트부터 다시 판단한다.
+
+
 def maybe_start_deferred_from_crawl(engine) -> None:
     """크롤 종료 훅용: 보류 전체 크롤이 남아 있으면 기존 pending/retry 장치로 시작한다.
 
-    최적화 진행 중이면 계속 보류한다."""
-    try:
-        entries = peek_deferred_fulls(engine)
-    except Exception as exc:
-        note_fallback("db_optimize.deferred_hook_read", exc)
+    최적화 진행 중이면 계속 보류한다. 전용 배출 잠금으로 한 번에 하나만 돈다 —
+    이미 진행 중이면 기다리지 않고 건너뛰고 진행 중인 배출이 끝에서 다시 확인한다."""
+    if not _drain_lock.acquire(blocking=False):
         return
-    if not entries:
-        return
-    # 합쳐진 단일 보류만 한 번 시작한다.
     try:
-        _launch_one_deferred(engine, entries[0])
+        _drain_locked(engine, always_request=False)
     except Exception as exc:
         note_fallback("db_optimize.deferred_hook", exc)
+    finally:
+        try:
+            _drain_lock.release()
+        except Exception as exc:
+            note_fallback("db_optimize.drain_release", exc)
 
 
 def _after_finish(engine) -> None:
     """최적화가 끝나면 대기열 뒤에 붙은 크롤을 자동 시작한다(기존 pending/retry 장치)."""
+    if not _drain_lock.acquire(blocking=False):
+        return
     try:
-        from services.crawl_manager import crawl_manager
-
-        crawl_manager.request_pending_launch()
+        _drain_locked(engine, always_request=True)
     except Exception as exc:
-        note_fallback("db_optimize.after_finish", exc)
-    for entry in peek_deferred_fulls(engine):
-        # 합쳐진 단일 보류만 시작한다 — 성공 뒤에 지운다(실패면 보류 유지).
+        note_fallback("db_optimize.deferred_on_startup", exc)
+    finally:
         try:
-            _launch_one_deferred(engine, entry)
+            _drain_lock.release()
         except Exception as exc:
-            note_fallback("db_optimize.deferred_full", exc)
-        break  # 단일 합침 — 한 번만 시작한다
+            note_fallback("db_optimize.drain_release", exc)
 
 
 def _after_error(engine) -> None:
     """작업 예외(error) 뒤: 크롤 보류를 풀어 대기 중인 크롤(번호·전체)을 정상 실행한다.
 
     최적화는 크롤이 끝난 뒤 또는 다음 기동 때 다시 시도한다(무한 차단 금지 — error는 is_running False)."""
+    if not _drain_lock.acquire(blocking=False):
+        return
     try:
-        from services.crawl_manager import crawl_manager
-
-        crawl_manager.request_pending_launch()
+        _drain_locked(engine, always_request=True)
     except Exception as exc:
-        note_fallback("db_optimize.after_error", exc)
-    # 번호 크롤은 위 장치로 이어서 실행된다. 전체 보류는 크롤이 안 돌 때만 시작하고,
-    # 돌고 있으면 DB에 남겨 다음 기동·다음 완료 때 시작한다(유실 금지).
-    for entry in peek_deferred_fulls(engine):
+        note_fallback("db_optimize.deferred_full_after_error", exc)
+    finally:
         try:
-            _launch_one_deferred(engine, entry)
+            _drain_lock.release()
         except Exception as exc:
-            note_fallback("db_optimize.deferred_full_after_error", exc)
-        break
+            note_fallback("db_optimize.drain_release", exc)
 
 
 # ── 복원 상호 배제 ─────────────────────────────────────────────────────────────
@@ -1083,6 +1172,11 @@ def pause_for_restore(timeout: float = RESTORE_PAUSE_TIMEOUT) -> object:
         _restore_tokens.append(token)
         _pause_requested = True
         _restore_pause = True
+    # 일시정지 표시를 켠 뒤 배출 잠금을 한 번 잡았다 놓아 진행 중인 배출이
+    # 끝났음을 보장한다. 수명 잠금을 쥔 채 잡지 않고 순차로 잡는다
+    # (잠금 순서: 배출 잠금 안에서 수명 잠금을 잠깐 잡는 것은 허용, 역방향 금지).
+    with _drain_lock:
+        pass
     if stop_and_join(timeout):
         return token
     drain_engine = None
@@ -1156,6 +1250,11 @@ def _spawn_locked(engine=None, run_kwargs=None, background: bool = True):
     수명 잠금 안에서는 상태 판단·스레드 생성만 하므로 보류 크롤 시작은 하지 않는다 —
     할 일 없이 끝났을 때 보류가 있으면 호출자가 잠금을 놓은 뒤
     `_drain_deferred_if_done` 으로 시작한다.
+
+    `process_all` 은 새 스레드에서 돈다 — 수명 잠금 안에서는 스레드 객체 생성·
+    `_thread` 등록·`_update` 상태 갱신만 하고, 크롤 실행 전체를 잠금 안에서
+    돌리지 않는다. `background=False` 호출자는 잠금을 놓은 뒤 `join` 으로
+    기다린다(동기 실행 중에도 `restore_paused()` 가 막히지 않는다).
     """
     global _thread, _shutdown, _pause_requested, _restore_pause
     global _current_engine, _current_run_kwargs
@@ -1245,10 +1344,10 @@ def _spawn_locked(engine=None, run_kwargs=None, background: bool = True):
     thread = threading.Thread(target=_run, name="db-optimize", daemon=True)
     slot["thread"] = thread
     _thread = thread
-    if background:
-        thread.start()
-    else:
-        thread.run()
+    # 스레드 시작만 잠금 안에서 한다(빠른 생성 — `process_all` 본체는 새 스레드에서
+    # 잠금 없이 돈다). `background=False` 여도 여기서 시작하고 호출자가 잠금 밖에서
+    # `join` 한다 — `thread.run()` 을 잠금 안에서 직접 돌리지 않는다(잠금 역전 금지).
+    thread.start()
     return thread
 
 
@@ -1264,41 +1363,43 @@ def _try_spawn_locked():
 def _drain_deferred_if_done(engine) -> None:
     """보류 전체 크롤을 시작한다 — `_life_lock` 을 잡지 않은 상태에서만 호출한다.
 
+    전용 배출 잠금으로 한 번에 하나만 돈다 — 이미 진행 중이면 기다리지 않고
+    건너뛰고, 진행 중인 배출이 끝에서 다시 확인한다. 보류 목록은 그 잠금 안에서
+    다시 읽고, 크롤 시작 직전에 복원 일시정지·종료 요청을 수명 잠금으로 잠깐 다시
+    확인한다(모듈 상단 잠금 순서 규칙: 배출 잠금 안 수명 잠금은 허용, 역방향 금지).
     크롤 시작(`start_crawl` 등)은 다른 모듈의 잠금을 잡으므로 수명 잠금을 쥔 채
-    절대 부르지 않는다(모듈 상단 잠금 순서 규칙). 할 일이 남았거나(`needs_run`)
-    일시정지·종료 중이거나 살아 있는 작업자가 있으면 시작하지 않고 보류를 둔다.
+    절대 부르지 않는다. 할 일이 남았거나(`needs_run`) 일시정지·종료 중이거나 살아
+    있는 작업자가 있으면 시작하지 않고 보류를 둔다.
     """
-    try:
-        if engine is None or restore_paused():
-            return
-        with _life_lock:
-            if _shutdown:
-                return
-            thread = _thread
-        if thread is not None and thread.is_alive():
-            return
-        if needs_run(engine):
-            return
-        if not peek_deferred_fulls(engine):
-            return
-    except Exception as exc:
-        note_fallback("db_optimize.deferred_drain_gate", exc)
+    if engine is None:
+        return
+    if not _drain_lock.acquire(blocking=False):
         return
     try:
-        _after_finish(engine)
+        _drain_locked(engine, always_request=False, require_done=True)
     except Exception as exc:
         note_fallback("db_optimize.deferred_on_startup", exc)
+    finally:
+        try:
+            _drain_lock.release()
+        except Exception as exc:
+            note_fallback("db_optimize.drain_release", exc)
 
 
 def maybe_start(engine, *, background: bool = True, **run_kwargs) -> threading.Thread | None:
     """스키마 업그레이드 뒤 기동 때 한 번. 할 일 없으면 None(아무 일도 하지 않는다).
 
     최적화가 이미 done이어도 미뤄 둔 전체 크롤이 있으면 기동 경로에서 꺼내 시작한다 —
-    보류 시작은 수명 잠금을 놓은 뒤 실행한다(잠금 순서 규칙)."""
+    보류 시작은 수명 잠금을 놓은 뒤 실행한다(잠금 순서 규칙). `background=False` 여도
+    `process_all` 은 새 스레드에서 잠금 없이 돌고 호출자는 잠금 밖에서 `join` 한다 —
+    잠금 안에서는 상태 갱신·스레드 생성만 한다."""
     with _life_lock:
         thread = _spawn_locked(engine, run_kwargs, background)
     if thread is None:
         _drain_deferred_if_done(engine)
+        return None
+    if not background:
+        thread.join()
     return thread
 
 
