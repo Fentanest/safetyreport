@@ -55,11 +55,13 @@ for(const statsQuery of ['?dedupe=raw&year=all','?dedupe=raw&year=all&law='+enco
   const bars=await barCounts(page);expect(bars.length).toBeGreaterThan(0);
   if(!statsQuery.includes('law=')){
    const names=bars.map(b=>b.name);
-   for(const n of ['도로교통법','도로교통법 제5조, 제6조','도로교통법 제32조의2제1항','자동차관리법 제29조 제30조','주차장법 제33조'])expect(names).toContain(n);
+   for(const n of ['도로교통법','도로교통법 제5조, 제6조','도로교통법 제32조의2제1항','자동차관리법 제29조 제30조','주차장법 제33조','주차장법 제19조, 제29조 제1항'])expect(names).toContain(n);
   }
   for(const bar of bars){
    expect(bar.href).toContain('lawExact=true');
-   await page.goto(bar.href);await expect.poll(()=>count(page),{message:bar.name+' '+bar.href}).toBe(bar.count);
+   // 검색칸 초기 필터는 initComplete 뒤에 적용된다 — 그 전 전체 행 수를 잡지 않게 준비 완료(aria-busy=false)를 기다린다.
+   await page.goto(bar.href);await expect(page.locator('table.dataTable[id]')).toHaveAttribute('aria-busy','false');
+   await expect.poll(()=>count(page),{message:bar.name+' '+bar.href}).toBe(bar.count);
   }
  });
 }

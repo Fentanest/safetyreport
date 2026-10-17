@@ -19,7 +19,9 @@ $(document).ready(function() {
     if (qCar) $('#searchCar').val(qCar);
     // '__없음__'(법규 없는 신고)은 서버가 이미 걸렀다. 검색칸에 넣으면 글자 그대로 다시 걸러 0건이 된다(D-STAT-8).
     // lawExact 로 넘어온 여러 저장 키(줄 = AND, 통계가 법규로 좁혀진 뒤의 막대)는 한 줄 입력칸에 담을 수 없다 — 서버가 이미 걸렀다.
-    if (qLaw && qLaw !== '__없음__' && !/[\r\n\u2028\u2029]/.test(qLaw)) $('#searchLaw').val(qLaw);
+    // 저장 키 안의 쉼표·& 도 검색칸에서는 OR/AND 로 다시 나뉘어 0건이 되므로 넣지 않는다(서버가 키 그대로 걸렀다).
+    const qLawExact = urlParams.get('lawExact') === 'true';
+    if (qLaw && qLaw !== '__없음__' && !/[\r\n\u2028\u2029]/.test(qLaw) && !(qLawExact && /[,&]/.test(qLaw))) $('#searchLaw').val(qLaw);
     if (qLocation) $('#searchLocation').val(qLocation);
     ['excludePolice', 'onlyPolice'].forEach(key => { if (urlParams.get(key) === 'true') $('#' + key).prop('checked', true); });
     // 통계 화면에서 넘어온 조건(2026-09-28): 답변 연도는 답변일 범위로, 상세 조건은 같은 이름의 검색칸으로.
