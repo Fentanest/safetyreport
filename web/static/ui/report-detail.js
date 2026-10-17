@@ -682,8 +682,24 @@
         var detailInstance = (window.bootstrap && bootstrap.Modal.getInstance)
             ? bootstrap.Modal.getInstance(detailEl) : null;
         state.returnToDetail = !!(detailEl && detailEl.classList.contains('show') && detailInstance);
-        if (state.returnToDetail) detailInstance.hide();
-        getRawModal().show();
+        if (state.returnToDetail) {
+            // 상세 모달 hide() 직후 원본을 바로 show() 하면 상세 hidden 전환이 나중에 끝나
+            // Bootstrap 이 body 의 modal-open·스크롤 잠금을 풀어 배경이 스크롤된다.
+            // hidden 이 끝난 뒤에 원본을 열어 잠금을 유지한다(복귀 흐름·동영상 처리는 그대로).
+            var rawModal = getRawModal();
+            var rawShown = false;
+            var showRawOnce = function() {
+                if (rawShown) return;
+                rawShown = true;
+                rawModal.show();
+            };
+            detailEl.addEventListener('hidden.bs.modal', showRawOnce, { once: true });
+            detailInstance.hide();
+            // hidden 이 어떤 이유로든 안 오면(예외적) 원본을 못 여는 것보다 겹침이 낫다.
+            window.setTimeout(showRawOnce, 800);
+        } else {
+            getRawModal().show();
+        }
         if (!id) {
             showState('신고 ID 가 없어 원본을 불러올 수 없습니다.', true, false);
             return;

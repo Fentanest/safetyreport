@@ -53,7 +53,10 @@ def read(engine, report_id: str) -> dict:
         logger.LoggerFactory.logbot.warning(f"[raw_detail] {report_id} 원본 복원 실패")
         raise RawDetailCorrupt("상세 원본 복원 실패(손상)") from exc
     if not isinstance(envelope, dict):
-        raise RawDetailCorrupt("상세 원본 형식 오류(손상)")
+        shape_exc = ValueError(f"예상 밖 원본 형식: {type(envelope).__name__}")
+        note_fallback("raw_detail_view.shape", shape_exc)
+        logger.LoggerFactory.logbot.warning(f"[raw_detail] {report_id} 원본 형식 오류")
+        raise RawDetailCorrupt("상세 원본 형식 오류(손상)") from shape_exc
     return {
         "id": report_id,
         "fetched_at": row["fetched_at"],
