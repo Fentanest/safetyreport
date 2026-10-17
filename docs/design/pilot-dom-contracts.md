@@ -11,6 +11,7 @@
 | base.html | `#btnSidebarToggle`, `#sidebarOverlay`, `#mainSidebar`, `.sidebar-open` | openSidebar/closeSidebar (212-230) |
 | base.html | `#sidebarVersionStatus` | checkVersion (162-183) |
 | base.html | `#reportDetailModal`, `#rdName`, `#rdStatusBadge`, `#rdFields`, `#rdReportContent(Text)`, `#rdProcessContent(Text)`, `#rdMedia(List)`, `#rdVideos`/`#rdVideoList`, `#rdFiles`/`#rdFileList`, `#rdSupplements(Body/Badge)`, `#rdViewBtn` | window.showReportDetail (620-751), renderSupplementHistory, showDetailRenderFallback |
+| base.html (2026-10-17 원본 보기) | `#rdRawBtn`(footer "원본 응답"), `#rawDetailModal`(`aria-labelledby="rawDetailTitle"`), `#rawDetailTitle`, `#rawDetailMeta`, `#rawDetailSearch`(라벨 "원본 JSON 검색"), `#rawDetailCount`(`aria-live`), `#rawDetailPrev/Next/Copy/Download/Rewrite`, `#rawDetailNotice`(`role=status`), `#rawDetailPre`/`#rawDetailCode` | window.SrRawDetail.open (report-detail.js), 읽기 `GET /reports/{id}/raw-detail`·다시 쓰기 `POST …/rewrite` |
 | base.html | `a.report-detail-link[data-report]`(document 위임) | index.html:342,397 / watchlist.html:50 / duplicate_groups.html:226 |
 | base.html | `video[data-source-url][data-proxy-src]`, `[data-proxy-video-scope]`, `[data-proxy-video-status]` | prepareProxyVideos / resetProxyVideos |
 | base.html | `.floating-search-btn`(z-index 1050) + offcanvas show/hide 리스너 | data_table.html:94, stats.html:78 |

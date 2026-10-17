@@ -183,7 +183,7 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 - 공통: 닫힌 모바일 사이드바는 `inert`, Esc 로 닫고 토글 버튼으로 포커스 복귀(C07). 떠 있는 검색 버튼이 있는 화면은 본문 끝 여백을 두고, 좁은 화면에서 아래로 스크롤하면 아이콘만 남긴다(O-03).
 - 목록: 원본 `상태` 열 머리말은 '원본 상태'(CSV 열 이름은 `data-csv-title="상태"` 로 유지, O-05). 신고일·답변일 표시는 분까지(정렬·내보내기 원문 유지, O-04).
   첨부파일 열은 '개'·첨부파일로 표기(C13). 모바일 폭에서 복사·엑셀 버튼은 2열, 표가 한 화면보다 짧으면 아래 작업 바를 숨김(O-08).
-- 파일 브라우저: 유효한 명시적 `target=logs/results`가 `localStorage.activeFileTab`보다 우선하고 저장값도 갱신한다. target이 없거나 잘못됐으면 저장 탭을 복원하며, 유효한 저장 탭도 없으면 results를 연다.
+- 파일 브라우저: 유효한 명시적 `target=logs/results/raw_details`가 `localStorage.activeFileTab`보다 우선하고 저장값도 갱신한다. target이 없거나 잘못됐으면 저장 탭을 복원하며, 유효한 저장 탭도 없으면 results를 연다.
   전체 선택은 그 표(검색 결과 모든 페이지)만, 삭제 확인에 탭별 개수·파일명(C01). 두 표 모두 내부 가로 스크롤(C12).
 - 접근성: 상세 검색·설정·별점·관리자 변경·중복 관리의 라벨을 입력과 `for` 로 연결, 행 선택 체크박스에 이름(F-06). 통계 열 선택 뒤 포커스 복원(C09).
   대시보드 카드 포커스 테두리는 `box-shadow: var(--sr-focus)`(C10). 별점 시작 버튼은 어두운 글자 `--sr-on-status-supplement`(C11). 일부수용 배지는 노랑 계열(C14).
@@ -195,6 +195,23 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 - `/stats/map`: 제목 줄 `.community-map-link`(새 창, `https://safemap.worklazy.net/`), '커뮤니티 공유' 패널 맨 아래 `.community-map-note` 안내 링크.
   모바일 앱은 지도 오른쪽 위 버튼으로 폰의 기본 브라우저 앱을 연다(앱 안 웹뷰 금지).
 
+
+## 2026-10-17 원본 보기 모달 (명세 4절)
+
+- 신고 상세 모달(`components/report_detail_modal.html`) footer 의 "원본 응답" 버튼(`#rdRawBtn`) →
+  별도 모달(`#rawDetailModal`, 제목 `aria-labelledby="rawDetailTitle"`)에서 들여쓰기 JSON 을 보인다.
+  내용은 `textContent`/텍스트 노드로만 넣어 XSS 를 막고, 검색 일치는 `<mark>` 로 감싼다(대소문자 무시,
+  최대 2,000건, Enter 다음·Shift+Enter 이전, 건수 `aria-live`).
+  복사는 클립보드 API(없으면 임시 textarea 대체), 다운로드는 `<ID>.json` Blob,
+  "파일로 다시 쓰기"는 DB 원본으로 파일을 재생성하는 관리자 POST(CSRF 는 `session-requests.js` 가 자동 첨부).
+- 원본이 없으면 "아직 원본이 없습니다(DB 최적화가 채웁니다)", sha 불일치(손상)면 손상 안내를 보인다.
+  읽기 라우트(`GET /reports/{id}/raw-detail`)는 관리자 인증 필수(비로그인 거부).
+- 두 Bootstrap 모달을 겹치면 먼저 열린 상세 모달의 포커스 트랩이 원본 모달의 포커스를 빼앗아
+  입력이 안 된다(Firefox 확인). 원본을 여는 동안 상세 모달은 숨기고(`hide`), 원본 모달이
+  닫히면 되돌린다(`hidden` → `show`, proxy 동영상이 있으면 같은 스코프 규칙으로 다시 준비).
+- 표현은 `report-detail.css`(`.rd-raw-pre` 고정폭·`.rd-footer` 반응형 쌓임), 색은 테마 토큰만
+  (`--sr-surface-2`·`--sr-text`·`--sr-primary-soft`·`--sr-primary-fill`)이라 라이트·다크 모두 동작한다.
+  390px 폭에서도 모달 너비를 넘지 않는다. 동작은 `report-detail.js`(`window.SrRawDetail.open`).
 
 ## 2026-10-17 DB 최적화 하단 표시줄 (명세 3-4)
 

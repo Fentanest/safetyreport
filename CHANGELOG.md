@@ -1,6 +1,12 @@
 # Changelog
 
-## 2026-10-17 — DB 최적화 Sol 6차 지적 2건(잠금 순서·종료 재판단) 수정
+## 2026-10-17 — 원본 보기 화면·API·파일 탐색기 (명세 4절)
+
+- 웹: 신고 상세 모달 footer 에 "원본 응답" 버튼 → 별도 모달에서 들여쓰기 JSON(고정폭, 검색 입력으로 일치 강조·다음/이전, 복사, `<ID>.json` 다운로드). 원본이 없으면 "아직 원본이 없습니다(DB 최적화가 채웁니다)", sha 불일치(손상)면 손상 안내. 읽기 라우트(`GET /reports/{id}/raw-detail`)는 관리자 인증 필수(비로그인 거부). JSON 은 신고자 키 5개가 빠진 저장 원본 그대로이며 `textContent` 로만 넣어 XSS 를 막는다. 라이트·다크·1440·390px, 모달 포커스·aria(제목·검색 라벨·건수 알림). 색은 테마 토큰·기존 모달 패턴만 쓴다.
+- 모바일 Client 용 API(추가만, 기존 응답·경로 불변): `GET /api/v1/reports/{id}/raw-detail`(API 키 인증) → `{id, fetched_at, source, raw_sha256, json}`(`json` 은 객체). 없음 404 `{error: "raw_detail_missing"}`, 손상 409 `{error: "raw_detail_corrupt"}`, ID 이탈 시도도 구분 없이 404. `/api/v1/app/config` 에 `capabilities` 항목 `raw_detail_v1` 과 `raw_detail_version: 1` 추가(구서버 구분용).
+- 파일 탐색기: `ALLOWED_BROWSER_DIRS` 에 `raw_details` 추가(보기·다운로드만, 개별·선택·API·일괄 삭제 모두 거부, 경로 이탈 금지는 기존 규칙 그대로). 원본 보기 모달에 "파일로 다시 쓰기"(DB 원본으로 `<ID>.json` 재생성) 관리자 POST — JSON+CSRF 기존 방식.
+- 읽기 공용 `services/raw_detail_service.py`(웹·모바일이 같은 함수 사용). `services/db_optimize.py` 는 건드리지 않았다.
+- 검증: 새 시험 `tests/test_raw_detail_view.py` 25건(라우트 인증·없음·손상·정상 JSON, API 키·404·409·ID 이탈·응답 필드·기존 경로 불변·capability, 파일 탐색기 허용·이탈 거부·삭제 금지, 다시 쓰기)과 원본 보기 브라우저 스펙(Chromium·Firefox 각 7건: 버튼→모달→검색·복사·다운로드·다시 쓰기, 원본 없음 안내, 닫으면 상세로 복귀, 라이트/다크·1440/390px, 접근성 이름)을 새로 넣었다. fixture 시드(`seed()` 경로만)에 원본 있는 신고 1건(90000001, 신고자 키 5개 포함 envelope)과 없는 1건(90000002)을 추가했다. 전체 unittest 기준선 1222건 통과(skip 6)에서 시작해 최종 1247건 통과(skip 6). 브라우저 시험 중 찾은 실제 결함 1건(두 Bootstrap 모달을 겹치면 상세 모달의 포커스 트랩이 원본 모달 입력을 빼앗음, Firefox 재현)을 고쳤다: 원본을 여는 동안 상세 모달은 숨기고 닫히면 되돌린다.
 
 - 잠금 순서 교착 해소: 상태 잠금(`_lock`)과 수명 잠금(`_life_lock`)을 분리했다. 수명 잠금
   안에서는 상태 판단·스레드 생성만 하고 보류 전체 크롤 시작·크롤 상태 조회(다른 모듈 잠금)는

@@ -55,7 +55,7 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
 
 ## 2026-10-17 상세 원본 저장 — 스키마 7 / 모바일 18 (현재 기준)
 
-이 절이 아래 모든 표 설명보다 우선한다. 명세: `docs/plans/2026-10-17-raw-detail-reparse.md` 1·2절(3~5절은 아직 하지 않음).
+이 절이 아래 모든 표 설명보다 우선한다. 명세: `docs/plans/2026-10-17-raw-detail-reparse.md` 1·2절(3절 최적화·4절 원본 보기는 별도 절, 5절 검색 필터는 아직 하지 않음).
 
 - **정규 직렬화**(서버 `core/utils/raw_detail.py`, 모바일 대응): 응답 envelope 전체에서 `result` 객체의 신고자 키 5개
   (`C_NAME` `C_EMAIL` `C_PHONE` `C_PHONE2` `C_ID`)만 지운다. 다른 위치의 같은 이름은 건드리지 않고, 키 순서를 유지한다.
@@ -107,6 +107,30 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
   `queued_reason: "db_optimize"`. 대상: `POST /api/v1/crawl/start`(실행 중이면 예외이던 경로가 최적화 중일 때만
   대기열 등록으로 바뀜), `POST /api/v1/crawl/enqueue`(단건), `POST /api/v1/crawl/notification`(알림),
   웹 `POST /crawl/start`·`POST /crawl/enqueue-selected`.
+
+## 2026-10-17 원본 보기 — 웹·모바일 API·파일 탐색기 (명세 4절)
+
+- **읽기 공용**(`services/raw_detail_service.py`, 웹·모바일이 같은 함수 사용):
+  `read(engine, id)` → `{id, fetched_at, source, raw_sha256, json}`.
+  `json` 은 신고자 키 5개가 이미 빠진 저장 원본 그대로(객체)다. 행 없음·ID 검증
+  실패(`core/utils/raw_detail.is_safe_report_id` — 경로 이탈 시도를 구분해 알리지 않음)는
+  `RawDetailMissing`, zlib 해제·sha256·JSON 복원 실패는 `RawDetailCorrupt`(대체 진단 기록 + 경고 로그,
+  `services/db_optimize._stored_result` 와 같은 규칙). `rewrite_file(engine, id)` 은 DB 원본으로
+  `<datapath>/raw_details/<ID>.json` 을 다시 쓴다(실패면 `RuntimeError`).
+- **웹**(관리자 세션, 추가만): `GET /reports/{id}/raw-detail` → 위 객체 그대로.
+  없음 404 `{error: "raw_detail_missing"}`, 손상 409 `{error: "raw_detail_corrupt"}`.
+  인증은 전역 `auth_middleware`(비로그인 302/`session_expired` 401)가 맡는다.
+  `POST /reports/{id}/raw-detail/rewrite` → `{status: "success", id, filename}`(없음 404·손상 409).
+  JSON POST 라 `core/utils/csrf.py verify_json_post` 로 CSRF 를 확인한다(전역 버전·CSRF 미들웨어와 같은 방식).
+- **모바일 API**(API 키 인증, 추가만, 기존 응답·경로 불변):
+  `GET /api/v1/reports/{id}/raw-detail` → `{id, fetched_at, source, raw_sha256, json}`.
+  없음 404 `{error: "raw_detail_missing"}`, 손상 409 `{error: "raw_detail_corrupt"}`.
+  `/api/v1/app/config` 에 `capabilities` 항목 `raw_detail_v1` 과 `raw_detail_version: 1` 추가
+  (이 신호가 없는 구서버에는 Client 가 원본 보기 동작을 보이지 않는다).
+- **파일 탐색기**: `services/file_service.ALLOWED_BROWSER_DIRS` 에 `raw_details`
+  (`settings.raw_details_dir`) 추가 — 보기·다운로드만 허용하고 삭제는 금지한다
+  (개별·선택·API·일괄 모두 거부, 원본은 DB 에서 다시 만들 뿐 지우지 않는다).
+  경로 이탈 금지는 기존 규칙(`_under_root`·O_NOFOLLOW·하드링크 거부) 그대로다.
 
 ## 2026-10-11 서버 스키마 6 / 모바일 17 — 신고 한 건 한 행, 5분류 (이전 기준, 스키마 7 설명이 우선)
 
