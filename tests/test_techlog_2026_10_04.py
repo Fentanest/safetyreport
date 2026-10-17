@@ -73,7 +73,7 @@ class ExchangeIntegrityTests(unittest.TestCase):
         snapshot = exchange.MobileSnapshot(
             report_columns=set(models.REPORT_COLUMN_NAMES) | {"raw_content"}, reports=rows, raw=None,
             sync_meta=[], geocode_cache=None, duplicate_group=None, duplicate_member=None,
-            report_override=None, duplicate_decision=None,
+            report_override=None, duplicate_decision=None, detail_raw=None,
         )
         exchange.apply_mobile_snapshot(engine, snapshot)
         with engine.connect() as conn:
