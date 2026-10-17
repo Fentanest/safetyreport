@@ -330,6 +330,30 @@
       "text": "과태료 1234567890123456만원",
       "number": null,
       "amount": 0
+    },
+    {
+      "name": "refusal after a planned amount",
+      "text": "과태료 40,000원을 부과할 예정이었으나, 제출한 자료를 검토한 결과 과태료를 부과하지 않습니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "refusal for another violation in an earlier sentence",
+      "text": "제19조4항의 경우 차량에 과태료를 부과할 수 없어 과태료처분이 어렵습니다.\n따라서 제38조1항 위반으로 과태료 40,000원을 부과하고자 사전통지서를 발송하였습니다.",
+      "number": "40,000",
+      "amount": 40000
+    },
+    {
+      "name": "reduced amount in a conditional clause",
+      "text": "과태료 100,000원을 부과하며, 자진 납부하는 경우 80,000원으로 감경됩니다.",
+      "number": null,
+      "amount": 0
+    },
+    {
+      "name": "generic maximum footer next line",
+      "text": "과태료 40,000원을 부과하였습니다.\n※ 최대 200만원까지 부과될 수 있습니다.",
+      "number": "40,000",
+      "amount": 40000
     }
   ]
 }

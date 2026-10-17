@@ -344,6 +344,14 @@
       "penalty": "",
       "expected_status": "수용",
       "expected_penalty": "과태료"
+    },
+    {
+      "name": "negated_warning_ticket_is_not_a_warning",
+      "text": "위반행위가 확인되어 과태료를 부과하였습니다. 경고장을 발부하지 않았습니다.",
+      "status": "수용",
+      "penalty": "미확인",
+      "expected_status": "수용",
+      "expected_penalty": "과태료"
     }
   ]
 }
