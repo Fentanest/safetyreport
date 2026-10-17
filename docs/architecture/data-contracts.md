@@ -87,22 +87,36 @@ HTTP의 Client/Version/Protocol 헤더, WS의 client_type/client_version/client_
 - **메타 키** `mysafety_sync_meta.detail_raw_optimize` =
   `{"target": "pc-parser-13", "cursor": "<마지막 처리 ID>", "done": bool, "total": int,
     "stats": {"reused", "refetched", "changed", "events", "skipped": {사유: 건수}},
-    "attempts": {"<ID>": 시도횟수}}`.
+    "attempts": {"<ID>": 시도횟수}, "holds": ["<ID>", ...], "round": 회차,
+    "next_retry_at": 다음 재시도 epoch초}`.
   `target`이 현재 파서 버전과 다르거나 `done`이 아니면 최적화 작업이 시작/이어서 한다.
-  버전이 다르면 커서·통계·시도횟수를 버리고 처음부터 다시 훑는다.
-  일시 실패(네트워크·타임아웃·저장 실패)는 `attempts`에 신고별 횟수를 남기고 커서는 넘기되
-  이번 회차 끝·다음 기동에 다시 시도한다. 3회 실패는 `skipped.retry_exceeded`로 건너뛰고,
-  `done=true`는 전부 처리됐거나 영구(`not_found` 등)·재시도 초과 건너뜀일 때만 기록한다.
+  버전이 다르면 커서·보류·통계·시도횟수를 버리고 처음부터 다시 훑는다.
+  일시 실패(네트워크·5xx·타임아웃·저장 실패)는 `attempts`에 신고별 횟수를 남기고 커서는 넘기되
+  같은 회차 끝·다음 기동에 다시 시도한다. 3회 실패는 보류 목록(`holds`)에 남기고(영구 건너뜀이 아님),
+  `done=true`는 보류 목록이 비었을 때만 기록한다.
+  보류만 남은 채 한 바퀴를 끝내면 `done` 없이 `stage=partial` 로 끝나고, 다음 기동이나 크롤 성공 뒤
+  보류 목록만 다시 시도한다(회차마다 시도 횟수 초기화, 회차 사이 간격은 `next_retry_at` 지수 백오프·최대 1시간,
+  크롤 성공 직후 재시는 간격 무시).
+  영구 실패는 404·410만, 403·401·로그인 화면은 로그인 문제(`auth`)로 본다.
+  연속 5건 일시 실패·로그인 문제는 신고별 횟수 없이 작업 전체를 쉰다(`outage`/`login_required`).
+  쉬는 동안 이 크롤 게이트(`db_optimize.is_running()`)는 False — 실제로 신고를 처리 중일 때만 True다.
   번호 없는 수동 크롤 미루기는 `detail_raw_optimize_deferred_full`(합쳐진 단일 전체 크롤 요청 1건)에 둔다.
+  보류 저장 실패는 예외를 올려 요청자(웹·`/api/v1/crawl/start`)가 기존 오류 형태로 받는다(하위호환).
+  등록 직후 최적화가 이미 끝났으면 바로 배출한다(등록·완료 경합).
   시작 직전에 `detail_raw_optimize_deferred_full_started`(시각·run 식별)를 먼저 기록하고 시작한다.
   시작 성공 뒤에만 지우고, 삭제 실패로 남아도 다음 기동·크롤 종료 훅에서 started가 있으면 다시 시작하지 않고
   정리만 한다. 시작 실패 시 started를 되돌린다. 실행 중이면 지우지 않고 다음 기동·다음 완료 때 시작한다(유실 금지).
-  모든 크롤 종료 경로(`run_after_crawl`)에서도 보류가 남아 있으면 pending/retry 장치로 시작한다(최적화 중이면 보류 유지).
+  모든 크롤 종료 경로(`run_after_crawl`)에서도 보류가 남아 있으면 pending/retry 장치로 시작한다(최적화 처리 중이면 보류 유지).
+  크롤 성공 종료 뒤에는 쉬는·멈춘 최적화를 다시 판단한다(`on_crawl_success`, 보류만 재시도·백오프 무시).
 - **정비 상태**(`services/maintenance_service.status()` → `/maintenance/status`,
   `/api/v1/maintenance/status`): 작업 `db_optimize` 추가(기존 필드·의미 불변, 추가만).
-  `{"key": "db_optimize", "label": "DB 최적화 중입니다…", "state": idle|running|paused|completed|error,
-    "total", "done", "stage": running|waiting_crawl|waiting_rebuild|login_required|done|error,
+  `{"key": "db_optimize", "label": "DB 최적화 중입니다…"(부분 완료·쉼 상태에서는
+    "DB 최적화 부분 완료 — 보류가 있습니다"/"DB 최적화 쉬는 중입니다…"와 보류 건수·재시도 안내),
+    "state": idle|running|paused|completed|error,
+    "total", "done", "stage": running|waiting_crawl|waiting_rebuild|login_required|outage|partial|done|error,
     "message", "log": ["시각 문구" 최대 50줄], "finished_at"}`.
+  새 활동 판정 계약 `contracts/reparse-new-activity-vectors.json`(읽기 전용, 수정 금지):
+  상세 `C_NOW`→진행 단계 표(`services/parser.py` `_C_NOW_STATUS` 그대로)와 저장된 목록 상태·답변일 비교 규칙.
 - **크롤 시작 API 추가 필드**(기존 필드 유지, 하위호환): 최적화 때문에 대기열에 붙을 때
   `queued_reason: "db_optimize"`. 대상: `POST /api/v1/crawl/start`(실행 중이면 예외이던 경로가 최적화 중일 때만
   대기열 등록으로 바뀜), `POST /api/v1/crawl/enqueue`(단건), `POST /api/v1/crawl/notification`(알림),

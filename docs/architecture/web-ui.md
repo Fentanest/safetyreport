@@ -215,7 +215,9 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 
 ## 2026-10-17 DB 최적화 하단 표시줄 (명세 3-4)
 
-- `base.html #srJobBar`는 사진 작업과 DB 최적화 작업(`key: 'db_optimize'`, 라벨 "DB 최적화 중입니다…")을 함께 보인다.
+- `base.html #srJobBar`는 사진 작업과 DB 최적화 작업(`key: 'db_optimize'`,
+  라벨 "DB 최적화 중입니다…"·부분 완료 "DB 최적화 부분 완료 — 보류가 있습니다"·쉼 "DB 최적화 쉬는 중입니다…",
+  보류 건수·재시도 안내는 `message`)을 함께 보인다.
   최적화 작업은 라벨·진행률(`done/total`)·안내 문구만 한 줄에 보이고, "단계 로그" 버튼(`#srJobToggle`,
   `aria-expanded`, `#srJobLog` 제어)으로 단계 로그(최근 50줄)를 펼친다. 사진 작업 표시는 그대로다.
   작업 예외(`state: 'error'`)는 활성 작업(`running`·`paused`)과 구분해 라벨 + ' 오류' + 안내 문구와
