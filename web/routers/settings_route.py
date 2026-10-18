@@ -7,7 +7,7 @@ import settings.settings as app_settings  # 시험이 이 이름으로 설정 �
 
 __all__ = ["router", "app_settings"]
 from core.utils import csrf
-from core.utils.proxy_headers import ProxyConfigurationError
+from core.utils.proxy_headers import ProxyConfigurationError, get_trusted_proxy_config
 from core.utils.templating import templates
 from services import settings_service
 
@@ -18,11 +18,15 @@ router = APIRouter(prefix="/settings")
 def view_settings(request: Request):
     from services import community_gate, official_account
     gate = community_gate.check_for_request()
+    peer = request.scope.get("safetyreport.connection_peer")
+    peer_ip = peer[0] if peer else "알 수 없음"
     return templates.TemplateResponse(request, "settings.html", {
         "binding_message": official_account.MESSAGES.get(request.query_params.get("binding_error") or gate["state"], ""),
         "title": "앱 설정",
         **settings_service.view_values(),
         "csrf_token": csrf.get_or_create_token(request),
+        "proxy_peer_ip": peer_ip,
+        "proxy_peer_trusted": bool(peer and get_trusted_proxy_config().trusts(peer_ip)),
     })
 
 

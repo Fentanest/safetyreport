@@ -25,7 +25,7 @@
 | 목록 초기화 | 현행 언어 URL은 HTTPS. 최초 검색/자동 상세/폭 조정은 `initComplete`를 기다리고 모든 이벤트 등록 뒤 수행한다. CDN 실패는 라이브러리 기본 언어로 동작한다. | 정정 |
 | 목록 검색칸 반응형 | DataTables의 Bootstrap 두 열 도구 모음에서도 검색 input은 부모 폭 안에서 축소한다. viewport 폭만으로 판단하지 않으며 표 자체의 내부 가로 스크롤은 유지한다. | 정정 |
 | HTTP 관리자 인증 | 임의 `Upgrade: websocket` 헤더는 세션 예외가 아니다. 실제 WebSocket ASGI scope는 HTTP middleware 밖에서 기존 WS 인증·protocol 검사로 처리한다. | 정정 |
-| 리버스 프록시 지원 (trusted_proxies) | 원문의 "`main.py` 모듈 레벨 uvicorn ProxyHeadersMiddleware 조건부 적용"은 2026-10-14 부터 사실이 아니다. `create_app()` 이 `TrustedProxyHeadersMiddleware` 를 항상 등록하고, 빈 값은 루프백만 신뢰한다(2026-10-16). | 정정 |
+| 리버스 프록시 지원 (trusted_proxies) | 원문의 "`main.py` 모듈 레벨 uvicorn ProxyHeadersMiddleware 조건부 적용"은 2026-10-14 부터 사실이 아니다. `create_app()` 이 `TrustedProxyHeadersMiddleware` 를 항상 등록하고, 빈 값은 auto(루프백·사설·내부 대역)이며 저장 즉시 반영한다(2026-10-18 개정). | 정정 |
 | 통계 초기 셸·상세 이동 | 초기 버튼은 loader가 즉시 연결한다. 서버 `agency_key`로 행을 선택하고 완료 모집단을 목록/상세 지도에 전달한다. [통계 명세](../design/statistics-spec.md#9-6-코드-대조-정정) 참조. | 정정 |
 
 ## 이관 원문
@@ -72,8 +72,8 @@
 ### 리버스 프록시 지원 (trusted_proxies)
 `config.ini` `[SETTINGS] trusted_proxies` 에 쉼표 구분 IP/CIDR 목록 저장.
 `create_app()` 이 앱 가장 바깥에 `core/utils/proxy_headers.py` 의 `TrustedProxyHeadersMiddleware` 를 **항상** 등록한다
-(Uvicorn 의 ProxyHeadersMiddleware 는 쓰지 않고 `proxy_headers=False`/`--no-proxy-headers` 로 끈다). 비어 있으면 루프백만 신뢰한다.
-설정 변경 후 **서버 재시작 필요** (미들웨어는 앱 시작 시 1회 등록). 상세는 아래 "프록시 뒤 웹 이동·CSRF" 절.
+(Uvicorn 의 ProxyHeadersMiddleware 는 쓰지 않고 `proxy_headers=False`/`--no-proxy-headers` 로 끈다). 빈 값/`auto`는 루프백·사설·내부 대역을 신뢰한다.
+설정 저장 성공 직후 현재 설정 객체를 교체하며 다음 요청부터 적용한다. 설정 화면은 원래 socket peer와 현재 신뢰 여부를 보여 준다. 상세는 아래 "프록시 뒤 웹 이동·CSRF" 절.
 
 
 <!-- legacy CLAUDE.md 638-664 -->
@@ -228,32 +228,56 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 - 색은 테마 토큰만 쓰고(`theme.css` `.sr-job-toggle`·`.sr-job-log`), 펼친 로그는 고정폭·줄바꿈,
   최대 높이 안에서 내부 스크롤. 390px 폭에서도 표시줄 너비를 넘지 않는다. 동작은 `shell-polling.js`.
 
-## 프록시 뒤 웹 이동·CSRF (2026-10-14)
+## 프록시 뒤 웹 이동·CSRF (2026-10-18 개정)
 
 다섯 관리 메뉴의 정규 경로는 `/crawl/`, `/rating/`, `/watchlist/`, `/settings/`, `/devices/`다. 내부 링크·설정/JSON 저장 후303·기기 키 삭제 후303은 정규 경로를 직접 사용한다. 구 slash 없는 GET은 기존307 호환을 유지하며 쿼리도 보존한다. 설정 저장 안내 JS는 `saved`만 지우고 다른 쿼리와 hash를 보존한다. API 경로는 변경하지 않는다.
 
-`TrustedProxyHeadersMiddleware`는 앱 가장 바깥에서 원래 socket peer를 확인하고 URL을 복원한다. 이후 세션·인증·CSRF가 같은 scheme/Host를 본다. `trusted_proxies`는 실제 연결하는 프록시 IP/CIDR의 쉼표 목록이다(2026-10-16 개정, 아래 표).
+프록시 신뢰는 접속자 IP·HTTPS 판정에만 쓰며, 설정이 맞지 않아도 로그인·관리자 POST·정적 스크립트·리다이렉트는 동작한다.
+`TrustedProxyHeadersMiddleware`는 가장 바깥에서 socket peer로 전달 헤더 적용 여부를 판단한다. 원래 peer는 `safetyreport.connection_peer`, 원래 Host·X-Forwarded-Host 값들은 각각 `safetyreport.original_host`·`safetyreport.original_forwarded_host`에 보존한다.
 
-| `trusted_proxies` 값 | 서버 시작 | 신뢰하는 peer | 설정 화면 저장 |
-|---|---|---|---|
-| 빈 값 | 정상 | 루프백만(`127.0.0.1`, `::1`) — 이전 Uvicorn 기본 `forwarded_allow_ips=127.0.0.1` 과 같은 범위 | 허용 |
-| IP/CIDR 목록 | 정상 | 그 목록만(루프백 기본값을 대체한다. 같은 PC 프록시도 쓰면 `127.0.0.1, ::1` 을 함께 적는다) | 허용 |
-| 빈 항목(끝 쉼표 `127.0.0.1,`) | 정상(빈 항목 무시) | 나머지 항목 | 허용(빈 항목 무시) |
-| `*` | 정상 + 경고 로그 | 모든 peer(이전 Uvicorn `*` 와 같은 범위. 단 이제 `X-Forwarded-Host` 도 따른다 — Uvicorn 은 Host 를 처리하지 않았다) | 허용 + 경고(코어 로그, 설정 화면 칸 아래 `.sr-proxy-warning`) |
-| 호스트 이름(`nginx`)·`1`/`0` 등 해석 불가 항목 | 정상 + 경고 로그, 그 항목만 무시 | 유효 항목. 유효 항목이 하나도 없으면 빈 값과 같이 루프백만 | 새로 넣으면 400(한국어 메시지). 저장된 값과 같으면(칸을 바꾸지 않음) 통과 + 경고 표시 |
-| `0.0.0.0/0`·`::/0` | 정상 + 경고 로그 | 그 주소 계열 전체 | 새로 넣으면 400. 저장된 값과 같으면 통과 + 경고 표시 |
+| `trusted_proxies` 값 | 서버 시작·신뢰하는 peer | 설정 화면 저장 |
+|---|---|---|
+| 빈 값 / `auto` | 루프백·사설·내부 기본 대역 | 허용, 저장 즉시 반영 |
+| IP/CIDR 목록 | 그 목록만(자동 기본 대역을 대체) | 허용 |
+| `auto, 203.0.113.5` | 자동 기본 대역 + 명시 IP/CIDR | 허용 |
+| `none` | 전달 헤더 전부 무시(루프백도 비신뢰) | 허용 |
+| `none` + 다른 항목 | 경고 후 `none` 우선 | 기존 값과 같아도400 |
+| 빈 항목(끝 쉼표 등) | 빈 항목 무시 | 허용 |
+| `*` | 경고 후 모든 peer 신뢰 | 허용 + 경고 |
+| 호스트 이름·`1`/`0`·해석 불가 항목·`0.0.0.0/0`·`::/0` | 경고 후 해당 항목 무시, 유효 항목이 없으면 `auto` | 새로 넣으면400, 저장된 값과 항목이 같으면 허용 + 경고 |
 
-시작 때는 잘못된 값으로 서버를 멈추지 않는다(Docker Watchtower 재시작 루프 방지). 경고는 코어 로그에 `[proxy]` 로 남는다. 설정 화면 저장은 `validate_trusted_proxies_setting` 으로 검사한다: `*` 는 시작 때와 같은 의미로 저장하고 경고를 보이며, 새로 넣은 해석 불가 항목은 400 으로 진단한다. 저장된 값과 항목이 같으면(사용자가 이 칸을 바꾸지 않음) 예전 잘못된 값이 남아 있어도 다른 설정 저장을 막지 않는다(2026-10-16 Opus 결정). 경고는 설정 화면이 저장된 값에서 매번 다시 계산해 칸 아래에 보인다.
+자동 대역은 `127.0.0.0/8`, `::1/128`, `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`(Tailscale/CGNAT), `169.254.0.0/16`, `fc00::/7`, `fe80::/10`이다. 공인 IP는 자동 신뢰하지 않는다. IPv4-mapped IPv6 peer와 XFF 항목은 IPv4로 풀어 비교한다.
 
-예: 같은 PC의 cloudflared·Caddy·nginx 는 빈 값으로 동작한다. Docker의 별도 프록시는 앱이 보는 실제 peer IP 또는 제한된 전용 네트워크 CIDR을 사용한다(컨테이너 이름은 쓸 수 없다). 예시 주소를 확인 없이 복사하지 않는다. 변경 후 서버/컨테이너 재시작이 필요하다. 운영 설정을 이 수정에서 자동 변경하지 않는다.
+`create_app()`은 시작 설정을 초기화하고 경고를 코어 로그에 `[proxy]`로 남긴다. 저장 성공 경로는 불변 설정 객체의 참조를 잠금 아래 한 번에 교체한다. 요청마다 하나의 설정을 읽으며 앱 재생성·서버 재시작이 필요 없다. 설정 화면 칸 아래에는 현재 연결의 원래 peer와 신뢰 여부, 저장된 값의 경고를 표시한다.
 
-업그레이드 안내(2026-10-14 프록시 변경 이후 버전에서 올 때):
-- 같은 PC 리버스 프록시 + 빈 `trusted_proxies`: 2026-10-14 판에서는 X-Forwarded-* 를 버려 관리자 POST 가 전부 403(`reason=origin`)이고 `url_for` 절대 URL(`data_table.html`, `settings.html`)이 https 페이지에서 http 로 나갔다. 이제 설정 변경 없이 동작한다.
-- `*`·호스트 이름·끝 쉼표를 적은 사용자: 2026-10-14 판에서는 서버가 시작하지 않았다. 이제 시작하며, `*` 는 모든 peer 를 계속 신뢰하고 호스트 이름은 무시된다(이전 Uvicorn 도 호스트 이름 항목은 실제로 일치하지 않았다). 경고 로그를 보고 실제 프록시 IP/CIDR 로 바꾸기를 권한다.
-- Docker 브리지(예: `172.17.0.1`)·다른 PC의 프록시는 여전히 명시 설정이 필요하다.
+신뢰 peer에서만 `X-Forwarded-Proto`(http/https), 단일 `X-Forwarded-Host`, IP 목록인 `X-Forwarded-For`를 적용한다. XFF는 오른쪽부터 신뢰 경계를 걷는다. 복수·쉼표·형식 오류 Host/Proto 또는 비 IP XFF는 요청을 거절하지 않고 해당 헤더만 무시한다(HTTP·WebSocket 동일). 다른 정상 헤더는 적용한다. 비신뢰 peer의 전달 헤더와 신뢰 peer의 잘못된 헤더는 값을 노출하지 않고 `[proxy]` 경고를 peer당 프로세스 수명 동안 한 번만 남긴다. 기록 상한은 1,024 peer이며 상한 이후 새 peer 경고는 생략한다.
 
-신뢰 peer에서만 `X-Forwarded-Proto`(http/https), 단일 `X-Forwarded-Host`, IP 목록인 `X-Forwarded-For`를 읽는다. 프록시는 외부 요청의 전달 헤더를 제거/덮어써야 한다. XFF는 오른쪽부터 신뢰 경계를 확인하고, original peer는 별도 scope 값으로 보존한다. 비신뢰 peer의 전달 헤더는 무시한다. Host/Proto의 복수·모호 값과 잘못된 신뢰 헤더는400(WS1008)으로 거절한다. 기본 포트를 포함한 scheme·host·port를 정규화해 Origin을 정확 비교하며(호스트는 영문·숫자·`.`·`-`·`_` — `http://my_pc:6819` 같은 Windows NetBIOS·Docker 컨테이너 이름 허용, 2026-10-16), JSON·세션 토큰·cross-site 거절은 유지한다.
+CSRF는 세션 토큰을 항상 요구하며 JSON 전용 POST의 content-type 검사도 유지한다.
 
-운영 주의: 신뢰 프록시가 클라이언트가 보낸 `X-Forwarded-Host` 를 그대로 넘기면 그 값이 요청 Host 가 된다(빈 값의 루프백 기본 신뢰와 `*` 도 같다). nginx 는 이 헤더를 스스로 지우지 않으므로 `proxy_set_header X-Forwarded-Host $host;`(또는 `""`)로 덮어쓴다.
+| 출처 헤더 | 확인 규칙 |
+|---|---|
+| `Sec-Fetch-Site: cross-site` | `cross_site` 거절(대소문자 무시) |
+| `same-origin` / `none` | 출처 확인 통과 후 토큰 검사(프록시 신뢰·scheme 불일치와 독립) |
+| `same-site` / 알 수 없는 값 | Origin이 있으면 복원된 scheme·host·port와 정확 비교, 불일치·잘못된 Origin은 `origin` 거절 |
+| Fetch Metadata 없음 + Origin 있음 | Origin host·port를 현재 Host, 원래 Host, 원래 X-Forwarded-Host 각 쉼표 항목과 비교. peer 신뢰와 무관하며 scheme 차이와 기본 포트 표기는 허용. 비기본 포트는 일치해야 함. `null` 등 잘못된 Origin은 거절 |
+| 출처 헤더 둘 다 없음 | 출처 확인 생략 후 토큰 검사 |
 
-Uvicorn 기본 proxy 처리가 먼저 client를 바꾸면 원 socket peer를 복원할 수 없다. 공식 Docker entrypoint는 `--no-proxy-headers`, main 및 fixture 기동은 `proxy_headers=False`다. 별도 기동도 `uvicorn main:app --no-proxy-headers`로 실행한다. Uvicorn의 기본 ProxyHeadersMiddleware는 X-Forwarded-Host를 처리하지 않으므로 자동 지원을 가정하지 않는다.
+Host에는 scheme이 없으므로 구형 브라우저 비교는 내부 요청 및 Origin의 scheme으로 기본 포트를 정규화한다(`https://x`와 Host `x`/`x:443`, `http://x:6819`와 Host `x:6819`). 호스트의 영문·숫자·`.`·`-`·`_`와 IPv6를 허용한다. 브라우저가 정하는 Fetch Metadata 및 Host, 사용자 지정 헤더의 preflight 제약에 기반한 CSRF 정책이다.
+
+정적 스크립트는 `/static/...` 상대 경로다. 가장 바깥 미들웨어는3xx의 같은 Host 절대 Location을 경로+쿼리(+fragment)로 바꾸며 다른 호스트·다른 비기본 포트 목적지는 그대로 둔다. `//`로 시작하는 경로는 외부 호스트 이동으로 해석되지 않도록 절대 URL을 유지한다.
+
+업그레이드 안내:
+- Docker 브리지 게이트웨이(예: `172.19.0.1`)·같은 PC 실행 파일·LAN의 다른 PC·Tailscale 프록시는 빈 값/`auto`로 전달 주소·HTTPS가 복원된다. Docker 네트워크 재생성에 맞춰 게이트웨이 IP를 다시 적을 필요가 없다.
+- 예전 명시 목록이 실제 peer와 달라도 브라우저의 same-origin 요청은 토큰이 맞으면 통과한다. 운영 205의 HTTPS Origin/HTTP 내부 scheme 불일치 관리자 POST 403 증상을 이 규칙으로 해결한다. 주소·HTTPS 진단을 맞추려면 화면에서 빈 값/`auto` 또는 실제 프록시 목록으로 저장하면 즉시 반영된다.
+- `*`는 계속 모든 peer를 신뢰한다. 해석 불가 항목과 `/0`은 경고 후 무시하고 유효 항목이 없으면 `auto`를 사용한다. 운영 설정 파일을 자동 수정하지 않는다.
+
+운영 주의: 프록시는 클라이언트가 보낸 전달 헤더를 제거/덮어써야 한다. nginx는 `proxy_set_header X-Forwarded-Host $host;`(또는 `""`)로 덮어쓴다. 자동 신뢰 대역은 접속자 IP·HTTPS 정보를 위조할 수 없는 전용 보안 경계가 아니며 IP로 인증·인가를 판단하지 않는다. 현재 IP 사용처는 기기 접속 기록과 WebSocket 로그다.
+
+Uvicorn 기본 proxy 처리가 먼저 client를 바꾸면 원 socket peer를 복원할 수 없다. 공식 Docker entrypoint는 `--no-proxy-headers`, main 및 fixture 기동은 `proxy_headers=False`다. 별도 기동도 `uvicorn main:app --no-proxy-headers`로 실행한다.
+
+### 코드 대조 정정 — 프록시 재설계
+
+| 문서·명세와 기존 코드 차이 | 현재 계약 |
+|---|---|
+| 명세는 `/0`을 시작 때 경고·무시하는 것으로 설명했으나 기존 코드는 해당 주소 계열 전체를 신뢰했음 | 2026-10-18 명세에 따라 경고·무시, 유효 항목 없으면 `auto` |
+| 이전 문서는 빈 값 루프백만·재시작 필요·잘못된 헤더400/WS1008·Origin 항상 엄격 비교로 설명 | 위의 자동 대역·즉시 반영·헤더별 무시·Fetch Metadata 분기 계약으로 대체 |

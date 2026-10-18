@@ -107,7 +107,12 @@ def _persist(command: SettingsCommand) -> SettingsResult:
     for section, key, value in command.values:
         instance.update_config(section, key, value)
         result.written.append((section, key))
-    instance.save()
+    # Keep publication in save order when settings requests race.
+    with instance._lock:
+        instance.save()
+        if ("SETTINGS", "trusted_proxies") in result.written:
+            from core.utils.proxy_headers import set_trusted_proxies
+            set_trusted_proxies(instance.trusted_proxies)
     if (instance.username, instance.password) != previous_login:
         # 안전신문고 계정이 바뀌면 이전 계정 토큰을 지운다 — 다음 크롤링은 새 계정으로 로그인한다(기술일지 A2-01)
         from core.crawler import direct_login

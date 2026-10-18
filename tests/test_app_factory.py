@@ -25,9 +25,12 @@ from core.utils import logger
 before = {{"app": main._app is not None, "logger": logger.LoggerFactory.logbot is not None,
           "sigint": signal.getsignal(signal.SIGINT) is main._signal_handler, "dirs": sorted(os.listdir(st.datapath))}}
 from uvicorn.importer import import_from_string
+from core.utils.proxy_headers import set_trusted_proxies, get_trusted_proxy_config
+set_trusted_proxies("none")
 app = import_from_string("main:app")
 after = {{"same": app is main.app is main.get_app(), "logger": logger.LoggerFactory.logbot is not None,
          "sigint": signal.getsignal(signal.SIGINT) is main._signal_handler, "dirs": sorted(os.listdir(st.datapath)),
+         "proxy_auto_initialized": get_trusted_proxy_config().trusts("172.19.0.1"),
          "middleware": [(m.kwargs.get("dispatch").__name__ if m.kwargs.get("dispatch") else m.cls.__name__)
                         for m in app.user_middleware]}}
 print(json.dumps({{"before": before, "after": after}}))
@@ -47,6 +50,7 @@ class AppFactoryTest(unittest.TestCase):
         self.assertEqual(report["before"], {"app": False, "logger": False, "sigint": False, "dirs": []})
         after = report["after"]
         self.assertTrue(after["same"])
+        self.assertTrue(after["proxy_auto_initialized"])
         self.assertTrue(after["logger"] and after["sigint"])
         self.assertEqual(after["dirs"], ["auth", "logs", "raw_details", "results"])
         self.assertEqual(after["middleware"][:2], ["TrustedProxyHeadersMiddleware", "_WebSocketSafeSessionMiddleware"])

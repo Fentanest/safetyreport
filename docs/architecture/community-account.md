@@ -107,7 +107,7 @@
 ## 권한
 
 - 관리자 웹: 기존 세션 로그인(미들웨어) + 모든 POST 에 `X-CSRF-Token`(세션 토큰, 설정 화면 `data-csrf`), `Content-Type: application/json`,
-  `Origin` 이 있으면 이 요청의 host 와 같아야 함(`Sec-Fetch-Site: cross-site` 거부). Origin 은 scheme·host·기본 포트를 정규화해 **정확히** 비교하며 scheme·host 차이를 허용하지 않는다. 리버스 프록시 뒤에서는 신뢰 peer(`trusted_proxies`, 빈 값이면 루프백만)가 보낸 `X-Forwarded-Proto`/`X-Forwarded-Host` 로 앱 가장 바깥 미들웨어가 요청 scheme·Host 를 먼저 복원하고, CSRF 는 그 복원된 값과 비교한다([web-ui.md](web-ui.md) "프록시 뒤 웹 이동·CSRF"). 실패는 403 `csrf_failed`(`reason` 예: `origin`, `csrf`, `content_type`, `cross_site`).
+  `Sec-Fetch-Site: cross-site`는 거절하고 `same-origin`/`none`은 프록시 신뢰·scheme과 무관하게 토큰 검사로 진행한다(2026-10-18 개정). `same-site`와 알 수 없는 값은 Origin이 있으면 복원된 scheme·host·port를 정확 비교한다. Fetch Metadata가 없는 구형 브라우저는 Origin host·port를 현재/원래 Host 및 원래 X-Forwarded-Host(쉼표 목록 포함)와 peer 신뢰와 무관하게 비교하고 scheme 차이·기본 포트 표기를 허용한다. `null` 등 잘못된 Origin은 이 비교에서 거절한다. 두 출처 헤더가 없으면 기존처럼 토큰을 확인한다. 빈 `trusted_proxies`/`auto`는 루프백·Docker·LAN·Tailscale 등 내부 대역을 신뢰하고 저장 즉시 반영한다([web-ui.md](web-ui.md) "프록시 뒤 웹 이동·CSRF"). 실패는403 `csrf_failed`(`reason`: `origin`, `csrf`, `content_type`, `cross_site`).
 - 모바일 Client(`X-API-Key`): 기존 API 키는 범위 구분이 없어 **기본은 상태 조회만**. 관리(start/confirm/cancel)는 관리자가 설정 화면에서
   "커뮤니티 계정 관리 허용"을 체크한 키만(`api_key_managers`). 권한 없으면 403 `permission_required`. 권한 없는 키의 상태 응답에는 연결 링크가 없다.
 - 하위 호환: 기존 API·키 동작은 그대로. `/api/v1/app/config` `capabilities` 에 `community_account` 추가.

@@ -14,12 +14,14 @@ from starlette.responses import JSONResponse
 from starlette.testclient import TestClient
 from core.utils import csrf
 from core.utils.proxy_headers import (TrustedProxyHeadersMiddleware, trusted_proxy_networks, origin_tuple,
-                                      parse_trusted_proxies, LOOPBACK_NETWORKS, validate_trusted_proxies_setting,
+                                      parse_trusted_proxies, AUTO_NETWORKS, validate_trusted_proxies_setting,
+                                      set_trusted_proxies, get_trusted_proxy_config,
                                       ProxyConfigurationError)
 from web.routers import settings_route, devices_route, community_route, crawl, rating_route, watchlist_route
 
 
 def make_app(trusted=''):
+    set_trusted_proxies(trusted)
     app=FastAPI()
     for mod in (settings_route, devices_route, community_route, crawl, rating_route, watchlist_route):
         app.include_router(mod.router)
@@ -31,7 +33,7 @@ def make_app(trusted=''):
     def url(request: Request):
         return {'url':str(request.url),'client':request.client.host,'peer':request.scope['safetyreport.connection_peer']}
     app.add_middleware(SessionMiddleware, secret_key='synthetic-test-secret')
-    app.add_middleware(TrustedProxyHeadersMiddleware, trusted_proxies=trusted)
+    app.add_middleware(TrustedProxyHeadersMiddleware)
     return app
 
 
@@ -60,10 +62,11 @@ class ProxyTests(unittest.TestCase):
                 r,calls=self.post('10.2.0.2',trusted,origin,h,token)
                 self.assertEqual((r.status_code,calls),(403,0))
 
-    def test_untrusted_forgery_and_wrong_origin(self):
+    def test_untrusted_forwarded_host_is_legacy_csrf_candidate_and_wrong_origin_rejected(self):
+        # 재설계: 비신뢰 XFH도 구형 브라우저 Origin 후보이며 토큰은 계속 필수.
         h={'x-forwarded-proto':'https','x-forwarded-host':'evil.test','x-forwarded-for':'10.2.0.2'}
         r,calls=self.post('198.51.100.2','10.2.0.0/24','https://evil.test',h)
-        self.assertEqual((r.status_code,calls),(403,0))
+        self.assertEqual((r.status_code,calls),(200,1))
         for origin in ('https://evil.test','http://internal.test:81','null','http://internal.test?q=x','http://user@internal.test'):
             r,calls=self.post('10.2.0.2','10.2.0.0/24',origin)
             self.assertEqual((r.status_code,calls),(403,0))
@@ -87,7 +90,10 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(trusted_proxy_networks(' , '),())
         c=TestClient(make_app('10.2.0.2'),client=('10.2.0.2',1))
         for host in ('evil.test, public.test','user@public.test','public.test/path','public.test:bad'):
-            self.assertEqual(c.get('/test/url',headers={'x-forwarded-host':host}).status_code,400)
+            # 재설계: 잘못된 XFH만 무시하고 요청과 원래 Host는 유지한다.
+            response=c.get('/test/url',headers={'x-forwarded-host':host})
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.json()['url'],'http://testserver/test/url')
         self.assertEqual(origin_tuple('https://[::1]:443'),('https','::1',443))
 
     def test_startup_configuration_and_no_outer_uvicorn_rewrite(self):
@@ -117,7 +123,7 @@ FWD={'x-forwarded-proto':'https','x-forwarded-host':'public.test','x-forwarded-f
 
 
 class LocalProxyDefaultTests(unittest.TestCase):
-    """trusted_proxies 가 비면 같은 PC 프록시(127.0.0.1, ::1)만 신뢰한다(이전 Uvicorn 기본과 같음)."""
+    """재설계: 빈 값은 auto 대역 신뢰, 출처 확인은 프록시 신뢰와 분리한다."""
     post=ProxyTests.post
 
     def test_loopback_proxy_with_empty_setting_posts_and_restores_https(self):
@@ -135,39 +141,41 @@ class LocalProxyDefaultTests(unittest.TestCase):
         body=c.get('/test/url',headers=FWD).json()
         self.assertEqual((body['url'],body['client']),('http://internal.test/test/url','198.51.100.2'))
         r,calls=self.post('198.51.100.2','','https://public.test',FWD)
-        self.assertEqual((r.status_code,calls),(403,0))
-        self.assertEqual(r.json()['reason'],'origin')
-        # 루프백이 신뢰 프록시를 거쳐 왔다고 주장해도 원격 peer 는 그대로다.
+        self.assertEqual((r.status_code,calls),(200,1))
+        # 재설계: XFH는 CSRF 후보로만 사용한다. 전달 IP/HTTPS 비신뢰는 그대로다.
         r,calls=self.post('198.51.100.2','','https://public.test',{**FWD,'x-forwarded-for':'127.0.0.1'})
-        self.assertEqual((r.status_code,calls),(403,0))
+        self.assertEqual((r.status_code,calls),(200,1))
 
-    def test_explicit_list_replaces_loopback_default(self):
+    def test_explicit_list_replaces_auto_default_but_does_not_block_csrf(self):
+        # 재설계: 명시 목록 밖이어도 XFH와 Origin이 같고 토큰이 맞으면 통과.
         c=TestClient(make_app('10.2.0.0/24'),client=('127.0.0.1',1234),base_url='http://internal.test')
         self.assertEqual(c.get('/test/url',headers=FWD).json()['url'],'http://internal.test/test/url')
         r,calls=self.post('127.0.0.1','10.2.0.0/24','https://public.test',FWD)
-        self.assertEqual((r.status_code,calls),(403,0))
+        self.assertEqual((r.status_code,calls),(200,1))
 
-    def test_issue6_slash_redirect_via_local_proxy_keeps_https_and_query(self):
+    def test_slash_redirect_via_local_proxy_is_relative_and_keeps_query(self):
+        # 재설계: 브라우저 HTTPS를 유지하도록 같은 Host의 Location은 상대 경로.
         c=TestClient(make_app(''),client=('127.0.0.1',42),base_url='http://internal.test')
         r=c.get('/crawl?q=a%2Fb&saved=true',headers=FWD,follow_redirects=False)
-        self.assertEqual((r.status_code,r.headers['location']),(307,'https://public.test/crawl/?q=a%2Fb&saved=true'))
+        self.assertEqual((r.status_code,r.headers['location']),(307,'/crawl/?q=a%2Fb&saved=true'))
 
     def test_lenient_startup_parse(self):
+        # 재설계: 빈 값·유효 항목 없는 설정은 루프백 대신 auto 대역으로 대체.
         cfg=parse_trusted_proxies('')
-        self.assertEqual((cfg.networks,cfg.trust_all,cfg.implicit_loopback,cfg.warnings),(LOOPBACK_NETWORKS,False,True,()))
+        self.assertEqual((cfg.networks,cfg.trust_all,cfg.implicit_auto,cfg.warnings),(AUTO_NETWORKS,False,True,()))
         cfg=parse_trusted_proxies('127.0.0.1,')
-        self.assertEqual((len(cfg.networks),cfg.implicit_loopback,cfg.warnings),(1,False,()))
+        self.assertEqual((len(cfg.networks),cfg.implicit_auto,cfg.warnings),(1,False,()))
         cfg=parse_trusted_proxies('nginx, 10.2.0.2')
         self.assertEqual([str(n) for n in cfg.networks],['10.2.0.2/32'])
         self.assertEqual(len(cfg.warnings),1);self.assertIn('nginx',cfg.warnings[0])
         cfg=parse_trusted_proxies('nginx')
-        self.assertEqual((cfg.networks,cfg.implicit_loopback),(LOOPBACK_NETWORKS,True))
+        self.assertEqual((cfg.networks,cfg.implicit_auto),(AUTO_NETWORKS,True))
         self.assertEqual(len(cfg.warnings),2)
         cfg=parse_trusted_proxies('*')
         self.assertTrue(cfg.trust_all);self.assertEqual(len(cfg.warnings),1)
         for value in ('1','0'):
             cfg=parse_trusted_proxies(value)
-            self.assertEqual((cfg.networks,cfg.implicit_loopback),(LOOPBACK_NETWORKS,True))
+            self.assertEqual((cfg.networks,cfg.implicit_auto),(AUTO_NETWORKS,True))
 
     def test_star_trusts_every_peer_like_old_uvicorn(self):
         c=TestClient(make_app('*'),client=('198.51.100.2',1234),base_url='http://internal.test')
@@ -295,11 +303,12 @@ class NavigationTests(unittest.TestCase):
         self.client=TestClient(make_app('10.2.0.2'),client=('10.2.0.2',42),base_url='http://internal.test')
         self.forwarded={'x-forwarded-proto':'https','x-forwarded-host':'public.test'}
 
-    def test_old_links_redirect_once_with_external_https_and_query(self):
+    def test_old_links_redirect_once_with_relative_location_and_query(self):
         for name in ('crawl','rating','watchlist','settings','devices'):
             r=self.client.get('/'+name+'?q=a%2Fb&saved=true',headers=self.forwarded,follow_redirects=False)
             self.assertEqual(r.status_code,307)
-            self.assertEqual(r.headers['location'],'https://public.test/'+name+'/?q=a%2Fb&saved=true')
+            # 재설계: 같은 Host 리다이렉트는 scheme과 무관한 상대 Location.
+            self.assertEqual(r.headers['location'],'/'+name+'/?q=a%2Fb&saved=true')
 
     def test_direct_five_routes_without_additional_redirect(self):
         from core.utils.templating import templates
@@ -342,3 +351,244 @@ class NavigationTests(unittest.TestCase):
         text=Path('web/templates/settings.html').read_text()
         self.assertIn("savedUrl.searchParams.delete('saved')",text)
         self.assertIn('savedUrl.pathname + savedUrl.search + savedUrl.hash',text)
+
+
+class ProxyRedesignTests(unittest.TestCase):
+    post = ProxyTests.post
+
+    def test_fetch_metadata_precedes_proxy_origin_but_never_token(self):
+        for site in ('same-origin', 'SAME-ORIGIN', 'none'):
+            with self.subTest(site=site):
+                r, calls = self.post('172.19.0.1', '10.20.10.3', 'https://internal.test',
+                                     extra={'sec-fetch-site': site})
+                self.assertEqual((r.status_code, calls), (200, 1))
+                for token in ('bad', 'missing'):
+                    r, calls = self.post('172.19.0.1', '10.20.10.3', 'https://internal.test',
+                                         token_mode=token, extra={'sec-fetch-site': site})
+                    self.assertEqual((r.status_code, calls, r.json()['reason']), (403, 0, 'csrf'))
+        r, calls = self.post('172.19.0.1', '', 'http://internal.test',
+                             extra={'sec-fetch-site': 'CROSS-SITE'})
+        self.assertEqual((r.status_code, calls, r.json()['reason']), (403, 0, 'cross_site'))
+
+    def test_same_site_and_unknown_metadata_keep_strict_origin(self):
+        for site in ('same-site', 'unknown', ''):
+            for origin in ('http://internal.test:81', 'https://internal.test', 'http://sub.internal.test', 'null'):
+                with self.subTest(site=site, origin=origin):
+                    r, calls = self.post('172.19.0.1', 'none', origin, extra={'sec-fetch-site': site})
+                    self.assertEqual((r.status_code, calls, r.json()['reason']), (403, 0, 'origin'))
+            r, calls = self.post('172.19.0.1', 'none', 'http://internal.test:80',
+                                 extra={'sec-fetch-site': site})
+            self.assertEqual((r.status_code, calls), (200, 1))
+
+    def test_legacy_origin_normalizes_scheme_and_default_ports(self):
+        for host, origin in (
+            ('internal.test', 'https://internal.test'),
+            ('internal.test:443', 'https://INTERNAL.TEST:443'),
+            ('internal.test:80', 'https://internal.test'),
+            ('internal.test:6819', 'http://internal.test:6819'),
+            ('internal.test:6819', 'https://internal.test:6819'),
+            ('[fd00::1]:443', 'https://[fd00::1]'),
+        ):
+            with self.subTest(host=host, origin=origin):
+                r, calls = self.post('8.8.8.8', 'none', origin, extra={'host': host})
+                self.assertEqual((r.status_code, calls), (200, 1))
+        for origin in ('https://other.test', 'null', 'https://internal.test:8443'):
+            r, calls = self.post('8.8.8.8', 'none', origin)
+            self.assertEqual((r.status_code, calls, r.json()['reason']), (403, 0, 'origin'))
+
+    def test_legacy_original_hosts_survive_rewrite_and_forwarded_lists(self):
+        for trusted in ('none', 'auto'):
+            for origin in ('http://internal.test', 'https://public.test', 'https://other.test'):
+                with self.subTest(trusted=trusted, origin=origin):
+                    r, calls = self.post('172.19.0.1', trusted, origin,
+                                         {'x-forwarded-host': 'public.test, other.test'})
+                    self.assertEqual((r.status_code, calls), (200, 1))
+            r, calls = self.post('172.19.0.1', trusted, 'http://internal.test',
+                                 {'x-forwarded-host': 'public.test', 'x-forwarded-proto': 'https'})
+            self.assertEqual((r.status_code, calls), (200, 1))
+        r, calls = self.post('8.8.8.8', 'none', 'https://public.test',
+                             {'host': '127.0.0.1:6819', 'x-forwarded-host': 'public.test'})
+        self.assertEqual((r.status_code, calls), (200, 1))
+
+    def test_no_source_headers_still_requires_token(self):
+        request = Request({'type': 'http', 'scheme': 'http', 'path': '/', 'headers': [],
+                           'session': {csrf.SESSION_KEY: 'fixture-token'}})
+        self.assertIsNone(csrf.verify_token(request, 'fixture-token'))
+        self.assertEqual(csrf.verify_token(request, 'wrong'), 'csrf')
+        self.assertEqual(csrf.verify_token(request, None), 'csrf')
+
+    def test_auto_networks_none_and_explicit_combinations(self):
+        peers = ('127.2.3.4', '::1', '10.20.10.3', '172.19.0.1', '192.168.3.4',
+                 '100.64.1.2', '169.254.3.4', 'fd00::1', 'fe80::1', '::ffff:172.19.0.1')
+        for setting in ('', 'auto'):
+            config = parse_trusted_proxies(setting)
+            for peer in peers:
+                with self.subTest(setting=setting, peer=peer):
+                    self.assertTrue(config.trusts(peer))
+                    c = TestClient(make_app(setting), client=(peer, 1), base_url='http://internal.test')
+                    self.assertEqual(c.get('/test/url', headers=FWD).json()['url'], 'https://public.test/test/url')
+            self.assertFalse(config.trusts('8.8.8.8'))
+        self.assertFalse(parse_trusted_proxies('none').trusts('127.0.0.1'))
+        self.assertFalse(parse_trusted_proxies('none').trusts('::1'))
+        config = parse_trusted_proxies('auto, 203.0.113.5')
+        self.assertTrue(config.trusts('203.0.113.5'))
+        self.assertTrue(config.trusts('100.64.1.2'))
+        self.assertFalse(config.trusts('203.0.113.6'))
+        config = parse_trusted_proxies('none, *, auto, 10.0.0.1')
+        self.assertEqual(config.networks, ())
+        self.assertFalse(config.trust_all)
+        self.assertEqual(len(config.warnings), 1)
+        for value in ('0.0.0.0/0', '::/0'):
+            config = parse_trusted_proxies(value)
+            self.assertEqual(config.networks, AUTO_NETWORKS)
+            self.assertFalse(config.trusts('8.8.8.8'))
+            self.assertEqual(len(config.warnings), 2)
+
+    def test_mapped_xff_walks_trust_boundary_as_ipv4(self):
+        c = TestClient(make_app(), client=('::ffff:172.19.0.1', 1), base_url='http://internal.test')
+        body = c.get('/test/url', headers={'x-forwarded-for':
+                     '127.0.0.1, ::ffff:203.0.113.7, ::ffff:10.0.0.2'}).json()
+        self.assertEqual(body['client'], '203.0.113.7')
+        self.assertEqual(body['peer'], ['::ffff:172.19.0.1', 1])
+
+    def test_invalid_headers_are_ignored_independently(self):
+        c = TestClient(make_app(), client=('172.19.0.1', 1), base_url='http://internal.test')
+        for host_headers in (
+            [('x-forwarded-host', 'one.test'), ('x-forwarded-host', 'two.test')],
+            [('x-forwarded-host', 'one.test, two.test')],
+            [('x-forwarded-host', 'public.test/')],
+        ):
+            r = c.get('/test/url', headers=host_headers + [('x-forwarded-proto', 'https'),
+                                                          ('x-forwarded-for', '203.0.113.7')])
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json(), {'url': 'https://internal.test/test/url', 'client': '203.0.113.7',
+                                        'peer': ['172.19.0.1', 1]})
+        for proto_headers in (
+            [('x-forwarded-proto', 'https'), ('x-forwarded-proto', 'http')],
+            [('x-forwarded-proto', 'https,http')], [('x-forwarded-proto', 'ftp')],
+        ):
+            r = c.get('/test/url', headers=proto_headers + [('x-forwarded-host', 'public.test'),
+                                                           ('x-forwarded-for', 'not-an-ip')])
+            self.assertEqual(r.status_code, 200)
+            self.assertEqual(r.json(), {'url': 'http://public.test/test/url', 'client': '172.19.0.1',
+                                        'peer': ['172.19.0.1', 1]})
+
+    def test_invalid_websocket_headers_do_not_close_connection(self):
+        from fastapi import WebSocket
+        app = make_app()
+        @app.websocket('/test/ws')
+        async def echo(ws: WebSocket):
+            await ws.accept()
+            await ws.send_json({'scheme': ws.scope['scheme'], 'host': ws.headers['host'],
+                                'client': ws.client.host})
+            await ws.close()
+        c = TestClient(app, client=('172.19.0.1', 1))
+        with c.websocket_connect('/test/ws', headers={'x-forwarded-host': 'one.test,two.test',
+                                                      'x-forwarded-proto': 'https',
+                                                      'x-forwarded-for': 'invalid'}) as ws:
+            self.assertEqual(ws.receive_json(), {'scheme': 'wss', 'host': 'testserver', 'client': '172.19.0.1'})
+
+    def test_warnings_once_per_peer_bounded_and_no_header_values(self):
+        from core.utils import proxy_headers, logger
+        with patch.object(proxy_headers, '_warned_peers', set()), \
+             patch.object(proxy_headers, '_WARNING_PEER_LIMIT', 2), \
+             patch.object(logger.LoggerFactory, 'logbot') as log:
+            c = TestClient(make_app(), client=('8.8.8.8', 1))
+            for _ in range(3):
+                c.get('/test/url', headers={'x-forwarded-host': 'secret.test'})
+            self.assertEqual(log.warning.call_count, 1)
+            c = TestClient(make_app(), client=('172.19.0.1', 1))
+            for _ in range(3):
+                c.get('/test/url', headers={'x-forwarded-for': 'secret-token'})
+            self.assertEqual(log.warning.call_count, 2)
+            c = TestClient(make_app(), client=('8.8.4.4', 1))
+            c.get('/test/url', headers=FWD)
+            self.assertEqual(log.warning.call_count, 2)
+            self.assertEqual(len(proxy_headers._warned_peers), 2)
+            messages = str(log.warning.call_args_list)
+            self.assertIn('[proxy]', messages)
+            self.assertNotIn('secret', messages)
+
+    def test_admin_post_reproduces_205_with_auto_and_obsolete_setting(self):
+        import main
+        for setting, scheme in (('', 'https'), ('10.20.10.3', 'http')):
+            set_trusted_proxies(setting)
+            app = FastAPI()
+            @app.get('/test/session')
+            def session(request: Request):
+                request.session['admin_logged_in'] = True
+                return {'token': csrf.get_or_create_token(request)}
+            @app.post('/test/admin')
+            def admin(request: Request):
+                return {'scheme': request.url.scheme}
+            app.middleware('http')(main.inject_version_middleware)
+            app.add_middleware(SessionMiddleware, secret_key='fixture-secret')
+            app.add_middleware(TrustedProxyHeadersMiddleware)
+            c = TestClient(app, client=('172.19.0.1', 1), base_url='http://safetyreport.fentanest.com')
+            token = c.get('/test/session').json()['token']
+            headers = {'x-forwarded-proto': 'https', 'origin': 'https://safetyreport.fentanest.com',
+                       'sec-fetch-site': 'same-origin', 'x-csrf-token': token}
+            r = c.post('/test/admin', headers=headers)
+            self.assertEqual((r.status_code, r.json()), (200, {'scheme': scheme}))
+            headers['x-csrf-token'] = 'wrong'
+            r = c.post('/test/admin', headers=headers)
+            self.assertEqual((r.status_code, r.json()['reason']), (403, 'csrf'))
+            headers.pop('x-csrf-token')
+            r = c.post('/test/admin', headers=headers, data={'_csrf_token': token})
+            self.assertEqual((r.status_code, r.json()), (200, {'scheme': scheme}))
+
+    def test_none_auto_settings_validation_and_save(self):
+        helper = SettingsSaveTrustedProxiesTests()
+        for previous in ('', 'none, 10.0.0.1'):
+            r, apply = helper._save(previous, 'none, 10.0.0.1')
+            self.assertEqual((r.status_code, apply.call_count), (400, 0))
+        for value in ('auto', 'none', 'auto, 203.0.113.5'):
+            r, apply = helper._save('', value)
+            self.assertEqual((r.status_code, r.headers['location'], apply.call_count),
+                             (303, '/settings/?saved=true', 1))
+
+    def test_relative_redirects_without_trust_and_external_destinations_unchanged(self):
+        from starlette.responses import RedirectResponse
+        app = make_app('none')
+        @app.get('/test/redirect')
+        def redirect(target: str):
+            return RedirectResponse(target, status_code=302)
+        c = TestClient(app, client=('172.19.0.1', 1), base_url='http://internal.test')
+        r = c.get('/crawl?q=a%2Fb&saved=true', headers=FWD, follow_redirects=False)
+        self.assertEqual((r.status_code, r.headers['location']), (307, '/crawl/?q=a%2Fb&saved=true'))
+        for target, expected in (
+            ('http://internal.test/path?q=a%2Fb#part', '/path?q=a%2Fb#part'),
+            ('https://INTERNAL.TEST:443/path', '/path'),
+            ('https://other.test/path', 'https://other.test/path'),
+            ('http://internal.test:8000/path', 'http://internal.test:8000/path'),
+            ('//other.test/path', '//other.test/path'),
+            ('http://internal.test//other.test/path', 'http://internal.test//other.test/path'),
+        ):
+            r = c.get('/test/redirect', params={'target': target}, follow_redirects=False)
+            self.assertEqual((r.status_code, r.headers['location']), (302, expected))
+
+    def test_rendered_scripts_are_relative_and_settings_show_socket_peer(self):
+        from core.utils.templating import templates
+        from services import community_gate, settings_service
+        import re
+        app = make_app('none')
+        @app.get('/test/table')
+        def table(request: Request):
+            return templates.TemplateResponse(request, 'data_table.html', {'records': [], 'table_id': 'fixture'})
+        c = TestClient(app, client=('172.19.0.1', 1), base_url='http://internal.test')
+        with patch.object(community_gate, 'check_for_request', return_value={'state': 'ready'}), \
+             patch.object(settings_service, 'view_values', return_value={}):
+            for path, expected in (('/settings/', ['official-account-settings']),
+                                   ('/test/table', ['list-predicates', 'data-table-cells', 'data-table'])):
+                r = c.get(path, headers=FWD)
+                self.assertEqual(r.status_code, 200)
+                for name in expected:
+                    self.assertIn(f'src="/static/ui/{name}.js"', r.text)
+                self.assertNotRegex(r.text, r'<script[^>]+src=["\']https?://[^"\']*/static/')
+                if path == '/settings/':
+                    self.assertIn('지금 이 화면 연결: 172.19.0.1 — 신뢰 안 함(전달 헤더 무시)', r.text)
+                    self.assertIn('placeholder="auto"', r.text)
+                    self.assertNotIn('변경 후 서버 재시작 필요', r.text)
+            set_trusted_proxies('auto')
+            r = c.get('/settings/', headers=FWD)
+            self.assertIn('지금 이 화면 연결: 172.19.0.1 — 신뢰함', r.text)

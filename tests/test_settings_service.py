@@ -82,6 +82,51 @@ class ApplyTest(unittest.TestCase):
         self.update_jobs.side_effect = None
         self.assertIsNone(svc._persist(svc.api_command({})).jobs_error)
 
+    def test_proxy_save_applies_to_next_request_without_recreating_app(self):
+        from fastapi import FastAPI, Request
+        from starlette.testclient import TestClient
+        from core.utils.proxy_headers import (TrustedProxyHeadersMiddleware, set_trusted_proxies,
+                                               get_trusted_proxy_config)
+        from web.routers import settings_route
+        old_config = get_trusted_proxy_config()
+        import core.utils.proxy_headers as proxy_headers
+        self.addCleanup(setattr, proxy_headers, "_current_config", old_config)
+        app = FastAPI()
+        app.include_router(settings_route.router)
+        @app.get("/probe")
+        def probe(request: Request):
+            return {"scheme": request.url.scheme, "host": request.headers["host"],
+                    "client": request.client.host}
+        app.add_middleware(TrustedProxyHeadersMiddleware)
+        set_trusted_proxies('none')
+        client = TestClient(app, client=('172.19.0.1', 1), base_url='http://internal.test')
+        headers = {'x-forwarded-proto': 'https', 'x-forwarded-host': 'public.test',
+                   'x-forwarded-for': '203.0.113.7'}
+        original = {'scheme': 'http', 'host': 'internal.test', 'client': '172.19.0.1'}
+        restored = {'scheme': 'https', 'host': 'public.test', 'client': '203.0.113.7'}
+        self.assertEqual(client.get('/probe', headers=headers).json(), original)
+        # Only account-binding side effects are excluded; route validation and disk save are real.
+        with mock.patch.object(svc, 'apply', side_effect=svc._persist):
+            for value, expected in (('auto', restored), ('none', original), ('', restored)):
+                response = client.post('/settings/save', data=dict(FORM, trusted_proxies=value),
+                                       headers=headers, follow_redirects=False)
+                self.assertEqual((response.status_code, response.headers['location']),
+                                 (303, '/settings/?saved=true'))
+                self.assertEqual(self._read('SETTINGS', 'trusted_proxies'), value)
+                self.assertEqual(client.get('/probe', headers=headers).json(), expected)
+        svc._persist(svc.api_command({'auto_export_excel': False}))
+        self.assertEqual(client.get('/probe', headers=headers).json(), restored)
+
+    def test_failed_proxy_save_keeps_current_trust_config(self):
+        from core.utils.proxy_headers import set_trusted_proxies, get_trusted_proxy_config
+        set_trusted_proxies('none')
+        with mock.patch.object(app_settings._instance, 'save', side_effect=OSError('fixture save failure')):
+            with self.assertRaises(OSError):
+                svc._persist(svc.web_command(dict(FORM, trusted_proxies='auto')))
+        self.assertEqual(get_trusted_proxy_config().networks, ())
+        # The mocked failing save did not consume thread-local pending values.
+        app_settings._instance._draft.pending = {}
+
     def test_google_credential_validation(self):
         for body in (b"broken", b"[]", b"{}", b"\xff"):
             with self.assertRaises(svc.CredentialInvalid):

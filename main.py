@@ -633,8 +633,8 @@ def create_app() -> FastAPI:
     """
     _init_runtime()
     # 잘못된 trusted_proxies 로 시작을 막지 않는다(Docker 재시작 루프 방지): 쓸 수 없는 항목은 경고 후 무시.
-    from core.utils.proxy_headers import parse_trusted_proxies
-    for warning in parse_trusted_proxies(settings.trusted_proxies).warnings:
+    from core.utils.proxy_headers import set_trusted_proxies
+    for warning in set_trusted_proxies(settings.trusted_proxies).warnings:
         logger.LoggerFactory.logbot.warning(f"[proxy] {warning}")
     app = FastAPI(title="나만의 안전신문고", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=static_path), name="static")
@@ -659,7 +659,7 @@ def create_app() -> FastAPI:
     )
     # Last registered = outermost: socket peer is checked before sessions/CSRF.
     from core.utils.proxy_headers import TrustedProxyHeadersMiddleware
-    app.add_middleware(TrustedProxyHeadersMiddleware, trusted_proxies=settings.trusted_proxies)
+    app.add_middleware(TrustedProxyHeadersMiddleware)
     app.state.engine = get_engine()
     return app
 

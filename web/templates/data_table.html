@@ -236,8 +236,8 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="{{ url_for('static', path='/ui/list-predicates.js') }}"></script>
+<script src="/static/ui/list-predicates.js"></script>
 <script type="application/json" id="srDataTableBootstrap">{{ {"records": records, "tableId": table_id} | tojson }}</script>
-<script src="{{ url_for('static', path='/ui/data-table-cells.js') }}"></script>
-<script src="{{ url_for('static', path='/ui/data-table.js') }}"></script>
+<script src="/static/ui/data-table-cells.js"></script>
+<script src="/static/ui/data-table.js"></script>
 {% endblock %}

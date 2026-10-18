@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-18 — 프록시 신뢰·CSRF 재설계 (미배포)
+
+- 빈 `trusted_proxies`/`auto`가 같은 PC·Docker·LAN·Tailscale 프록시를 자동 신뢰한다. 실행 파일이나 다른 PC 프록시에서도 사설·내부 대역이면 별도 IP 설정이 필요 없다. `none`은 전달 헤더를 모두 무시하며 명시 목록은 자동 대역을 대체한다. 저장 즉시 다음 요청에 반영하고 설정 화면에 현재 연결 peer와 신뢰 여부를 표시한다.
+- Docker 포트 매핑 뒤(호스트의 cloudflared 등)에서 앱이 보는 접속자가 브리지 게이트웨이라 `trusted_proxies` 와 맞지 않으면 크롤링 시작·설정 저장 등 관리자 POST 가 전부 403(`csrf_failed`, `reason: origin`)이던 문제를 해결한다. `Sec-Fetch-Site: same-origin`/`none`은 프록시 설정과 독립적으로 토큰을 확인하고, 구형 브라우저는 원래 Host·전달 Host도 출처 후보로 사용한다. 세션 토큰 필수·cross-site 거절·JSON 전용 경로의 content-type 요구는 유지한다.
+- 목록·설정 화면의 정적 스크립트와 같은 Host 리다이렉트를 상대 경로로 바꿔 HTTPS 페이지의 HTTP 스크립트·이동 문제를 막는다. 구 slash 없는 GET 307·쿼리 보존은 유지한다.
+- 잘못된 전달 헤더는 요청 전체를 거절하지 않고 그 헤더만 무시한다. 비신뢰 peer·잘못된 헤더 진단은 peer당 한 번, 최대 1,024 peer로 제한한다. IPv4-mapped IPv6를 지원하며 `/0` 설정은 시작 때 경고 후 무시한다.
+
 ## 2026-10-17 — 상세 원본 저장·DB 최적화(재파싱)·원본 보기 (미배포)
 
 사용자 결정(2026-10-17)에 따른 작업. 명세는 `docs/plans/2026-10-17-raw-detail-reparse.md`, 구현 Muse·검수 Sol(gpt-6-sol)·최종 감사 Opus.
