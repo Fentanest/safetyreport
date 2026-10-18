@@ -109,6 +109,11 @@ class StatsDrillIdentityTest(unittest.TestCase):
                 self.assertEqual(page['total'], row['total'])
                 web = query.get_traffic_records(self.engine, {'person': row['person'], 'personExact': True})
                 self.assertEqual(len(web), row['total'])
+                # 담당자 카드의 '지도에서 보기'도 같은 정규화(Astra 재감사: BOM 붙은 신고가 지도에서 빠졌다).
+                from services.stats.reads import _load_map_records_frame
+                _, _, frame = _load_map_records_frame(self.engine, category='traffic', mode=mode, taxonomy=5, filters={
+                    'targetAgencyKey': row['agency_key'], 'targetPerson': row['person'], 'completedOnly': True})
+                self.assertEqual(len(frame), row['total'], row['person'])
         self.assertEqual(names, ['Lee', '\ufeffLee', 'LEE', '\ufeff미지정', '\ufeff'])
 
     def test_types_normalization_and_literal_manager(self):

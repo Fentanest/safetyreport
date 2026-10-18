@@ -227,7 +227,9 @@ def _load_map_records_frame(
     elif target_agency and "처리기관" in combined_df.columns:
         combined_df = combined_df[combined_df["처리기관"].fillna("").astype(str).str.strip() == target_agency].copy()
     if target_person and "담당자" in combined_df.columns:
-        combined_df = combined_df[combined_df["담당자"].fillna("").astype(str).str.strip() == target_person].copy()
+        # 통계 담당자 묶음·정확 검색과 같은 정규화(report_policy.norm) — 카드·목록·지도 건수가 같다.
+        person = report_policy.norm(target_person)
+        combined_df = combined_df[combined_df["담당자"].fillna("").map(report_policy.norm) == person].copy()
 
     combined_df["위반장소"] = combined_df.get("위반장소", pd.Series(dtype="object")).fillna("").astype(str)
     combined_df["주소정규화"] = combined_df.get("주소정규화", pd.Series(dtype="object")).fillna("").astype(str)
