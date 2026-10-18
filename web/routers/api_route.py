@@ -13,6 +13,7 @@ from services import crawl_control, crawl_state_store, data_service, db_editor_s
 from services.crawl_manager import crawl_manager
 from services.ws_manager import ws_manager
 from services import selfhost_compat
+from services.client_report_search import IDENTITY_SEARCH_CAPABILITY
 from core.utils.request_body import json_object, string_list
 from core.utils.temporary_response import TemporaryFileResponse
 from web.routers.filters import default_dedupe_mode, normalize_dedupe_mode
@@ -777,7 +778,7 @@ def get_app_config(_: str = Depends(_require_api_key)):
             # raw_detail_v1(2026-10-17): `GET /api/v1/reports/{id}/raw-detail` 원본 보기. 없으면 404, 손상이면 409.
             # 이 신호가 없는 구서버에는 Client 가 원본 보기 동작을 보이지 않는다.
             "capabilities": ["rating_cause", "community_account", "report_search_v1", "law_search_v2",
-                             "raw_detail_v1"],
+                             "raw_detail_v1", IDENTITY_SEARCH_CAPABILITY],
             "report_search_version": 1,
             "law_search_version": 2,
             "raw_detail_version": 1,

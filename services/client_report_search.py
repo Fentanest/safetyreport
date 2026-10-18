@@ -11,7 +11,7 @@ from sqlalchemy import func
 from services import report_policy
 from services.law_values import matches_law_keys, matches_laws
 from services.report_filter_spec import RANGE_FIELDS, range_key
-from services.agency_registry import resolve_display_agency
+from services.agency_registry import resolve_display_agency, resolve_stats_agency
 
 VERSION = 1
 CAPABILITY = 'report_search_v1'
@@ -19,15 +19,16 @@ CAPABILITY = 'report_search_v1'
 # `lawExact`(저장 키 소속 판정 = 통계 막대·상세 링크)를 받는다. v3.3.0 이하는 저장값 완전 일치만 본다.
 LAW_SEARCH_CAPABILITY = 'law_search_v2'
 LAW_SEARCH_VERSION = 2
+IDENTITY_SEARCH_CAPABILITY = 'report_search_identity_v1'
 TEXT_FIELDS = {
     'name': '신고명', 'reportNumber': '신고번호', 'id': 'ID',
     'ratingCause': '별점사유', 'agency': '처리기관', 'manager': '담당자',
     'carNumber': '차량번호', 'location': '위반장소', 'fine': '범칙금_과태료',
     'supplementCount': '보완횟수', 'reportContent': '신고내용', 'processContent': '처리내용',
 }
-STRING_KEYS = {*TEXT_FIELDS, 'law', 'pollStatus',
+STRING_KEYS = {*TEXT_FIELDS, 'law', 'pollStatus', 'agencyKey',
                *(prefix + suffix for prefix, *_ in RANGE_FIELDS for suffix in ('Start', 'End'))}
-BOOL_KEYS = {'excludePolice', 'onlyPolice', 'lawExact'}
+BOOL_KEYS = {'excludePolice', 'onlyPolice', 'lawExact', 'managerExact'}
 LIST_KEYS = {'ratings', 'statuses'}
 
 
@@ -93,7 +94,20 @@ def compile_predicate(filters):
     def agency(code, name):
         return resolve_display_agency(code, name)[0] or name or ''
 
+    if f.get('agencyKey'):
+        @lru_cache(maxsize=512)
+        def agency_key(code, name):
+            return resolve_stats_agency(code, name)[1]
+        add(['처리기관코드', '처리기관'],
+            lambda r: agency_key(r['처리기관코드'], r['처리기관']) == f['agencyKey'])
+    if f.get('managerExact'):
+        # 통계 표의 담당자 묶음(앞뒤 공백만 제거, 대소문자 보존)과 같은 판정 — 카드 건수 = 목록 건수.
+        manager = report_policy.norm(f.get('manager', ''))
+        add(['담당자'], lambda r: report_policy.norm(r['담당자']) == manager)
+
     for key, column in TEXT_FIELDS.items():
+        if key == 'agency' and f.get('agencyKey') or key == 'manager' and f.get('managerExact'):
+            continue
         groups = [[_lower(t) for t in g.split('&') if report_policy.norm(t)]
                   for g in f.get(key, '').split(',')]
         groups = [g for g in groups if g]

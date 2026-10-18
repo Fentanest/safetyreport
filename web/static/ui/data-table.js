@@ -14,8 +14,9 @@ $(document).ready(function() {
     const qLaw = urlParams.get('law');
     const qLocation = urlParams.get('location');
 
-    if (qAgency) $('#searchAgency').val(qAgency);
-    if (qPerson) $('#searchPerson').val(qPerson);
+    // 기관 키·담당자 정확 조건은 서버에서 판정했다. 표시명/분해 검색을 중복 적용하지 않는다.
+    if (qAgency && !urlParams.get('agencyKey')) $('#searchAgency').val(qAgency);
+    if (qPerson && urlParams.get('personExact') !== 'true') $('#searchPerson').val(qPerson);
     if (qCar) $('#searchCar').val(qCar);
     // '__없음__'(법규 없는 신고)은 서버가 이미 걸렀다. 검색칸에 넣으면 글자 그대로 다시 걸러 0건이 된다(D-STAT-8).
     // lawExact 로 넘어온 여러 저장 키(줄 = AND, 통계가 법규로 좁혀진 뒤의 막대)는 한 줄 입력칸에 담을 수 없다 — 서버가 이미 걸렀다.

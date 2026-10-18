@@ -1104,4 +1104,21 @@ CSV/Excel 및 DB 백업·양방향 변환은 원본 LF 문자열과 사용자 �
 로컬 `computeStatsBundle`은 `all`과 분류별 `by_law`를 함께 계산한다. 요약은 기존 `StatsOverview.all`을 재사용한다.
 DB 스키마·교환 컬럼·인증·WS 계약은 바뀌지 않는다. 공통 합성 입력은 `contracts/stats-all-vectors.json`이다.
 
-전체 기관/담당자 카드의 모바일 목록 이동은 `FilteredListScreen(category: all)`에 화면 전용 `reportFilter`를 전달한다. 완료 상태·연도·법규·기관·담당자를 먼저 좁히고 `agency_key`와 담당자를 정확히 대조한다. 공용 목록 필터는 바꾸지 않는다.
+전체 기관/담당자 카드의 모바일 목록 이동은 `FilteredListScreen(category: all)`에 화면 전용 `reportFilter`를 전달한다. 완료 상태·연도·법규와 함께 기관 키·담당자 정확값을 COUNT·LIMIT 전에 판정한다(아래 식별 조건 계약). 공용 목록 필터는 바꾸지 않는다.
+
+
+## 통계 기관·담당자 목록 검색 식별 조건 (2026-10-18)
+
+- `agencyKey`(string, 기본 빈 값)는 통계와 같은 기관 집계 키를 비교한다. 서버 `resolve_stats_agency(code, name)[1]`, 모바일 `registryKeyedAgency(code, name).key`를 그대로 사용한다. 키가 있으면 `agency` 이름 검색은 무시하며 모바일 요청에는 이름 조건을 넣지 않는다. 모델의 기관 표시명은 제목·칩과 구서버 fallback을 위해 유지한다.
+- `managerExact`(bool, 기본 false)가 true면 `manager` 전체를 공통 문자열 정규화 후 simple lowercase로 비교한다. 쉼표 OR·`&` AND로 나누지 않는다. 빈 질의도 빈 담당자와 정확 비교한다. 일반 검색은 기존 부분 검색을 유지한다.
+- `/api/v1/app/config`의 `capabilities`에 `report_search_identity_v1`을 추가한다. `report_search_version: 1`과 기존 키·응답은 유지한다. Client는 지원 신호를 확인한 경우에만 두 키를 전송한다. 미확인·구서버에서는 기관 표시명·담당자 부분 검색으로 열며 카드와 정확한 건수 일치를 보장하지 않는다. Standalone은 항상 지원한다.
+- 서버는 SQLite 검색 UDF, 모바일은 읽기 트랜잭션 안의 기관 TEMP lookup(`stats_key`) 및 담당자 DISTINCT 원문 판정 후 SQL IN 조건으로 COUNT·LIMIT 전에 필터한다. 담당자는 BLOB 읽기로 BOM을 보존하고 Dart 정규화·소문자 비교를 적용하므로 SQLite의 ASCII 한정 lower()에 의존하지 않는다. 영구 DB 스키마·교환 컬럼은 바꾸지 않는다.
+- 통계의 전체·분류별 카드만 새 조건을 사용한다. 연도(답변일)·법규·답변 완료·대표건 조건을 유지하며 조회 뒤 predicate로 제거하지 않는다. 검색 시트에 새 입력은 추가하지 않는다. 기존 기관·담당자를 바꾸지 않고 적용하면 정확 조건을 유지하고, 해당 이름을 바꾸거나 칩을 지우면 해당 정확 조건도 해제한다.
+- 두 저장소 `contracts/client-search-vectors.json`에 기관 키 우선·담당자 정확값·구분자 리터럴 사례를 추가했다.
+
+### 코드 대조 정정
+
+| 기존 설명 | 현재 코드와 계약 |
+|---|---|
+| 전체 카드가 기관·담당자 조건을 좁힌 뒤 키를 대조한다 | 조회 후 대조는 없다. 정확 조건을 COUNT·LIMIT 전에 적용한다. 구서버 fallback은 이름 부분 검색이다. |
+| 명세 배경의 웹 담당자 이름 부분 검색 | 기존 서버 SQL은 `담당자 == person` 원문 완전 일치였다. 기존 링크는 보존하고 `personExact=true`에서만 정규화한 정확값 비교를 추가한다. |

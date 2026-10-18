@@ -26,6 +26,7 @@
 | 목록 검색칸 반응형 | DataTables의 Bootstrap 두 열 도구 모음에서도 검색 input은 부모 폭 안에서 축소한다. viewport 폭만으로 판단하지 않으며 표 자체의 내부 가로 스크롤은 유지한다. | 정정 |
 | HTTP 관리자 인증 | 임의 `Upgrade: websocket` 헤더는 세션 예외가 아니다. 실제 WebSocket ASGI scope는 HTTP middleware 밖에서 기존 WS 인증·protocol 검사로 처리한다. | 정정 |
 | 리버스 프록시 지원 (trusted_proxies) | 원문의 "`main.py` 모듈 레벨 uvicorn ProxyHeadersMiddleware 조건부 적용"은 2026-10-14 부터 사실이 아니다. `create_app()` 이 `TrustedProxyHeadersMiddleware` 를 항상 등록하고, 빈 값은 auto(루프백·사설·내부 대역)이며 저장 즉시 반영한다(2026-10-18 개정). | 정정 |
+| 통계 담당자 목록 정확 조건 (2026-10-18) | 담당자 행 링크의 `personExact=true`는 공통 정규화·소문자 비교 후 한 값으로 판정한다. `agencyKey`가 있으면 이름 조건을 무시한다. 서버가 확정한 기관·담당자는 목록 검색칸에 다시 넣지 않으며 제목에 표시한다. 기존 요약·법규 링크와 `personExact` 없는 링크는 유지한다. | 추가 |
 | 통계 초기 셸·상세 이동 | 초기 버튼은 loader가 즉시 연결한다. 서버 `agency_key`로 행을 선택하고 완료 모집단을 목록/상세 지도에 전달한다. [통계 명세](../design/statistics-spec.md#9-6-코드-대조-정정) 참조. | 정정 |
 
 ## 이관 원문

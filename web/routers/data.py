@@ -46,7 +46,7 @@ def _identity_filters(request: Request, filters: dict | None) -> dict | None:
     key = request.query_params.get("agencyKey")
     if key:
         filters = dict(filters or {}, agencyKey=key)
-    for key in ('excludePolice', 'onlyPolice'):
+    for key in ('excludePolice', 'onlyPolice', 'personExact'):
         if request.query_params.get(key) == 'true':
             filters = dict(filters or {}, **{key: True})
     if filters and request.query_params.get("lawExact") == "true":

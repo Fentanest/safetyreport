@@ -104,7 +104,7 @@ def _build_records_query(table_obj, filters=None, categories=None):
             query = query.where(clause)
 
     person = filters.get("person")
-    if person and "담당자" in table_obj.c:
+    if person and not filters.get("personExact") and "담당자" in table_obj.c:
         query = query.where(table_obj.c["담당자"] == person)
 
     law = filters.get("law")
@@ -194,6 +194,7 @@ def _get_records_from_connection(conn, table_obj, filters=None, *, category='', 
     if filters and not df.empty:
         # 기관(표시명)·경찰 조건: 통계와 같은 ReportFilterSpec(EO R-02). 기관 키가 있으면 위에서 이미 골랐다.
         spec = ReportFilterSpec.from_filters({
+            "person": filters.get("person"), "personExact": filters.get("personExact"),
             "agency": "" if agency_key else filters.get("agency"), "agencyExact": filters.get("agencyExact"),
             "excludePolice": filters.get("excludePolice"), "onlyPolice": filters.get("onlyPolice")})
         df = spec.apply_rows(df)

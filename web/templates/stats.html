@@ -289,7 +289,7 @@
             {% macro person_rows(records, base_url) %}
                 {% for r in records %}
                 {% set key = r.agency_key or ('src:-:' ~ r.agency) %}
-                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'person': r.person, 'agencyExact': 'true', 'agencyKey': key}) %}
+                {% set q = dict(drill_base) %}{% set _ = q.update({'agency': r.agency, 'person': r.person, 'personExact': 'true', 'agencyExact': 'true', 'agencyKey': key}) %}
                 <tr class="sr-drill" tabindex="0" data-key="{{ [key, r.person] | tojson | forceescape }}" data-href="{{ base_url }}?{{ q | urlencode }}">
                     <td class="sr-name" title="{{ r.agency }} · 기관 집계 키: {{ key }}">{{ r.agency }}</td>
                     <td class="sr-person" title="{{ r.person }}">{{ r.person }}</td>

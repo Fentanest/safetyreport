@@ -36,3 +36,25 @@
 - 서버 `all` 은 projection·필터 뒤 원자료 프레임을 합쳐 기존 `calc_stats` 로 재집계 — 처분·추정액은 행의 실제 category/entry_value 로 판정, 확정·추정 금액 분리 유지.
 - `/api/v1/stats` 는 라우터 변경 없이 `data.all` 이 추가된다(taxonomy 3/5). 기존 키 보존은 시험으로 확인.
 - 모바일: 구서버(응답에 `all` 없음)면 전체 칩을 숨기고 교통위반. 전체 카드의 목록 이동은 `FilteredListScreen(category: 'all')`.
+
+## 추가: Astra 교차 확인 → 카드 → 목록 정확 일치 (같은 날)
+
+Astra 읽기 전용 교차 확인(`.agent-runs/release-review-1018/astra-cross.md`)이 모바일 카드 → 목록에서 높음 1·중간 2를 찾았다
+(조회 뒤 predicate 로 첫 페이지가 빔, `(구)` 기관 0건, Client 가 서버 검색을 못 써 전체 다운로드). 이름 조건만으로 여는 임시 수정(cf45b5a7)은
+재확인(`astra-recheck.md`)에서 동명 기관·담당자 부분 일치가 섞이는 한계가 지적돼, 사용자 결정으로 검색 계약을 넓혔다
+(명세 [docs/plans/2026-10-18-stats-drill-identity.md](../plans/2026-10-18-stats-drill-identity.md), 구현 Astra).
+
+- 검색 필터 `agencyKey`(통계 표와 같은 기관 집계 키)·`managerExact`, capability `report_search_identity_v1`. 구서버는 이름 조건으로 fallback.
+- 웹 담당자 행 링크 `personExact=true`, 목록 JS 가 서버 정확 조건을 이름으로 다시 거르지 않음.
+- 모바일 분류별·전체 카드 모두 정확 조건. 로컬은 COUNT·LIMIT 전 SQL 조건.
+
+Opus 검수 수정: 담당자 정확 일치를 **대소문자 구분**으로 바꿨다(명세가 기존 검색처럼 대소문자 무시를 요구했으나, 통계 표는 담당자를 앞뒤 공백만 지우고
+대소문자를 살려 묶으므로 `Lee`/`LEE` 카드가 서로의 신고를 포함하게 된다). 서버 API·웹·모바일 세 경로와 공통 벡터(` Lee ` 일치, ` LEE ` 0건)를 함께 고쳤다.
+모바일 정확 일치 위젯 시험은 Sunwi 조회를 모의 HTTP 빈 정상 응답으로 막아 남는 재시도 타이머를 없앴다.
+
+| 항목 | 결과 |
+|---|---|
+| 서버 unittest 전체 | passed — 1,307 OK, skip 5 |
+| 모바일 flutter test 전체 / analyze | passed — 2,334, skip 18 / No issues |
+| 서버↔모바일 계산 동등성 | passed — 45 조합 차이 0 |
+| 공통 검색 벡터(서버·모바일 바이트 동일) | passed |

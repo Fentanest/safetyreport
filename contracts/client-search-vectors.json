@@ -1851,6 +1851,52 @@
         "0004",
         "0000"
       ]
+    },
+    {
+      "filter": {
+        "agencyKey": "src:-:합성 경찰서",
+        "agency": "무시할 기관"
+      },
+      "ids": [
+        "0028",
+        "0024",
+        "0020",
+        "0016",
+        "0012",
+        "0008",
+        "0004",
+        "0000"
+      ]
+    },
+    {
+      "filter": {
+        "manager": " Lee ",
+        "managerExact": true
+      },
+      "ids": [
+        "0029",
+        "0025",
+        "0021",
+        "0017",
+        "0013",
+        "0009",
+        "0005",
+        "0001"
+      ]
+    },
+    {
+      "filter": {
+        "manager": "김 합성,Lee",
+        "managerExact": true
+      },
+      "ids": []
+    },
+    {
+      "filter": {
+        "manager": " LEE ",
+        "managerExact": true
+      },
+      "ids": []
     }
   ]
 }

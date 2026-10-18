@@ -90,11 +90,14 @@ class TextFilter:
     column: str
     groups: tuple[tuple[str, ...], ...]
     exact: bool = False
+    case_sensitive: bool = False
 
     def matches(self, value) -> bool:
         if not self.groups:
             return True
-        source = report_policy.norm(value).casefold()
+        source = report_policy.norm(value)
+        if not self.case_sensitive:
+            source = source.casefold()
         if self.exact:
             return source == self.groups[0][0]
         return any(all(term in source for term in group) for group in self.groups)
@@ -136,6 +139,10 @@ class ReportFilterSpec:
             exact = (key == "agency" and bool(filters.get("agencyExact")) and "&" not in raw and "," not in raw
                      and len(groups) == 1 and len(groups[0]) == 1)
             texts.append(TextFilter(column, groups, exact))
+        if filters.get("personExact"):
+            # 담당자는 쉼표·& 를 포함해 한 값. 통계 표 묶음(앞뒤 공백만 제거, 대소문자 보존)과 같은 판정.
+            person = report_policy.norm(filters.get("person"))
+            texts.append(TextFilter("담당자", ((person,),), True, case_sensitive=True))
         police = "exclude" if filters.get("excludePolice") else ("only" if filters.get("onlyPolice") else "")
         if filters.get("excludePolice") and filters.get("onlyPolice"):
             police = "both"  # 둘 다 켜면 아무것도 남지 않는다(기존 동작 그대로)
