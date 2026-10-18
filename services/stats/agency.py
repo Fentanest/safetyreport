@@ -104,6 +104,14 @@ def _compute_agency_stats(available_years, frames, filters=None, mode: str = "ca
         })
 
     results = {category: calc_stats(df, category) for category, df in frames.items()}
+    # 원래 category/entry_value 를 보존해 처분·추정액은 행의 실제 분류로 판정한다.
+    non_empty = [df for df in frames.values() if not df.empty]
+    combined = pd.concat(non_empty, ignore_index=True) if non_empty else pd.DataFrame()
+    results["all"] = {
+        "estimated_fine_amount": 0, "estimated_fine_count": 0,
+        "estimate_rule_version": fine_estimate.RULE_VERSION, "has_empty_law": False,
+        **calc_stats(combined, "all"),
+    }
     traffic_df = frames.get("traffic")
     return _sanitize_jsonable({
         **results,

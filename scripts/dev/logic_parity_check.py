@@ -52,11 +52,11 @@ for ew in (False, True):
         tag = f"ew={str(ew).lower()}|rep={str(rep).lower()}"
         d = rs.get_dashboard_stats(engine, mode=mode)
         out["summary|" + tag] = {k: d.get(k) for k in keys}
-        out["stats|" + tag] = rs.get_agency_stats(engine, None, mode=mode)
-        out["overview|" + tag] = rs.get_stats_overview(engine, None, mode=mode)
+        out["stats|" + tag] = rs.get_agency_stats(engine, None, mode=mode, taxonomy=5)
+        out["overview|" + tag] = rs.get_stats_overview(engine, None, mode=mode, taxonomy=5)
 # 필터 조합: 가장 최근 연도, 교통 첫 법규, 법규 없음, 연도+법규 (값은 이 데이터에서 고른다)
 st._instance.exclude_withdraw = False
-base = rs.get_agency_stats(engine, None, mode="raw")
+base = rs.get_agency_stats(engine, None, mode="raw", taxonomy=5)
 years = base.get("available_years") or []
 laws = base["traffic"].get("available_laws") or []
 filters = []
@@ -74,13 +74,21 @@ for f in filters:
             mode = "canonical" if rep else "raw"
             ftag = ",".join(f"{k}={v}" for k, v in sorted(f.items()))
             tag = f"ew={str(ew).lower()}|rep={str(rep).lower()}|f=" + ftag
-            out["fstats|" + tag] = rs.get_agency_stats(engine, dict(f), mode=mode)
-            out["foverview|" + tag] = rs.get_stats_overview(engine, dict(f), mode=mode)
+            out["fstats|" + tag] = rs.get_agency_stats(engine, dict(f), mode=mode, taxonomy=5)
+            out["foverview|" + tag] = rs.get_stats_overview(engine, dict(f), mode=mode, taxonomy=5)
+import pandas as pd
+from pathlib import Path
+from services import report_category
+rows = json.loads(Path('contracts/stats-all-vectors.json').read_text())['rows']
+frame = pd.DataFrame(rows)
+frames = {c: rs._prepare_metrics(frame[frame.category == c]) for c in report_category.CATEGORIES}
+st._instance.exclude_withdraw = False
+out['all-vector'] = rs._compute_agency_stats([], frames)['all']
 out["_filters"] = filters
 json.dump(out, open(sys.argv[1], "w", encoding="utf-8"), ensure_ascii=False, default=str)
 '''
 
-_ROW_KEYS = ("law", "agency", "person", "month")
+_ROW_KEYS = ("law", "agency_key", "agency", "person", "month")
 
 
 def _row_key(row: dict) -> str:
@@ -169,6 +177,10 @@ def main() -> int:
             if key not in server or key not in mobile:
                 diffs.append((key, "조합이 한쪽에만"))
                 continue
+            if key.startswith(('stats|', 'fstats|')):
+                for side, payload in (("서버", server[key]), ("모바일", mobile[key])):
+                    if 'all' not in payload or 'by_law' not in payload['all']:
+                        diffs.append((key, f"{side} 전체 통계/법규표 누락"))
             compare(server[key], mobile[key], key, diffs, one_side)
 
         by_path: dict[str, int] = {}

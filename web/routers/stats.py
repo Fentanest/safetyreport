@@ -95,16 +95,16 @@ def view_stats(
     # 선택 항목 상세 패널·CSV 내보내기용 행 자료. 경찰/비경찰 표는 기관별·담당자별의 부분집합이라 두 목록만 내린다.
     table_rows = {
         cat: {"agency": records[cat]["by_agency"], "person": records[cat]["by_person"]}
-        for cat in report_category.CATEGORIES
+        for cat in ("all", *report_category.CATEGORIES)
     }
-    # 상세표 30개(분류 5 × 보기 6). 경찰/비경찰 보기는 기관별·담당자별의 부분집합(기관명에 '경찰').
+    # 상세표 36개(전체 + 분류 5 × 보기 6). 경찰/비경찰 보기는 기관별·담당자별의 부분집합(기관명에 '경찰').
     pane_rows = {
         cat: {
             "agency": records[cat]["by_agency"], "person": records[cat]["by_person"],
             "police_agency": records[cat]["police_by_agency"], "police_person": records[cat]["police_by_person"],
             "other_agency": records[cat]["other_by_agency"], "other_person": records[cat]["other_by_person"],
         }
-        for cat in report_category.CATEGORIES
+        for cat in ("all", *report_category.CATEGORIES)
     }
     try:
         last_crawl_time = data_service.get_last_sync_label(engine)
@@ -125,6 +125,15 @@ def view_stats(
         "available_years": records.get("available_years", []),
         "overview": overview,
         "current_year": year or "all",
+        "all_available_laws": records["all"].get("available_laws", []),
+        "all_has_empty_law": records["all"].get("has_empty_law", False),
+        "records_all_agency": records["all"]["by_agency"],
+        "records_all_person": records["all"]["by_person"],
+        "records_all_police_agency": records["all"]["police_by_agency"],
+        "records_all_police_person": records["all"]["police_by_person"],
+        "records_all_other_agency": records["all"]["other_by_agency"],
+        "records_all_other_person": records["all"]["other_by_person"],
+        "records_all_law": records["all"]["by_law"],
         # 2026-09-24 결정: 배너도 현재 필터를 반영한다(표 합계와 같은 값). API 의 traffic_total_fine 은 호환을 위해 그대로 둔다.
         "traffic_total_fine": records["traffic"].get("total_fine_amount", 0),
         "traffic_estimated_fine": records["traffic"].get("estimated_fine_amount", 0),

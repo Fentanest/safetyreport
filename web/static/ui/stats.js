@@ -24,7 +24,7 @@
     var YEAR = DATA.year || 'all';
 
     // 2026-10-11: '기타' 를 안전신고·생활불편·기타로 세분화(5분류).
-    var CAT_LABELS = { traffic: '교통위반', parking: '주정차위반', safety: '안전신고', living: '생활불편', other: '기타' };
+    var CAT_LABELS = { all: '전체', traffic: '교통위반', parking: '주정차위반', safety: '안전신고', living: '생활불편', other: '기타' };
     var TYPE_LABELS = {
         agency: '기관별', person: '담당자별', 'police-agency': '경찰 기관', 'police-person': '경찰 담당자',
         'other-agency': '비경찰 기관', 'other-person': '비경찰 담당자'
@@ -58,10 +58,10 @@
     function mapParams(cat, target) { return Calc.mapParams(cat, target, CTX); }
 
     // ── 상태 ──
-    var currentCat = window.srPendingStatsCat || storageGet(sessionStorage, 'stats_cat') || 'traffic';
+    var currentCat = window.srPendingStatsCat || storageGet(sessionStorage, 'stats_cat') || 'all';
     delete window.srPendingStatsCat;
     var currentType = storageGet(sessionStorage, 'stats_type') || 'agency';
-    if (!CAT_LABELS[currentCat]) currentCat = 'traffic';
+    if (!Object.prototype.hasOwnProperty.call(CAT_LABELS, currentCat)) currentCat = 'all';
     if (!TYPE_LABELS[currentType]) currentType = 'agency';
     var searchTerm = '';
     var pageLength = 50;
@@ -80,7 +80,7 @@
 
     // 행 자료(상세 패널·CSV): 분류별 기관/담당자 목록을 키로 찾는다
     var rowIndex = {};
-    ['traffic', 'parking', 'safety', 'living', 'other'].forEach(function (cat) {
+    ['all', 'traffic', 'parking', 'safety', 'living', 'other'].forEach(function (cat) {
         rowIndex[cat] = { agency: Object.create(null), person: Object.create(null) };
         var rows = (DATA.rows && DATA.rows[cat]) || { agency: [], person: [] };
         (rows.agency || []).forEach(function (r) { rowIndex[cat].agency[rowKey(r, false)] = r; });

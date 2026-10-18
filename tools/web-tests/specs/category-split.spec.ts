@@ -37,12 +37,12 @@ test('sidebar lists 안전신고·생활불편·기타 조회 and each list load
   await expect(page.locator('body')).not.toContainText('SPP-2512-9000001');
 });
 
-test('stats category segment has five buttons and switches to safety/living without breaking the pane', async ({ page }) => {
+test('stats category segment has all plus five categories and switches to safety/living without breaking the pane', async ({ page }) => {
   await login(page);
   await page.goto('/stats');
   await expect(page.locator('.stats-pane:visible .dataTables_wrapper')).toHaveCount(1);
 
-  const cats = ['traffic', 'parking', 'safety', 'living', 'other'];
+  const cats = ['all', 'traffic', 'parking', 'safety', 'living', 'other'];
   await expect(page.locator('#statsCatGroup .stats-cat-btn')).toHaveCount(cats.length);
   for (const cat of cats) {
     await expect(page.locator(`.stats-cat-btn[data-cat="${cat}"]`)).toHaveCount(1);

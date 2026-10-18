@@ -10,9 +10,9 @@ window.SrStatsLoader = { start: function (data) {
     window.SrStatsLoader.cancelMap = function () {
         mapDisposed = true; mapSeq++; if (mapAbort) mapAbort.abort(); window.srMapLoading = false;
     };
-    var cat = 'traffic';
+    var cat = 'all';
     try { cat = sessionStorage.getItem('stats_cat') || cat; } catch (e) { /* 저장 불가여도 동작 */ }
-    if (!['traffic','parking','safety','living','other'].includes(cat)) cat = 'traffic';
+    if (!['all','traffic','parking','safety','living','other'].includes(cat)) cat = 'all';
     var mapCard = document.getElementById('statsMapCard');
     var filters=data.filters || {}, listParams={};
     ['law','reportName','location','reportDateStart','reportDateEnd','occurDateStart','occurDateEnd','occurTimeStart','occurTimeEnd'].forEach(function(k){if(filters[k]) listParams[k]=filters[k];});

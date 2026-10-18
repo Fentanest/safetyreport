@@ -12,6 +12,19 @@ async function ready(page: Page) {
   await expect(page.locator('.stats-pane:visible .dataTables_wrapper')).toHaveCount(1);
 }
 
+test('all is the default and links, map and CSV retain all', async ({ page }) => {
+  await login(page);
+  await page.goto('/stats');
+  await ready(page);
+  await expect(page.locator('.stats-cat-btn[data-cat="all"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#all-agency')).toBeVisible();
+  await expect(page.locator('#all-agency tbody tr.sr-drill').first()).toHaveAttribute('data-href', /^\/data\/all\?/);
+  await expect(page.locator('#statsMapOpen')).toHaveAttribute('href', /category=all/);
+  const download = page.waitForEvent('download');
+  await page.locator('#statsExportCsv').click();
+  expect((await download).suggestedFilename()).toContain('전체');
+});
+
 test('filter summary lists the active conditions and offers a reset', async ({ page }) => {
   await login(page);
   await page.goto('/stats?agency=' + encodeURIComponent('강서') + '&year=2026');
@@ -74,14 +87,14 @@ test('summary cards match the mobile overview API for each category', async ({ p
   const path = await import('path');
   const { fixtureDataDir } = await import('../playwright.config');
   const key = fs.readFileSync(path.join(fixtureDataDir, 'fixture-api-key.txt'), 'utf-8').trim();
-  const response = await request.get('/api/v1/stats/overview', { headers: { 'X-API-Key': key, 'X-SafetyReport-Client': 'mobile', 'X-SafetyReport-Version': '2.0.0+31', 'X-SafetyReport-Protocol': '3' } });
+  const response = await request.get('/api/v1/stats/overview', { headers: { 'X-API-Key': key, 'X-SR-Taxonomy': '5', 'X-SafetyReport-Client': 'mobile', 'X-SafetyReport-Version': '2.0.0+31', 'X-SafetyReport-Protocol': '3' } });
   expect(response.status()).toBe(200);
   const api = (await response.json()).data;
 
   await login(page);
   await page.goto('/stats');
   await ready(page);
-  for (const cat of ['traffic', 'parking', 'other']) {
+  for (const cat of ['all', 'traffic', 'parking', 'safety', 'living', 'other']) {
     await page.locator(`.stats-cat-btn[data-cat="${cat}"]`).click();
     const s = api[cat];
     const box = page.locator('#statsOverview');

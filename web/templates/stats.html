@@ -48,6 +48,7 @@
             <div class="sr-cond-group">
                 <span class="sr-seg-label">분류</span>
                 <div class="sr-seg" id="statsCatGroup" role="group" aria-label="분류">
+                    <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="all"><i class="fas fa-layer-group me-1"></i>전체</button>
                     <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="traffic"><i class="fas fa-road me-1"></i>교통위반</button>
                     <button type="button" class="btn btn-sm stats-cat-btn" aria-pressed="false" data-cat="parking"><i class="fas fa-parking me-1"></i>주정차위반</button>
                     <!-- 2026-10-11: '기타' 를 안전신고·생활불편·기타로 세분화(서버 집계 records_safety_*/records_living_*). -->
@@ -308,7 +309,7 @@
 
             {#- 2026-10-11: 5분류(안전신고·생활불편 추가, services/stats/agency.py 가 5분류 모두 채운다).
                  cat in pane_rows 가드는 구버전 응답·단위 테스트의 더 작은 더미 컨텍스트에서도 KeyError 대신 빈 표로 넘어간다. -#}
-            {% for cat, cat_label in [('traffic', 'Traffic'), ('parking', 'Parking'), ('safety', 'Safety'), ('living', 'Living'), ('other', 'Other')] %}
+            {% for cat, cat_label in [('all', 'All'), ('traffic', 'Traffic'), ('parking', 'Parking'), ('safety', 'Safety'), ('living', 'Living'), ('other', 'Other')] %}
             {% set base_url = '/data/' ~ cat %}
             {% set cat_rows = pane_rows[cat] if cat in pane_rows else {} %}
             {% for type, type_label, key, is_person in [
@@ -318,7 +319,7 @@
             {% set rows = cat_rows[key] if key in cat_rows else [] %}
             <div class="stats-pane" id="{{ cat }}-{{ type }}" style="display:none" data-cat="{{ cat }}" data-type="{{ type }}">
                 <table id="statsTable{{ cat_label }}{{ type_label }}" class="table table-striped table-hover table-bordered nowrap" style="width:100%">
-                    <caption class="visually-hidden">{{ {'traffic': '교통위반', 'parking': '주정차위반', 'safety': '안전신고', 'living': '생활불편', 'other': '기타'}[cat] }} 상세 통계 — 행을 선택하면 상세 패널이 열립니다</caption>
+                    <caption class="visually-hidden">{{ {'all': '전체', 'traffic': '교통위반', 'parking': '주정차위반', 'safety': '안전신고', 'living': '생활불편', 'other': '기타'}[cat] }} 상세 통계 — 행을 선택하면 상세 패널이 열립니다</caption>
                     <thead>{{ person_thead if is_person else agency_thead }}</thead>
                     <tbody>{{ person_rows(rows, base_url) if is_person else agency_rows(rows, base_url) }}</tbody>
                     <tfoot>{{ person_tfoot if is_person else agency_tfoot }}</tfoot>
@@ -454,11 +455,13 @@
     'pending': pending,
     'rows': table_rows,
     'laws': {
+        'all': all_available_laws,
         'traffic': traffic_available_laws, 'parking': parking_available_laws,
         'safety': safety_available_laws, 'living': living_available_laws,
         'other': other_available_laws,
     },
     'hasEmptyLaw': {
+        'all': all_has_empty_law,
         'traffic': traffic_has_empty_law, 'parking': parking_has_empty_law,
         'safety': safety_has_empty_law, 'living': living_has_empty_law,
         'other': other_has_empty_law,
