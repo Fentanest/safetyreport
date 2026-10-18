@@ -63,7 +63,7 @@ class RegistryVectorTests(unittest.TestCase):
         import hashlib
 
         manifest = json.loads((REGISTRY / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["registry_version"], "2026-09-29.3")
+        self.assertEqual(manifest["registry_version"], "2026-10-18.1")
         self.assertEqual(manifest["schema_version"], 2)
         for rel, digest in manifest["files"].items():
             target = REGISTRY / rel
