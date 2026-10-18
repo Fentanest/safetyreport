@@ -20,8 +20,16 @@
   `from_code, to_code, to_name, effective_date, closed_date(없으면 null),
   link_kind, institution_id(불변 내부 ID), evidence(수기 seed) 또는 rule(공식 연쇄 파생)`.
   `to_name`은 경계 코드의 현행 표시명(위 표시 규칙 적용)이다.
-  같은 from에 후속이 2개 이상(경계 수준 1:다)이면 링크를 만들지 않는다.
+  같은 from에 후속이 2개 이상(경계 수준 1:다)이면 파생 링크를 만들지 않는다.
+  seed가 같은 from의 파생 연결보다 우선한다. 하위 코드의 forward를 경계로 접은
+  동일성 그래프에서도 현존 도착 경계가 둘 이상이면 파생 연결·union을 차단한다.
+  현존 출발 경계 자체도 도착 후보로 센다(부서 전출로 살아 있는 두 기관을 합치지 않음).
+  코드 자체의 유일한 forward 귀결과 multi((구) 보존)는 그대로 둔다.
 - `data/agency_index.json`: `{cols: ["code","name","agg","type","created","lookup_name"], rows: [...], compact_rows: [[code,agg],...]}`.
+  `alive_boundaries`는 공식 `alive`인 경계 코드의 정렬된 목록(2026-10-18.1 추가)이다.
+  역사 경계도 rows에 있으므로 rows만으로 현존 여부를 추정하지 않는다. 빌더와
+  검증기는 이 목록의 서로 다른 코드가 같은 institution_id를 가지면 실패한다.
+  기존 리더는 추가 메타데이터를 무시한다(스키마 v2 호환).
   현존 기관코드 색인(코드 정렬). 경계 코드는 `name`(현행 표시명)을 가지고
   `agg == code`이며, 하위조직 코드는 `name == null`, `agg`가 집계기관 코드다.
   현행 표시명은 공식 '전체기관명'에서 맨 앞의 '경찰청 ' 접두어만 한 번 뗀 값이다

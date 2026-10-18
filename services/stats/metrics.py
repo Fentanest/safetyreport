@@ -118,7 +118,7 @@ def _build_stats_tables(df: pd.DataFrame, category: str | None = None):
     # S-10: 표 포함 여부는 처리상태가 아니라 기관·담당자 값이 있는지로 정한다.
     # 배정된 처리중 신고도 기관/담당자 행에 들어가고 `in_progress` 로 따로 센다.
     df["처리기관"] = df.get("처리기관", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str).str.strip()
-    df["담당자"] = df.get("담당자", pd.Series("", index=df.index, dtype="object")).fillna("").astype(str).str.strip()
+    df["담당자"] = df.get("담당자", pd.Series("", index=df.index, dtype="object")).map(report_policy.norm)
     df["범칙금_과태료"] = df.get("범칙금_과태료", pd.Series("", index=df.index, dtype="object")).fillna("")
     # 표시 미적용 경로: 원문 표시 그대로 묶는 src 키.
     if "_agency_key" not in df.columns:

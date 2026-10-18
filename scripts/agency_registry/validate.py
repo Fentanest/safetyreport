@@ -14,6 +14,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from build_official_index import alive_institution_collisions
+
 RELATIONS = {"rename", "rename_under_merge", "transfer", "merge", "split", "merge_parent", "reestablished"}
 
 
@@ -158,6 +160,19 @@ def main() -> int:
     for code in boundaries:
         if code not in institutions:
             fail(f"boundary without institution: {code}", problems)
+    alive = index_blob.get("alive_boundaries")
+    if not isinstance(alive, list) or any(not isinstance(code, str) for code in alive):
+        fail("agency_index alive_boundaries missing/invalid", problems)
+    else:
+        if alive != sorted(set(alive)):
+            fail("alive_boundaries must be sorted and unique", problems)
+        for code in alive:
+            if code not in institutions:
+                fail(f"alive boundary without institution: {code}", problems)
+            if code in forward or code in multi or (code in index_map and code not in boundaries):
+                fail(f"alive boundary is legacy/child: {code}", problems)
+        for inst, codes in alive_institution_collisions(institutions, alive).items():
+            fail(f"alive boundaries share institution_id {inst}: {codes}", problems)
     for link in links:
         for side in ("from_code", "to_code"):
             if link[side] not in institutions:

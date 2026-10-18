@@ -33,7 +33,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-BUILDER_VERSION = "agency-registry-build/2026-09-29.3"
+BUILDER_VERSION = "agency-registry-build/2026-10-18.1"
 SCHEMA_VERSION = 2
 
 HERE = Path(__file__).resolve().parent
@@ -119,11 +119,7 @@ def main() -> int:
     # data-sources: byte-identical copies of the reviewed inputs (never edited).
     lineage_cp = data_sources / lineage_src.name
     notices_cp = data_sources / notices_src.name
-    lineage_cp.write_bytes(lineage_src.read_bytes())
-    notices_cp.write_bytes(notices_src.read_bytes())
-
-    events = build_region_events(lineage_cp)
-    (data / "region_events.json").write_text(canon({"events": events}) + "\n", encoding="utf-8")
+    events = build_region_events(lineage_src)
 
     seed = json.loads(seed_src.read_text(encoding="utf-8"))
     seed_links = sorted(seed["links"], key=lambda l: (l["from_code"], l["to_code"]))
@@ -136,9 +132,18 @@ def main() -> int:
             if link[side] not in by_code:
                 print(f"warning: seed {side} {link[side]} not in official snapshot", flush=True)
     derived = official.build_derived(by_code)
-    seed_pairs = {(l["from_code"], l["to_code"]) for l in seed_links}
-    kept_pairs = {k: v for k, v in derived["link_pairs"].items() if k not in seed_pairs}
-    inst_map = official.institution_map(kept_pairs, seed_links, derived, by_code)
+    kept_pairs, _, identity_stats = official.filter_boundary_identity(
+        derived["link_pairs"], seed_links, derived["forward"], by_code)
+    derived["stats"].update(identity_stats)
+    derived["stats"]["boundary_split_dropped"] += identity_stats["boundary_identity_links_dropped"]
+    derived["stats"]["derived_links"] = len(kept_pairs)
+    # Identity filtering must see the original graph, not the pruned output:
+    # pruning first could hide a split and re-enable its forward union.
+    inst_map = official.institution_map(derived["link_pairs"], seed_links, derived, by_code)
+    # Fail the identity invariant before replacing any snapshot file.
+    lineage_cp.write_bytes(lineage_src.read_bytes())
+    notices_cp.write_bytes(notices_src.read_bytes())
+    (data / "region_events.json").write_text(canon({"events": events}) + "\n", encoding="utf-8")
     links = []
     for l in seed_links:
         entry = dict(l)
@@ -155,6 +160,7 @@ def main() -> int:
     (data / "agency_index.json").write_text(canon({
         "cols": ["code", "name", "agg", "type", "created", "lookup_name"],
         "rows": derived["index_rows"],
+        "alive_boundaries": derived["alive_boundaries"],
         "compact_rows": derived["compact_rows"]}) + "\n", encoding="utf-8")
     (data / "agency_legacy.json").write_text(canon({
         "forward": derived["forward"], "multi": derived["multi"]}) + "\n", encoding="utf-8")
@@ -206,6 +212,10 @@ def main() -> int:
                        "비경찰 이름은 그대로. 집계(경계 판정)의 이름 경로 비교는 "
                        "공식 원문명으로 하며 multi((구) 역사 표시)는 원문을 둔다. "
                        "lookup_name은 표시명과 다를 때 공식 전체기관명을 보존한다.",
+            "identity": "경계 직접 1:다 파생 링크를 제거한다. 원래 링크+경계별 forward 그래프에서 "
+                        "현존 출발 경계 자신을 포함한 현존 도착 경계가 둘 이상이면 파생 링크와 "
+                        "forward identity union을 차단한다. seed outgoing 우선, 현존 경계 ID 유일성은 "
+                        "빌드 전 검사한다. 코드 자체의 forward/multi 귀결은 변경하지 않는다.",
             "stats": derived["stats"],
         },
         "limits": [

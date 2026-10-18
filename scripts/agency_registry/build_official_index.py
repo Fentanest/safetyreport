@@ -443,6 +443,7 @@ def build_derived(by_code: dict[str, dict]) -> dict:
     link_pairs = {k: v for k, v in link_pairs.items() if k[0] not in multi_from}
     stats["derived_links"] = len(link_pairs)
     stats["boundary_branch_dropped"] = dropped
+    stats["boundary_split_dropped"] = sum(len(by_from[a]) for a in multi_from)
     return {
         "index_rows": index_rows,
         "compact_rows": compact_rows,
@@ -461,12 +462,67 @@ def _type_tag(row: dict) -> str | None:
     return f"{top}-{mid}" if mid else top
 
 
+def filter_boundary_identity(link_pairs: dict, seed_links: list[dict],
+                             forward: dict[str, str], by_code: dict) -> tuple[dict, dict, dict]:
+    """Reject boundary-wide identity when child successions reach multiple live boundaries.
+
+    A code's own forward remains authoritative for resolving that code. It is
+    not proof that its entire former parent is the same institution. Include a
+    live source itself in reachable endpoints: a departing child cannot merge
+    two still-live institutions. Seed outgoing links override derived evidence.
+    """
+    seed_from = {link["from_code"] for link in seed_links}
+    boundary = {old: compute_boundary(old, by_code) for old in forward}
+    edges: dict[str, set[str]] = {}
+    for a, b in link_pairs:
+        edges.setdefault(a, set()).add(b)
+    for old, target in forward.items():
+        edges.setdefault(boundary[old], set()).add(target)
+    for a in seed_from:
+        edges[a] = {link["to_code"] for link in seed_links if link["from_code"] == a}
+
+    def live_endpoints(start: str) -> set[str]:
+        pending, seen, alive = [start], set(), set()
+        while pending:
+            code = pending.pop()
+            if code in seen:
+                continue
+            seen.add(code)
+            if by_code.get(code, {}).get("alive"):
+                alive.add(code)
+            pending.extend(edges.get(code, ()))
+        return alive
+
+    split = {a for a in edges if a not in seed_from and len(live_endpoints(a)) > 1}
+    kept = {pair: link for pair, link in link_pairs.items()
+            if pair[0] not in split and pair[0] not in seed_from}
+    identity_forward = {old: target for old, target in forward.items()
+                        if boundary[old] not in split and boundary[old] not in seed_from}
+    return kept, identity_forward, {
+        "boundary_identity_split_sources": len(split),
+        "boundary_identity_links_dropped": sum(a in split for a, _ in link_pairs),
+        "boundary_identity_forward_dropped": sum(boundary[old] in split for old in forward),
+        "seed_override_links_dropped": sum(a in seed_from for a, _ in link_pairs),
+    }
+
+
+def alive_institution_collisions(institutions: dict[str, str], alive: list[str]) -> dict[str, list[str]]:
+    """Shared build/validate invariant; historical boundaries may share an ID."""
+    groups: dict[str, list[str]] = {}
+    for code in sorted(alive):
+        if code in institutions:
+            groups.setdefault(institutions[code], []).append(code)
+    return {inst: codes for inst, codes in sorted(groups.items()) if len(codes) > 1}
+
+
 def institution_components(link_pairs: dict[tuple[str, str], dict],
                             seed_links: list[dict],
                             forward: dict[str, str] | None = None,
                             by_code: dict[str, dict] | None = None) -> dict[str, str]:
-    """경계 코드 → institution_id. seed 핀 우선, 나머지는 ag-c<oldest>.
-    링크가 끊긴 전달(forward)도 같은 기관으로 묶는다."""
+    """경계 코드 → institution_id. 경계 수준 1:1만 합치고 seed 핀을 우선한다."""
+    if by_code is not None:
+        link_pairs, forward, _ = filter_boundary_identity(
+            link_pairs, seed_links, forward or {}, by_code)
     parent: dict[str, str] = {}
 
     def find(x: str) -> str:
@@ -537,4 +593,10 @@ def institution_map(link_pairs: dict[tuple[str, str], dict],
     for code in sorted(alive_boundaries):
         comp.setdefault(code, f"ag-c{code.lower()}")
     derived["boundary_of"] = boundary_of
+    alive = sorted(code for code in comp if by_code.get(code, {}).get("alive")
+                   and boundary(code) == code)
+    collisions = alive_institution_collisions(comp, alive)
+    if collisions:
+        raise ValueError(f"alive boundaries share institution_id: {collisions}")
+    derived["alive_boundaries"] = alive
     return comp

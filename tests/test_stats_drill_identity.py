@@ -73,6 +73,44 @@ class StatsDrillIdentityTest(unittest.TestCase):
         old = query.get_report_page(self.engine, None, search_filter={'agencyKey': key, 'agency': display})
         self.assertEqual((old['total'], old['data'][0]['ID']), (1, 'old'))
 
+    def test_prosecution_current_and_old_codes_keep_two_cards_and_pages(self):
+        with self.engine.begin() as conn:
+            conn.execute(models.report_effective_table.delete())
+            conn.execute(models.report_effective_table.insert(), [
+                self.row(code, code, code, '원문 기관명', 'Lee')
+                for code in ('1282083', '1282071', '1280934', '1280389')])
+        for mode in ('raw', 'canonical'):
+            tables = stats.get_agency_stats(self.engine, {}, mode=mode)['traffic']
+            for kind in ('by_agency', 'by_person'):
+                self.assertEqual(len(tables[kind]), 2)
+                self.assertEqual({r['agency_key'] for r in tables[kind]},
+                                 {'inst:ag-c1280089', 'inst:ag-c1282071'})
+                for row in tables[kind]:
+                    self.assertEqual(row['total'], 2)
+                    page = query.get_report_page(self.engine, 'traffic', mode=mode,
+                        search_filter={'agencyKey': row['agency_key'], 'manager': 'Lee', 'managerExact': True})
+                    self.assertEqual(page['total'], row['total'])
+                    expected = {'1282083', '1280934'} if row['agency_key'] == 'inst:ag-c1280089' else {'1282071', '1280389'}
+                    self.assertEqual({r['ID'] for r in page['data']}, expected)
+
+    def test_unicode_person_stats_and_exact_search_agree(self):
+        names = ['Lee', '\ufeffLee', 'LEE', '\ufeff미지정', '\ufeff']
+        with self.engine.begin() as conn:
+            conn.execute(models.report_effective_table.delete())
+            conn.execute(models.report_effective_table.insert(), [
+                self.row(f'n{i}', str(i), '9999991', '합성기관', name)
+                for i, name in enumerate(names)])
+        for mode in ('raw', 'canonical'):
+            people = stats.get_agency_stats(self.engine, {}, mode=mode)['traffic']['by_person']
+            self.assertEqual({r['person']: r['total'] for r in people}, {'Lee': 2, 'LEE': 1})
+            for row in people:
+                page = query.get_report_page(self.engine, 'traffic', mode=mode, search_filter={
+                    'agencyKey': row['agency_key'], 'manager': row['person'], 'managerExact': True})
+                self.assertEqual(page['total'], row['total'])
+                web = query.get_traffic_records(self.engine, {'person': row['person'], 'personExact': True})
+                self.assertEqual(len(web), row['total'])
+        self.assertEqual(names, ['Lee', '\ufeffLee', 'LEE', '\ufeff미지정', '\ufeff'])
+
     def test_types_normalization_and_literal_manager(self):
         self.assertEqual(validate_filter({'agencyKey': 'src:-:기관', 'managerExact': True}), {'agencyKey': 'src:-:기관', 'managerExact': True})
         for invalid in ({'agencyKey': 1}, {'agencyKey': None}, {'managerExact': 'true'}, {'managerExact': 1}, {'unknown': ''}):
