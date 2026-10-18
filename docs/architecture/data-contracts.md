@@ -766,6 +766,7 @@ WsService.kt가 `ws://<host>/ws/events?api_key=<key>` 로 영구 연결.
 - `services.crawl_state_store.save_crawl_changes(engine, changed_item_ids)` — 일반 신고는 `notification_kind=report`, `synced_at` 을 포함한 payload로 저장
 - 일반 신고 변경 목록은 저장 전에 `synced_at DESC`, fallback `답변일 DESC`, `신고번호 DESC` 로 재정렬한다.
 - 각 report payload 에는 `change_reason ('supplement' | 'report')`, `supplement_open`, `supplement_round_no`, `supplement_round_count` 도 함께 들어간다. `supplement` 는 신고가 보완요청 상태이거나 보완 history 에 열린 round 가 있을 때.
+- (2026-10-18 하위호환 추가) report payload 에 `처리기관코드`(원문 코드, NULL 은 '')와 `agency_name_current`(registry 현행 표시명, 미확정이면 원문)를 싣는다. 원문 `처리기관`은 그대로다. 모바일은 코드로 registry 를 풀고, registry 가 없는 Kotlin 알림·구버전 앱은 `agency_name_current` 를 먼저 쓴다.
 - `services.crawl_state_store.peek_crawl_changes()` — 읽기만 (삭제 안 함) → WS 브로드캐스트용
 - 모바일 API 폴링(`/api/v1/crawl/results`)은 이 파일이 아니라 `core/storage/change_log.py`(변경 기록 + 기기별 읽은 위치, R5)를 읽는다. 파일을 읽고 지우던 `get_and_clear_crawl_changes()` 는 R6 에서 삭제.
   기록은 60일·5천 건까지, 180일 넘게 안 온 기기의 읽은 위치는 새 묶음을 쌓을 때 지운다.
@@ -829,6 +830,7 @@ GET /api/v1/vehicle/{vehicle_number}
 - 인증: `X-API-Key` 헤더
 - 동작: 교통/주정차/기타 전체 merge 테이블에서 차량번호 부분 일치 검색, 신고번호 역순 정렬
 - `search_by_vehicle(engine, vehicle_number)` — 현재 구현은 `report_query_service.py`, `data_service.py`는 호환 재노출만 담당
+- (2026-10-18 하위호환 추가) `/vehicle`·`/address`·`/summary`(`recent_answers`·`watchlist`) 행에 `agency_name_current`(현행 표시명)·`agency_key`(통계 집계 키, `services/agency_registry.with_current_agency_fields`)를 붙인다. 원문 `처리기관`은 그대로다. 크롬 확장 selfhost 모드가 담당자를 기관 키로 묶고 현행명을 보인다(cloud my-reports 와 같은 필드 이름). 모바일 목록 API `/reports/*` 에는 붙이지 않는다(앱이 registry 로 직접 계산).
 
 ---
 

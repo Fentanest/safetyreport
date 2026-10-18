@@ -47,7 +47,12 @@ def _require_api_key_flex(request: Request, header_key: str = Depends(_api_key_q
 def get_summary(request: Request, dedupe: str | None = None, _: str = Depends(_require_api_key)):
     try:
         dedupe_mode = normalize_dedupe_mode(dedupe)
-        return {"status": "success", "data": data_service.get_dashboard_stats(engine, mode=dedupe_mode)}
+        data = data_service.get_dashboard_stats(engine, mode=dedupe_mode)
+        # 하위호환 추가 필드(agency_name_current·agency_key, 원문 처리기관은 그대로) — deepcopy 결과라 캐시엔 영향 없음.
+        from services.agency_registry import with_current_agency_fields
+        with_current_agency_fields(data.get("recent_answers") or [])
+        with_current_agency_fields(data.get("watchlist") or [])
+        return {"status": "success", "data": data}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -138,6 +143,9 @@ def get_vehicle_reports(vehicle_number: str, dedupe: str | None = None, _: str =
     try:
         dedupe_mode = normalize_dedupe_mode(dedupe)
         results = data_service.search_by_vehicle(engine, vehicle_number, mode=dedupe_mode)
+        # 하위호환 추가 필드: 크롬 확장이 담당자를 기관 키로 묶고 현행 기관명을 보인다(원문 처리기관은 그대로).
+        from services.agency_registry import with_current_agency_fields
+        with_current_agency_fields(results)
         return {"status": "success", "vehicle_number": vehicle_number, "count": len(results), "data": results}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -148,6 +156,8 @@ def get_address_reports(q: str, dedupe: str | None = None, _: str = Depends(_req
     try:
         dedupe_mode = normalize_dedupe_mode(dedupe)
         results = data_service.search_by_address(engine, q, mode=dedupe_mode)
+        from services.agency_registry import with_current_agency_fields
+        with_current_agency_fields(results)  # /vehicle 과 같은 하위호환 추가 필드
         return {"status": "success", "address": q, "count": len(results), "data": results}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

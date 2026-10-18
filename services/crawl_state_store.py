@@ -56,6 +56,15 @@ def _display_text(value) -> str:
     return "" if value is None else str(value)
 
 
+def _current_agency(record) -> str:
+    """알림 표시용 현행 기관명(웹 유형별 목록과 같은 registry 규칙). 미확정이면 원문."""
+    from services.agency_registry import resolve_display_agency
+
+    name = record.get("처리기관")
+    display = resolve_display_agency(record.get("처리기관코드"), name)[0]
+    return _display_text(display if display else name)
+
+
 def save_crawl_changes(engine, changed_item_ids, duplicate_changes=None):
     duplicate_changes = list(duplicate_changes or [])
     if not changed_item_ids and not duplicate_changes:
@@ -110,6 +119,10 @@ def save_crawl_changes(engine, changed_item_ids, duplicate_changes=None):
             "신고명": _display_text(record.get("신고명")),
             "신고일": _display_text(record.get("신고일")),
             "처리기관": _display_text(record.get("처리기관")),
+            # 하위호환 추가(2026-10-18): 앱이 registry 로 현행 기관명을 풀 수 있게 코드를, registry 가 없는
+            # 네이티브 알림(Kotlin)·확장이 바로 쓸 수 있게 현행 표시명을 함께 싣는다. 원문 `처리기관`은 그대로.
+            "처리기관코드": _display_text(record.get("처리기관코드")),
+            "agency_name_current": _current_agency(record),
             "담당자": _display_text(record.get("담당자")),
             "처리상태": _display_text(record.get("처리상태")),
             "범칙금_과태료": _display_text(record.get("범칙금_과태료")),

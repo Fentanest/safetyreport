@@ -169,6 +169,8 @@ Bootstrap tab 제거 → 커스텀 show/hide (`stats-pane` 클래스). 선택 �
 
 웹 신고 목록은 조회 결과에서 registry 표시명을 계산한 다음 기관 검색을 적용한다. `/api/v1`의 신고 원문 `처리기관`·`처리기관코드`는 DB 교환 계약을 위해 그대로 내려가며, 모바일 Client가 수신 뒤 화면 표시명을 계산한다.
 
+2026-10-18: 대시보드(감시 목록·최근 답변), 감시목록, 별점, 중복 차량, 중복 신고 관리 상세 모달, 텔레그램 신고 목록도 같은 현행 표시명을 쓴다. 웹 라우터가 `services/agency_registry.display_agency_records()`로 화면 레코드에서만 바꾼다(같은 서비스 함수를 쓰는 `/api/v1` 응답은 원문 그대로). 한 기관이 부서코드별로(예: 서울강서경찰서 1810043·1814605 경비교통과·1810341 교통과) 화면마다 다른 이름으로 보이던 문제를 고친 것이다. DB 편집기·원본 상세·자동 Excel/Google Sheet 내보내기는 원문을 유지한다.
+
 ## 통계 재마운트의 이벤트 소유권
 
 `SrStats.dispose()`는 보존되는 통계 table에서 DataTables의 남은 `.dt`/`.DT` handler도 해제한다. 현행 브라우저 빌드의 `destroy()` 뒤 `info.dt`가 이전 drawCallback과 전체 mount context를 붙잡는 현상을 heap retainer로 확인했다. 새 mount가 필요한 handler를 다시 등록한다. 지도 viewport refresh의 `pagehide` handler는 map unload 때 해제한다. document handler 수뿐 아니라 table handler·이전 mount context도 반복 검사한다.

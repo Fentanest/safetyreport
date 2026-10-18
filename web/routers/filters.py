@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import settings.settings as app_settings
 from services import fine_estimate
+from services.agency_registry import display_agency_records  # noqa: F401 — 웹 화면 공용 표시명 변환
 
 
 def default_dedupe_mode() -> str:

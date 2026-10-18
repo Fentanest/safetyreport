@@ -8,7 +8,7 @@ from core.database.engine import get_engine
 from services import data_service
 from services import sunwi_service
 from core.utils.templating import templates
-from web.routers.filters import default_dedupe_mode, with_fine_estimates
+from web.routers.filters import default_dedupe_mode, display_agency_records, with_fine_estimates
 
 engine = get_engine()
 router = APIRouter()
@@ -55,6 +55,9 @@ def dashboard(request: Request):
         _attach_entry_value(recent_items)
         with_fine_estimates(watchlist_items)
         with_fine_estimates(recent_items)
+        # 처리기관 현행 표시명(유형별 목록과 같은 규칙). deepcopy 결과라 /api/v1/summary 원문은 그대로다.
+        display_agency_records(watchlist_items)
+        display_agency_records(recent_items)
     except Exception as e:
         # 집계 실패를 0건으로 보여 주면 신고가 없는 것처럼 보인다 — 실패를 화면에 밝힌다(기술일지 O-02)
         from core.utils import logger

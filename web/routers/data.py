@@ -3,7 +3,7 @@ from typing import Optional
 from core.database.engine import get_engine
 from services import data_service, fine_estimate
 from core.utils.templating import templates
-from web.routers.filters import normalize_dedupe_mode, with_fine_estimates
+from web.routers.filters import display_agency_records, normalize_dedupe_mode, with_fine_estimates
 
 engine = get_engine()
 router = APIRouter(prefix="/data")
@@ -207,7 +207,8 @@ def view_all(
 @router.get("/duplicates")
 def view_duplicates(request: Request, dedupe: str | None = Query(None)):
     dedupe_mode = normalize_dedupe_mode(dedupe)
-    records = _with_fine_estimates(data_service.get_duplicate_records(engine, mode=dedupe_mode))
+    # 처리기관은 유형별 목록과 같은 현행 표시명으로(API 는 원문 그대로 — get_duplicate_records 자체는 안 바꾼다).
+    records = _with_fine_estimates(display_agency_records(data_service.get_duplicate_records(engine, mode=dedupe_mode)))
     return templates.TemplateResponse(request, "data_table.html", {
         "title": "중복 차량 (2건 이상) 보기",
         "records": records, "table_id": "duplicateTable",

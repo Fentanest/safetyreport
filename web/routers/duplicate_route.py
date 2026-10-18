@@ -4,7 +4,7 @@ from fastapi.responses import RedirectResponse
 from core.database.engine import get_engine
 from core.utils.templating import templates
 from services import duplicate_group_service
-from web.routers.filters import with_fine_estimates
+from web.routers.filters import display_agency_records, with_fine_estimates
 
 
 router = APIRouter(prefix="/duplicates")
@@ -31,6 +31,8 @@ def view_duplicate_groups(
     # DB 저장 없음.
     for group in groups:
         with_fine_estimates(group.get("members") or [])
+        # 상세 모달의 처리기관도 유형별 목록과 같은 현행 표시명으로(화면 전용, /api/v1/duplicates/groups 는 원문).
+        display_agency_records(group.get("members") or [])
 
     counts = {
         "total": len(all_groups),

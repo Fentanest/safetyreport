@@ -15,6 +15,13 @@ def format_report_list(results, title: str):
             lines.append(f"  {i}. {url}")
         return "\n".join(lines) + "\n"
 
+    def _agency(row) -> str:
+        # 웹 유형별 목록과 같은 현행 표시명(서로 다른 부서코드로 들어온 같은 기관을 한 이름으로). 원문 값은 그대로 둔다.
+        name = row.get('처리기관', 'N/A')
+        from services.agency_registry import resolve_display_agency
+        display = resolve_display_agency(row.get('처리기관코드'), name if isinstance(name, str) else None)[0]
+        return display or name
+
     response_parts = [f"{title}\n\n"]
     for i, row in enumerate(results):
         photos_str = _format_links(row.get('첨부사진', ''), '📷 첨부사진')
@@ -36,7 +43,7 @@ def format_report_list(results, title: str):
             f"위반법규: {row.get('위반법규', 'N/A')}\n"
             f"처리상태: {row.get('처리상태', 'N/A')}\n"
             f"범칙금/과태료: {row.get('범칙금_과태료', 'N/A')}\n"
-            f"처리기관: {row.get('처리기관', 'N/A')}\n"
+            f"처리기관: {_agency(row)}\n"
             f"담당자: {row.get('담당자', 'N/A')}\n"
             + map_line
             + (attachments if attachments else "")
