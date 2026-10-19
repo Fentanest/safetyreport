@@ -133,6 +133,8 @@ jobs:
 
     - name: Build and push Docker image (amd64 + arm64) — dev tag only
       uses: docker/build-push-action@v7
+      env:
+        DOCKER_BUILD_RECORD_RETENTION_DAYS: '1'
       with:
         context: .
         platforms: linux/amd64,linux/arm64
@@ -363,6 +365,8 @@ jobs:
 
     - name: Build and push Docker image (amd64 + arm64)
       uses: docker/build-push-action@v7
+      env:
+        DOCKER_BUILD_RECORD_RETENTION_DAYS: '1'
       with:
         context: .
         platforms: linux/amd64,linux/arm64
