@@ -31,8 +31,12 @@ def _tick():
     store = CommunityStore.open()
     if v2_ready(ingest_status(store)):
         from services.community_raw_backfill import start
-        start()
         item=cloud.current_job()
+        if item and item[2].get('lineage_changed'):
+            # 계보가 바뀐 재동의: 옛 marker(done)가 남아 있으면 아무것도 다시 보내지 않으므로 시작 전에 지워 새 run 으로 전체 재전송한다.
+            with store.transaction() as tx:
+                tx.execute("DELETE FROM meta WHERE key IN ('raw_backfill','raw_backfill_retry')")
+        start()
         if item:cloud.update_job(item[0],item[1],state='succeeded',phase='raw_backfill')
         return
     item = cloud.current_job()

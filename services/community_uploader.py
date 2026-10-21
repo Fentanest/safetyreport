@@ -337,6 +337,8 @@ def _envelope(ctx: dict, trigger: str, events: list[dict]) -> dict:
     # The server requires trigger=reshare whenever such an event is present.
     if any(event.get('event_type') == 'reshare' for event in events):
         trigger = 'reshare'
+    elif trigger == 'raw_backfill' and events and not any('raw' in event for event in events):
+        trigger = 'recovery'  # 프로토콜 1 봉투는 기존 trigger 로만 보낸다(최종 검수 7)
     return client.build_envelope(
         connection_id=ctx.get("connection_id") or "", consent_grant_id=ctx.get("consent_grant_id") or "",
         policy_version=ctx.get("policy_version") or "", source_mode=ctx.get("source_mode") or "server",
@@ -520,10 +522,9 @@ def _apply_ack(store, batch: list[dict], interp, counts: dict, expected=None) ->
                 tx.execute("DELETE FROM outbox WHERE event_id=?", (event_id,))
                 tx.execute("UPDATE source_journal SET ack_status=?, receipt_id=?, acked_at=?, projection_status=?"
                            " WHERE event_id=?", (ev.status, ev.receipt_id, now, ev.projection_status, event_id))
-                if row.get('_raw_event'):
-                    # ACK 를 받은 원본 사본은 비교용 해시만 남기고 지운다 — journal 이 신고 수 × run 만큼 커지지 않게
-                    from services.community_raw_ingest import compact
-                    tx.execute("UPDATE source_journal SET raw_event_json=? WHERE event_id=?", (compact(row['_raw_event']), event_id))
+                # durable ACK 를 받은 원본 사본은 형식(v1/v2)과 무관하게 비교용 해시만 남기고 지운다
+                # — journal 이 신고 수 × run 만큼 커지지 않게, 개인정보가 오래 남지 않게(최종 검수 5)
+                store.compact_raw_events(tx, event_id)
                 if row.get('_raw_event') and (ev.status=='stored' or ev.status=='no_change' or (ev.status=='duplicate' and ev.original_status in ('stored','no_change'))):
                     store.set_meta('raw_receipt:'+event_id,'stored',tx)
                 counts["quarantined" if ev.status == "quarantined" else "acked"] += 1
@@ -959,6 +960,7 @@ def _send(run: UploadRunContext, batch, token=None):
             return response, _classify(response)
         except Exception:
             token = None
+    # 'raw_backfill' trigger 는 프로토콜 2 봉투에서만 쓴다 — v1 봉투는 기존 trigger 로 보낸다(최종 검수 7).
     trigger = 'raw_backfill' if any(row.get('enqueued_trigger')=='raw_backfill' for row in batch) else run.trigger
     envelope = _envelope(run.ctx, trigger, [row["_event"] for row in batch])
     if len(client.envelope_bytes(envelope)) > (1024 * 1024 if envelope.get('protocol') == 2 else MAX_BODY_BYTES):

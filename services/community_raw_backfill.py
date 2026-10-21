@@ -6,7 +6,11 @@ import threading
 import time
 import uuid
 
-class BackfillPaused(RuntimeError): pass
+class BackfillPaused(RuntimeError):
+    permanent=False  # True: 공식 로그인 거부가 확정 — 사용자가 설정을 저장하거나 수동 로그인할 때까지 다시 시도하지 않는다
+LOGIN_REASONS=('official_login_required','official_login_retry')
+LOGIN_BACKOFF_MAX=3600
+PERMANENT_PAUSE=10*365*24*3600
 class BackfillCancelled(RuntimeError): pass
 class BackfillBlocked(RuntimeError): pass
 
@@ -88,6 +92,10 @@ class RawBackfill:
             self.save(copy.deepcopy(m),scope)
         if m['state']=='done' and not retry_holds:return m
         try:
+            if m.get('login_fp') is not None:
+                # 로그인 거부로 멈춘 run: 계정 설정이 바뀌었거나 새 토큰이 생겼으면(수동 로그인) 곧바로 이어 간다.
+                fingerprint=getattr(b,'login_fingerprint',lambda:None)()
+                if fingerprint is not None and fingerprint!=m['login_fp']:m.update(next_attempt_at=0,login_fp=None,login_failures=0)
             if self.clock()<m.get('next_attempt_at',0):return m
             m.pop('reason',None);m['next_attempt_at']=0
             if not b.optimization_ready():m['state']='waiting_optimize';publish();return m
@@ -97,6 +105,7 @@ class RawBackfill:
                 except (BackfillPaused,BackfillCancelled):raise
                 except Exception:raise BackfillPaused('list_failed') from None
                 if not inventory.get('list_ok'):raise BackfillPaused('list_incomplete')
+                m['login_failures']=0
                 existing=set(b.local_ids());eligible=set(b.eligible_ids());missing=set(inventory['ids'])-existing
                 remote_eligible=set(inventory.get('eligible_ids',[]))
                 repo.reset(run,((rid,dict(state='pending',attempts=0,eligible=rid in eligible or rid in remote_eligible,was_missing=rid in missing)) for rid in sorted(eligible|missing)))
@@ -119,7 +128,7 @@ class RawBackfill:
                                 item['event_id']=b.enqueue(rid,run)
                                 if not item['event_id']:raise RuntimeError('raw_event_not_created')
                                 item['state']='queued'
-                            m['failures']=0;m['cursor']=index+1;self.changed+=1
+                            m['failures']=0;m['login_failures']=0;m['cursor']=index+1;self.changed+=1
                         except BackfillBlocked as exc:
                             # 삭제했거나 보낼 수 없는 신고는 분모에서 빼고 건너뛴다(보류로 done 을 막지 않는다).
                             item.update(state='not_eligible',eligible=False,error=str(exc));m['cursor']=index+1;self.changed+=1
@@ -154,7 +163,14 @@ class RawBackfill:
                 if not complete:b.wake_upload()
             publish();return m
         except BackfillPaused as exc:
-            m.update(state='paused',reason=str(exc),next_attempt_at=self.clock()+300);publish();return m
+            reason=str(exc);delay=300
+            if reason in LOGIN_REASONS:
+                # 공식 로그인 실패: 확정 거부는 사용자가 고칠 때까지 멈추고, 그 밖의 일시 실패는 지수 백오프(최대 1시간)
+                m['login_failures']=int(m.get('login_failures',0))+1
+                if getattr(exc,'permanent',False):
+                    delay=PERMANENT_PAUSE;m['login_fp']=getattr(b,'login_fingerprint',lambda:None)()
+                else:delay=min(LOGIN_BACKOFF_MAX,300*2**(m['login_failures']-1))
+            m.update(state='paused',reason=reason,next_attempt_at=self.clock()+delay);publish();return m
         except BackfillCancelled:return None
 
 _lock=threading.Lock()
@@ -191,6 +207,13 @@ def start():
     global _thread
     from core.utils.runtime_mode import is_fixture_mode
     if is_fixture_mode():return
+    try:  # v2 가 켜져 있지 않으면(대부분의 기존 사용자) 스레드·lease 를 만들지 않는다 — 60초 poll 마다 낭비하지 않게(최종 검수 10)
+        from services.community_store import CommunityStore
+        from services.community_raw_ingest import v2_ready,ingest_status
+        if not v2_ready(ingest_status(CommunityStore.open())):return
+    except Exception as exc:
+        from core.utils.fallback import note_fallback
+        note_fallback('raw_backfill.start_check',exc);return
     if _finished():return  # 끝난 run 은 60초 poll 마다 스레드를 만들지 않는다
     with _lock:
         if _thread is not None and _thread.is_alive():return

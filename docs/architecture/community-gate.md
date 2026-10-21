@@ -214,3 +214,14 @@ active 시각)이 있으면 처음 실행한 시각(지금)으로 한 번만 `la
 게이트 허용 목록에 있고 결과(확인/대기)를 화면에 보인다.
 
 철회 대기 중 새로 카카오 로그인한 뒤 철회가 끝나면(2026-10-21 검수 결정) 그 세션을 끊지 않고 바로 동의 화면(G4)으로 둔다 — 로그인은 한 번뿐이다. `begin` 이 `revoke_pending.session_connected_at`(현재 세션의 `connected_at`)을 적고, 완료 때 현재 `connected_at` 이 다르면 `soft_reset(keep_session=True)` 이 writer·활성 문맥·게이트 캐시·`last_g1`·`raw_backfill`·outbox 는 예전처럼 정리하되 `disconnect()` 만 건너뛴다. 요청 때의 원래 세션으로 끝나면 예전처럼 로그아웃 → 카카오 로그인 단계다. 기록이 없는 옛 `revoke_pending` 은 원래 세션으로 본다.
+
+## 최종 검수 반영 (2026-10-21, 미출시)
+
+- **로그아웃 뒤 재로그인**: 로그아웃이 남기는 non-sticky `deny('logout')` 는 `local_allowed`·`seed_g1`·`capture_context` 를 막지 않는다.
+  막는 것은 sticky 거부이거나 사유가 `consent_revoked·account_removed·suspended·db_owner_mismatch·official_account_mismatch` 일 때뿐이다(`cloud.blocking_deny`).
+  non-sticky logout 표시는 로그인 확정(`regate('login')`)과 서버가 active 를 확인하는 `mark_g1`·`record_status` 에서 지운다.
+- **철회 대기 + 세션 상실**: `revoke_pending` 이고 카카오 세션이 valid 가 아니면 온보딩이 로그인 UI(start/confirm)를 보여 준다(`status_view().session`).
+  대기 중에는 `_refresh_locked` 가 G6 소프트 리셋을 부르지 않고 `community_reset.attempt` 에 맡긴다. 로그인 확정(`regate('login')`)은 갱신 전에 `attempt(force=True)` 를 먼저 부른다.
+  철회 호출의 `not_found` 는 `stale_grant` 처럼 grant 를 비우고 status 를 다시 확인한다.
+- **철회 중인 계정이 아닌 다른 계정으로 로그인**: `revoke_account_mismatch`·`revoke_account_name`(begin 이 `display_name` 기록)을 내려 "철회 중인 계정(이름)으로 로그인해야 철회를 마칠 수 있습니다" 안내와 카카오 로그아웃 버튼을 보여 준다. 다른 계정이 철회를 대신 끝내지 않는다.
+- **소프트 리셋·데이터셋 회전**: `source_journal.raw_event_json` 전문은 해시만 남기고(`compact`), `raw_backfill_supplements` 는 지운다(회전은 옛 데이터셋 행만).

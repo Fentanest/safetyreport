@@ -107,6 +107,17 @@ _CLAIM_REASONS = {"login", "consent_saved"}
 
 
 def regate(reason: str) -> dict:
+    if reason == "login":
+        try:  # 철회 대기 중 새로 로그인했다: 상태 갱신(소프트 리셋 판정) 전에 철회를 먼저 마무리해 새 세션을 지킨다(최종 검수 2)
+            from services import community_reset
+            if community_reset.pending():
+                community_reset.attempt(force=True)
+        except Exception as exc:
+            note_fallback("community_account_ops.login_revoke_attempt", exc)
+        try:  # 로그인 확정: 이전 로그아웃이 남긴 non-sticky 거부를 지운다(최종 검수 1)
+            cloud.logout_confirmed_login()
+        except Exception as exc:
+            note_fallback("community_account_ops.logout_confirmed_login", exc)
     if reason in _CLAIM_REASONS:
         community_gate.claim_for_this_device()
     community_gate.invalidate(reason)
@@ -169,6 +180,8 @@ def soft_reset(reason: str, *, keep_session: bool = False) -> None:
     with store.transaction() as tx:
         tx.execute("UPDATE outbox SET state='blocked',last_error_code=?,lease_owner=NULL,lease_until=NULL", (reason,))
         tx.execute("DELETE FROM context")
+        store.compact_raw_events(tx)  # 막힌 행의 원본 전문은 해시만 남긴다
+        store.drop_backfill_supplements(tx)
         tx.execute("DELETE FROM meta WHERE key LIKE 'raw_receipt:%'")
         tx.execute("DELETE FROM meta WHERE key IN ('raw_backfill','raw_backfill_retry','offline_capture','ingest_status','revoke_pending','raw_contract_scope')")
     service = cas.get_service()

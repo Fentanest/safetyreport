@@ -46,16 +46,17 @@ class RuntimeBackend:
         ctx=self.store.active_context()
         return bool(ctx and self.store.local_dataset_id()==scope['local_dataset_id'] and all(ctx.get(k)==scope[k] for k in ('contributor_fingerprint','dataset_key','consent_grant_id','connection_id','writer_epoch')))
     def yield_requested(self):
+        if self.manager.backfill_should_yield():return True  # 크롤·복원·로그아웃이 기다리는 중 — 한 건 끝나면 곧바로 놓는다
         return self.slice_until is not None and time.monotonic()>=self.slice_until
     def check(self):
         if not self._scope or not self.current(self._scope):raise BackfillCancelled()
     def optimization_ready(self):
         from services import db_optimize,maintenance_service
         if maintenance_service.is_running():return False
-        if db_optimize.needs_run(self.engine):
+        if db_optimize.needs_run(self.engine) and not db_optimize.only_holds_left(self.engine):
             db_optimize.maybe_start(self.engine);return False
-        if db_optimize.is_running() or self.manager.is_crawling():return False
-        try:self.token=self.manager.reserve_rating(self.generation)
+        if db_optimize.is_running() or self.manager.is_crawling() or self.manager.backfill_should_yield():return False
+        try:self.token=self.manager.reserve_rating(self.generation,owner='raw_backfill')
         except RuntimeError:return False
         self.slice_until=time.monotonic()+3
         self.check();return True
@@ -64,8 +65,27 @@ class RuntimeBackend:
         if self.session is None:
             from core.crawler import direct_login
             try:self.session=direct_login.make_authorized_session()[0]
-            except Exception:raise BackfillPaused('official_login_required') from None
+            except Exception as exc:
+                # '로그인 거부'(비밀번호 변경 등)·계정 설정 없음은 확정 — 고치기 전에는 반복하지 않는다. 네트워크 등은 백오프로 다시 시도.
+                text=str(exc)
+                if text.startswith('로그인 거부') or 'settings.username' in text:
+                    paused=BackfillPaused('official_login_required');paused.permanent=True
+                else:paused=BackfillPaused('official_login_retry')
+                raise paused from None
         return self.session
+    def login_fingerprint(self):
+        """공식 로그인 입력(계정 설정·저장된 토큰)의 지문. 바뀌면 거부로 멈춘 run 을 다시 시작한다. 비밀번호는 해시로만 쓴다."""
+        import hashlib
+        try:
+            from settings import settings as app
+            from core.crawler import direct_login
+            token=(direct_login.load_token() or {}).get('access_token') or ''
+            raw='|'.join(str(x) for x in (getattr(app,'username',''),getattr(app,'password',''),token))
+            return hashlib.sha256(raw.encode()).hexdigest()
+        except Exception as exc:
+            from core.utils.fallback import note_fallback
+            note_fallback('raw_backfill.login_fingerprint',exc)
+            return None
     def pause(self):
         if self.stop.wait(0.5):raise BackfillCancelled()
         self.check()
@@ -212,6 +232,7 @@ class RuntimeBackend:
         return dict(eligible=True,raw_unavailable=False,filled=filled,unfilled=unfilled,photo_unavailable=photo_unavailable)
     def enqueue(self,rid,run):
         from services import community_capture as cap
+        from core.storage import reports_repo
         self.check();row=self.row(rid)
         if row is None:raise RuntimeError('missing_report')
         listed=self._list_row(rid)

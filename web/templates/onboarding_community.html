@@ -27,12 +27,23 @@
         {% if gate.state == 'config_invalid' %}배포 공개 설정이 누락되었거나 설정 재정의 값이 잘못되었습니다. 공식 배포본을 다시 설치하고 환경변수·고급 설정을 확인하세요. Supabase 프로젝트를 직접 만들 필요는 없습니다.
         {% elif gate.state == 'verification_required' %}커뮤니티 서버에서 상태를 확인하지 못했습니다. 네트워크를 확인한 뒤 새로고침해 주세요.
         {% elif gate.state == 'suspended' %}이 카카오 계정의 공유가 중지되어 있습니다. 운영자 안내를 확인해 주세요.
+        {% elif gate.state == 'revoke_pending' and not gate.session %}공유 동의 철회가 아직 서버에 전달되지 않았습니다. 같은 카카오 계정으로 다시 로그인하면 이어서 마무리합니다.
         {% elif gate.state == 'revoke_pending' %}공유 동의 철회를 서버에 전달하는 중입니다. 확인되면 카카오 로그인 화면으로 돌아갑니다.
         {% elif gate.state == 'db_owner_mismatch' %}이 서버에 저장된 신고 내역은 다른 카카오 계정의 것입니다. 아래 카드에서 신고 내역을 지우고 시작하거나 로그아웃해 주세요.
         {% else %}카카오 인증과 신고내용 공유 동의를 마치면 원래 화면으로 이동합니다.{% endif %}
     </div>
 
-    {% if gate.state == 'revoke_pending' %}
+    {% if gate.state == 'revoke_pending' and gate.revoke_account_mismatch %}
+    <div class="alert alert-warning" role="alert">철회 중인 계정{% if gate.revoke_account_name %}({{ gate.revoke_account_name }}){% endif %}으로 로그인해야 철회를 마칠 수 있습니다. 지금 연결된 카카오 계정은 다른 계정입니다. 아래에서 로그아웃한 뒤 철회 중인 계정으로 다시 로그인해 주세요.</div>
+    {% include "components/community_account_card.html" %}
+    {% elif gate.state == 'revoke_pending' and not gate.session %}
+    {# 카카오 세션을 잃은 철회 대기: 로그인 UI 를 보여 줘야 영구 잠김이 없다 — 로그인 확정이 철회를 마무리한다 #}
+    <div class="alert alert-warning" role="status">철회 처리 중에 카카오 로그인이 끊겼습니다. 같은 카카오 계정으로 다시 로그인하면 철회를 마무리합니다. 신고 자료는 보존됩니다.</div>
+    {% include "components/community_account_card.html" %}
+    <script>
+    setInterval(function(){fetch('/settings/community/gate',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){if(d.data.state!=='revoke_pending'||d.data.session) location.reload();}).catch(function(){});},4000);
+    </script>
+    {% elif gate.state == 'revoke_pending' %}
     <div class="alert alert-warning" role="status">철회 처리 중입니다. 서버가 확인할 때까지 앱을 잠그고 자동으로 다시 시도합니다. 신고 자료와 카카오 로그인은 보존됩니다.</div>
     <button class="btn btn-primary" id="revokeRetry" type="button">철회 다시 시도</button>
     <div class="small mt-2" id="revokeRetryResult" role="status" aria-live="polite"></div>

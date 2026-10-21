@@ -242,9 +242,15 @@ class _Gate:
         if state == "ok" and cloud.denial(service).get("sticky"):
             state, reasons = "consent_required", ["consent_revoked_locally"]
         from services.community_reset import pending
-        if pending():
+        revoke = pending()
+        if revoke:
             state, reasons = "revoke_pending", ["revoke_pending"]
-        result = {"state": state, "can_enter": state == "ok", "reasons": reasons, "verified_age": age}
+        result = {"state": state, "can_enter": state == "ok", "reasons": reasons, "verified_age": age,
+                  "session": session == "valid"}
+        if revoke and session == "valid" and current and account_fingerprint(current.get("user_id")) != revoke.get("account"):
+            # 철회 중인 계정이 아닌 다른 카카오 계정으로 로그인했다 — 조용히 멈추지 않고 안내와 로그아웃을 보여 준다(영구 잠김 방지)
+            result["revoke_account_mismatch"] = True
+            result["revoke_account_name"] = revoke.get("display_name")
         result["can_browse"] = result["can_enter"]
         if state in ("cloud_unavailable", "verification_required"):
             # Only a previously verified owner has a bounded offline grace period.
@@ -325,7 +331,9 @@ class _Gate:
         consent_state = (status.get("consent") or {}).get("state")
         # 소프트 리셋(G6·G7·G8)은 "이 기기에서 G1 이 있던 같은 회원"에게 한 번만, 형식이 정상인 응답에서만 일어난다.
         # 형식이 이상한 응답·근거 없는 거짓(session_missing 등)은 리셋이 아니라 확인 불가(G3)다. 리셋하면 근거(last_g1)를 지운다.
-        if reset_verdict(raw, status, cloud.had_g1(service, current)) == "soft_reset":
+        # 철회 대기 중이면 리셋은 community_reset.attempt 에 맡긴다(새 세션을 keep_session 판정 없이 끊지 않게, 최종 검수 2).
+        from services.community_reset import pending as revoke_pending
+        if reset_verdict(raw, status, cloud.had_g1(service, current)) == "soft_reset" and not revoke_pending():
             from services.community_account_ops import soft_reset
             soft_reset('consent_revoked' if consent_state == 'revoked' else 'account_removed')
             return
@@ -649,7 +657,9 @@ class _Gate:
             status = self._status or {}
         consent = status.get("consent") or {}
         return {"state": result["state"], "can_enter": result["can_enter"], "can_browse": result["can_browse"], "reasons": result["reasons"],
-                "can_local": result["can_local"], "cloud": result["cloud"],
+                "can_local": result["can_local"], "cloud": result["cloud"], "session": result.get("session"),
+                "revoke_account_mismatch": bool(result.get("revoke_account_mismatch")),
+                "revoke_account_name": result.get("revoke_account_name"),
                 "verified_age": result["verified_age"], "policy_version": (status.get("policy") or {}).get("required_version"),
                 "consent": {"state": consent.get("state"), "granted_at": consent.get("granted_at"),
                             "policy_version": consent.get("policy_version")},

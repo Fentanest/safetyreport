@@ -160,7 +160,11 @@ class CommunityStore:
         if conn is None:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             conn = sqlite3.connect(self.path, timeout=30, isolation_level=None, check_same_thread=True)
-            if os.name=='posix':os.chmod(self.path,0o600)
+            if os.name=='posix':
+                try:os.chmod(self.path,0o600)
+                except OSError as exc:
+                    from core.utils.fallback import note_fallback
+                    note_fallback('community_store.chmod',exc)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=FULL")
@@ -236,11 +240,39 @@ class CommunityStore:
     def local_dataset_id(self) -> str:
         return self.meta("local_dataset_id") or ""
 
+    @staticmethod
+    def compact_raw_events(tx, event_id: str | None = None) -> None:
+        """journal 의 raw_event_json 전문을 비교용 해시만 남기고 줄인다(이미 줄었거나 비어 있으면 건드리지 않음).
+        ACK 형식(v1/v2)과 무관하게 쓰고, 데이터셋 회전·소프트 리셋 때는 전체에 적용한다(최종 검수 5)."""
+        from services.community_raw_ingest import compact
+        where = "raw_event_json IS NOT NULL AND raw_event_json NOT LIKE '{\"compact\":true%'"
+        params: tuple = ()
+        if event_id is not None:
+            where += " AND event_id=?"
+            params = (event_id,)
+        rows = tx.execute(f"SELECT event_id, raw_event_json FROM source_journal WHERE {where}", params).fetchall()
+        for row in rows:
+            tx.execute("UPDATE source_journal SET raw_event_json=? WHERE event_id=?", (compact(row[1]), row[0]))
+
+    @staticmethod
+    def drop_backfill_supplements(tx, local_dataset_id: str | None = None) -> None:
+        """원본 1회 전송이 보관한 목록·별점·사진 보조 행. 표가 없으면(원본 전송을 한 적 없음) 무시한다."""
+        try:
+            if local_dataset_id is None:
+                tx.execute("DELETE FROM raw_backfill_supplements")
+            else:
+                tx.execute("DELETE FROM raw_backfill_supplements WHERE local_dataset_id=?", (local_dataset_id,))
+        except sqlite3.OperationalError:
+            pass
+
     def rotate_dataset(self, reason: str) -> str:
-        """개인 DB 가 다른 데이터셋이 됐을 때(복원·가져오기·공식 계정 변경) 호출. 이전 journal/outbox 는 지우지 않는다."""
+        """개인 DB 가 다른 데이터셋이 됐을 때(복원·가져오기·공식 계정 변경) 호출. 이전 journal/outbox 는 지우지 않는다.
+        단, 옛 journal 의 원본 사본은 해시만 남기고 옛 데이터셋의 원본 전송 보조 행은 지운다."""
         new_id = str(uuid.uuid4())
         with self.transaction() as tx:
             old = tx.execute("SELECT value FROM meta WHERE key='local_dataset_id'").fetchone()
+            self.compact_raw_events(tx)
+            self.drop_backfill_supplements(tx, old["value"] if old else None)
             history = json.loads((tx.execute("SELECT value FROM meta WHERE key='dataset_history'").fetchone() or {"value": "[]"})["value"])
             history.append({"dataset_id": old["value"] if old else None, "reason": reason, "rotated_at": iso(utc_now())})
             self.set_meta("dataset_history", json.dumps(history, ensure_ascii=False), tx)

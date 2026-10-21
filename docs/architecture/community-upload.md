@@ -333,3 +333,17 @@ status 의 client_notice 가 정본이다(null 이거나 키가 없으면 저장
 로컬 화면과 새 동의를 잠근다. 서버 확인 뒤 writer·문맥·일괄 전송 표식을 비우고 카카오 로그인부터 재시작한다.
 개인 신고 DB·원본·DB 주인·동의 이력은 보존한다. 같은 계정 재동의는 기존 DB에서 새 raw_backfill을 시작하고 다른 계정은 db_owner_mismatch로 간다.
 서버 확인 실패는 성공으로 표시하지 않는다. 재시도는 서버 확인을 마칠 때까지 영속 대기한다.
+
+## 최종 검수 반영 (2026-10-21, 미출시)
+
+- **크롤·복원과 원본 1회 전송**: 원본 전송은 rating 토큰을 `owner='raw_backfill'` 로 쥔다. 예약/수동 크롤(`start_crawl`)·복원·로그아웃 자료 삭제(`hold_for_restore`)는
+  그 토큰이 원본 전송 것이면 "양보 대기 요청"(`_yield_waiters`)을 올리고 최대 10초(slice 3초 + 한 건 여유) 기다린다. 원본 전송은 건마다 `backfill_should_yield()` 를 보고 즉시 토큰을 놓고 멈추며
+  대기 요청이 있는 동안은 다시 잡지 않는다(다음 poll 이 이어 받는다). 별점 등 다른 점유는 기다리지 않는다. 네트워크 없는 단계를 토큰 없이 처리하는 최적화는 하지 않았다.
+- **재동의 catch-up(v2)**: 비활성→active 로 계보가 바뀐 작업은 `lineage_changed` 를 달고 있으며, v2 에서는 `raw_backfill` marker 를 지운 뒤 시작해 새 run 으로 전체를 다시 보낸다.
+  active 유지 중 grant 갱신은 다시 보내지 않는다.
+- **원본 사본 축약**: durable ACK 이면 v1/v2 무관하게 `raw_event_json` 을 해시만 남긴다. 데이터셋 회전·소프트 리셋은 전체를 축약한다.
+- **trigger**: `raw_backfill` trigger 는 프로토콜 2 봉투에서만 쓴다(v1 봉투는 `recovery`).
+- **캡처 문맥 변경**: 읽은 뒤 활성 문맥이 바뀌면 개인 저장·크롤을 막지 않고 그 관측은 inactive 로 journal 에만 남긴다(`CaptureStoreUnavailable('capture_scope_changed')` 폐기).
+- **v2 꺼짐 비용**: `raw_backfill.start()` 는 v2 준비가 아니면 즉시 반환(스레드·lease 없음). `seed_g1` 은 읽기로 조건을 먼저 확인하고 대상일 때만 잠금·쓰기.
+- **공식 로그인 실패(원본 전송)**: `로그인 거부`·계정 설정 없음은 `official_login_required`(permanent) — 계정 설정/토큰 지문이 바뀔 때(설정 저장·수동 로그인)까지 멈춘다. 그 외 실패(`official_login_retry`, 상세 401/403)는 300초부터 두 배씩 최대 1시간 백오프.
+- **DB 최적화 보류만 남음**: 현행 파서 세대 부분 완료(holds 있음, done=false, 진행 중 아님)는 원본 전송 준비 완료(`db_optimize.only_holds_left`). 그 신고들은 원본 전송이 원본을 다시 받는다.

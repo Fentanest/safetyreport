@@ -297,7 +297,10 @@ def observe(service, status=None, *, kind=None, source='status', user=None):
                     (prior.get('grant_id') is not None and prior['grant_id'] != grant)))
         if (result == 'active' and grant and source == 'status' and
                 (row.get('catchup_requested') is True or changed)):
-            row.setdefault('jobs', {}).setdefault(grant, {'state': 'pending', 'phase': 'reshare', 'created_at': _now()})
+            # lineage_changed: 비활성(철회·미동의·정책 불일치)에서 active 로 돌아온 계보 — v2 는 원본을 새 run 으로 전부 다시 보낸다.
+            # active 유지 중 grant 갱신(정책 개정 재동의)은 이미 보낸 원본을 다시 보내지 않는다(최종 검수 4).
+            row.setdefault('jobs', {}).setdefault(grant, {'state': 'pending', 'phase': 'reshare', 'created_at': _now(),
+                                                          'lineage_changed': prior.get('state') != 'active'})
             row.pop('catchup_requested', None)
         if prior.get('state') == result and (result != 'active' or prior.get('grant_id') in (None, grant)):
             if grant:
@@ -319,18 +322,47 @@ def suspension(service):
         return False  # local_allowed / cloud.view fail closed for unreadable state
 
 
+_BLOCKING_DENY_REASONS = ('consent_revoked', 'account_removed', 'suspended', 'db_owner_mismatch', 'official_account_mismatch')
+
+
+def blocking_deny(row):
+    """로컬 사용·시드를 막는 거부인가: sticky 이거나 사유가 위 목록일 때만. 로그아웃 같은 non-sticky 표시는 막지 않는다
+    (재로그인 뒤에도 남아 실시간 업로드가 조용히 멈추는 결함, 최종 검수 1)."""
+    deny = (row or {}).get('deny') or {}
+    return bool(deny) and bool(deny.get('sticky') or deny.get('reason') in _BLOCKING_DENY_REASONS)
+
+
+def _clear_logout_deny(row):
+    deny = row.get('deny') or {}
+    if deny and not deny.get('sticky') and deny.get('reason') == 'logout':
+        row.pop('deny', None)
+
+
+def logout_confirmed_login(service=None):
+    """카카오 로그인 확정 때: 이전 로그아웃이 남긴 non-sticky deny('logout') 를 지운다."""
+    from services import community_auth_service as cas
+    service = service or cas.get_service()
+    user = (service.store.load().get('current') or {}).get('user_id')
+    if not user:
+        return
+    with _state() as state:
+        row = state['accounts'].get(_account_key(service.config().supabase_url, user))
+        if row:
+            _clear_logout_deny(row)
+
+
 def local_allowed(service, current, owner, dataset_key):
     if not current or not owner or current.get('kakao_id') != owner:
         return False
     try:
         state = _read_state()
         row = state['accounts'].get(_account_key(service.config().supabase_url, current.get('user_id')), {})
-        if row.get('suspended') or (row.get('deny') or {}).get('reason') in ('suspended', 'db_owner_mismatch', 'official_account_mismatch'):
+        if row.get('suspended') or blocking_deny(row):
             return False
-        if row.get('deny') or (row.get('consent') or {}).get('state') != 'active':
+        if (row.get('consent') or {}).get('state') != 'active':
             return False
-        seed_g1(service, current, owner, dataset_key)
-        row = _read_state()['accounts'].get(_account_key(service.config().supabase_url, current.get('user_id')), {})
+        if seed_g1(service, current, owner, dataset_key):
+            row = _read_state()['accounts'].get(_account_key(service.config().supabase_url, current.get('user_id')), {})
         verified = row.get('last_g1') or {}
         at = verified.get('at')
         if (not isinstance(at, (int, float)) or not offline_grace(at, _now())
@@ -353,14 +385,19 @@ def reset_evidence(service, current):
 def seed_g1(service, current, owner, dataset_key):
     """업그레이드 첫 실행 때 한 번만: 동의 이력은 전이만 기록하므로 '마지막 확인 시각'이 없다.
     last_g1 이 한 번도 없고 이력의 최신 결과가 active 이며 같은 회원·DB 주인·dataset 이면 지금을 last_g1 으로 시드한다(표시를 남겨 다시 하지 않음)."""
-    if not current or not owner or current.get('kakao_id')!=owner:return
+    if not current or not owner or current.get('kakao_id')!=owner:return False
+    key=_account_key(service.config().supabase_url,current.get('user_id'))
+    def eligible(row):
+        if not row:return False
+        if row.get('last_g1') or row.get('g1_seeded') or row.get('reset_completed_at') or blocking_deny(row) or row.get('suspended'):return False
+        return (row.get('consent') or {}).get('state')=='active' and row.get('binding')==dataset_key
+    if not eligible(_read_state()['accounts'].get(key)):return False  # 읽기만으로 먼저 거른다 — 저장마다 파일 잠금·복호화를 두 번 하지 않게(검수 10)
     with _state() as state:
-        row=state['accounts'].get(_account_key(service.config().supabase_url,current.get('user_id')), {})
-        if not row:return
-        if row.get('last_g1') or row.get('g1_seeded') or row.get('reset_completed_at') or row.get('deny') or row.get('suspended'):return
-        if (row.get('consent') or {}).get('state')!='active' or row.get('binding')!=dataset_key:return
+        row=state['accounts'].get(key, {})
+        if not eligible(row):return False
         row['last_g1']={'at':_now(),'kakao_id':owner,'dataset_key':dataset_key}
         row['g1_seeded']=True
+        return True
 
 
 def mark_g1(service, current, dataset_key):
@@ -368,6 +405,7 @@ def mark_g1(service, current, dataset_key):
     with _state() as state:
         row = state['accounts'].setdefault(_account_key(service.config().supabase_url, current.get('user_id')), {})
         previous=row.get('last_g1') or {}
+        _clear_logout_deny(row)  # 서버가 active 를 확인했다 — 이전 로그아웃 표시는 더 이상 막지 않는다
         if previous.get('kakao_id')==current.get('kakao_id') and previous.get('dataset_key')==dataset_key and 0<=_now()-previous.get('at',0)<600:return
         row['last_g1'] = {'at': _now(), 'kakao_id': current.get('kakao_id'), 'dataset_key': dataset_key, 'grant_id':(row.get('consent') or {}).get('grant_id')}
         row.pop('reset_completed_at',None)
@@ -393,6 +431,8 @@ def record_status(service, current, status, state_name):
         if state_name == 'suspended':
             row['suspended'] = {'at': _now()}
         elif (status.get('contributor') or {}).get('status') == 'active':
+            if consent.get('state') == 'active':
+                _clear_logout_deny(row)
             row.pop('suspended', None)
             if (row.get('deny') or {}).get('reason') == 'suspended':
                 row.pop('deny', None)

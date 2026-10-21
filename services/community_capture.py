@@ -486,7 +486,9 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
         if captured_context and captured_context.get('state')=='active':
             current=store.active_context()
             if not current or any(current.get(k)!=captured_context.get(k) for k in ('contributor_fingerprint','connection_id','consent_grant_id','writer_epoch','dataset_key')):
-                raise CaptureStoreUnavailable('capture_scope_changed')
+                # 읽은 뒤 문맥이 바뀌었다(철회·재연결). 개인 저장·크롤을 막지 않는다 — 이 관측은 inactive 로 journal 에만 남기고
+                # 보내지 않는다(문맥이 다시 active 가 되면 재수집이 보낸다). 최종 검수 8.
+                captured_context={**captured_context,'state':'inactive'};authorization='unknown';raw_mode=False
         if run_id and os.environ.get('SAFETYREPORT_CRAWL_RUN_ID'):
             from services.community_rebuild import assert_current_attempt
             assert_current_attempt(tx, run_id)

@@ -40,7 +40,7 @@ def begin(grant=None):
     cloud.observe(service,kind='revoked',source='local_revoke_pending')
     store=CommunityStore.open()
     if pending(store) is None:
-        store.set_meta('revoke_pending',json.dumps(dict(grant_id=grant,account=gate.account_fingerprint(current['user_id']),session_connected_at=current.get('connected_at'),attempts=0,next_attempt_at=0)))
+        store.set_meta('revoke_pending',json.dumps(dict(grant_id=grant,account=gate.account_fingerprint(current['user_id']),session_connected_at=current.get('connected_at'),display_name=current.get('display_name'),attempts=0,next_attempt_at=0)))
     gate.invalidate('revoke_pending');stop_work()
 
 def session_is_fresh(item,current):
@@ -83,7 +83,7 @@ def attempt(*,force=False):
             ops.soft_reset('consent_revoked',keep_session=session_is_fresh(item,service.store.load().get('current')));return True
         except cas.CommunityAuthError as exc:
             if not still_pending():return False
-            if exc.code in ("stale_grant","account_stale_grant"):item["grant_id"]=None
+            if exc.code in ("stale_grant","account_stale_grant","not_found","account_not_found"):item["grant_id"]=None
             item['attempts']+=1;item['next_attempt_at']=time.time()+min(1800,60*2**min(item['attempts']-1,5))
             store.set_meta('revoke_pending',json.dumps(item));gate.invalidate('revoke_pending')
             return False

@@ -272,6 +272,17 @@ def needs_run(engine) -> bool:
     return not meta.get("done")
 
 
+def only_holds_left(engine) -> bool:
+    """현행 파서 세대에서 한 바퀴를 마치고 보류(holds)만 남아 쉬는 중인가(done=false, 진행 중 아님).
+    원본 1회 전송은 이 상태를 '준비 완료'로 본다 — 그 신고들은 원본 전송이 원본을 다시 받는다(영구 대기 방지)."""
+    meta = read_meta(engine)
+    if not meta or meta.get("done") or meta.get("target") != PARSER_VERSION:
+        return False
+    if not _meta_holds(meta) or not meta.get("next_retry_at"):
+        return False  # 부분 완료로 멈춘 상태만(진행 중 메타에는 next_retry_at 이 없다)
+    return not is_running()
+
+
 # ── 새 활동 판정(명세 7-2) ────────────────────────────────────────────────
 
 def c_now_status_table() -> dict:

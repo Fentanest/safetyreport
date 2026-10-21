@@ -199,6 +199,7 @@ class FinishedRunDoesNotSpawnThreadsTests(unittest.TestCase):
             store = CommunityStore.open(temp)
             self.addCleanup(store.close)
             store.set_meta('raw_backfill', json.dumps(dict(state='done', local_dataset_id=store.local_dataset_id())))
+            store.set_meta('ingest_status', json.dumps(dict(consent=dict(state='active', grant_id='g', policy_version='p'), ingest=dict(contracts=[1, 2], raw_policy_version='p'))))  # v2 준비됨(꺼져 있으면 start 가 즉시 반환)
             with mock.patch.object(CommunityStore, 'open', return_value=store), \
                     mock.patch('core.utils.runtime_mode.is_fixture_mode', return_value=False), \
                     mock.patch.object(module.threading, 'Thread') as thread:

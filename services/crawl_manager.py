@@ -33,6 +33,8 @@ class CrawlManager:
                 cls._instance._post_upload_active = False
                 cls._instance._preparing = False
                 cls._instance._rating_token = None
+                cls._instance._rating_owner = None  # 'raw_backfill' 이면 크롤·복원 요청이 양보를 요청할 수 있다(최종 검수 3)
+                cls._instance._yield_waiters = 0  # 원본 전송에게 토큰을 놓으라고 기다리는 요청 수
                 cls._instance._state_lock = threading.Lock()
                 cls._instance._pending_queue: List[str] = []
                 cls._instance._notification_receipts = {}
@@ -63,10 +65,38 @@ class CrawlManager:
         return isinstance(getattr(process, '_safetyreport_run_id', None), str) and not (
             getattr(process, '_safetyreport_completion_claimed', False) is True)
 
+    _rating_owner = None
+    _yield_waiters = 0
+    BACKFILL_YIELD_WAIT_SECONDS = 10.0  # 원본 전송 slice(3초) + 한 건 처리 여유
+
+    def backfill_should_yield(self) -> bool:
+        """예약 크롤·수동 크롤·복원·로그아웃 자료 삭제가 원본 전송의 토큰을 기다리는 중인가. 원본 전송은 건마다 확인해 즉시 놓는다."""
+        with self._state_lock:
+            return self._yield_waiters > 0
+
+    def _await_backfill_release(self, timeout=None):
+        """원본 전송(raw_backfill)이 rating 토큰을 쥐고 있으면 놓을 때까지 짧게 기다린다. 다른 사유의 점유는 기다리지 않는다."""
+        with self._state_lock:
+            if getattr(self, '_rating_token', None) is None or self._rating_owner != 'raw_backfill':
+                return
+            self._yield_waiters += 1
+        try:
+            deadline = time.monotonic() + (self.BACKFILL_YIELD_WAIT_SECONDS if timeout is None else timeout)
+            while time.monotonic() < deadline:
+                with self._state_lock:
+                    if getattr(self, '_rating_token', None) is None or self._rating_owner != 'raw_backfill':
+                        return
+                time.sleep(0.05)
+        finally:
+            with self._state_lock:
+                self._yield_waiters = max(0, self._yield_waiters - 1)
+
     @contextmanager
     def hold_for_restore(self):
         """복원 동안 크롤러 시작을 막는다. 크롤링 중이거나 다른 복원 중이면 RestoreBlocked.
-        검사와 표시를 start_crawl 과 같은 잠금 안에서 하므로, 검사 직후 크롤러가 끼어들 수 없다(SOL-04)."""
+        검사와 표시를 start_crawl 과 같은 잠금 안에서 하므로, 검사 직후 크롤러가 끼어들 수 없다(SOL-04).
+        원본 1회 전송이 쥔 토큰은 잠깐 기다렸다가 진행한다."""
+        self._await_backfill_release()
         with self._state_lock:
             if self._rating_token is not None or self._preparing or self._post_upload_active or self._process_busy_locked():
                 raise RestoreBlocked("크롤링이 진행 중입니다. 끝난 뒤 다시 복원하세요.")
@@ -86,7 +116,7 @@ class CrawlManager:
         with self._state_lock:
             return self._restore_hold
 
-    def reserve_rating(self, generation):
+    def reserve_rating(self, generation, owner=None):
         with self._state_lock:
             if getattr(self, '_shutting_down', False):
                 raise RuntimeError('서버가 종료 중입니다.')
@@ -96,12 +126,14 @@ class CrawlManager:
                     self._process_busy_locked()):
                 raise RuntimeError("크롤링 또는 별점 작업이 진행 중입니다. 종료 후 다시 시도하세요.")
             self._rating_token = object()
+            self._rating_owner = owner
             return self._rating_token
 
     def release_rating(self, token):
         with self._state_lock:
             if self._rating_token is token:
                 self._rating_token = None
+                self._rating_owner = None
 
     def maintenance_busy(self) -> bool:
         with self._state_lock:
@@ -117,7 +149,9 @@ class CrawlManager:
         """크롤링 프로세스를 시작합니다. 이미 실행 중이면 False 반환.
         restore_generation: 호출자가 허용 검사(게이트·초기화) 전에 읽은 복원 세대. 그 사이 복원이 있었으면 시작하지 않는다(R4-03).
         prepare: 시작을 예약한 뒤 Popen 전에 실행. 예약 표시가 다른 시작·복원을 막고,
-        긴 업로드 동안에는 상태 잠금을 풀어 조회 요청이 계속 응답하게 한다(R4-02)."""
+        긴 업로드 동안에는 상태 잠금을 풀어 조회 요청이 계속 응답하게 한다(R4-02).
+        원본 1회 전송이 쥔 토큰은 잠깐 기다렸다가 진행한다(예약 크롤이 건너뛰어지지 않게)."""
+        self._await_backfill_release()
         with self._state_lock:
             if getattr(self, '_shutting_down', False):
                 return False
