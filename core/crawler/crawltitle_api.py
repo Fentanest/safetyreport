@@ -55,7 +55,8 @@ def _fetch_api_page_via_browser(driver, start_row, end_row):
     return driver.execute_async_script(script)
 
 
-def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, progress: dict | None = None):
+def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, progress: dict | None = None,
+                 session_override=None, stopped=None):
     """반환은 그대로 ([df...], 마지막 페이지). progress dict 를 주면 수집 경과를 채운다.
 
     progress 키: total(총 건수·첫 페이지 실패면 None), pages_expected(받을 페이지 번호 목록),
@@ -72,7 +73,9 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, p
         fetch_page = lambda start_row, end_row: _fetch_api_page_via_browser(driver, start_row, end_row)
     else:
         logger.LoggerFactory.logbot.info("API 방식으로 목록 데이터를 호출합니다. (direct_login 세션)")
-        session, _ = direct_login.make_authorized_session()
+        session = session_override
+        if session is None:
+            session, _ = direct_login.make_authorized_session()
         def fetch_page(start_row, end_row):
             nonlocal session
             payload, session = _fetch_api_page(session, start_row, end_row)
@@ -122,6 +125,8 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, p
     seen_ids = set()
 
     for page_num in pages_to_crawl:
+        if stopped is not None and stopped():
+            _note(list_ok=False, pages_failed=[page_num], first_error='cancelled');return all_title_dfs,last_crawled_page
         last_crawled_page = page_num
         start_row = (page_num - 1) * page_size + 1
         end_row = min(page_num * page_size, tot_cnt)

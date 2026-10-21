@@ -27,12 +27,36 @@
         {% if gate.state == 'config_invalid' %}배포 공개 설정이 누락되었거나 설정 재정의 값이 잘못되었습니다. 공식 배포본을 다시 설치하고 환경변수·고급 설정을 확인하세요. Supabase 프로젝트를 직접 만들 필요는 없습니다.
         {% elif gate.state == 'verification_required' %}커뮤니티 서버에서 상태를 확인하지 못했습니다. 네트워크를 확인한 뒤 새로고침해 주세요.
         {% elif gate.state == 'suspended' %}이 카카오 계정의 공유가 중지되어 있습니다. 운영자 안내를 확인해 주세요.
+        {% elif gate.state == 'revoke_pending' %}공유 동의 철회를 서버에 전달하는 중입니다. 확인되면 카카오 로그인 화면으로 돌아갑니다.
         {% elif gate.state == 'db_owner_mismatch' %}이 서버에 저장된 신고 내역은 다른 카카오 계정의 것입니다. 아래 카드에서 신고 내역을 지우고 시작하거나 로그아웃해 주세요.
         {% else %}카카오 인증과 신고내용 공유 동의를 마치면 원래 화면으로 이동합니다.{% endif %}
     </div>
 
+    {% if gate.state == 'revoke_pending' %}
+    <div class="alert alert-warning" role="status">철회 처리 중입니다. 서버가 확인할 때까지 앱을 잠그고 자동으로 다시 시도합니다. 신고 자료와 카카오 로그인은 보존됩니다.</div>
+    <button class="btn btn-primary" id="revokeRetry" type="button">철회 다시 시도</button>
+    <div class="small mt-2" id="revokeRetryResult" role="status" aria-live="polite"></div>
+    <script>
+    (function(){
+      var button=document.getElementById('revokeRetry'),out=document.getElementById('revokeRetryResult');
+      button.onclick=function(){
+        button.disabled=true;out.textContent='철회를 다시 시도하는 중입니다.';
+        fetch('/settings/community/revoke-retry',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRF-Token':{{ csrf_token|tojson }}},body:'{}'})
+          .then(function(r){return r.json().catch(function(){return null;}).then(function(d){return {ok:r.ok,status:r.status,data:d};});})
+          .then(function(res){
+            var state=res.ok&&res.data&&res.data.data&&res.data.data.gate&&res.data.data.gate.state;
+            if(res.ok&&state!=='revoke_pending'){out.textContent='철회가 확인되었습니다.';location.reload();return;}
+            out.textContent=res.ok?'아직 서버가 철회를 확인하지 않았습니다. 잠시 뒤 자동으로 다시 시도합니다.':'철회를 다시 시도하지 못했습니다(HTTP '+res.status+'). 새로고침 뒤 다시 눌러 주세요.';
+            button.disabled=false;
+          }).catch(function(){out.textContent='서버에 연결하지 못했습니다. 잠시 뒤 다시 시도해 주세요.';button.disabled=false;});
+      };
+      setInterval(function(){fetch('/settings/community/gate',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){if(d.data.state!=='revoke_pending') location.reload();}).catch(function(){});},5000);
+    })();
+    </script>
+    {% else %}
     {% include "components/community_account_card.html" %}
     {% include "components/community_consent_card.html" %}
+    {% endif %}
 
     <div class="d-flex flex-wrap gap-2 align-items-center">
         <button type="button" class="btn btn-success d-none" id="obContinueBtn">계속</button>
@@ -58,6 +82,7 @@
         session_unreadable: '저장된 커뮤니티 로그인 정보를 읽을 수 없습니다. 카드의 초기화를 눌러 다시 연결해 주세요.',
         verification_required: '커뮤니티 서버에서 상태를 확인하는 중입니다. 계속되면 네트워크를 확인해 주세요.',
         suspended: '이 카카오 계정의 공유가 중지되어 있습니다. 운영자 안내를 확인해 주세요.',
+        revoke_pending: '철회 처리 중입니다. 서버 확인 후 카카오 로그인부터 다시 시작합니다.',
         consent_required: '2단계: 신고내용 공유 동의 문서를 읽고 동의해 주세요.',
         db_owner_mismatch: '이 서버에 저장된 신고 내역은 다른 카카오 계정의 것입니다. 카드에서 신고 내역을 지우고 시작하거나 로그아웃해 주세요.'
     };

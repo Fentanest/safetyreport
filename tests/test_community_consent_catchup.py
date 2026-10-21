@@ -114,8 +114,13 @@ class ConsentCatchupTests(GateTestBase):
         self.connect()
         for prior_state in ('none', 'revoked', 'outdated'):
             with self.subTest(prior_state=prior_state):
+                # 새 정책: G1 이 있던 회원이 revoked 를 보면 한 번 소프트 리셋(로그아웃)된다 → 다시 로그인한 뒤 같은 흐름을 본다.
+                if not self.service.store.load().get('current'):
+                    self.connect()
                 self.account.grant(USER_A, state=prior_state)
                 gate.refresh_now()
+                if not self.service.store.load().get('current'):
+                    self.connect()  # 리셋됐다면 다시 로그인해 revoked/outdated 를 본다(근거가 지워져 두 번째 리셋은 없다)
                 self.account.grant(USER_A)
                 gate.refresh_now()
                 job = cloud.current_job()

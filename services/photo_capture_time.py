@@ -158,7 +158,7 @@ class _RetryIntentFailed(Exception):
     """공유 캡처와 재시도 의도 저장이 모두 실패했다 — 촬영 시각 저장을 롤백한다."""
 
 
-def fill_one(engine, record_id: str, photos, *, fetch=None) -> bool:
+def fill_one(engine, record_id: str, photos, *, fetch=None, admission=None) -> bool:
     """한 신고의 촬영 시각을 읽어 저장한다(네트워크는 트랜잭션 밖). 네트워크 오류면 False — 다음에 다시.
 
     촬영 시각 저장은 공유 캡처 성공과 묶지 않는다: 캡처가 실패해도 개인 DB 의 촬영 시각은 커밋하고(다음 훑기마다
@@ -173,7 +173,9 @@ def fill_one(engine, record_id: str, photos, *, fetch=None) -> bool:
     from core.storage import reports_repo
     from core.utils.fallback import note_fallback
 
+    if admission is not None and not admission():return False
     collected = collect(photos, fetch=fetch)
+    if admission is not None and not admission():return False
     if collected is None:
         return False
     from services import community_capture
@@ -182,6 +184,7 @@ def fill_one(engine, record_id: str, photos, *, fetch=None) -> bool:
     capture_result = None
     try:
         with engine.begin() as conn:
+            if admission is not None and not admission():return False
             # 읽은 첨부가 지금도 같을 때만 쓴다. 네트워크를 기다리는 동안 DB 복원·재크롤링으로 첨부가 바뀌었으면
             # 다른 사진의 촬영 정보를 저장하게 되므로 버린다(기술일지 A2-02). 다음 훑기에서 새 첨부로 다시 시도한다.
             result = conn.execute(update(detail).where(

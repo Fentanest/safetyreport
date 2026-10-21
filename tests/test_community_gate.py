@@ -213,6 +213,7 @@ class GateTestBase(CommunityTestBase):
             return True
 
         fake_uploader.refresh_server_completed = refresh_server_completed
+        fake_uploader.stop_background = lambda timeout=5: True
         patches += inject_module("services.community_uploader", fake_uploader)
         for p in patches:
             p.start()
@@ -283,11 +284,11 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(d("ok", "valid", self.status(policy=newer, consent={"state": "active", "policy_version": "2026-10-01.1",
                                                                                "consent_text_sha256": "2" * 64}), 1, False),
                          ("ok", []), "새 정책도 앱을 새로 배포하지 않고 통과한다")
-        self.assertEqual(d("ok", "valid", self.status(contributor={"status": "none"}), 300, False), ("ok", []))
+        self.assertEqual(d("ok", "valid", self.status(contributor={"status": "none"}), 300, False), ("verification_required", ["contributor_missing"]))
 
     def test_contract_gate_vectors(self):
         # 모바일 test/community/gate_evaluate_test.dart 와 같은 계약 벡터 — PC·모바일 판정이 같아야 한다
-        with open(os.path.join(ROOT, "contracts/community-ingest/vectors/gate.json"), encoding="utf-8") as fh:
+        with open(os.path.join(ROOT, "contracts/community-ingest-v2/legacy-gate-vectors.json"), encoding="utf-8") as fh:
             vectors = json.load(fh)
         self.assertNotIn("app_required_policy_version", vectors, "앱에 박힌 정책 버전은 없다")
         for c in vectors["cases"]:
@@ -404,9 +405,11 @@ class GateServiceTests(GateTestBase):
         self.open_gate()
         self.account.consents[USER_A["id"]]["state"] = "revoked"
         result = community_gate.refresh_now()
-        self.assertEqual((result["state"], result["reasons"]), ("consent_required", ["consent_revoked"]))
+        self.assertEqual((result["state"], result["reasons"]), ("kakao_required", ["session_none"]))
+        self.assertIsNone(self.service.store.load().get("current"))
+        self.assertIsNone(self.service.store.load_writer())
         self.assertEqual(self.store.context()["state"], "inactive")
-        self.assertEqual(self.store.context()["inactive_reason"], "consent_required")
+        self.assertEqual(self.store.context()["inactive_reason"], "kakao_required")
 
     def test_auth_rejection_after_one_refresh_invalidates_immediately(self):
         self.open_gate()
@@ -561,7 +564,7 @@ class GateServiceTests(GateTestBase):
         self.open_gate()
         self.account.consents[USER_A["id"]]["state"] = "revoked"
         community_gate.refresh_now()
-        self.assertEqual(seen[-1], "consent_required")
+        self.assertEqual(seen[-1], "kakao_required")
         self.assertIn("ok", seen)
 
 
@@ -774,10 +777,10 @@ class GateAppTests(GateTestBase):
             self.assertNotIn(secret, body)
         r = self.post("/settings/community/consent-revoke", {"confirm": True}, token=token)
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["data"]["gate"]["state"], "consent_required")
+        self.assertEqual(r.json()["data"]["gate"]["state"], "kakao_required")
         self.assertEqual(self.store.context()["state"], "inactive")
         r = self.client.get("/settings/", follow_redirects=False)
-        self.assertEqual(r.status_code, 200, "긴급 정책: 철회 후에도 본인 로컬 조회 허용")
+        self.assertEqual(r.status_code, 302, "철회 후 개인 자료는 보존하고 일반 화면은 잠근다")
 
     def test_logout_closes_gate_immediately(self):
         token = self.login()

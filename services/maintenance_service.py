@@ -21,6 +21,10 @@ _CRAWL_WAIT_SECONDS = 5.0
 
 _lock = threading.Lock()
 _thread: threading.Thread | None = None
+_account_stopped=False
+_account_stop_path=None
+_account_generation=0
+_ACCOUNT_WAIT="공유 동의 확인 대기"
 _state: dict = {
     "key": PHOTO_JOB,
     "label": "주정차 사진 촬영 시각 읽기",
@@ -49,7 +53,7 @@ def _is_crawling() -> bool:
     try:
         from services.crawl_manager import crawl_manager
 
-        return bool(crawl_manager.is_crawling())
+        return bool(crawl_manager.is_crawling() or crawl_manager.maintenance_busy())
     except Exception as exc:
         note_fallback("maintenance.is_crawling", exc)
         return False
@@ -58,14 +62,17 @@ def _is_crawling() -> bool:
 def _run_photo_job(engine, rows, fetch, interval: float, crawling) -> None:
     from services import photo_capture_time
 
+    generation=_account_generation
     filled = failed = 0
     for index, (record_id, photos, report_number) in enumerate(rows, start=1):
+        if _account_is_stopped() or generation!=_account_generation:return
         while crawling():
+            if _account_is_stopped() or generation!=_account_generation:return
             _update(state="paused", message="크롤링이 끝나면 이어서 합니다")
             time.sleep(_CRAWL_WAIT_SECONDS)
         _update(state="running", current=report_number or record_id, message="")
         try:
-            ok = photo_capture_time.fill_one(engine, record_id, photos, fetch=fetch)
+            ok = photo_capture_time.fill_one(engine, record_id, photos, fetch=fetch, admission=lambda: not _account_is_stopped() and generation==_account_generation)
         except Exception as exc:  # 한 건의 실패가 전체를 멈추지 않게
             logger.LoggerFactory.logbot.warning(f"[maintenance] 사진 촬영 시각 {record_id} 실패: {exc}")
             ok = False
@@ -83,6 +90,7 @@ def start_photo_backfill(engine, *, fetch=None, interval: float = _REQUEST_INTER
                          wait: bool = False) -> dict:
     """대상이 있으면 백그라운드로 시작한다(이미 돌고 있으면 그대로). 반환: 현재 상태."""
     global _thread
+    if _account_is_stopped():return photo_job_state()
     from services import photo_capture_time
 
     with _lock:
@@ -152,3 +160,33 @@ def status(engine) -> dict:
         note_fallback("maintenance.db_optimize_status", exc)
     active = any(job["state"] in ("running", "paused") for job in jobs)
     return {"active": active, "jobs": jobs}
+
+
+def stop_for_account():
+    global _account_stopped,_account_generation,_account_stop_path
+    _account_stopped=True;_account_stop_path=_account_path();_account_generation+=1
+    with _lock:
+        running=_thread is not None and _thread.is_alive()
+    if running:_update(state="paused",message=_ACCOUNT_WAIT,current="")
+
+def resume_for_account():
+    global _account_stopped, _account_stop_path
+    _account_stopped=False
+    _account_stop_path=None
+    with _lock:
+        alive=_thread is not None and _thread.is_alive()
+        if not alive and _state.get("message")==_ACCOUNT_WAIT:
+            _state.update(state="idle",message="",current="")  # 멈춘 작업은 다음 시작 때 처음부터 다시 훑는다
+
+
+def is_running():
+    with _lock:return _thread is not None and _thread.is_alive() and not _account_is_stopped()
+
+
+def _account_path():
+    import os
+    import settings.settings as app_settings
+    return os.path.abspath(app_settings.datapath)
+
+def _account_is_stopped():
+    return _account_stopped and _account_stop_path == _account_path()

@@ -219,6 +219,19 @@ def block_superseded_corrections(data_dir=None) -> int:
 
 # ── enqueue ──────────────────────────────────────────────────────────────────
 
+def release_raw_required(store, ctx: dict) -> int:
+    """v2 가 꺼져 v1 로 돌아갔다면, 원본이 없어 'raw_required' 로 막아 둔 행을 풀어 v1 DTO 로 보낼 수 있게 한다(영구 blocked 금지).
+    v2 가 켜져 있으면 건드리지 않는다(원본이 생기면 일괄 전송·다음 수집이 대체한다)."""
+    from services.community_raw_ingest import selected, ingest_status
+    if selected(store, ingest_status(store), ctx):
+        return 0
+    with store.transaction() as tx:
+        cur = tx.execute("UPDATE outbox SET state='pending', last_error_code=NULL, next_retry_at=NULL WHERE state='blocked'"
+                         " AND last_error_code='raw_required'")
+        tx.execute("UPDATE source_journal SET blocked_reason=NULL WHERE blocked_reason='raw_required'")
+        return int(cur.rowcount or 0)
+
+
 def _enqueue_missing(trigger: str, data_dir=None) -> int:
     """현재 context 의 미ACK journal 중 outbox 에 없는 것을 enqueue. 반환=추가 수."""
     store = _store(data_dir)
@@ -276,7 +289,7 @@ def _ctx_args(ctx: dict) -> tuple:
 def _front_rows(conn, ctx: dict, now: str, limit: int, exclude: set[str]) -> list[dict]:
     """신고마다 보낼 수 있는 가장 앞 revision 하나(그 행이 due 일 때만). 앞 revision 이 대기 중이면 그 신고는 건너뛴다."""
     rows = conn.execute(
-        "SELECT o.event_id, o.attempt_count, o.state, j.source_report_id, j.source_revision, j.event_type, j.captured_at,"
+        "SELECT o.event_id, o.attempt_count, o.state, o.enqueued_trigger, j.source_report_id, j.source_revision, j.event_type, j.captured_at,"
         " j.payload_sha256, j.eligible, j.writer_epoch, j.report_number, j.rebuild_run_id FROM source_journal j JOIN outbox o ON o.event_id=j.event_id"
         " JOIN (SELECT j2.source_report_id AS rid, MIN(j2.source_revision) AS rev FROM source_journal j2"
         "       JOIN outbox o2 ON o2.event_id=j2.event_id WHERE o2.state IN ('pending','retry_wait','in_flight','auth_required')"
@@ -308,10 +321,14 @@ def crawl_pending_count(data_dir=None) -> int:
 def _event(row: dict, payload_json: str, ctx: dict) -> dict:
     """저장된 불변 필드를 그대로 쓴다(event_id·event_type·revision·writer_epoch·captured_at·payload·sha).
     중앙은 같은 event_id 의 재전송에서 이 값들이 다르면 conflict 로 본다 — 현재 context 의 epoch 로 바꾸지 않는다."""
-    return {"event_id": row["event_id"], "event_type": row["event_type"], "source_system": "safetyreport",
+    event = {"event_id": row["event_id"], "event_type": row["event_type"], "source_system": "safetyreport",
             "source_report_id": row["source_report_id"], "report_number": row.get("report_number"), "source_revision": row["source_revision"],
             "writer_epoch": row.get("writer_epoch"), "captured_at": row["captured_at"],
             "payload": json.loads(payload_json), "payload_sha256": row["payload_sha256"]}
+    if row.get('_raw_event'):
+        event.pop('payload'); event.pop('payload_sha256')
+        event.update(json.loads(row['_raw_event']))
+    return event
 
 
 def _envelope(ctx: dict, trigger: str, events: list[dict]) -> dict:
@@ -323,7 +340,7 @@ def _envelope(ctx: dict, trigger: str, events: list[dict]) -> dict:
     return client.build_envelope(
         connection_id=ctx.get("connection_id") or "", consent_grant_id=ctx.get("consent_grant_id") or "",
         policy_version=ctx.get("policy_version") or "", source_mode=ctx.get("source_mode") or "server",
-        trigger=trigger if trigger in ("realtime", "manual", "midnight", "recovery", "rebuild", "reshare") else "manual",
+        trigger=trigger if trigger in ("realtime", "manual", "midnight", "recovery", "rebuild", "reshare", "raw_backfill") else "manual",
         events=events)
 
 
@@ -341,15 +358,29 @@ def _build_batch(store, rows: list[dict], ctx: dict, trigger: str, max_events: i
     for offset in range(0, len(event_ids), 500):
         chunk = event_ids[offset:offset + 500]
         marks = ','.join('?' for _ in chunk)
-        payloads.update((row['event_id'], row['payload_json']) for row in conn.execute(
-            f'SELECT event_id, payload_json FROM source_journal WHERE event_id IN ({marks})', chunk))
+        payloads.update((row['event_id'], (row['payload_json'], row['raw_event_json'])) for row in conn.execute(
+            f'SELECT event_id, payload_json, raw_event_json FROM source_journal WHERE event_id IN ({marks})', chunk))
+    from services.community_raw_ingest import selected, ingest_status
+    v2_on = selected(store, ingest_status(store), ctx)
     for row in rows:
         if len(batch) >= max_events:
             break
         if row["source_report_id"] in reports:
             continue
-        payload = payloads.get(row["event_id"])
-        if payload is None:
+        stored = payloads.get(row["event_id"])
+        if stored is None:
+            continue
+        payload, raw_json = stored
+        row['_raw_event'] = raw_json if raw_json and not raw_json.startswith('{"compact":true') else None
+        if row['_raw_event'] and not v2_on:
+            if row.get('enqueued_trigger') == 'raw_backfill':
+                # 일괄 전송 행은 원본 전용이다 — v2 가 돌아올 때까지 보류한다(막지도 버리지도 않는다).
+                with store.transaction() as tx:
+                    tx.execute("UPDATE outbox SET state='retry_wait',next_retry_at=?,last_error_code='v2_unavailable' WHERE event_id=?",(_iso(_now()+timedelta(seconds=60)),row['event_id']))
+                continue
+            # 서버가 v2 를 껐다(status 에 2 없음): 대기 중인 실시간·수동 행은 같은 event_id 의 v1 형식(payload)으로 보낸다.
+            row['_raw_event'] = None
+        if batch and bool(row['_raw_event']) != bool(batch[0].get('_raw_event')):
             continue
         epoch = row.get("writer_epoch")
         if not isinstance(epoch, int) or isinstance(epoch, bool) or epoch < 1:
@@ -361,12 +392,19 @@ def _build_batch(store, rows: list[dict], ctx: dict, trigger: str, max_events: i
             oversize.append(dict(row, _reason="payload_unreadable"))
             continue
         size = len(client.envelope_bytes(event))
-        if base + size > MAX_BODY_BYTES:
+        limit = 1024 * 1024 if row['_raw_event'] else MAX_BODY_BYTES
+        if base + size > limit:
             oversize.append(dict(row, _reason="payload_too_large"))
             continue
         extra = size + (1 if batch else 0)
-        if total + extra > MAX_BODY_BYTES:
+        if total + extra > limit:
             continue
+        if row['_raw_event']:
+            import gzip
+            candidate = [r['_event'] for r in batch] + [event]
+            if len(gzip.compress(client.envelope_bytes(_envelope(ctx, trigger, candidate)), mtime=0)) > 512 * 1024:
+                if not batch: oversize.append(dict(row, _reason='payload_too_large'))
+                continue
         batch.append(dict(row, _event=event))
         reports.add(row["source_report_id"])
         total += extra
@@ -463,24 +501,31 @@ def _ack_input(response) -> dict:
     results = []
     for r in response.results:
         item = {"event_id": r.event_id, "status": r.status, "durable": r.durable, "receipt_id": r.receipt_id,
-                "projection_status": r.projection_status}
+                "projection_status": r.projection_status, "original_status": getattr(r,"original_status",None)}
         if not r.durable:
             item["error"] = {"code": r.error_code, "retryable": bool(r.error_retryable)} if r.error_code else None
         results.append(item)
-    return {"protocol": 1, "request_id": response.request_id, "results": results}
+    return {"protocol": getattr(response,"protocol",1), "request_id": response.request_id, "results": results}
 
 
-def _apply_ack(store, batch: list[dict], interp, counts: dict) -> None:
+def _apply_ack(store, batch: list[dict], interp, counts: dict, expected=None) -> None:
     """확인된 이벤트: journal ack 기록 + outbox 삭제를 한 트랜잭션. 누락 ACK 는 백오프(같은 실행에서 다시 보내지 않음)."""
     now = _iso(_now())
     by_id = {row["event_id"]: row for row in batch}
     with store.transaction() as tx:
+        if expected is not None and _ctx_identity(store.active_context() or {}) != _ctx_identity(expected):return False
         for event_id, ev in interp.events.items():
             row = by_id[event_id]
             if ev.outcome == "done":
                 tx.execute("DELETE FROM outbox WHERE event_id=?", (event_id,))
                 tx.execute("UPDATE source_journal SET ack_status=?, receipt_id=?, acked_at=?, projection_status=?"
                            " WHERE event_id=?", (ev.status, ev.receipt_id, now, ev.projection_status, event_id))
+                if row.get('_raw_event'):
+                    # ACK 를 받은 원본 사본은 비교용 해시만 남기고 지운다 — journal 이 신고 수 × run 만큼 커지지 않게
+                    from services.community_raw_ingest import compact
+                    tx.execute("UPDATE source_journal SET raw_event_json=? WHERE event_id=?", (compact(row['_raw_event']), event_id))
+                if row.get('_raw_event') and (ev.status=='stored' or ev.status=='no_change' or (ev.status=='duplicate' and ev.original_status in ('stored','no_change'))):
+                    store.set_meta('raw_receipt:'+event_id,'stored',tx)
                 counts["quarantined" if ev.status == "quarantined" else "acked"] += 1
             elif ev.outcome == "dead":
                 tx.execute("UPDATE outbox SET state='dead_letter', last_error_code=?, last_request_id=?,"
@@ -744,6 +789,10 @@ def _run_upload(run_id: str, trigger: str, data_dir=None, progress=None) -> dict
         if waiting:
             from services import community_upload_status
             community_upload_status.request_reshare(data_dir, consent_grant=ctx['consent_grant_id'], send=False, only_waiting=True)
+        try:
+            release_raw_required(store, ctx)
+        except Exception:
+            _log.info("[community] raw_required 해제 실패", exc_info=True)
         if trigger in ("manual", "midnight", "recovery"):
             try:
                 _enqueue_missing(trigger, data_dir)
@@ -833,14 +882,23 @@ def _drain(run: UploadRunContext) -> dict:
                 _last_requests[request_scope] = last_request_at
             elif not isinstance(token, str):
                 interp = token  # 갱신 결과(offline 또는 auth_required)
+        current=store.active_context()
+        if current is None or _ctx_identity(current)!=_ctx_identity(ctx):
+            run.error_code='context_changed';return run.finish('blocked_gate')
+        from services import community_notice
+        if response.ok:
+            community_notice.apply_ack(store,getattr(response,'notice_present',False),response.client_notice)
+        elif response.code=='client_upgrade_required':
+            community_notice.mark_upgrade_required(store)
         for row in batch:
             tried.add(row["event_id"])
         if interp is None:  # 형식이 유효한 200 → 이벤트별 판정
-            ack = policy.interpret_ack([r["event_id"] for r in batch], _ack_input(response))
+            ack = policy.interpret_ack([r["event_id"] for r in batch], _ack_input(response), protocol=getattr(response,"protocol",1))
             if ack.kind == "error":
                 interp = ack
             else:
-                _apply_ack(store, batch, ack, counts)
+                if _apply_ack(store, batch, ack, counts, expected=ctx) is False:
+                    run.error_code="context_changed";return run.finish("blocked_gate")
                 rebuild_ids = {r['event_id'] for r in batch if r.get('rebuild_run_id')}
                 run.rebuild_counts['acked'] += sum(
                     event_id in rebuild_ids and ev.outcome == 'done' and ev.status != 'quarantined'
@@ -901,8 +959,9 @@ def _send(run: UploadRunContext, batch, token=None):
             return response, _classify(response)
         except Exception:
             token = None
-    envelope = _envelope(run.ctx, run.trigger, [row["_event"] for row in batch])
-    if len(client.envelope_bytes(envelope)) > MAX_BODY_BYTES:
+    trigger = 'raw_backfill' if any(row.get('enqueued_trigger')=='raw_backfill' for row in batch) else run.trigger
+    envelope = _envelope(run.ctx, trigger, [row["_event"] for row in batch])
+    if len(client.envelope_bytes(envelope)) > (1024 * 1024 if envelope.get('protocol') == 2 else MAX_BODY_BYTES):
         response = client.IngestResponse(ok=False, http_status=None, code="payload_too_large",
                                          error_class="request_too_large", not_sent=True)
         return response, _classify(response)
@@ -974,6 +1033,11 @@ def _apply_error(run: UploadRunContext, batch, interp) -> str:
         run.rebuild_counts["retry"] += sum(bool(row.get('rebuild_run_id')) for row in batch)
         _gate_invalidate(code)
         return "needs_auth"
+    if code == "client_upgrade_required":
+        # 426: 이 앱 버전이 거절됐다. 행을 버리지도 막지도 않고 1시간 뒤 다시 본다 — 업데이트(표시 해제) 때 바로 풀린다.
+        run.outbox.retry(batch, code, 3600, interp.request_id)
+        counts["retry"] += len(batch)
+        return "failed"
     # consent_rejected / connection_rejected: 명시적 거절 → blocked(보존), 게이트 무효화
     run.outbox.block(batch, code)
     counts["blocked"] += len(batch)

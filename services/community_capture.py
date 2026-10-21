@@ -445,7 +445,7 @@ def _backfill_payload(latest_payload: dict, adapter_input: dict) -> dict:
 
 def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
             rebuild_run_id: str | None = None, data_dir: str | None = None,
-            account_context: tuple | None = None) -> CaptureResult:
+            account_context: tuple | None = None, raw_snapshot: dict | None = None, force: bool = False) -> CaptureResult:
     """한 트랜잭션으로 detail_status → journal/outbox → report_latest 를 기록한다.
 
     account_context: 여러 신고를 한 번에 보충하는 호출자(resend_fine_estimate_updates)가 실행 시작 때 한 번 읽은
@@ -471,8 +471,22 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
         captured_context, authorization = account_context
     else:
         captured_context, authorization = read_account_context(store)
+    from services import community_raw_ingest as raw_ingest
+    raw_mode = raw_ingest.selected(store,raw_ingest.ingest_status(store),captured_context)
+    if raw_mode and raw_snapshot is None:
+        try:
+            raw_snapshot = raw_ingest.snapshot_for_adapter(source_report_id, adapter_input)
+        except Exception as exc:  # 원본을 못 읽어도 개인 저장·DTO 캡처는 막지 않는다(raw_required 로 보류)
+            from core.utils.fallback import note_fallback
+            note_fallback('community_capture.raw_snapshot', exc)
+    raw_event = None
+
 
     with store.transaction() as tx:
+        if captured_context and captured_context.get('state')=='active':
+            current=store.active_context()
+            if not current or any(current.get(k)!=captured_context.get(k) for k in ('contributor_fingerprint','connection_id','consent_grant_id','writer_epoch','dataset_key')):
+                raise CaptureStoreUnavailable('capture_scope_changed')
         if run_id and os.environ.get('SAFETYREPORT_CRAWL_RUN_ID'):
             from services.community_rebuild import assert_current_attempt
             assert_current_attempt(tx, run_id)
@@ -513,7 +527,7 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
             payload = _backfill_payload(original, adapter_input)
             sha = payload_sha256(payload)
             eligible = is_eligible(payload)
-            if payload == original:
+            if payload == original and not raw_mode:
                 return CaptureResult(event_id=None, event_type=None, eligible=eligible, payload_sha256=sha)
             report_number = latest["report_number"]
             code_blocked = latest["blocked_reason"] == f"blocked:{AGENCY_CODE_TOO_LONG}"
@@ -558,6 +572,20 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
         if prev and report_number and prev.get("report_number") != report_number:
             prev = {**prev, "payload_sha256": None}
         event_type = decide_event(prev, payload)
+        raw_event = raw_ingest.with_observation(raw_snapshot, payload) if raw_mode and raw_snapshot is not None else None
+        raw_missing = raw_mode and raw_event is None
+        if eligible and (force or (raw_missing and (prev or {}).get('blocked_reason') != 'raw_required')):
+            event_type = 'completed_observation'
+        if eligible and raw_event is not None:
+            previous = tx.execute("SELECT raw_event_json FROM source_journal WHERE local_dataset_id=? AND source_report_id=? AND dataset_key IS ? AND contributor_fingerprint IS ? ORDER BY source_revision DESC LIMIT 1",
+                (local_dataset_id, source_report_id, (captured_context or {}).get('dataset_key'), (captured_context or {}).get('contributor_fingerprint'))).fetchone()
+            prior_raw = json.loads(previous['raw_event_json']) if previous and previous['raw_event_json'] else {}
+            if raw_ingest.content_key(prior_raw) != raw_ingest.content_key(raw_event):
+                event_type = 'completed_observation'
+        if eligible and not raw_mode:
+            prior_mode=tx.execute("SELECT raw_event_json FROM source_journal WHERE local_dataset_id=? AND source_report_id=? AND dataset_key IS ? AND contributor_fingerprint IS ? ORDER BY source_revision DESC LIMIT 1",
+                (local_dataset_id,source_report_id,(captured_context or {}).get('dataset_key'),(captured_context or {}).get('contributor_fingerprint'))).fetchone()
+            if prior_mode and prior_mode['raw_event_json']:event_type='completed_observation'
         # REVIEW4 낮음: 길이 초과 원문 코드는 payload가 직전과 같아도 명시적
         # 거절 이벤트를 만든다. 초과분은 payload에서 None으로 두어 sha가 같아
         # decide_event이 None을 내지만, 사유 없이는 원문 코드가 조용히 버려진
@@ -592,18 +620,21 @@ def capture(adapter_input: dict, *, source_report_id: str, trigger: str,
              ctx.get("connection_id") if ctx else None,
              ctx.get("writer_epoch") if ctx else None,
              ctx.get("consent_grant_id") if ctx else None,
-             f"blocked:{AGENCY_CODE_TOO_LONG}" if code_blocked
+             "raw_required" if raw_missing else f"blocked:{AGENCY_CODE_TOO_LONG}" if code_blocked
              else (None if active else "consent:" + authorization)))
         if active:
-            if code_blocked:
+            if code_blocked or raw_missing:
                 tx.execute(
                     "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at,"
                     " last_error_code) VALUES (?, 'blocked', 0, ?, ?, ?)",
-                    (event_id, trigger, now, AGENCY_CODE_TOO_LONG))
+                    (event_id, trigger, now, "raw_required" if raw_missing else AGENCY_CODE_TOO_LONG))
             else:
                 tx.execute(
                     "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at)"
                     " VALUES (?, 'pending', 0, ?, ?)", (event_id, trigger, now))
+        if raw_event is not None:
+            tx.execute('UPDATE source_journal SET raw_event_json=? WHERE event_id=?',
+                       (json.dumps(raw_event, ensure_ascii=False, separators=(',', ':')), event_id))
         if run_id:
             tx.execute(
                 "INSERT INTO report_latest_staging(run_id, source_report_id, event_id, payload_sha256, eligible)"
@@ -809,7 +840,7 @@ def _set_resend_marker(data_dir: str | None, current: dict, *, local_dataset_id:
 # 상태·주소·기관 등 나머지 payload 필드는 journal 최신 payload 를 그대로 보존한다(_backfill_payload).
 BACKFILL_PERSONAL_FIELDS = (
     "ID", "entry_value", "ssnpc_cd", "ssnpc_type", "차량번호", "사진_첫촬영", "사진_끝촬영", "발생시각", "신고명",
-    "범칙금_과태료", "위반법규",
+    "범칙금_과태료", "위반법규", "사진_촬영수",
 )
 
 
@@ -832,11 +863,14 @@ def _resend_adapter_input(row: dict) -> dict:
     detail = {c: row.get(c) for c in models.DETAIL_COLUMN_NAMES}
     title_fields = {c: row.get(c) for c in models.TITLE_COLUMN_NAMES}
     geo = {"지오코딩상태": row.get("지오코딩상태"), "위도": row.get("위도"), "경도": row.get("경도")}
-    return build_adapter_input(
+    adapter = build_adapter_input(
         detail, title_fields, row.get("entry_value"), geo, None,
         ssnpc_cd=row.get("ssnpc_cd"), ssnpc_type=row.get("ssnpc_type"),
         report_name=row.get("신고명"),
         photo_first_at=row.get("사진_첫촬영"), photo_last_at=row.get("사진_끝촬영"))
+
+    adapter['_raw_fields'] = dict(row)
+    return adapter
 
 
 def resend_fine_estimate_updates(engine, data_dir: str | None = None) -> dict:

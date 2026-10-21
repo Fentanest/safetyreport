@@ -376,3 +376,12 @@ gate_api_router = APIRouter(prefix="/api/v1/community")
 async def api_gate(api_key: str = Depends(_require_api_key)):
     """서버(이 PC/Docker) 커뮤니티 계정의 게이트 상태. 토큰·사용자 UUID 없음. Client 는 account.fingerprint 로 자기 계정과 비교한다."""
     return _ok({"data": await run_in_threadpool(community_gate.status_view)})
+
+
+@router.post('/revoke-retry')
+async def web_revoke_retry(request: Request):
+    def retry():
+        from services.community_reset import attempt
+        confirmed=attempt(force=True)
+        return {'result':{'revoked':confirmed,'pending':not confirmed},'gate':community_gate.status_view()}
+    return await _gate_action(request,set(),retry)

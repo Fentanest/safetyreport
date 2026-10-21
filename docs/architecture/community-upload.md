@@ -277,3 +277,59 @@ seed는 같은 from의 파생 연결보다 우선하되 현존 경계 ID 유일�
 | 코드 대조 정정 | 확인된 코드와 수정 |
 |---|---|
 | 최초 원인 설명은 직접 분기 링크 제거 누락으로 판단 | 제거는 이미 있었고 `institution_components`의 무조건 forward union이 우회했다. 생존 부모의 부서 전출도 같은 원리로 차단했다. |
+
+
+## 원본 JSON 전환 후보 (미출시, 2026-10-21)
+
+계획: `../plans/raw-json-ingest-20261021.md`, 계약: `contracts/community-ingest-v2`.
+동의 active + 새 원본 정책 일치 + status.ingest.contracts의 2를 모두 확인한 capture만 원본 스냅숏을 journal에 고정한다.
+community.db 스키마 4는 source_journal.raw_event_json을 추가한다. 개인 신고 DB·원본 표와 PC↔모바일 교환 형식은 바꾸지 않는다.
+업로더는 v1·v2를 섞지 않고 20건·압축 전 1MiB·gzip 전송 512KiB를 적용한다. stored와 parse_pending을 구분한다.
+확인 불가 상태의 로컬 사용은 같은 계정·DB의 마지막 G1 뒤 72시간뿐이며, 시계 되돌림·동의 없음·outdated는 잠근다.
+확인된 철회·기존 계정의 카카오 연결/기여자 삭제는 신고 DB와 주인을 보존한 소프트 리셋을 한다.
+전송 거부를 먼저 기록하고 writer/context를 해제하며 outbox를 blocked로 만들고 raw_backfill 표시를 지운다.
+철회 요청 실패 시 토큰과 `revoke_pending`을 남겨 잠근 채 재시도한다. 원본 일괄 전송과 보충 호출 지점은 아래 후속 구현 규칙을 따른다.
+실제 브라우저·AVD·소켓 기반 검수는 릴리스 전에 별도로 통과해야 한다.
+
+
+## 원본 일괄 전송·철회 후속 규칙 (미출시, 2026-10-21)
+
+`community.db`의 `meta.raw_backfill`은 contract, local_dataset_id, 현재 계정·grant·dataset·writer 범위(참고용), run_id, state, phase,
+cursor, holds 개수, stats 요약만 담는다(크기 상수). 건별 상태(state·attempts·event_id·채움/못 채움)는 같은 파일의 `raw_backfill_items`
+표(run_id, report_id, position, state, …)에 두고, 보충 시도 결과는 `raw_backfill_supplements` 표에 남긴다.
+항목 상태 변경은 한 트랜잭션에 100건씩 묶어 쓰고, marker 는 run 마다 몇 번만 쓴다(건마다 전체를 다시 쓰지 않는다).
+DB 최적화 뒤 목록 전체가 list_ok일 때만 누락 판정을 시작한다. 없는 신고와 손상 원본을 공식 상세 저장 경로로 채우고,
+404/410은 raw_unavailable로 남긴다. 참여 완료 별점·사유와 첨부사진 EXIF를 보충하며 6개월 보관기간 밖 사진은 expired로 남긴다.
+개별 실패 3회는 holds, 로그인 실패·목록 조회 실패는 시도 횟수를 소모하지 않는 300초 휴지, 연속 실패 5회도 300초 휴지다.
+run identity 는 `local_dataset_id` 하나다. 다시 도는 조건은 로컬 데이터셋이 바뀔 때(복원·교체)와 소프트 리셋 뒤 재동의(리셋이 marker 를 지운다)뿐이다.
+parser 세대·writer 재결합·연결 변경·정책 개정 재동의(같은 lineage)는 이미 저장된 원본을 다시 보내지 않는다(서버가 재파싱한다).
+'다시 시도'는 현재 단계를 유지한 채 보류·휴지만 푼다. 목록이 끝나지 않았으면 채우기로 건너뛰지 않으며, 목록 미완료·미처리 항목이 있으면 done 이 될 수 없다.
+삭제했거나 보낼 수 없는 신고(삭제 표시, 기관코드 초과, 적격 아님, 서버가 거절한 건)는 `not_eligible` 로 분모에서 뺀다.
+보충(별점·사진 시각) 실패는 null 과 시도 marker 만 남기고 원본은 그대로 보낸다. 이미 조회한 신고는 다시 조회하지 않는다.
+supplement 값은 계약 스키마 범위로 정규화한다(별점 1~5 밖은 null, 문자열은 최대 길이로 자름).
+원본이 이미 있는 신고는 네트워크 없이 처리하고, 네트워크가 필요한 단계만 0.5초 간격을 둔다. 한 번에 3초 안팎만 예약 작업 예약을 쥐고 놓으며
+pass 는 45초 안에 끝낸다. ACK 대기만 남으면 pass 를 끝내고 다음 poll 이 이어 받는다. done 이면 poll 이 스레드를 만들지 않는다.
+
+N은 답변 완료 대상, N′=N−raw_unavailable이다. 모든 N′건의 stored 영수증만 done을 만든다.
+parse_pending은 원본 저장 성공이고 파싱 대기는 별도 표시한다. duplicate는 original_status가 stored/no_change일 때만 저장 영수증이다.
+stale_ignored·거절은 완료로 세지 않는다. 지도 카드에 전송 n/N′, 원본 없음, 채움/못 채움, holds와 수동 다시 시도를 보인다.
+건별 원본·보충값은 캡처 시 journal에 고정하며 업로드 중 개인 DB에서 재구성하지 않는다.
+
+전환은 새 원본 정책 동의 active와 ingest.contracts의 2를 모두 확인할 때다. 고정(sticky)하지 않는다 — 공유 설정이 v2 를 끄면 서버는
+v2 요청에 503 `service_unavailable`(재시도 가능)을 주고, 다음 status 에서 2 가 빠지면 클라이언트는 v1 로 돌아간다:
+새 수집은 v1 이벤트이고, 대기 중인 실시간·수동·재공유 v2 행은 같은 event_id 의 v1 형식(payload)으로 보내며, 일괄 전송(raw_backfill) 행은
+v2 가 돌아올 때까지 60초 간격으로 보류한다. 원본이 없어 raw_required 로 막아 둔 행은 v1 로 돌아가면 풀어 v1 DTO 로 보낸다.
+v2 에서 원본이 없는 보충 이벤트는 raw_required 로 보류하고 raw_backfill 에서 복구한다. 전환 전은 기존 v1을 유지한다.
+ACK(stored 등)를 받은 journal 의 원본 사본(raw_event_json)은 비교용 해시만 남기고 지운다(journal 이 run 마다 커지지 않게).
+v2 원본 스냅숏 준비 실패(저장소·원본 읽기 오류)는 개인 저장·공유 캡처를 막지 않는다.
+사진 보충·금액 재전송·재공유·재파싱·일반 수집/알림 수집도 동일 capture 규칙을 따른다.
+
+status 의 client_notice 가 정본이다(null 이거나 키가 없으면 저장된 안내와 426 표시를 지운다). ACK 의 client_notice 키도 같은 규칙이고,
+성공 ACK 는 426 표시를 푼다. 안내는 이 앱 버전이 `min_version.pc` 보다 낮을 때만 보인다(info/warning 은 상단 배너, required 는 배너와 하루 한 번의
+대화상자). 426 은 이 앱 버전에서만 유효한 필수 업데이트 표시이며 서버 문구가 없으면 버전 없는 일반 문구 "앱을 최신 버전으로 업데이트해 주세요."만 쓴다.
+426 을 받은 행은 blocked 가 아니라 1시간 간격 재시도로 남고, 표시가 풀리면(업데이트·서버 안내 해제) 바로 다시 보낸다.
+
+철회는 로컬 거부를 먼저 저장하고 작업을 중단한다. revoke_pending은 서버 확인 전까지 로그인 토큰과 함께 남으며
+로컬 화면과 새 동의를 잠근다. 서버 확인 뒤 writer·문맥·일괄 전송 표식을 비우고 카카오 로그인부터 재시작한다.
+개인 신고 DB·원본·DB 주인·동의 이력은 보존한다. 같은 계정 재동의는 기존 DB에서 새 raw_backfill을 시작하고 다른 계정은 db_owner_mismatch로 간다.
+서버 확인 실패는 성공으로 표시하지 않는다. 재시도는 서버 확인을 마칠 때까지 영속 대기한다.

@@ -19,7 +19,9 @@
                 window.alert('클라우드 연결을 확인할 수 없어 설정을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
                 return;
             }
-            var changed = normalize(username.value) !== normalize(username.dataset.originalUsername);
+            // 저장된 아이디가 없으면(최초 입력) 변경이 아니다 — 서버(official_account.save)도 기존 값·바인딩이 없으면 초기화 없이 저장한다.
+            var original = normalize(username.dataset.originalUsername);
+            var changed = original !== '' && normalize(username.value) !== original;
             if (changed || state === 'official_account_mismatch' || state === 'official_account_change_pending' ||
                     new URLSearchParams(location.search).get('binding_error') === 'official_account_change_confirmation') {
                 var ok = await window.srConfirm({title: '안전신문고 계정 변경', danger: true,

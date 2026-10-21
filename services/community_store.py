@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 
 from settings import settings
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 FILE_NAME = "community.db"
 
 _SCHEMA = """
@@ -92,6 +92,7 @@ _UPLOAD_RUN_RESULTS = ("'running','no_change','success','partial','auth_required
                        "'offline','failed','deferred','sent','no_pending','not_due','cooldown','busy_other_run',"
                        "'needs_auth','needs_consent','blocked_gate','more_pending'")
 _MIGRATIONS: dict[int, list[str]] = {
+    4: ["ALTER TABLE source_journal ADD COLUMN raw_event_json TEXT"],
     3: ["ALTER TABLE source_journal ADD COLUMN report_number TEXT"],
     # v2 (2026-09-27 업로드 장애 대응 UC-1): 영속 전송 제어 표, upload_runs 결과 코드 확장(표 재생성·행 보존)
     2: [
@@ -159,6 +160,7 @@ class CommunityStore:
         if conn is None:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             conn = sqlite3.connect(self.path, timeout=30, isolation_level=None, check_same_thread=True)
+            if os.name=='posix':os.chmod(self.path,0o600)
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=FULL")
@@ -197,6 +199,8 @@ class CommunityStore:
         """v1 표를 만든 뒤 번호 붙은 단계로 올린다(각 단계 한 트랜잭션, 기존 행 보존 — community.db 를 지우지 않는다)."""
         conn = self.connect()
         conn.executescript(_SCHEMA)
+        from services.community_backfill_store import SCHEMA as backfill_schema
+        conn.executescript(backfill_schema)
         with self.transaction() as tx:
             current = tx.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
             if current is None:
@@ -216,6 +220,7 @@ class CommunityStore:
                 if now is not None and int(now["value"]) >= step:
                     continue
                 for statement in _MIGRATIONS[step]:
+                    if statement.startswith('ALTER TABLE source_journal ADD COLUMN raw_event_json') and 'raw_event_json' in {r[1] for r in tx.execute('PRAGMA table_info(source_journal)')}:continue
                     tx.execute(statement)
                 self.set_meta("schema_version", str(step), tx)
 

@@ -1,0 +1,188 @@
+{
+  "synthetic": true,
+  "cases": [
+    {
+      "name": "stored_ack_and_unavailable_denominator",
+      "initial": {
+        "unavailable": [
+          "B"
+        ]
+      },
+      "actions": [
+        {
+          "run": true,
+          "expect": {
+            "state": "uploading",
+            "total": 3,
+            "available": 2,
+            "raw_unavailable": 1,
+            "sent": 0
+          }
+        },
+        {
+          "receipts": {
+            "A": "stored",
+            "C": "stored"
+          },
+          "run": true,
+          "expect": {
+            "state": "done",
+            "total": 3,
+            "available": 2,
+            "raw_unavailable": 1,
+            "sent": 2
+          }
+        }
+      ]
+    },
+    {
+      "name": "optimizer_then_partial_listing",
+      "initial": {
+        "optimized": false
+      },
+      "actions": [
+        {
+          "run": true,
+          "expect": {
+            "state": "waiting_optimize"
+          }
+        },
+        {
+          "optimized": true,
+          "list_ok": false,
+          "run": true,
+          "expect": {
+            "state": "paused",
+            "reason": "list_incomplete"
+          }
+        },
+        {
+          "list_ok": true,
+          "run": true,
+          "expect": {
+            "state": "paused"
+          }
+        },
+        {
+          "advance": 301,
+          "run": true,
+          "expect": {
+            "state": "uploading",
+            "available": 3,
+            "sent": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "hold_after_three_then_retry",
+      "initial": {
+        "fail": [
+          "A"
+        ]
+      },
+      "actions": [
+        {
+          "run": true,
+          "expect": {
+            "state": "filling",
+            "holds": 0
+          }
+        },
+        {
+          "run": true,
+          "expect": {
+            "holds": 0
+          }
+        },
+        {
+          "run": true,
+          "expect": {
+            "state": "holds",
+            "holds": 1
+          }
+        },
+        {
+          "fail": [],
+          "retry_holds": true,
+          "run": true,
+          "expect": {
+            "state": "uploading",
+            "holds": 0
+          }
+        },
+        {
+          "receipts": {
+            "A": "stored",
+            "B": "stored",
+            "C": "stored"
+          },
+          "run": true,
+          "expect": {
+            "state": "done",
+            "sent": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "auth_has_no_item_attempt",
+      "initial": {
+        "auth": [
+          "A"
+        ]
+      },
+      "actions": [
+        {
+          "run": true,
+          "expect": {
+            "state": "paused",
+            "reason": "official_login_required",
+            "holds": 0
+          }
+        },
+        {
+          "auth": [],
+          "advance": 301,
+          "run": true,
+          "expect": {
+            "state": "uploading",
+            "holds": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "cursor_resume_and_rotated_local_dataset",
+      "initial": {},
+      "actions": [
+        {
+          "budget": 1,
+          "run": true,
+          "expect": {
+            "state": "filling",
+            "cursor": 1
+          }
+        },
+        {
+          "budget": 1,
+          "run": true,
+          "expect": {
+            "state": "filling",
+            "cursor": 2
+          }
+        },
+        {
+          "dataset": "restored",
+          "budget": 1,
+          "run": true,
+          "expect": {
+            "state": "filling",
+            "cursor": 1,
+            "local_dataset_id": "restored"
+          }
+        }
+      ]
+    }
+  ]
+}

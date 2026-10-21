@@ -1,6 +1,6 @@
 """Durable cloud cooldown and verified offline authorization, separate from personal DB.
 
-Emergency consent policy permits owned local data regardless of consent. Upload
+Verified owners may use local data for 72 hours during status outages. Upload
 permission remains server-authoritative. Consent transitions are encrypted using
 the installation key outside the personal report DB; unknown is not a transition.
 All Supabase HTTP boundaries share this lock/deadline (including other processes).
@@ -20,6 +20,7 @@ from datetime import timezone
 from email.utils import parsedate_to_datetime
 
 from services.community_auth_store import _FileLock, atomic_write
+from services.community_gate_policy import offline_grace
 
 _now = time.time
 _rand = random.random  # 시험에서 결정적으로 고정하는 지점(0.5 → 지터 배율 정확히 1.0)
@@ -326,10 +327,55 @@ def local_allowed(service, current, owner, dataset_key):
         row = state['accounts'].get(_account_key(service.config().supabase_url, current.get('user_id')), {})
         if row.get('suspended') or (row.get('deny') or {}).get('reason') in ('suspended', 'db_owner_mismatch', 'official_account_mismatch'):
             return False
+        if row.get('deny') or (row.get('consent') or {}).get('state') != 'active':
+            return False
+        seed_g1(service, current, owner, dataset_key)
+        row = _read_state()['accounts'].get(_account_key(service.config().supabase_url, current.get('user_id')), {})
+        verified = row.get('last_g1') or {}
+        at = verified.get('at')
+        if (not isinstance(at, (int, float)) or not offline_grace(at, _now())
+                or verified.get('kakao_id') != current.get('kakao_id')
+                or verified.get('dataset_key') != dataset_key):
+            return False
         bound = row.get('binding')
         return not bound or bound == dataset_key
     except (OSError, sqlite3.Error, ValueError, TypeError, KeyError):
         return False
+
+
+def reset_evidence(service, current):
+    with _state() as state:
+        row=state['accounts'].setdefault(_account_key(service.config().supabase_url,current.get('user_id')), {})
+        row.pop('last_g1',None)
+        row['reset_completed_at']=_now()
+
+
+def seed_g1(service, current, owner, dataset_key):
+    """업그레이드 첫 실행 때 한 번만: 동의 이력은 전이만 기록하므로 '마지막 확인 시각'이 없다.
+    last_g1 이 한 번도 없고 이력의 최신 결과가 active 이며 같은 회원·DB 주인·dataset 이면 지금을 last_g1 으로 시드한다(표시를 남겨 다시 하지 않음)."""
+    if not current or not owner or current.get('kakao_id')!=owner:return
+    with _state() as state:
+        row=state['accounts'].get(_account_key(service.config().supabase_url,current.get('user_id')), {})
+        if not row:return
+        if row.get('last_g1') or row.get('g1_seeded') or row.get('reset_completed_at') or row.get('deny') or row.get('suspended'):return
+        if (row.get('consent') or {}).get('state')!='active' or row.get('binding')!=dataset_key:return
+        row['last_g1']={'at':_now(),'kakao_id':owner,'dataset_key':dataset_key}
+        row['g1_seeded']=True
+
+
+def mark_g1(service, current, dataset_key):
+    """Only after an authoritative active status AND owner/binding verification."""
+    with _state() as state:
+        row = state['accounts'].setdefault(_account_key(service.config().supabase_url, current.get('user_id')), {})
+        previous=row.get('last_g1') or {}
+        if previous.get('kakao_id')==current.get('kakao_id') and previous.get('dataset_key')==dataset_key and 0<=_now()-previous.get('at',0)<600:return
+        row['last_g1'] = {'at': _now(), 'kakao_id': current.get('kakao_id'), 'dataset_key': dataset_key, 'grant_id':(row.get('consent') or {}).get('grant_id')}
+        row.pop('reset_completed_at',None)
+
+
+def had_g1(service, current):
+    row = _read_state()['accounts'].get(_account_key(service.config().supabase_url, current.get('user_id')), {})
+    return (row.get('last_g1') or {}).get('kakao_id') == current.get('kakao_id') and bool(current.get('kakao_id'))
 
 
 def record_status(service, current, status, state_name):
@@ -339,7 +385,7 @@ def record_status(service, current, status, state_name):
         row = data['accounts'].setdefault(account, {})
         consent = status.get('consent') or {}
         deny = row.get('deny') or {}
-        if deny.get('reason') == 'consent_revoked' and consent.get('state') == 'active' and consent.get('grant_id') and consent.get('grant_id') != deny.get('grant_id'):
+        if deny.get('reason') in ('consent_revoked', 'account_removed') and consent.get('state') == 'active' and consent.get('grant_id') and consent.get('grant_id') != deny.get('grant_id'):
             row.pop('deny', None)
         bound = (status.get('official_account') or {}).get('dataset_key')
         if bound:

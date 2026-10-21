@@ -1126,3 +1126,16 @@ DB 스키마·교환 컬럼·인증·WS 계약은 바뀌지 않는다. 공통 �
 |---|---|
 | 전체 카드가 기관·담당자 조건을 좁힌 뒤 키를 대조한다 | 조회 후 대조는 없다. 정확 조건을 COUNT·LIMIT 전에 적용한다. 구서버 fallback은 이름 부분 검색이다. |
 | 명세 배경의 웹 담당자 이름 부분 검색 | 기존 서버 SQL은 `담당자 == person` 원문 완전 일치였다. 기존 링크는 보존하고 `personExact=true`에서만 정규화한 정확값 비교를 추가한다. |
+
+
+## 원본 JSON 전환 후보 (미출시, 2026-10-21)
+
+계획: `../plans/raw-json-ingest-20261021.md`, 계약: `contracts/community-ingest-v2`.
+동의 active + 새 원본 정책 일치 + status.ingest.contracts의 2를 모두 확인한 capture만 원본 스냅숏을 journal에 고정한다.
+community.db 스키마 4는 source_journal.raw_event_json을 추가한다. 개인 신고 DB·원본 표와 PC↔모바일 교환 형식은 바꾸지 않는다.
+업로더는 v1·v2를 섞지 않고 20건·압축 전 1MiB·gzip 전송 512KiB를 적용한다. stored와 parse_pending을 구분한다.
+확인 불가 상태의 로컬 사용은 같은 계정·DB의 마지막 G1 뒤 72시간뿐이며, 시계 되돌림·동의 없음·outdated는 잠근다.
+확인된 철회·기존 계정의 카카오 연결/기여자 삭제는 신고 DB와 주인을 보존한 소프트 리셋을 한다.
+전송 거부를 먼저 기록하고 writer/context를 해제하며 outbox를 blocked로 만들고 raw_backfill 표시를 지운다.
+철회 요청 실패 시 토큰과 `revoke_pending`을 남겨 잠근 채 재시도한다. 원본 일괄 전송·캡처 전환 규칙은
+`community-upload.md`의 원본 일괄 전송·철회 후속 규칙을 따른다. 실제 앱·소켓 검수는 별도다.

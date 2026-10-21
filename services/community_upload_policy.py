@@ -24,9 +24,9 @@ BACKOFF_BASE_SECONDS = 5.0
 BACKOFF_CAP_SECONDS = 300.0
 SERVER_HINT_CAP_SECONDS = 24 * 3600
 
-DURABLE_STATUSES = frozenset({"accepted", "transferred", "duplicate", "no_change", "stale_ignored", "quarantined"})
+DURABLE_STATUSES = frozenset({"stored", "accepted", "transferred", "duplicate", "no_change", "stale_ignored", "quarantined"})
 NON_DURABLE_STATUSES = frozenset({"rejected", "conflict"})
-PROJECTIONS = frozenset({"published", "removed", "held", "not_public", "not_applicable"})
+PROJECTIONS = frozenset({"parse_pending", "published", "removed", "held", "not_public", "not_applicable"})
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 # 오류 분류 → 전송 제어 범위. None 이면 제어기를 건드리지 않는다(행 상태만).
@@ -37,7 +37,7 @@ CONSENT_CODES = frozenset({"consent_missing", "consent_revoked", "consent_outdat
 CONNECTION_CODES = frozenset({"connection_unknown", "connection_revoked", "connection_suspended", "connection_session_mismatch",
                               "connection_mode_mismatch", "writer_superseded", "contributor_suspended"})
 # 이벤트 하나가 원인인 것이 확실한 코드(배치 이분 → 단건 격리)
-EVENT_PAYLOAD_CODES = frozenset({"payload_hash_mismatch", "event_type_mismatch"})
+EVENT_PAYLOAD_CODES = frozenset({"payload_hash_mismatch", "event_type_mismatch", "raw_hash_mismatch", "raw_invalid", "raw_reporter_keys_present", "supplement_invalid", "supplement_hash_mismatch", "client_observation_hash_mismatch"})
 # envelope 전체 또는 이벤트 어느 쪽일 수도 있는 코드(대조 요청으로 좁힌다)
 AMBIGUOUS_PAYLOAD_CODES = frozenset({"invalid_request", "schema_invalid"})
 # 요청 공통(메서드·Content-Type): 클라이언트 설정·버그 — 이벤트를 버리지 않고 일괄 보류
@@ -119,6 +119,7 @@ class EventOutcome:
     receipt_id: str | None = None
     projection_status: str | None = None
     error_code: str | None = None
+    original_status: str | None = None
 
 
 @dataclass
@@ -179,16 +180,18 @@ def _valid_result(item) -> bool:
             and isinstance(err.get("retryable"), bool))
 
 
-def interpret_ack(sent_ids: list[str], obj) -> Interpretation:
+def interpret_ack(sent_ids: list[str], obj, *, protocol: int = 1) -> Interpretation:
     """HTTP 200 본문(이미 JSON 해석) 판정. 형식이 하나라도 틀리면 invalid_ack(보낸 행 전부 재시도)."""
     # protocol 은 JSON 정수 1 만(Python 의 True == 1 을 막는다 — 모바일 Dart 와 같은 판정)
-    if not isinstance(obj, dict) or type(obj.get("protocol")) is not int or obj.get("protocol") != 1 \
+    if not isinstance(obj, dict) or type(obj.get("protocol")) is not int or obj.get("protocol") != protocol \
             or not isinstance(obj.get("request_id"), str) or not isinstance(obj.get("results"), list):
         return _error("invalid_ack", 200)
     sent = set(sent_ids)
     seen: set[str] = set()
     events: dict[str, EventOutcome] = {}
     for item in obj["results"]:
+        if protocol == 1 and isinstance(item, dict) and (item.get('status') == 'stored' or item.get('projection_status') == 'parse_pending'):
+            return _error('invalid_ack', 200)
         if not _valid_result(item) or item["event_id"] not in sent or item["event_id"] in seen:
             return _error("invalid_ack", 200, request_id=obj["request_id"])
         seen.add(item["event_id"])
@@ -202,19 +205,19 @@ def interpret_ack(sent_ids: list[str], obj) -> Interpretation:
         err = item.get("error") if isinstance(item.get("error"), dict) else None
         events[item["event_id"]] = EventOutcome(
             event_id=item["event_id"], outcome=outcome, status=status, receipt_id=item.get("receipt_id"),
-            projection_status=item.get("projection_status"), error_code=(err or {}).get("code"))
+            projection_status=item.get("projection_status"), original_status=item.get("original_status"), error_code=(err or {}).get("code"))
     missing = [event_id for event_id in sent_ids if event_id not in seen]
     return Interpretation(kind="ack", http_status=200, request_id=obj["request_id"], events=events, missing=missing)
 
 
 def interpret_response(sent_ids: list[str], status: int | None, headers: dict | None, body,
-                       now: datetime) -> Interpretation:
+                       now: datetime, *, protocol: int = 1) -> Interpretation:
     """전송 결과 판정. status=None 은 전송 계층 실패(연결·timeout)."""
     if status is None:
         return _error("offline", None)
     obj = _decode(body)
     if status == 200:
-        return interpret_ack(sent_ids, obj)
+        return interpret_ack(sent_ids, obj, protocol=protocol)
     hint = parse_retry_after(headers, obj, now)
     code, request_id = _error_envelope(obj)
     if status == 429:
@@ -223,11 +226,15 @@ def interpret_response(sent_ids: list[str], status: int | None, headers: dict | 
         return _error("server_busy", status, code=code or f"http_{status}", hint=hint, request_id=request_id)
     if status in (405, 415) and code is None:
         return _error("request_rejected", status, code="method_not_allowed" if status == 405 else "unsupported_media_type")
+    if status == 426:
+        return _error("connection_rejected",status,code="client_upgrade_required",request_id=request_id)
     if status == 413:
         return _error("request_too_large", status, code=code or "payload_too_large", request_id=request_id)
     if status == 401:
         return _error("auth_required", status, code=code or "auth_required", request_id=request_id)
     if code is not None:
+        if code == 'client_upgrade_required':
+            return _error('connection_rejected', status, code=code, request_id=request_id)
         if code in AUTH_CODES:
             return _error("auth_required", status, code=code, request_id=request_id)
         if code in CONSENT_CODES:

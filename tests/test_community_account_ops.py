@@ -140,14 +140,14 @@ class AccountCallTest(unittest.TestCase):
         self.assertEqual(ctx.exception.extra["active_writer"]["device_label"], "PC")
 
     def test_consent_revoke_stops_uploads_before_calling_the_centre(self):
-        calls = []
-        with mock.patch.object(ops.community_gate, "current_grant_id", return_value="g-1"), \
-                mock.patch.object(ops.community_gate, "invalidate", side_effect=lambda r: calls.append(f"invalidate:{r}")), \
-                mock.patch.object(ops, "account_call", side_effect=lambda fn: calls.append("central") or {"revoked": True}), \
-                mock.patch.object(ops, "regate", side_effect=lambda r: calls.append(f"regate:{r}") or {}):
-            result = ops.consent_revoke()
-        self.assertEqual(calls, ["invalidate:consent_revoked", "central", "regate:consent_revoked"])
-        self.assertTrue(result["result"]["revoked"])
+        from services import community_reset
+        calls=[]
+        with mock.patch.object(ops.community_gate,'current_grant_id',return_value='g-1'),mock.patch.object(community_reset,'begin',side_effect=lambda g:calls.append(('begin',g))),mock.patch.object(community_reset,'attempt',side_effect=lambda **kw:calls.append(('attempt',kw)) or False),mock.patch.object(ops.community_gate,'status_view',return_value={'state':'revoke_pending'}):
+            result=ops.consent_revoke()
+        self.assertEqual(calls,[('begin','g-1'),('attempt',{'force':True})])
+        self.assertTrue(result['result']['pending'])
+        self.assertFalse(result['result']['revoked'])
+
 
 
 if __name__ == "__main__":

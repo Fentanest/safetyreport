@@ -9,6 +9,7 @@ envelope 는 envelope.schema.json 그대로 (client_version=VERSION, parser_vers
 from __future__ import annotations
 
 import json
+import gzip
 import logging
 import re
 import urllib.request
@@ -50,6 +51,7 @@ class EventResult:
     projection_status: str | None = None
     error_code: str | None = None
     error_retryable: bool = False
+    original_status: str | None = None
 
 
 @dataclass
@@ -66,6 +68,9 @@ class IngestResponse:
     raw_error_message: str | None = None
     error_class: str | None = None  # UC-1 분류(offline, rate_limited, server_busy, invalid_ack, auth_required, ...)
     not_sent: bool = False
+    protocol: int = 1
+    client_notice: dict | None = None
+    notice_present: bool = False
     token: str | None = None  # 이 요청에 쓴 access token(401 강제 갱신용, 로그·저장 금지)
 
 
@@ -106,9 +111,12 @@ def _http_post(url: str, headers: dict, body: bytes, timeout: float) -> tuple[in
 
 def build_envelope(*, connection_id: str, consent_grant_id: str, policy_version: str,
                    source_mode: str, trigger: str, events: list[dict]) -> dict:
+    protocol = 2 if events and 'raw' in events[0] else 1
+    if any(('raw' in e) != (protocol == 2) for e in events):
+        raise ValueError('mixed_contract_batch')
     return {
-        "protocol": 1,
-        "contract": "community-ingest-v1",
+        "protocol": protocol,
+        "contract": f"community-ingest-v{protocol}",
         "source_app": "safetyreport",
         "source_mode": source_mode,
         "connection_id": connection_id,
@@ -151,7 +159,8 @@ def post_envelope(envelope: dict, *, token: str | None = None, now=None) -> Inge
         return IngestResponse(ok=False, http_status=None, code=exc.code, error_class="auth_required",
                               raw_error_message=exc.code, not_sent=True)
     body = envelope_bytes(envelope)
-    if len(body) > MAX_BODY_BYTES:
+    protocol = envelope.get('protocol', 1)
+    if len(body) > (1024 * 1024 if protocol == 2 else MAX_BODY_BYTES):
         return IngestResponse(ok=False, http_status=None, code="payload_too_large", error_class="request_too_large",
                               not_sent=True)
     if token is None:
@@ -165,6 +174,11 @@ def post_envelope(envelope: dict, *, token: str | None = None, now=None) -> Inge
     url = cfg.supabase_url.rstrip("/") + INGEST_PATH
     headers = {"apikey": cfg.publishable_key, "Authorization": f"Bearer {token}",
                "Content-Type": "application/json"}
+    if protocol == 2:
+        body = gzip.compress(body, mtime=0)
+        headers['Content-Encoding'] = 'gzip'
+        if len(body) > 512 * 1024:
+            return IngestResponse(ok=False, http_status=None, code='payload_too_large', error_class='request_too_large', not_sent=True)
     sent_ids = [str(e.get("event_id")) for e in envelope.get("events") or []]
     moment = now or datetime.now(timezone.utc)
     try:
@@ -176,9 +190,20 @@ def post_envelope(envelope: dict, *, token: str | None = None, now=None) -> Inge
         status_for_policy = 502  # 리다이렉트는 따르지 않는다 → 서버 이상으로 재시도
     else:
         status_for_policy = status
-    interp = policy.interpret_response(sent_ids, status_for_policy, resp_headers, raw, moment)
+    interp = policy.interpret_response(sent_ids, status_for_policy, resp_headers, raw, moment, protocol=protocol)
     response = _from_interpretation(interp, token=token)
     response.http_status = status
+    response.protocol = protocol
+    if response.ok:
+        try:
+            obj=json.loads(raw)
+            response.notice_present='client_notice' in obj
+            response.client_notice=obj.get('client_notice')
+            by_id={item['event_id']:item for item in obj.get('results',[]) if isinstance(item,dict) and 'event_id' in item}
+            for result in response.results:
+                original=by_id.get(result.event_id,{}).get('original_status')
+                result.original_status=original if isinstance(original,str) else None
+        except (ValueError,TypeError):pass
     return response
 
 

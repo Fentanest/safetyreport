@@ -465,7 +465,7 @@ def _is_crawling() -> bool:
     try:
         from services.crawl_manager import crawl_manager
 
-        return bool(crawl_manager.is_crawling())
+        return bool((crawl_manager.is_crawling() or crawl_manager.maintenance_busy()))
     except Exception as exc:
         note_fallback("db_optimize.is_crawling", exc)
         return False
@@ -554,7 +554,8 @@ def _restore_hold() -> bool:
 
 
 def _capture_identity() -> tuple:
-    return (_dataset_id(), _barrier_generation())
+    from services.crawl_manager import crawl_manager
+    return (_dataset_id(), _barrier_generation(), crawl_manager.restore_generation())
 
 
 def _identity_changed(start_identity: tuple) -> bool:
@@ -1814,7 +1815,7 @@ def _spawn_locked(engine=None, run_kwargs=None, background: bool = True):
     if thread is not None and thread.is_alive():
         return thread
     _thread = None
-    if _shutdown:
+    if _shutdown or _account_is_stopped():
         return None
     if _restore_tokens:
         _pause_requested = True
@@ -1992,3 +1993,31 @@ def stop(timeout: float = 5.0) -> bool:
         return False
     thread.join(max(0, timeout))
     return not thread.is_alive()
+
+
+_account_stopped = False
+_account_stop_path = None
+
+def pause_for_account():
+    global _account_stopped, _account_stop_path
+    with _life_lock:
+        _account_stopped = True
+        _account_stop_path = _account_path()
+        _stop.set()
+        if _retry_timer is not None: _retry_timer.cancel()
+
+def resume_for_account():
+    global _account_stopped, _account_stop_path
+    with _life_lock:
+        _account_stopped = False
+        _account_stop_path = None
+        if not _shutdown and not _restore_tokens: _stop.clear()
+
+
+def _account_path():
+    import os
+    import settings.settings as app_settings
+    return os.path.abspath(app_settings.datapath)
+
+def _account_is_stopped():
+    return _account_stopped and _account_stop_path == _account_path()

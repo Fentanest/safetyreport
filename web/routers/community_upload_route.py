@@ -203,3 +203,12 @@ async def api_upload_run(request: Request, api_key: str = Depends(_require_api_k
         return _ok({"data": _public_run(dto)})
     except CommunityAuthError as exc:
         return _fail(exc)
+
+
+@router.post('/upload/raw-backfill/retry')
+async def web_raw_backfill_retry(request: Request):
+    async def run():
+        from services.community_raw_backfill import retry
+        await run_in_threadpool(retry)
+        return _ok({'data':{'queued':True}})
+    return await _web_action(request,run)

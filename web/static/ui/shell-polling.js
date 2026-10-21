@@ -172,3 +172,55 @@
     refresh();
     window.addEventListener('pagehide', function () { disposed = true; clearTimeout(timer); });
 })();
+
+// Server-configured update guidance uses textContent; never interpret notice HTML.
+// The server only returns a notice when this app is older than min_version (or after HTTP 426).
+// info/warning: banner only. required: banner plus one dialog per notice content per day.
+(function () {
+    var banner = document.getElementById('srClientNotice');
+    if (!banner) return;
+    var LEVEL_CLASS = {info: 'alert-info', warning: 'alert-warning', required: 'alert-danger'};
+    function hashOf(text) {
+        var h = 5381;
+        for (var i = 0; i < text.length; i++) { h = ((h << 5) + h + text.charCodeAt(i)) | 0; }
+        return String(h >>> 0);
+    }
+    function shownToday(key) {
+        try {
+            // 하루 기준은 한국 시간(KST, UTC+9) 자정이다.
+            var today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+            var seen = JSON.parse(window.localStorage.getItem('srNoticeSeen') || '{}');
+            if (seen[key] === today) return true;
+            seen[key] = today;
+            window.localStorage.setItem('srNoticeSeen', JSON.stringify(seen));
+        } catch (e) { /* storage unavailable: show again next time */ }
+        return false;
+    }
+    function safeUrl(notice) {
+        var url = notice.url && notice.url.pc;
+        return (typeof url === 'string' && /^https:\/\//.test(url)) ? url : null;
+    }
+    function render(notice) {
+        var valid = notice && typeof notice.message === 'string' && LEVEL_CLASS[notice.level];
+        banner.hidden = !valid;
+        if (!valid) return;
+        banner.className = 'alert small ' + LEVEL_CLASS[notice.level];
+        banner.querySelector('span').textContent = notice.message;
+        var link = banner.querySelector('a'), url = safeUrl(notice);
+        // 안내에 링크가 없으면 이전 안내의 링크가 남지 않게 기본 다운로드 주소(템플릿 값)로 되돌린다.
+        if (!link.dataset.defaultHref) link.dataset.defaultHref = link.getAttribute('href') || '';
+        link.href = url || link.dataset.defaultHref;
+        if (notice.level !== 'required' || shownToday(hashOf(notice.level + '|' + notice.message))) return;
+        if (window.srConfirm) {
+            window.srConfirm({title: '업데이트 필요', message: notice.message, confirmLabel: url ? '업데이트 다운로드' : '확인', cancelLabel: '나중에'})
+                .then(function (ok) { if (ok && url) window.open(url, '_blank', 'noopener'); });
+        }
+    }
+    function refresh() {
+        fetch('/settings/community/gate', {credentials: 'same-origin', headers: {'Accept': 'application/json'}})
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) { render(d && d.data && d.data.client_notice); })
+            .catch(function () {});
+    }
+    refresh(); setInterval(refresh, 60000);
+})();

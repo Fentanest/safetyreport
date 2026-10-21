@@ -157,7 +157,7 @@ Supabase 무료 플랜의 반복적인 장애·사용량 제한 때문에 `BLOCK
 
 ## 3.0.0.3 긴급 로컬 사용 정책
 
-`can_enter`는 서버 업로드 권한이고, `can_local`/`can_browse`는 로컬 작업 권한이다. 로그인된 카카오 회원과 DB 주인이 일치해야 하며, 저장된 공식 계정 바인딩 불일치·변경 미완료·정지는 우회하지 않는다. 신규 미로그인 사용자에게 기존 사용자 권한을 만들지 않는다. 같은 계정의 미동의·철회 기록은 이번 긴급 정책에서 로컬 사용을 막지 않는다.
+`can_enter`는 서버 업로드 권한이고, `can_local`/`can_browse`는 로컬 작업 권한이다. 로그인된 카카오 회원과 DB 주인이 일치해야 하며, 저장된 공식 계정 바인딩 불일치·변경 미완료·정지는 우회하지 않는다. 신규 미로그인 사용자에게 기존 사용자 권한을 만들지 않는다. 미동의·철회·outdated는 로컬 이용도 잠근다. 확인 불가만 같은 계정·DB의 마지막 G1 뒤 72시간 유예한다(2026-10-21 원본 전환 정책으로 긴급 예외 폐기).
 
 로컬 HTTP/WS/예약 수집은 `require_local()`을 쓴다. 조회 중 확인이 필요하면 한 백그라운드 작업이 status를 갱신한다. 업로드는 `require_fresh(60)`을 유지한다. `community_cloud.run`이 인증·계정·업로드 모든 실제 HTTP를 직렬화하고, timeout/429/5xx 뒤 연속 실패 쿨다운을 `auth/community_cloud.db`에 저장한다. Retry-After 초/HTTP-date/본문 값의 최댓값이 더 길면 그대로 따른다. 재시작·버튼·다른 요청으로 남은 대기를 줄이지 않는다. 정상 OAuth poll 간격에는 이 하한을 적용하지 않는다.
 
@@ -177,3 +177,40 @@ Supabase 무료 플랜의 반복적인 장애·사용량 제한 때문에 `BLOCK
 | 새 수집마다 60초 이내 서버 검증 | 로컬 소유권/바인딩 확인, 상태 재검증은 백그라운드 |
 | 공유 초기화 미실행도 일반 수집 차단 | 진행 중 작업만 직렬화; 동의 보충은 파괴적 초기화 없이 전체 수집 |
 | 화면 재시도 2/5/10초와 버튼 | 서버 공통 쿨다운 300·2^(n-1)초(상한 1800초) ±20% 지터, 로컬 카운트다운 배너(2026-10-11: 더 이상 "최소5분" 고정이 아니다 — 지터로 n=1도 240~360초 사이) |
+
+
+## 원본 JSON 전환 후보 (미출시, 2026-10-21)
+
+계획: `../plans/raw-json-ingest-20261021.md`, 계약: `contracts/community-ingest-v2`.
+동의 active + 새 원본 정책 일치 + status.ingest.contracts의 2를 모두 확인한 capture만 원본 스냅숏을 journal에 고정한다.
+community.db 스키마 4는 source_journal.raw_event_json을 추가한다. 개인 신고 DB·원본 표와 PC↔모바일 교환 형식은 바꾸지 않는다.
+업로더는 v1·v2를 섞지 않고 20건·압축 전 1MiB·gzip 전송 512KiB를 적용한다. stored와 parse_pending을 구분한다.
+확인 불가 상태의 로컬 사용은 같은 계정·DB의 마지막 G1 뒤 72시간뿐이며, 시계 되돌림·동의 없음·outdated는 잠근다.
+확인된 철회·기존 계정의 카카오 연결/기여자 삭제는 신고 DB와 주인을 보존한 소프트 리셋을 한다.
+전송 거부를 먼저 기록하고 writer/context를 해제하며 outbox를 blocked로 만들고 raw_backfill 표시를 지운다.
+철회 요청 실패 시 토큰과 `revoke_pending`을 남겨 잠근 채 재시도한다. 원본 일괄 전송과 보충 호출 지점은 아래 후속 구현 규칙을 따른다.
+실제 브라우저·AVD·소켓 기반 검수는 릴리스 전에 별도로 통과해야 한다.
+
+
+## 코드 대조 정정 — 철회 대기와 작업 세대
+
+위 긴급 장애 정책의 동의 없음·철회 허용 예외는 폐기했다. 확인 불가 유예만 마지막 G1·같은 회원·같은 DB·72시간으로 제한한다.
+`revoke_pending`은 업로드와 로컬 이용을 함께 잠그며 토큰 삭제는 서버 철회 확인 이후다.
+개인 DB를 지우지 않으며 DB 주인 불일치는 기존 복구 흐름을 따른다.
+PC는 crawl_manager 복원 세대를 올리고 수집 프로세스·최적화·사진 보충·업로더와 정기 수집/자정 업로드를 중단한다.
+기동과 60초 gate poll에서 철회를 재시도하고, G1 복귀 때 작업 스케줄과 미완료 raw_backfill을 재개한다.
+API/WS의 기존 게이트 차단으로 연결된 모바일 Client도 서버 동의 필요 상태가 된다.
+
+## 리셋은 한 번만 — 근거 소거와 G7 판정 (2026-10-21 검수 반영)
+
+소프트 리셋(G6 철회·G7 카카오 연결 끊김·G8 기여자 삭제)은 "이 기기에서 G1 이 있던 같은 회원"의 status 에 한해 **한 번** 일어난다.
+리셋은 그 근거(`last_g1`)를 지우고 `reset_completed_at` 을 남긴다. 그 뒤 로그인에서 보이는 revoked/none 은 리셋이 아니라 G4(동의 화면)다.
+G1 은 기여자 active 까지 확인했을 때만 기록한다. 리셋 판정은 `community_gate.reset_verdict`(= `community_gate_policy.gate_policy`)로 한다:
+응답 형식이 정상일 때(gate.kakao 는 bool, contributor.status·consent.state 는 문자열)만, G9 정지가 먼저이며,
+G7 은 `gate.kakao is False` 이고 reasons 에 `kakao_missing` 이 있을 때만이다. 그 밖의 거짓(`session_missing`, `user_not_eligible`, 이유 없음)과
+이상한 응답은 리셋이 아니라 확인 불가(G3)다. 업그레이드 직후 첫 status 가 실패해도 기존 동의 이력(최신 결과가 active 이고 같은 회원·같은 DB 주인·같은 dataset 인
+active 시각)이 있으면 처음 실행한 시각(지금)으로 한 번만 `last_g1` 을 시드한다(`g1_seeded` 표시. 72시간 규칙은 그대로). 리셋 뒤 같은 계정이
+새 grant 로 active 가 되면 sticky 거부(consent_revoked·account_removed)는 풀린다. 철회 대기 화면의 '다시 시도'(`POST /settings/community/revoke-retry`)는
+게이트 허용 목록에 있고 결과(확인/대기)를 화면에 보인다.
+
+철회 대기 중 새로 카카오 로그인한 뒤 철회가 끝나면(2026-10-21 검수 결정) 그 세션을 끊지 않고 바로 동의 화면(G4)으로 둔다 — 로그인은 한 번뿐이다. `begin` 이 `revoke_pending.session_connected_at`(현재 세션의 `connected_at`)을 적고, 완료 때 현재 `connected_at` 이 다르면 `soft_reset(keep_session=True)` 이 writer·활성 문맥·게이트 캐시·`last_g1`·`raw_backfill`·outbox 는 예전처럼 정리하되 `disconnect()` 만 건너뛴다. 요청 때의 원래 세션으로 끝나면 예전처럼 로그아웃 → 카카오 로그인 단계다. 기록이 없는 옛 `revoke_pending` 은 원래 세션으로 본다.

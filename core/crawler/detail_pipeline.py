@@ -90,6 +90,10 @@ def enrich_title_fields_with_satisfaction(
     current = dict(title_fields or {})
     if current.get("만족도조사여부") != "참여 완료" or not settings.phone_number:
         return current
+    if satisfaction_client is None:
+        # 네트워크 조회를 하지 않는 저장(DB 최적화 재파싱·원본 일괄 전송의 상세 저장)은 기존 값을 그대로 둔다.
+        # 별점 보충이 필요하면 그 작업이 실제 세션으로 따로 조회한다. 조회 실패 경고를 남기지 않는다.
+        return current
 
     spp_no = current.get("신고번호", "")
     lookup_result = satisfaction_fetcher(satisfaction_client, spp_no)

@@ -140,6 +140,8 @@ def policy_view() -> dict:
 
 def consent(policy_version: str, consent_text_sha256: str) -> dict:
     # 화면이 보여 준 동의문의 (버전, 해시) 그대로 보낸다. 그 사이 중앙 정책이 바뀌었으면 중앙이 policy_mismatch 로 거절한다.
+    from services.community_reset import pending
+    if pending(): raise CommunityAuthError("invalid_state", "철회 처리 중입니다. 완료 뒤 다시 로그인해 주세요.")
     res = account_call(lambda c, t: c.consent(t, policy_version, consent_text_sha256))
     cloud.consent_accepted()
     cloud.observe(cas.get_service(), kind="active", source="consent_accepted")
@@ -147,18 +149,33 @@ def consent(policy_version: str, consent_text_sha256: str) -> dict:
 
 
 def consent_revoke() -> dict:
-    cloud.deny("consent_revoked", sticky=True)
-    cloud.observe(cas.get_service(), kind="revoked", source="local_revoke_pending")
-    community_gate.invalidate("consent_revoked")
-    grant_id = community_gate.current_grant_id()
-    if not grant_id:
-        community_gate.refresh_now()
-        grant_id = community_gate.current_grant_id()
-    if not grant_id:
-        raise CommunityAuthError("invalid_state", "철회할 동의가 없습니다.")
-    res = account_call(lambda c, t: c.consent_revoke(t, grant_id))
-    return {"result": {"revoked": bool(res.get("revoked")), "already_revoked": bool(res.get("already_revoked"))},
-            "gate": regate("consent_revoked")}
+    from services import community_reset
+    grant_id=community_gate.current_grant_id()
+    community_reset.begin(grant_id)
+    confirmed=community_reset.attempt(force=True)
+    return {"result":{"revoked":confirmed,"pending":not confirmed},"gate":community_gate.status_view()}
+
+
+def soft_reset(reason: str, *, keep_session: bool = False) -> None:
+    """Lock first; preserve the personal database, owner, raw rows and journal.
+    keep_session: 철회 요청 뒤 새로 로그인한 세션이면 끊지 않고 바로 동의 화면(G4)으로 둔다."""
+    from services.community_store import CommunityStore
+    from services.crawl_manager import crawl_manager
+    cloud.deny(reason, sticky=True)
+    community_gate.invalidate(reason)
+    from services.community_reset import stop_work
+    stop_work()
+    store = CommunityStore.open()
+    with store.transaction() as tx:
+        tx.execute("UPDATE outbox SET state='blocked',last_error_code=?,lease_owner=NULL,lease_until=NULL", (reason,))
+        tx.execute("DELETE FROM context")
+        tx.execute("DELETE FROM meta WHERE key LIKE 'raw_receipt:%'")
+        tx.execute("DELETE FROM meta WHERE key IN ('raw_backfill','raw_backfill_retry','offline_capture','ingest_status','revoke_pending','raw_contract_scope')")
+    service = cas.get_service()
+    cloud.reset_evidence(service, service.store.load().get('current') or {})
+    service.store.save_writer(None)
+    if not keep_session:service.disconnect()
+    community_gate.clear_after_soft_reset()
 
 
 def takeover() -> dict:

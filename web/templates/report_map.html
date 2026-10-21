@@ -217,6 +217,8 @@
                 <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="communityReshareBtn">이전 수집 사본 다시 공유(<span id="communityReshareCount">0</span>건)</button>
             </div>
         </div>
+        <div class="small mt-2" id="communityRawProgress" role="status" aria-live="polite"></div>
+        <button type="button" id="communityRawRetry" class="btn btn-sm btn-outline-secondary mt-1" hidden>원본 전송 다시 시도</button>
         <div class="small text-muted mt-2" id="communityShareSummary">공유 상태를 불러오는 중입니다.</div>
         <div class="small text-muted">자동 업로드: 매일 00:00 (한국 시간) — 서버가 꺼져 있으면 다음 시작 때 한 번 보충합니다.</div>
         <div class="small text-muted">수정한 개인 데이터는 공유하지 않습니다. 공식 상세 응답 그대로만 공유됩니다.</div>
@@ -498,7 +500,7 @@
             };
             var PROJECTION_TEXT = {
                 published: '지도 반영됨', removed: '지도에서 빠짐(정정)',
-                held: '중앙 저장 완료·지도 반영 대기', not_public: '중앙 저장(지도 비표시: 날짜 없음/미완료)',
+                parse_pending: '중앙 저장 완료·지도 반영 대기', held: '중앙 저장 완료·지도 반영 대기', not_public: '중앙 저장(지도 비표시: 날짜 없음/미완료)',
                 not_applicable: ''
             };
 
@@ -510,7 +512,12 @@
                 return http ? ('서버 일시 오류(HTTP ' + http[1] + ')') : ('오류 ' + code);
             }
 
+            var rawProgress=document.getElementById('communityRawProgress'),rawRetry=document.getElementById('communityRawRetry');
+            rawRetry.addEventListener('click',function(){postJson('/community/upload/raw-backfill/retry',{}).then(refreshStatus);});
             function renderStatus(data) {
+                var raw=data.raw_backfill,st=raw&&raw.stats||{};
+                rawProgress.textContent=raw?'원본 전송 '+Number(st.sent||0)+' / '+Number(st.available||0)+' · 원본 없음 '+Number(st.raw_unavailable||0)+'건 · 채움 '+Number(st.filled||0)+'건 · 못 채움 '+Number(st.unfilled||0)+'건 · 보류 '+Number(st.holds||0)+'건'+(raw.state==='done'?' · 완료':(raw.state==='waiting_optimize'?' · DB 최적화 대기':(raw.state==='paused'?' · 재시도 대기':''))):'';
+                rawRetry.hidden=!raw||raw.state==='done';
                 var pending = Number(data.pending || 0);
                 var auth = Number(data.auth_required || 0);
                 var attention = Number(data.needs_attention || 0);
@@ -543,7 +550,7 @@
                     var outcome = data.last_outcome || data.last_result;
                     var proj = data.projections || {};
                     var projBits = [];
-                    ['published', 'removed', 'held', 'not_public'].forEach(function (key) {
+                    ['published', 'removed', 'parse_pending', 'held', 'not_public'].forEach(function (key) {
                         if (Number(proj[key] || 0) > 0) { projBits.push(PROJECTION_TEXT[key] + ' ' + proj[key] + '건'); }
                     });
                     var extra = data.last_request ? (' · 추적 ' + String(data.last_request).slice(0, 8)) : '';

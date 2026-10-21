@@ -267,7 +267,7 @@ class _CaptureFailed(RuntimeError):
 
 
 def _community_capture_for(rec: CrawledDetail, derived: dict, existing: dict | None = None,
-                             *, trigger: str | None = None):
+                             *, trigger: str | None = None, engine=None):
     """개인 DB 쓰기 잠금 안에서, 원문 쓰기 전에 공유 DTO 를 확정한다. 실패하면 개인 저장을 롤백한다.
 
     fine_estimate(2026-10-12) 입력: 사진 촬영 시각은 detail 이 아니라 _prefetch_derived() 결과(`derived`)에 있고,
@@ -293,7 +293,31 @@ def _community_capture_for(rec: CrawledDetail, derived: dict, existing: dict | N
         _cap.add_retry_id(rec.id, "capture_started")
     except Exception as exc:
         raise _cap.CaptureStoreUnavailable(f"capture retry intent unwritable: {exc}") from exc
-    result = _cap.capture(adapter, source_report_id=str(rec.id), trigger=trigger, rebuild_run_id=run_id)
+    raw_snapshot = None
+    try:
+        # v2 로 선택된 때에만 원본 스냅숏을 만든다. 어떤 실패도 개인 저장을 막지 않는다(capture 가 raw_required 로 보류한다).
+        from services import community_raw_ingest as raw
+        store = _cap._store(None)
+        context, _authorization = _cap.read_account_context(store)
+        if raw.selected(store, raw.ingest_status(store), context):
+            from core.utils import raw_detail as _raw
+            body, fetched, source = rec.raw_canonical, _raw.utc_now_fetched_at(), rec.raw_source or 'crawl'
+            if body is None and engine is not None:
+                with engine.connect() as raw_conn:
+                    row = raw_conn.execute(select(models.report_detail_raw_table).where(models.report_detail_raw_table.c.ID == rec.id)).mappings().first()
+                if row is not None:
+                    try:
+                        body = _raw.verify(row['raw_zlib'], row['raw_sha256'])
+                        fetched, source = row['fetched_at'], row['source']
+                    except ValueError:
+                        body = None
+            if body is not None:
+                fields = {**(existing or {}), **(title_fields or {}), **derived,
+                          'entry_value': rec.entry_value, 'ssnpc_cd': rec.ssnpc_cd, 'ssnpc_type': rec.ssnpc_type}
+                raw_snapshot = raw.snapshot(body, fetched, source, fields)
+    except Exception as exc:
+        note_fallback('reports_repo.raw_snapshot', exc)
+    result = _cap.capture(adapter, source_report_id=str(rec.id), trigger=trigger, rebuild_run_id=run_id, raw_snapshot=raw_snapshot)
     try:
         _cap.remove_retry_id(rec.id)
     except Exception as exc:
@@ -301,7 +325,7 @@ def _community_capture_for(rec: CrawledDetail, derived: dict, existing: dict | N
     return result
 
 
-def _save_one(engine, rec: CrawledDetail) -> dict | None:
+def _save_one(engine, rec: CrawledDetail, *, admission=None, capture_community=True) -> dict | None:
     with engine.connect() as read:
         existing_before = _find_row(read, rec.id)
     rec.category = _classification(rec, existing_before)["category"]
@@ -314,17 +338,19 @@ def _save_one(engine, rec: CrawledDetail) -> dict | None:
             # 크롤러는 별도 프로세스다. 캡처 → 개인 저장 사이에 재전송이 끼어들지 않게
             # SQLite 쓰기 잠금을 먼저 잡고, 복원 장벽이 보는 연결도 커밋까지 유지한다.
             conn.exec_driver_sql("BEGIN IMMEDIATE")
+            if admission is not None: admission()
             existing = _find_row(conn, rec.id)
             # 사진 보충이 prefetch 동안 끝났으면 그 시각을 오래된 None 으로 덮지 않는다.
             if (existing and existing.get("사진_촬영수") is not None
                     and existing.get("첨부사진") == rec.detail.get("첨부사진")):
                 derived.update({c: existing.get(c) for c in PHOTO_COLUMNS})
             try:
-                capture_result = _community_capture_for(rec, derived, existing)
+                capture_result = _community_capture_for(rec, derived, existing, engine=engine) if capture_community else None
             except _cap.CaptureStoreUnavailable:
                 raise
             except Exception as exc:
                 raise _CaptureFailed("community_capture_failed") from exc
+            if admission is not None: admission()
             now_ms = _now_ms()
             site = {c: _clean(rec.detail.get(c)) for c in DETAIL_SITE_COLUMNS}
             cls = _classification(rec, existing)
@@ -357,7 +383,9 @@ def _save_one(engine, rec: CrawledDetail) -> dict | None:
                 note_fallback("reports_repo.mark_personal_save_failed", exc)
         raise
     try:
-        _cap.mark_personal_save(capture_result.event_id, True)
+        # capture_community=False(원본 일괄 전송이 따로 enqueue 하는 저장)면 capture_result 가 없다.
+        if capture_result is not None:
+            _cap.mark_personal_save(capture_result.event_id, True)
         _cap.remove_retry_id(rec.id)
     except Exception as exc:
         note_fallback("reports_repo.mark_personal_save_ok", exc)
@@ -435,7 +463,7 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse",
             photo_current = {c: existing.get(c) for c in PHOTO_COLUMNS}
             derived_for_capture = {**geo, **photo_current}
             try:
-                capture_result = _community_capture_for(capture_rec, derived_for_capture, existing, trigger=trigger)
+                capture_result = _community_capture_for(capture_rec, derived_for_capture, existing, trigger=trigger, engine=engine)
             except _cap.CaptureStoreUnavailable:
                 raise
             except Exception as exc:
@@ -469,7 +497,8 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse",
                 note_fallback("reports_repo.reparse_mark_personal_save_failed", exc)
         raise
     try:
-        _cap.mark_personal_save(capture_result.event_id, True)
+        if capture_result is not None:
+            _cap.mark_personal_save(capture_result.event_id, True)
         _cap.remove_retry_id(rec.id)
     except Exception as exc:
         note_fallback("reports_repo.reparse_mark_personal_save_ok", exc)
@@ -484,14 +513,14 @@ def reparse_one(engine, rec: CrawledDetail, *, trigger: str = "reparse",
     return change
 
 
-def save_crawled(engine, records, *, refresh_duplicates: bool = True) -> SaveResult:
+def save_crawled(engine, records, *, refresh_duplicates: bool = True, admission=None, capture_community=True) -> SaveResult:
     from services import community_capture as _cap
 
     result = SaveResult()
     consecutive_capture_failures = 0
     for rec in records:
         try:
-            change = _save_one(engine, rec)
+            change = _save_one(engine, rec, admission=admission, capture_community=capture_community) if admission is not None or not capture_community else _save_one(engine, rec)
         except _CaptureFailed as exc:
             result.failed.append((rec.id, "community_capture_failed"))
             logger.LoggerFactory.logbot.error(f"ID {rec.id} 저장 실패: {exc}")

@@ -45,7 +45,7 @@
                         #}
                     </div>
                     <div class="small text-muted mt-2">
-                        철회하면 이 동의로 보낸 자료가 공개 지도에서 빠지고, 이 프로그램은 필수 설정 화면으로 돌아갑니다.
+                        철회하면 지도 서비스에 보낸 원본이 삭제되고, 앱은 카카오 로그인부터 다시 시작합니다. 이 기기의 신고 자료는 남아 있으며 같은 카카오 계정으로 다시 동의하면 이어서 쓸 수 있습니다.
                         {# 공유한 자료 전체 삭제(contributions-delete)는 아직 구현하지 않는 기능이다(2026-09-27 결정). 되살릴 때 이 주석을 해제한다.
                         삭제 요청은 철회와 별개이며 공개 지도·통계에서 자료를 지웁니다.
                         #}
@@ -203,7 +203,7 @@
     });
     if ($('ccRevokeBtn')) $('ccRevokeBtn').addEventListener('click', function () {
         var button = this;
-        var message = '철회하면 이 동의로 보낸 자료가 공개 지도에서 빠지고, 이 프로그램은 필수 설정 화면으로 돌아갑니다.\n다시 동의해도 이전 자료는 자동으로 다시 공개되지 않습니다.';
+        var message = '철회하면 지도 서비스에 보낸 원본이 삭제되고, 앱은 카카오 로그인부터 다시 시작합니다. 이 기기의 신고 자료는 남아 있으며 같은 카카오 계정으로 다시 동의하면 이어서 쓸 수 있습니다.';
         var asked = window.srConfirm
             ? window.srConfirm({ title: '신고내용 공유 동의 철회', message: message, confirmLabel: '동의 철회', danger: true })
             : Promise.resolve(window.confirm('동의를 철회할까요?\n' + message));

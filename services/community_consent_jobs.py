@@ -27,6 +27,14 @@ def _tick():
     from services import community_gate as gate, community_upload_status as uploads, crawl_run_state
     from services.community_store import CommunityStore
     from services.crawl_manager import crawl_manager
+    from services.community_raw_ingest import v2_ready, ingest_status
+    store = CommunityStore.open()
+    if v2_ready(ingest_status(store)):
+        from services.community_raw_backfill import start
+        start()
+        item=cloud.current_job()
+        if item:cloud.update_job(item[0],item[1],state='succeeded',phase='raw_backfill')
+        return
     item = cloud.current_job()
     if not item or cloud.remaining() > 0:
         return

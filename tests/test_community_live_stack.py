@@ -134,15 +134,19 @@ class PcLiveStackTest(unittest.TestCase):
         if st["consent"]["state"] in ("active", "outdated"):
             self.account("consent-revoke", user["access_token"], {"grant_id": st["consent"]["grant_id"]})
         # 동의 전: 로그인만으로는 통과하지 않는다
-        self.assertEqual(community_gate.refresh_now()["state"], "consent_required")
+        before = community_gate.refresh_now()
+        self.assertFalse(before['can_local'])
+        if before['state'] == 'kakao_required':
+            user = self.login('A')
+            community_gate.invalidate('login')
+        else:
+            self.assertEqual(before['state'], 'consent_required')
         # 동의문은 중앙 `policy` 로 받고, 받은 본문의 해시를 직접 계산해 보낸다(2026-09-27)
         policy = self.account("policy", user["access_token"], {}).json()["policy"]
         digest = hashlib.sha256(policy["consent_text"].encode("utf-8")).hexdigest()
         self.assertEqual(digest, policy["consent_text_sha256"])
-        r = self.account("consent", user["access_token"], {"policy_version": policy["version"],
-                                                           "consent_text_sha256": digest,
-                                                           "via": "safetyreport_server", "accepted": True})
-        self.assertEqual(r.status_code, 200, r.text)
+        from services import community_account_ops
+        community_account_ops.consent(policy['version'], digest)
         community_gate.invalidate("consent_saved")
         result = community_gate.refresh_now()
         self.assertTrue(result["can_enter"], result)
@@ -181,7 +185,10 @@ class PcLiveStackTest(unittest.TestCase):
         # 원격(다른 기기·웹)에서 철회 → 다음 확인에서 차단, context 비활성, 대기 이벤트는 보내지 않는다
         grant = self.account("status", user["access_token"], {}).json()["consent"]["grant_id"]
         self.assertEqual(self.account("consent-revoke", user["access_token"], {"grant_id": grant}).status_code, 200)
-        self.assertEqual(community_gate.refresh_now()["state"], "consent_required")
+        reset = community_gate.refresh_now()
+        self.assertEqual(reset['state'], 'kakao_required')
+        self.assertFalse(reset['can_local'])
+        self.assertIsNone(self.service.store.load().get('current'))
         self.assertIsNone(store.active_context())
         self.assertEqual(self.public_count(user["user_id"]), 0)
         other = dict(INPUT, processing_status="일부수용")

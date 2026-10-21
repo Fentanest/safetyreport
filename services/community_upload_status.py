@@ -64,7 +64,11 @@ def upload_status(data_dir=None) -> dict:
         request_ids = json.loads(last["request_ids"]) if last and last["request_ids"] else []
     except ValueError:
         request_ids = []
+    from services.community_raw_backfill import status as raw_status
+    marker=raw_status(store)
+    progress={"state":marker["state"],"stats":marker.get("stats",{}),"reason":marker.get("reason")} if marker else None
     return {
+        "raw_backfill": progress,
         "last_upload_kst": last_upload_kst,
         "last_result": up.legacy_result(last["result"]) if last else None,
         "last_outcome": (last["result"] if last else None),
@@ -143,6 +147,8 @@ def request_reshare(data_dir=None, *, consent_grant=None, send=True, only_waitin
         return {"result": "auth_required", "count": 0}
     local_id = store.local_dataset_id()
     created: list[str] = []
+    from services import community_raw_ingest as raw
+    raw_mode=raw.selected(store,raw.ingest_status(store),ctx)
     with store.transaction() as tx:
         # Explicit grant recovery includes preserved journals before same-account
         # personal DB restoration. Fingerprint and official dataset stay mandatory.
@@ -177,6 +183,8 @@ def request_reshare(data_dir=None, *, consent_grant=None, send=True, only_waitin
                     continue
             elif row["consent_grant_id"] == ctx.get("consent_grant_id") and row["connection_id"] == ctx.get("connection_id"):
                 continue
+            raw_snapshot=raw.load_current_snapshot(row['source_report_id']) if raw_mode else None  # 신고마다 읽고 바로 버린다(전체를 메모리에 올리지 않는다)
+            raw_json=json.dumps(raw.with_observation(raw_snapshot,json.loads(row['payload_json'])),ensure_ascii=False,separators=(',',':')) if raw_snapshot is not None else None
             revision = store.next_revision(tx)
             event_id = str(uuid.uuid4())
             now = up._iso(up._now())
@@ -191,9 +199,13 @@ def request_reshare(data_dir=None, *, consent_grant=None, send=True, only_waitin
                  row["schema_version"], row["parser_version"], row["payload_json"], row["payload_sha256"],
                  ctx.get("contributor_fingerprint"), ctx.get("connection_id"), ctx.get("writer_epoch"),
                  ctx.get("consent_grant_id")))
+            if raw_json is not None:
+                tx.execute('UPDATE source_journal SET raw_event_json=? WHERE event_id=?',(raw_json,event_id))
+            if raw_mode and raw_json is None:
+                tx.execute("UPDATE source_journal SET blocked_reason='raw_required' WHERE event_id=?",(event_id,))
             tx.execute(
-                "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at)"
-                " VALUES (?, 'pending', 0, 'reshare', ?)", (event_id, now))
+                "INSERT INTO outbox(event_id, state, attempt_count, enqueued_trigger, enqueued_at,last_error_code)"
+                " VALUES (?, ?, 0, 'reshare', ?, ?)", (event_id,'blocked' if raw_mode and raw_json is None else 'pending',now,'raw_required' if raw_mode and raw_json is None else None))
             tx.execute(
                 "INSERT INTO report_latest(local_dataset_id, source_report_id, event_id,"
                 " payload_sha256, eligible, source_generation) VALUES (?, ?, ?, ?, 1, 0)"

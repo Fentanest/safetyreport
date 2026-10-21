@@ -372,7 +372,7 @@ _GATE_ALLOW = frozenset({
     # db-owner/adopt(다른 계정의 자료를 지우고 시작)
     *(("POST", f"/settings/community/{a}") for a in ("start", "confirm", "cancel", "logout", "reset-session",
                                                       "db-owner/adopt", "settings", "consent",
-                                                      "consent-revoke", "writer")),  # "contributions-delete": 미구현 기능이라 경로를 주석 처리(community_route.py)
+                                                      "consent-revoke", "revoke-retry", "writer")),  # "contributions-delete": 미구현 기능이라 경로를 주석 처리(community_route.py)
     ("GET", "/settings/community/rebuild"),
     *(("POST", f"/settings/community/rebuild/{a}") for a in ("start", "resume", "pause")),
     ("GET", "/api/v1/app/config"), ("GET", "/api/v1/community-auth/status"),
@@ -508,6 +508,15 @@ async def request_timings(request: Request, call_next):
 
 def _on_community_gate_change(result: dict) -> None:
     """게이트를 잃으면(확인 필요 포함 — Sol M-01) 이벤트 WS 를 4403 으로 닫는다(로그 WS 는 자체 GateWatch)."""
+    if result.get("can_enter"):
+        from services import community_raw_backfill, community_uploader, db_optimize
+        from services.community_reset import resume_work
+        resume_work()
+        community_uploader.start_background()
+        community_raw_backfill.start()
+        if scheduler.scheduler.running:
+            from services.community_schedule import resume_upload_jobs
+            resume_upload_jobs(scheduler.scheduler)
     if not result.get("can_local", result.get("can_enter")):
         from services.ws_manager import ws_manager
         ws_manager.close_all_from_thread(4403, "COMMUNITY_ONBOARDING_REQUIRED")
@@ -530,7 +539,7 @@ def _start_community_services() -> None:
     def _call(module: str, attr: str, *args, **kwargs):
         getattr(importlib.import_module(f"services.{module}"), attr)(*args, **kwargs)
 
-    steps = [("uploader", lambda: _call("community_uploader", "start_background"))]
+    steps = [("withdrawal retry", lambda: threading.Thread(target=lambda: _call("community_reset", "attempt"), name="community-revoke-retry", daemon=True).start()), ("raw backfill", lambda: _call("community_raw_backfill", "start")), ("uploader", lambda: _call("community_uploader", "start_background"))]
     if scheduler.scheduler.running:
         steps.append(("jobs", lambda: _call("community_schedule", "register_community_jobs", scheduler.scheduler)))
         steps.append(("midnight catch-up", lambda: _call("community_schedule", "catch_up_on_start")))

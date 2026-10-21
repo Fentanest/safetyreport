@@ -1087,7 +1087,7 @@ class FineEstimateResendTests(unittest.TestCase):
         rec = repo.CrawledDetail(id="R1", category="parking", detail=row, entry_value="불법주정차신고")
         result = cap.CaptureResult(event_id=None, event_type=None, eligible=False, payload_sha256="")
         with mock.patch.object(repo, "_prefetch_derived", return_value={}), mock.patch.object(
-                repo, "_community_capture_for", side_effect=lambda *args: (self._assert_personal_write_locked(), result)[1]):
+                repo, "_community_capture_for", side_effect=lambda *args, **kwargs: (self._assert_personal_write_locked(), result)[1]):
             repo._save_one(self.engine, rec)
 
     def test_photo_fill_updates_shared_estimate_after_resend_marker(self):

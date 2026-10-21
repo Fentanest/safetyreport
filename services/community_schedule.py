@@ -150,7 +150,14 @@ def register_community_jobs(scheduler, data_dir=None) -> None:
     def _poll() -> None:
         try:
             from services import community_gate as _gate
-            _gate.refresh_now()
+            from services import community_reset
+            community_reset.attempt()
+            result = _gate.refresh_now()
+            if result.get("can_enter"):
+                from services import community_raw_backfill, community_uploader, db_optimize
+                db_optimize.resume_for_account()
+                community_uploader.start_background()
+                community_raw_backfill.start()
             from services import community_consent_jobs
             community_consent_jobs.tick()
         except ImportError:
@@ -241,3 +248,17 @@ def catch_up_on_start(data_dir=None, *, wait: bool = False):
         thread.join()
         return result
     return None
+
+
+def pause_upload_jobs(scheduler):
+    try:
+        if scheduler.get_job(MIDNIGHT_JOB_ID) is not None:scheduler.remove_job(MIDNIGHT_JOB_ID)
+    except Exception as exc:  # 이미 없는 job 이면 정상 — 기록만 남긴다
+        from core.utils.fallback import note_fallback
+        note_fallback('community_schedule.pause_upload_jobs', exc)
+
+def resume_upload_jobs(scheduler):
+    from apscheduler.triggers.cron import CronTrigger
+    offset=midnight_offset_seconds()
+    scheduler.add_job(run_midnight,CronTrigger(hour=0,minute=offset//60,second=offset%60,timezone=SEOUL),
+                      id=MIDNIGHT_JOB_ID,replace_existing=True,max_instances=1,coalesce=True,misfire_grace_time=21600)

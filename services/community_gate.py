@@ -48,7 +48,7 @@ def can_browse(result: dict) -> bool:
 STATES = ("ok", "config_invalid", "kakao_required", "kakao_reauth_required", "session_unreadable",
           "verification_required", "suspended", "consent_required", "db_owner_mismatch",
           "official_account_mismatch", "official_account_taken", "official_account_change_pending",
-          "official_account_protocol_required", "cloud_unavailable")
+          "official_account_protocol_required", "cloud_unavailable", "revoke_pending")
 
 
 def dataset_key(username: str | None) -> str | None:
@@ -122,7 +122,32 @@ def decide(config: str, session: str, status: dict | None, age: float | None, in
             or consent.get("policy_version") != policy.get("required_version")
             or consent.get("consent_text_sha256") != policy.get("consent_text_sha256")):
         return "consent_required", ["consent_outdated"]
+    if contributor != "active":  # G1 은 기여자 active 가 조건이다(legacy-gate-vectors first_time_contributor_none_ok)
+        return "verification_required", ["contributor_missing"]
     return "ok", []
+
+
+def status_wellformed(raw) -> bool:
+    """리셋 판정에 쓸 수 있는 응답인가 — gate.kakao 는 bool, contributor.status·consent.state 는 문자열이어야 한다."""
+    if not isinstance(raw, dict):
+        return False
+    gate, contributor, consent = raw.get("gate"), raw.get("contributor"), raw.get("consent")
+    return (isinstance(gate, dict) and type(gate.get("kakao")) is bool
+            and isinstance(contributor, dict) and isinstance(contributor.get("status"), str)
+            and isinstance(consent, dict) and isinstance(consent.get("state"), str))
+
+
+def reset_verdict(raw, status: dict, had_g1: bool) -> str:
+    """G6·G7·G8 리셋 여부. 판정 표(community_gate_policy.gate_policy)와 같은 규칙을 쓴다. 'soft_reset' 이면 리셋."""
+    from services.community_gate_policy import gate_policy
+    if not had_g1 or not status_wellformed(raw):
+        return "none"
+    gate = status.get("gate") or {}
+    return gate_policy({
+        "owner": True, "binding": True, "reauth": False, "session": True, "confirmed": True, "same_member": True,
+        "last_g1": 0.0, "now": 0.0, "kakao": gate.get("kakao"), "reasons": gate.get("reasons") or [],
+        "contributor": (status.get("contributor") or {}).get("status"),
+        "consent": (status.get("consent") or {}).get("state")})
 
 
 class _Gate:
@@ -216,11 +241,13 @@ class _Gate:
         # Explicit local revoke stops sending even while the server still says active.
         if state == "ok" and cloud.denial(service).get("sticky"):
             state, reasons = "consent_required", ["consent_revoked_locally"]
+        from services.community_reset import pending
+        if pending():
+            state, reasons = "revoke_pending", ["revoke_pending"]
         result = {"state": state, "can_enter": state == "ok", "reasons": reasons, "verified_age": age}
         result["can_browse"] = result["can_enter"]
-        if state in ("cloud_unavailable", "verification_required", "consent_required"):
-            # Emergency policy: consent history is recorded, not a local-use barrier.
-            # Login, DB ownership, binding and contributor suspension still apply.
+        if state in ("cloud_unavailable", "verification_required"):
+            # Only a previously verified owner has a bounded offline grace period.
             # 네트워크를 더 호출하거나 주인 표시를 새로 쓰지 않고 기존 세션/DB만 대조한다.
             # 새 로그인·다른 사람의 DB·계정 변경 미완료를 장애 우회로 열지 않는다.
             from services import account_data
@@ -289,11 +316,20 @@ class _Gate:
             self._status, self._verified_at, self._invalidated = status, self._clock(), False
             self._status_user = user_id
         self._last_error = None
+        from services.community_store import CommunityStore
+        from services.community_raw_ingest import cached_status
+        CommunityStore.open().set_meta('ingest_status', __import__('json').dumps(cached_status(status)))
+        from services import community_notice
+        community_notice.apply_status(CommunityStore.open(), status)
         state, _ = decide("ok", "valid", status, 0.0, False)
+        consent_state = (status.get("consent") or {}).get("state")
+        # 소프트 리셋(G6·G7·G8)은 "이 기기에서 G1 이 있던 같은 회원"에게 한 번만, 형식이 정상인 응답에서만 일어난다.
+        # 형식이 이상한 응답·근거 없는 거짓(session_missing 등)은 리셋이 아니라 확인 불가(G3)다. 리셋하면 근거(last_g1)를 지운다.
+        if reset_verdict(raw, status, cloud.had_g1(service, current)) == "soft_reset":
+            from services.community_account_ops import soft_reset
+            soft_reset('consent_revoked' if consent_state == 'revoked' else 'account_removed')
+            return
         cloud.record_status(service, current, status, state)
-        # Owner verification also applies to a logged-in account without consent.
-        if state in ("ok", "consent_required"):
-            self._check_owner(service, generation)
         if state == "ok" and not cloud.denial(service).get("sticky"):
             from services import official_account as official
             try:
@@ -306,6 +342,9 @@ class _Gate:
             owner = self._check_owner(service, generation)
             if owner == "ok":  # 다른 계정의 자료가 남아 있으면 writer 연결도 만들지 않는다
                 self._ensure_writer(service, client, token, status, own, current, generation)
+                if ((status.get("contributor") or {}).get("status") == "active"
+                        and (not self._writer_note or self._writer_note.get("code") not in official.BLOCKED)):
+                    cloud.mark_g1(service, current, dkey)
 
     def binding_status(self) -> dict:
         """Fresh status for settings replacement, without creating a writer for the old config."""
@@ -418,6 +457,13 @@ class _Gate:
     def on_change(self, callback: Callable[[dict], None]) -> None:
         with self._lock:
             self._listeners.append(callback)
+
+    def clear_after_soft_reset(self) -> None:
+        with self._lock:
+            self._status = self._status_user = self._verified_at = self._owner = None
+            self._writer_note = self._last_error = None
+            self._invalidated = True
+            self._generation += 1
 
     def _notify_if_changed(self, result: dict) -> None:
         with self._lock:
@@ -610,6 +656,7 @@ class _Gate:
                 "kakao": bool((status.get("gate") or {}).get("kakao")),
                 "contributor": (status.get("contributor") or {}).get("status"),
                 "account": status.get("account"), "projection": status.get("projection"),
+                "client_notice": __import__("services.community_notice",fromlist=["read"]).read(__import__("services.community_store",fromlist=["CommunityStore"]).CommunityStore.open()), "ingest": status.get("ingest"),
                 "writer": self._writer_note or ({"code": "ok"} if result["can_enter"] else None),
                 "upload_pending": _pending_uploads(), "deletion": _deletion_state()}
 
@@ -705,6 +752,10 @@ def _deletion_state() -> str | None:
 
 def current_grant_id() -> str | None:
     return _gate.current_grant_id()
+
+
+def clear_after_soft_reset() -> None:
+    _gate.clear_after_soft_reset()
 
 
 ONBOARDING_REQUIRED = "COMMUNITY_ONBOARDING_REQUIRED"

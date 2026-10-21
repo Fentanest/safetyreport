@@ -101,23 +101,19 @@ class OfflinePolicyTests(GateTestBase):
         for worker_thread in workers: worker_thread.join(3)
         self.assertEqual(len(calls), 1)
 
-    def test_revoked_and_no_proof_allow_owned_local_but_suspension_does_not(self):
+    def test_remote_revoke_soft_resets_and_never_grants_offline_use(self):
         self.open_gate()
-        self.account.consents[USER_A['id']]['state']='revoked'
-        result=gate.refresh_now()
-        self.assertTrue(result['can_local']); self.assertFalse(result['can_enter'])
-        self.clock.now += 10000
-        self.account.fail=[(503,'server_error')]
-        gate.refresh_now()
+        from services import account_data
+        owner = account_data.db_owner()
+        self.account.consents[USER_A['id']]['state'] = 'revoked'
+        result = gate.refresh_now()
+        self.assertFalse(result['can_local'])
+        self.assertFalse(result['can_enter'])
+        self.assertIsNone(self.service.store.load().get('current'))
+        self.assertIsNone(self.service.store.load_writer())
+        self.assertEqual(account_data.db_owner(), owner)
         with mock.patch.object(gate, '_gate', gate._Gate(clock=self.clock)):
-            self.assertTrue(gate.refresh_now()['can_local'])
-        self.wall += 361  # 2026-10-11: 전역 쿨다운에 ±20% 지터가 붙어 n=1 최대값(360초)보다 크게 넘긴다
-        self.account.contributor[USER_A['id']]='suspended'
-        self.assertFalse(gate.refresh_now()['can_local'])
-        self.account.fail=[(503,'server_error')]
-        self.clock.now += 10000
-        with mock.patch.object(gate, '_gate', gate._Gate(clock=self.clock)):
-            self.assertFalse(gate.refresh_now()['can_local'])
+            self.assertFalse(gate.evaluate()['can_local'])
 
     def test_new_no_login_and_foreign_owner_stay_blocked(self):
         self.assertFalse(gate.evaluate()['can_local'])
@@ -164,13 +160,17 @@ class OfflinePolicyTests(GateTestBase):
 
     def test_reconsent_reshare_retains_provenance_and_deduplicates(self):
         self.open_gate()
-        self.account.consents[USER_A['id']]['state']='revoked'
-        gate.refresh_now()
         row=capture.capture(INPUT,source_report_id='revoked-fixture',trigger='test',data_dir=self.data)
         original=dict(self.store.connect().execute('SELECT * FROM source_journal WHERE event_id=?',(row.event_id,)).fetchone())
-        self.assertEqual(original['blocked_reason'],'consent:revoked')
-        self.account.grant(USER_A)
+        self.account.consents[USER_A['id']]['state']='revoked'
         gate.refresh_now()
+        self.assertFalse(gate.evaluate()['can_local'])
+        self.connect(USER_A)
+        from services import community_account_ops as ops
+        ops.regate('login')  # 실제 라우트와 같은 순서: 로그인 확인 → 게이트(철회 기록만 보고 두 번째 리셋은 없다)
+        self.assertEqual(gate.evaluate()['state'], 'consent_required')
+        self.account.grant(USER_A)
+        ops.regate('consent_saved')
         grant=self.store.active_context()['consent_grant_id']
         result=upload_status.request_reshare(self.data,consent_grant=grant,send=False)
         self.assertEqual(result['reshared'],1)
@@ -182,11 +182,11 @@ class OfflinePolicyTests(GateTestBase):
         cloud.deny('consent_revoked',sticky=True)
         cloud.observe(self.service,kind='revoked',source='local_revoke_pending')
         gate.invalidate('consent_revoked')
-        self.assertTrue(gate.refresh_now()['can_local'])
+        self.assertFalse(gate.refresh_now()['can_local'])
         self.assertFalse(gate.evaluate()['can_enter'])
         with mock.patch.object(gate, '_gate', gate._Gate(clock=self.clock)):
             self.account.fail=[(503,'server_error')]
-            self.assertTrue(gate.refresh_now()['can_local'])
+            self.assertFalse(gate.refresh_now()['can_local'])
             self.assertFalse(gate.evaluate()['can_enter'])
 
     def test_grant_job_is_durable_once_and_full_not_reset(self):
@@ -264,19 +264,16 @@ class OfflinePolicyTests(GateTestBase):
         self.assertEqual(upload_status.request_reshare(self.data, consent_grant=grant, send=False)['count'], 0)
         self.assertEqual(self.store.connect().execute('SELECT COUNT(*) FROM source_journal').fetchone()[0], 1)
 
-    def test_no_consent_capture_keeps_owner_and_waits_for_real_grant(self):
-        self.open_gate()
-        self.account.consents.pop(USER_A['id'])
-        self.assertTrue(gate.refresh_now()['can_local'])
-        saved = capture.capture(INPUT, source_report_id='no-consent-fixture', trigger='test', data_dir=self.data)
-        row = self.store.connect().execute('SELECT * FROM source_journal WHERE event_id=?', (saved.event_id,)).fetchone()
-        self.assertEqual(row['blocked_reason'], 'consent:none')
-        self.assertEqual(row['contributor_fingerprint'], gate.account_fingerprint(USER_A['id']))
-        self.assertEqual(self.store.connect().execute('SELECT COUNT(*) FROM outbox').fetchone()[0], 0)
+    def test_new_login_without_consent_does_not_stamp_owner(self):
+        self.connect(USER_A)
+        from services import account_data
+        result = gate.refresh_now()
+        self.assertEqual(result['state'], 'consent_required')
+        self.assertFalse(result['can_local'])
+        self.assertIsNone(account_data.db_owner())
         self.account.grant(USER_A)
-        gate.refresh_now()
-        grant = self.store.active_context()['consent_grant_id']
-        self.assertEqual(upload_status.request_reshare(self.data, consent_grant=grant, send=False)['reshared'], 1)
+        self.assertTrue(gate.refresh_now()['can_enter'])
+        self.assertEqual(account_data.db_owner(), USER_A['identities'][0]['id'])
 
     def test_slow_cloud_request_does_not_block_local_evaluation(self):
         self.open_gate()
@@ -300,7 +297,7 @@ class OfflinePolicyTests(GateTestBase):
         self.assertFalse(gate.refresh_now()['can_local'])
         cloud.run(self.cfg.supabase_url, lambda: (503, b'', {}))
         from services import community_account_ops as ops
-        with self.assertRaises(cas.CommunityAuthError): ops.consent_revoke()
+        self.assertTrue(ops.consent_revoke()['result']['pending'])
         with mock.patch.object(gate, '_gate', gate._Gate(clock=self.clock)):
             self.assertFalse(gate.refresh_now()['can_local'])
             cloud.consent_accepted(self.service)
@@ -309,12 +306,10 @@ class OfflinePolicyTests(GateTestBase):
             self.account.contributor[USER_A['id']] = 'none'
             self.assertFalse(gate.refresh_now()['can_local'])
             self.account.contributor[USER_A['id']] = 'active'
-            self.assertTrue(gate.refresh_now()['can_local'])
+            self.assertFalse(gate.refresh_now()['can_local'])  # Account removal already reset the session.
 
     def test_reconsent_restored_db_recovers_prior_dataset_without_other_accounts_or_deleted(self):
         self.open_gate()
-        self.account.consents[USER_A['id']]['state'] = 'revoked'
-        gate.refresh_now()
         old_dataset = self.store.local_dataset_id()
         saved = capture.capture(INPUT, source_report_id='restore-reshare', trigger='test', data_dir=self.data)
         deleted = capture.capture(INPUT, source_report_id='restore-deleted', trigger='test', data_dir=self.data)
@@ -322,17 +317,22 @@ class OfflinePolicyTests(GateTestBase):
         with self.store.transaction() as tx:
             tx.execute("UPDATE source_journal SET blocked_reason='deleted_by_user' WHERE event_id=?", (deleted.event_id,))
             tx.execute("UPDATE source_journal SET contributor_fingerprint=? WHERE event_id=?", (gate.account_fingerprint(USER_B['id']), foreign.event_id))
+        self.account.consents[USER_A['id']]['state'] = 'revoked'
+        gate.refresh_now()
+        self.connect(USER_A)
+        from services import community_account_ops as ops
+        ops.regate('login')
         new_dataset = self.store.rotate_dataset('same-account-db-restore-fixture')
         self.assertNotEqual(old_dataset, new_dataset)
         self.account.grant(USER_A)
-        gate.refresh_now()
+        ops.regate('consent_saved')
         grant = self.store.active_context()['consent_grant_id']
         self.assertEqual(upload_status.request_reshare(self.data, consent_grant=grant, send=False)['reshared'], 1)
         self.assertEqual(upload_status.request_reshare(self.data, consent_grant=grant, send=False)['count'], 0)
         rows = self.store.connect().execute("SELECT * FROM source_journal WHERE event_type='reshare'").fetchall()
         self.assertEqual([(row['source_report_id'], row['local_dataset_id']) for row in rows], [('restore-reshare', new_dataset)])
         original = self.store.connect().execute('SELECT * FROM source_journal WHERE event_id=?', (saved.event_id,)).fetchone()
-        self.assertEqual((original['local_dataset_id'], original['blocked_reason']), (old_dataset, 'consent:revoked'))
+        self.assertEqual((original['local_dataset_id'], original['blocked_reason']), (old_dataset, None))
 
     def test_transient_refresh_never_erases_local_session_even_with_auth_error_code(self):
         self.open_gate()

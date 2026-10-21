@@ -103,6 +103,10 @@ class CrawlManager:
             if self._rating_token is token:
                 self._rating_token = None
 
+    def maintenance_busy(self) -> bool:
+        with self._state_lock:
+            return self._rating_token is not None
+
     def is_crawling(self) -> bool:
         """크롤링이 현재 실행 중인지 반환"""
         with self._state_lock:
