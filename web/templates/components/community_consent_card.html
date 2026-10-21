@@ -147,8 +147,20 @@
         try { document.dispatchEvent(new CustomEvent('sr:community-gate', { detail: g })); } catch (e) {}
     }
 
+    // 서버 재시작 직후 등에는 게이트가 확인을 백그라운드로 돌리고 '확인 중'을 먼저 돌려준다. 그 상태에 머물지 않게
+    // 3초부터 30초까지 늘려 가며 다시 읽는다(예전엔 '상태 다시 확인'을 눌러야 새 동의문이 보였다).
+    var PENDING = ['verification_required', 'cloud_unavailable'], recheckTimer = null, recheckDelay = 3000;
     function loadGate() {
-        return request('GET', 'gate').then(function (res) { render(res.data); }).catch(function (e) {
+        clearTimeout(recheckTimer);
+        return request('GET', 'gate').then(function (res) {
+            render(res.data);
+            if (res.data && PENDING.indexOf(res.data.state) >= 0) {
+                recheckTimer = setTimeout(loadGate, recheckDelay);
+                recheckDelay = Math.min(recheckDelay * 2, 30000);
+            } else {
+                recheckDelay = 3000;
+            }
+        }).catch(function (e) {
             if (e.message !== 'login') alertBox('동의 상태를 불러오지 못했습니다: ' + e.message, 'danger');
         });
     }
