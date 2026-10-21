@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "level": {
+      "enum": [
+        "info",
+        "warning",
+        "required"
+      ]
+    },
+    "message": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "min_version": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "mobile": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "maxLength": 40
+        }
+      },
+      "required": [
+        "pc",
+        "mobile"
+      ]
+    },
+    "url": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pc": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        },
+        "mobile": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        }
+      },
+      "required": [
+        "pc",
+        "mobile"
+      ]
+    },
+    "deadline": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "level",
+    "message",
+    "min_version",
+    "url",
+    "deadline"
+  ]
+}

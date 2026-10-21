@@ -335,7 +335,10 @@ class _Gate:
         from services.community_reset import pending as revoke_pending
         if reset_verdict(raw, status, cloud.had_g1(service, current)) == "soft_reset" and not revoke_pending():
             from services.community_account_ops import soft_reset
-            soft_reset('consent_revoked' if consent_state == 'revoked' else 'account_removed')
+            keep = cloud.g1_session_is_fresh(service, current)  # 리셋이 last_g1 을 지우기 전에 읽는다
+            soft_reset('consent_revoked' if consent_state == 'revoked' else 'account_removed', keep_session=keep)
+            if keep:  # 새 로그인 세션은 유지 — 근거가 지워졌으니 다시 받아 바로 동의 화면(G4)으로 둔다(재귀해도 리셋은 다시 일어나지 않는다)
+                self._refresh_locked()
             return
         cloud.record_status(service, current, status, state)
         if state == "ok" and not cloud.denial(service).get("sticky"):

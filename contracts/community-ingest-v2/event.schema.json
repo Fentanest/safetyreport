@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "event_type",
+    "source_system",
+    "source_report_id",
+    "source_revision",
+    "writer_epoch",
+    "captured_at",
+    "raw",
+    "supplement",
+    "supplement_sha256"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "event_type": {
+      "enum": [
+        "completed_observation",
+        "location_supplement",
+        "reshare"
+      ]
+    },
+    "source_system": {
+      "const": "safetyreport"
+    },
+    "source_report_id": {
+      "type": "string",
+      "pattern": "^[0-9A-Za-z_-]{1,40}$"
+    },
+    "report_number": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^SPP-[0-9]{4,6}-[0-9]{6,8}$"
+    },
+    "source_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "writer_epoch": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "captured_at": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+    },
+    "raw": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1048576,
+          "description": "JSON 객체 텍스트(result 는 객체). 어느 객체에서든 중복 키, 짝 없는 UTF-16 surrogate(문자·이스케이프), U+0000 이 있으면 422 raw_invalid."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1048576
+        },
+        "fetched_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "body",
+        "sha256",
+        "size",
+        "fetched_at",
+        "source"
+      ]
+    },
+    "supplement": {
+      "$ref": "supplement.schema.json"
+    },
+    "supplement_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "client_observation": {
+      "$ref": "../community-ingest/observation.schema.json"
+    },
+    "client_observation_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "dependentRequired": {
+    "client_observation": [
+      "client_observation_sha256"
+    ],
+    "client_observation_sha256": [
+      "client_observation"
+    ]
+  }
+}

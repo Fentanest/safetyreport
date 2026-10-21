@@ -1,0 +1,103 @@
+{
+  "synthetic": true,
+  "envelope": {
+    "protocol": 2,
+    "contract": "community-ingest-v2",
+    "source_app": "safetyreport",
+    "source_mode": "server",
+    "connection_id": "20000000-0000-4000-8000-000000000001",
+    "consent_grant_id": "30000000-0000-4000-8000-000000000001",
+    "policy_version": "2026-10-21.1",
+    "client_version": "3.6.0",
+    "parser_version": "pc-parser-13",
+    "trigger": "raw_backfill",
+    "events": [
+      {
+        "event_id": "10000000-0000-4000-8000-000000000001",
+        "event_type": "completed_observation",
+        "source_system": "safetyreport",
+        "source_report_id": "SYNTHETIC01",
+        "report_number": null,
+        "source_revision": 1,
+        "writer_epoch": 1,
+        "captured_at": "2026-10-21T00:00:00Z",
+        "raw": {
+          "body": "{\"result\":{\"C_NO\":\"SYNTHETIC01\",\"C_NOW\":10,\"C_DATE\":\"2026-10-20 12:00:00\",\"C_A_TITLE\":\"합성 신고\",\"C_A_CONTENTS\":\"합성 비공개 본문\",\"answers\":[{\"C_MANAGER_TYPE_NM\":\"수용\",\"C_MANAGE_CONTENTS\":\"합성 비공개 답변\",\"C_DEPT_NAME\":\"합성기관\"}],\"number\":1.0,\"unicode\":\"한글😀\"}}",
+          "sha256": "e62287bd6b1b5ceb836f77f45e2f399f7978b58699f7dfe1075fc8c932489c8b",
+          "size": 298,
+          "fetched_at": "2026-10-21T00:00:00Z",
+          "source": "raw_backfill"
+        },
+        "supplement": {
+          "rating": null,
+          "rating_cause": null,
+          "survey_state": null,
+          "photo_first_at": null,
+          "photo_last_at": null,
+          "photo_count": null,
+          "list": {
+            "title": null,
+            "report_date": null,
+            "status": null,
+            "entry_value": null,
+            "ssnpc_cd": null,
+            "ssnpc_type": null
+          }
+        },
+        "supplement_sha256": "fee9f9f97ea4d668d046faa2869743db3adda55b606c2a1242e470df245c2efb",
+        "client_observation": {
+          "address": null,
+          "agency_name": null,
+          "amount": {
+            "confirmed_won": null,
+            "kind": "unknown",
+            "penalty_points": null
+          },
+          "category": "other",
+          "completed_date": null,
+          "disposition": "unknown",
+          "location": {
+            "lat": null,
+            "lng": null,
+            "source": "none"
+          },
+          "manager_name": null,
+          "report_date": "2026-10-20",
+          "status": "accepted",
+          "status_raw": "수용",
+          "vehicle_raw": null,
+          "violation_law": null,
+          "rating": null,
+          "source_agency_code": null
+        },
+        "client_observation_sha256": "1cd74a55ed985f5a9182552b15f275e5a55f2b5b2ffe4351ffc635a563f9a6b2"
+      }
+    ]
+  },
+  "raw_utf8_hex": "7b22726573756c74223a7b22435f4e4f223a2253594e5448455449433031222c22435f4e4f57223a31302c22435f44415445223a22323032362d31302d32302031323a30303a3030222c22435f415f5449544c45223a22ed95a9ec84b120ec8ba0eab3a0222c22435f415f434f4e54454e5453223a22ed95a9ec84b120ebb984eab3b5eab09c20ebb3b8ebacb8222c22616e7377657273223a5b7b22435f4d414e414745525f545950455f4e4d223a22ec8898ec9aa9222c22435f4d414e4147455f434f4e54454e5453223a22ed95a9ec84b120ebb984eab3b5eab09c20eb8bb5ebb380222c22435f444550545f4e414d45223a22ed95a9ec84b1eab8b0eab480227d5d2c226e756d626572223a312e302c22756e69636f6465223a22ed959ceab880f09f9880227d7d",
+  "supplement_canonical": "{\"list\":{\"entry_value\":null,\"report_date\":null,\"ssnpc_cd\":null,\"ssnpc_type\":null,\"status\":null,\"title\":null},\"photo_count\":null,\"photo_first_at\":null,\"photo_last_at\":null,\"rating\":null,\"rating_cause\":null,\"survey_state\":null}",
+  "client_observation_canonical": "{\"address\":null,\"agency_name\":null,\"amount\":{\"confirmed_won\":null,\"kind\":\"unknown\",\"penalty_points\":null},\"category\":\"other\",\"completed_date\":null,\"disposition\":\"unknown\",\"location\":{\"lat\":null,\"lng\":null,\"source\":\"none\"},\"manager_name\":null,\"rating\":null,\"report_date\":\"2026-10-20\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":null,\"violation_law\":null}",
+  "request_utf8_sha256": "11fb4f371e6af46d23ef7d6188893fdc8adea40ff105619bfb4e47ec3a45458e",
+  "raw_hash_cases": [
+    {
+      "body": "{\"result\":{\"a\":1.0,\"b\":2}}",
+      "sha256": "c54154a6dbf1e8dcb61f141ca1aaa68234aab4514e34ab024af33719a6f1bb81",
+      "size": 26
+    },
+    {
+      "body": "{\"result\":{\"b\":2,\"a\":1}}",
+      "sha256": "18e3c0d40620fbf1c5ee638b0e3488bf12bee5f4fa9a5230b24a3d5d7898844f",
+      "size": 24
+    },
+    {
+      "body": "{ \"result\": {} }",
+      "sha256": "59b4a7a95ed34968c96a0cb8d97abfdeb3552e3835e569cf9a9de6401beaf83f",
+      "size": 16
+    },
+    {
+      "body": "{\"result\":{\"문자\":\"한글😀\"}}",
+      "sha256": "1e0d191de6399927ff21673a6836e95950720b291fb770217301b4268c7b1a7b",
+      "size": 34
+    }
+  ]
+}

@@ -406,9 +406,17 @@ def mark_g1(service, current, dataset_key):
         row = state['accounts'].setdefault(_account_key(service.config().supabase_url, current.get('user_id')), {})
         previous=row.get('last_g1') or {}
         _clear_logout_deny(row)  # 서버가 active 를 확인했다 — 이전 로그아웃 표시는 더 이상 막지 않는다
-        if previous.get('kakao_id')==current.get('kakao_id') and previous.get('dataset_key')==dataset_key and 0<=_now()-previous.get('at',0)<600:return
-        row['last_g1'] = {'at': _now(), 'kakao_id': current.get('kakao_id'), 'dataset_key': dataset_key, 'grant_id':(row.get('consent') or {}).get('grant_id')}
+        session=current.get('connected_at')
+        if previous.get('kakao_id')==current.get('kakao_id') and previous.get('dataset_key')==dataset_key and 0<=_now()-previous.get('at',0)<600 and previous.get('session')==session:return
+        row['last_g1'] = {'at': _now(), 'kakao_id': current.get('kakao_id'), 'dataset_key': dataset_key, 'grant_id':(row.get('consent') or {}).get('grant_id'), 'session': session}
         row.pop('reset_completed_at',None)
+
+
+def g1_session_is_fresh(service, current):
+    """마지막 G1 을 확인한 세션과 다른 새 로그인 세션이면 True. 시드 G1(session 기록 없음)은 False. 리셋이 last_g1 을 지우기 전에 읽는다."""
+    row = _read_state()['accounts'].get(_account_key(service.config().supabase_url, current.get('user_id')), {})
+    then=(row.get('last_g1') or {}).get('session');now=(current or {}).get('connected_at')
+    return bool(then and now and then!=now)
 
 
 def had_g1(service, current):

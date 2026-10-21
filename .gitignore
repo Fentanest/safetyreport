@@ -42,6 +42,8 @@ test_*
 !/contracts/community-ingest/**/*.md
 !/contracts/community-client/**/*.json
 !/contracts/community-client/**/*.md
+!/contracts/community-ingest-v2/**/*.json
+!/contracts/community-ingest-v2/**/*.md
 !/contracts/upload-control/*.json
 !/contracts/selfhost-compat/*.json
 !/contracts/selfhost-compat/*.md

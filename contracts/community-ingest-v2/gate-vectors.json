@@ -1,0 +1,388 @@
+{
+  "synthetic": true,
+  "cases": [
+    {
+      "name": "G1",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "use_upload"
+    },
+    {
+      "name": "G2",
+      "input": {
+        "confirmed": false,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1259200,
+        "reauth": false
+      },
+      "expected": "local_only"
+    },
+    {
+      "name": "G3_expired",
+      "input": {
+        "confirmed": false,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1259201,
+        "reauth": false
+      },
+      "expected": "connection_required"
+    },
+    {
+      "name": "G3_new",
+      "input": {
+        "confirmed": false,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": null,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "connection_required"
+    },
+    {
+      "name": "G3_clock_reversed",
+      "input": {
+        "confirmed": false,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 999999,
+        "reauth": false
+      },
+      "expected": "connection_required"
+    },
+    {
+      "name": "G3_wrong_member",
+      "input": {
+        "confirmed": false,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": false,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "connection_required"
+    },
+    {
+      "name": "G4",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "none",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "consent_required"
+    },
+    {
+      "name": "G5",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "outdated",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "consent_required"
+    },
+    {
+      "name": "G6",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "revoked",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "soft_reset"
+    },
+    {
+      "name": "G7",
+      "input": {
+        "confirmed": true,
+        "kakao": false,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false,
+        "reasons": [
+          "kakao_missing"
+        ]
+      },
+      "expected": "soft_reset"
+    },
+    {
+      "name": "G7_new",
+      "input": {
+        "confirmed": true,
+        "kakao": false,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": null,
+        "now": 1000000,
+        "reauth": false,
+        "reasons": [
+          "kakao_missing"
+        ]
+      },
+      "expected": "login_required"
+    },
+    {
+      "name": "G8",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "none",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "soft_reset"
+    },
+    {
+      "name": "G8_new",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "none",
+        "consent": "none",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": null,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "consent_required"
+    },
+    {
+      "name": "G9",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "suspended",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "suspended"
+    },
+    {
+      "name": "G10",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": true
+      },
+      "expected": "reauth_required"
+    },
+    {
+      "name": "G11_owner",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": false,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "owner_mismatch"
+    },
+    {
+      "name": "G11_binding",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": false,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "binding_mismatch"
+    },
+    {
+      "name": "G6_after_reset",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "active",
+        "consent": "revoked",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": null,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "consent_required"
+    },
+    {
+      "name": "G8_after_reset",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "none",
+        "consent": "revoked",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": null,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "consent_required"
+    },
+    {
+      "name": "G7_unproven_false",
+      "input": {
+        "confirmed": true,
+        "kakao": false,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false,
+        "reasons": [
+          "session_missing"
+        ]
+      },
+      "expected": "connection_required"
+    },
+    {
+      "name": "G7_malformed",
+      "input": {
+        "confirmed": true,
+        "kakao": null,
+        "session": true,
+        "contributor": "active",
+        "consent": "active",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "connection_required"
+    },
+    {
+      "name": "G9_before_reset",
+      "input": {
+        "confirmed": true,
+        "kakao": true,
+        "session": true,
+        "contributor": "suspended",
+        "consent": "revoked",
+        "owner": true,
+        "binding": true,
+        "same_member": true,
+        "last_g1": 1000000,
+        "now": 1000000,
+        "reauth": false
+      },
+      "expected": "suspended"
+    }
+  ]
+}
