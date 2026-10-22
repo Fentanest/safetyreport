@@ -1,0 +1,19 @@
+{
+  "protocol": 1,
+  "announcements": [
+    {
+      "id": "example-store-link",
+      "title": "예시 공지 제목",
+      "body": "첫 줄입니다.\n둘째 줄입니다.",
+      "primary_action": {
+        "label": "플레이스토어에서 보기",
+        "url": "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport"
+      },
+      "snooze_days": 7,
+      "starts_at": "2026-10-22T03:00:00.000Z",
+      "ends_at": "2026-12-31T15:00:00.000Z",
+      "priority": 10
+    }
+  ],
+  "server_time": "2026-10-22T04:00:00.000Z"
+}

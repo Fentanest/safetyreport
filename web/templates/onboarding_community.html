@@ -23,6 +23,7 @@
         <a class="btn btn-outline-secondary btn-sm" href="/logout"><i class="fas fa-right-from-bracket me-1"></i>관리자 로그아웃</a>
     </div>
 
+    {% include "partials/update_lock_banner.html" %}
     <div id="gateSummary" class="alert alert-info small" role="status" aria-live="polite">
         {% if gate.state == 'config_invalid' %}배포 공개 설정이 누락되었거나 설정 재정의 값이 잘못되었습니다. 공식 배포본을 다시 설치하고 환경변수·고급 설정을 확인하세요. Supabase 프로젝트를 직접 만들 필요는 없습니다.
         {% elif gate.state == 'verification_required' %}커뮤니티 서버에서 상태를 확인하지 못했습니다. 네트워크를 확인한 뒤 새로고침해 주세요.

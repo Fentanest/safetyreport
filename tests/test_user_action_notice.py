@@ -32,10 +32,12 @@ class NoticeTest(unittest.TestCase):
         self.assertEqual(evaluate(backfill_reason="official_login_retry", official_login_manual=True), [])
         self.assertEqual(evaluate(backfill_reason="maintenance"), [])
 
-    def test_optimize_blocked(self):
-        items = evaluate(backfill_reason="optimize_blocked_background")
-        self.assertEqual(items[0]["text"], "프로그램을 켜 두면 신고 정리를 마치고 공유를 이어 갑니다.")
-        self.assertIsNone(items[0]["action_label"])
+    def test_optimize_blocked_background_is_not_a_pc_notice(self):
+        # R5-의심3: PC 는 이 사유 코드를 만들지 않는다 — 안내 코드도 두지 않는다(최적화 대기는 진행 상태 waiting_optimize).
+        self.assertEqual(evaluate(backfill_reason="optimize_blocked_background"), [])
+        self.assertFalse(hasattr(un, "TEXT_OPTIMIZE"))
+        source = (ROOT / "services/user_action_notice.py").read_text(encoding="utf-8")
+        self.assertNotIn('"optimize_blocked_background"', source)
 
     def test_stale_holds_count_and_button(self):
         items = evaluate(stale_holds=3)

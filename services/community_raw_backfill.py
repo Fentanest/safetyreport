@@ -3,6 +3,10 @@
 2026-10-22(규칙 문서 backfill-resume-20261022/CLIENT-RULES.md 1·2·3절, 모바일 lib/community/raw_backfill.dart 와 1:1):
 - 오류는 일시적(네트워크·시간 초과·5xx·429·result 없음·잠금·DB 잠김·점검)과 고정적(파서 예외·저장 실패·분류 못 한 예외)으로 나눈다.
   일시적이면 신고 시도 횟수를 올리지 않고 run 을 paused(60→300→900→3600초)로 둔다. 고정적이면 신고별 3회에 보류(hold).
+  같은 신고가 연속 5번 일시적 오류를 내면 그 신고만 보류하고 커서를 넘긴다(검수자 결정 D1). sync_busy·db_locked·maintenance·
+  공식 로그인 사유는 신고 탓이 아니므로 세지 않는다. 신고의 연속 횟수(transient_attempts)는 성공·보류 때 지운다.
+- 보류 횟수(hold_count·first_held_at)는 그 신고가 stored 가 될 때만 지운다(D2). 채우기 성공으로는 지우지 않는다 —
+  업로드 확인 retry 로 생긴 보류도 같은 카운트로 15분→1시간→6시간→24시간 늘고, 30일 표시도 생긴다.
 - 보류는 hold_count 에 따라 15분·1시간·6시간·24시간 뒤 자동으로 다시 시도하고(attempts=2), 30일이 지나면 stale 표시만 한다.
 - 업로드 확인 retry 3회는 보류(upload_retry). 서버가 재시도 불가로 막은 blocked 만 not_eligible.
 - 업로드 일시 중지(점검) 동안은 run 을 paused/maintenance 로 두고, 필수 버전 잠금 중에는 아무것도 하지 않는다.
@@ -36,6 +40,9 @@ TRANSIENT_DELAYS=(60,300,900,3600)
 HOLD_DELAYS=(900,3600,6*3600,24*3600)
 STALE_AFTER=30*24*3600
 HOLD_FIELDS=('hold_count','next_attempt_at','first_held_at','stale')
+# D1: 같은 신고 연속 일시적 오류 상한. 신고 탓이 아닌 사유(다른 작업의 잠금·로컬 DB 잠김·서버 점검·공식 로그인)는 세지 않는다.
+TRANSIENT_HOLD_AFTER=5
+NOT_REPORT_FAULT=frozenset(('sync_busy','db_locked','maintenance')+LOGIN_REASONS)
 UNSTICK_KEY='raw_backfill_unstick'
 UNSTICK_VERSION='2026-10-22.1'
 _FIXED_RUNTIME=('parse_retry','detail_save_retry','missing_report','raw_event_not_created')
@@ -104,6 +111,7 @@ def hold_item(item,now,error=None):
     item.update(state='hold',hold_count=count,next_attempt_at=int(now+HOLD_DELAYS[min(count,len(HOLD_DELAYS))-1]),
                 first_held_at=first,stale=now-first>STALE_AFTER)
     if error:item['error']=error
+    item.pop('transient_attempts',None)  # D1: 보류 때 신고의 연속 일시적 횟수는 0
     return item
 
 # 다시 도는 조건은 로컬 데이터셋이 바뀔 때(복원·교체)와 소프트 리셋 뒤 재동의(리셋이 marker 를 지운다)뿐이다.
@@ -260,7 +268,8 @@ class RawBackfill:
                                 item['event_id']=b.enqueue(rid,run)
                                 if not item['event_id']:raise RuntimeError('raw_event_not_created')
                                 item['state']='queued';queued_now+=1
-                            for key in HOLD_FIELDS:item.pop(key,None)
+                            # D2: 보류 횟수·처음 보류 시각은 stored 가 될 때만 지운다(다시 보류되면 이어서 늘린다). 지난 재시도 시각만 지운다.
+                            item.pop('next_attempt_at',None);item.pop('transient_attempts',None)
                             m['failures']=0;m['login_failures']=0;m['transient_failures']=0;m['cursor']=index+1;self.changed+=1
                         except BackfillBlocked as exc:
                             # 삭제했거나 보낼 수 없는 신고는 분모에서 빼고 건너뛴다(보류로 done 을 막지 않는다).
@@ -269,8 +278,16 @@ class RawBackfill:
                         except Exception as exc:
                             if classify_backfill_error(exc)=='transient':
                                 # 일시적: 신고 횟수를 올리지 않고 커서도 그대로 둔 채 run 을 쉰다.
+                                reason=transient_reason(exc)
+                                if reason not in NOT_REPORT_FAULT:
+                                    # D1: 같은 신고가 연속 5번이면 그 신고만 보류하고 넘어간다(한 신고가 run 전체를 막지 않게).
+                                    item['transient_attempts']=int(item.get('transient_attempts') or 0)+1
+                                    if item['transient_attempts']>=TRANSIENT_HOLD_AFTER:
+                                        hold_item(item,self.clock(),'transient_'+str(reason))
+                                        m['cursor']=index+1;self.changed+=1;stage(rid,item);continue
+                                    stage(rid,item)  # 횟수를 남긴다(finally 의 flush 가 쓴다)
                                 m['cursor']=index
-                                raise BackfillPaused(transient_reason(exc)) from None
+                                raise BackfillPaused(reason) from None
                             item['attempts']+=1;m['failures']+=1;item['error']=str(exc) if str(exc) in _FIXED_RUNTIME else type(exc).__name__
                             if item['attempts']>=3:hold_item(item,self.clock());m['cursor']=index+1;self.changed+=1
                             else:m['cursor']=index
@@ -288,7 +305,9 @@ class RawBackfill:
                     for rid,item in repo.queued(run,budget):
                         if getattr(b,'yield_requested',lambda:False)():break
                         result=b.receipt(rid,item['event_id'])
-                        if result=='stored':item['state']='stored'
+                        if result=='stored':
+                            item['state']='stored'
+                            for key in HOLD_FIELDS+('transient_attempts',):item.pop(key,None)  # D2: stored 가 될 때만 보류 기록을 지운다
                         elif result=='blocked':item.update(state='not_eligible',eligible=False,error='upload_rejected')
                         elif result=='rebind':item.update(state='pending',attempts=0);m.update(phase='filling',cursor=0)
                         elif result=='retry':

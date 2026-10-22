@@ -44,6 +44,8 @@ test_*
 !/contracts/community-client/**/*.md
 !/contracts/community-ingest-v2/**/*.json
 !/contracts/community-ingest-v2/**/*.md
+# 앱 공지 계약 사본(지도 contracts/app-announcements/ 와 같은 바이트, MANIFEST.sha256 로 검사). json·md 가 위 규칙에 걸리지 않게(R5-1).
+!/contracts/app-announcements/**
 !/contracts/upload-control/*.json
 !/contracts/selfhost-compat/*.json
 !/contracts/selfhost-compat/*.md

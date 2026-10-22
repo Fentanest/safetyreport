@@ -755,8 +755,11 @@ def _run_upload(run_id: str, trigger: str, data_dir=None, progress=None) -> dict
         return run.finish("blocked_gate")
     pause = community_upload_pause.read(store)
     if pause:  # 업로드 일시 중지(2-9): 요청을 보내지 않는다. 재개 시각(+지터)의 1회 작업·평소 status 가 푼다.
+        # 재개 시각이 지났는데 아직 중지면 status 를 한 번 부르고 다음 시도는 지금+60초 이상(D4, 1초 헛돌기 방지).
+        community_upload_pause.check_overdue(store)
         run.error_code = "maintenance"
-        run.next_attempt_at = _iso(datetime.fromtimestamp(pause["wake_at"], timezone.utc)) if pause.get("wake_at") else None
+        due = community_upload_pause.next_attempt(pause)
+        run.next_attempt_at = _iso(datetime.fromtimestamp(due, timezone.utc)) if due else None
         return run.finish("cooldown")
     from services import community_cloud as cloud
     wait = cloud.remaining()
@@ -1035,11 +1038,14 @@ def _apply_error(run: UploadRunContext, batch, interp) -> str:
         # 중지 저장은 전송 경계(community_cloud.run)가 이미 했다. 전송 제어 쿨다운은 걸지 않는다(중지 판정이 막는다).
         from services import community_upload_pause
         pause = community_upload_pause.read(run.store) or {}
-        wake = pause.get("wake_at") or pause.get("fallback_at")
+        due = community_upload_pause.next_attempt(pause)  # 지난 재개 시각이면 지금+60초(D4)
+        wake = due or pause.get("fallback_at")
+        left = int((wake or 0) - _now().timestamp())
         run.outbox.undo_attempt(batch)
-        run.outbox.retry(batch, code, max(1, int((wake or 0) - _now().timestamp())) if wake else interp.hint, interp.request_id)
+        run.outbox.retry(batch, code, (max(1, left) if left > 0 else community_upload_pause.OVERDUE_RETRY_SECONDS) if wake else interp.hint,
+                         interp.request_id)
         counts["retry"] += len(batch)
-        run.next_attempt_at = _iso(datetime.fromtimestamp(pause["wake_at"], timezone.utc)) if pause.get("wake_at") else None
+        run.next_attempt_at = _iso(datetime.fromtimestamp(due, timezone.utc)) if due else None
         return "cooldown"
     if cls in policy.RETRYABLE_CLASSES:
         run.outbox.retry(batch, code, interp.hint, interp.request_id)

@@ -134,12 +134,14 @@ class TransientAndHoldTests(_StoreCase):
     def test_transient_backoff_sequence_and_reset_on_progress(self):
         self.backend.prepared['A'] = BackfillTransient('server_5xx')
         delays = []
-        for _ in range(5):
+        for _ in range(4):
             state = self.run_job();delays.append(state['next_attempt_at'] - self.clock);self.clock = state['next_attempt_at']
-        self.assertEqual(delays, [60, 300, 900, 3600, 3600])
-        self.assertEqual(self.items()['A']['attempts'], 0);self.assertEqual(state['stats']['holds'], 0)
+        self.assertEqual(delays, [60, 300, 900, 3600])
+        self.assertEqual(self.items()['A']['attempts'], 0);self.assertEqual(self.items()['A']['transient_attempts'], 4)
+        self.assertEqual(state['stats']['holds'], 0)
         self.backend.prepared = {}
         state = self.run_job();self.assertEqual(state['transient_failures'], 0);self.assertEqual(state['state'], 'uploading')
+        self.assertNotIn('transient_attempts', self.items()['A'])  # 성공하면 신고의 연속 일시적 횟수도 0(D1)
 
     def test_fixed_three_times_hold_then_auto_retry_and_growing_interval(self):
         self.backend.prepared['A'] = ValueError('synthetic parser error')
@@ -154,10 +156,13 @@ class TransientAndHoldTests(_StoreCase):
         self.clock += 2;self.run_job()
         item = self.items()['A'];self.assertEqual((item['state'], item['attempts'], item['hold_count']), ('hold', 3, 2))
         self.assertEqual(item['next_attempt_at'], int(self.clock + 3600))
-        # 다음 시도에서 성공 → queued, 보류 표시를 지운다
+        # 다음 시도에서 성공 → queued. 보류 횟수·처음 보류 시각은 stored 가 될 때까지 남는다(D2), 지난 재시도 시각만 지운다
         self.backend.prepared = {};self.clock += 3601;self.run_job()
         item = self.items()['A'];self.assertEqual(item['state'], 'queued')
-        self.assertNotIn('hold_count', item);self.assertNotIn('next_attempt_at', item)
+        self.assertEqual(item['hold_count'], 2);self.assertNotIn('next_attempt_at', item)
+        self.backend.receipts['A'] = 'stored';self.run_job()
+        item = self.items()['A'];self.assertEqual(item['state'], 'stored')
+        for key in ('hold_count', 'first_held_at', 'stale', 'next_attempt_at'):self.assertNotIn(key, item)
 
     def test_hold_intervals_and_stale_after_30_days(self):
         item = {}
@@ -328,7 +333,7 @@ class UnstickTests(_StoreCase):
         items = notice.evaluate(backfill_reason='official_login_required', official_login_manual=True, stale_holds=2, update_required=True)
         self.assertEqual([i['code'] for i in items], ['update_required', 'official_login_required', 'stale_holds'])
         self.assertIn('안전신문고 로그인이 필요합니다. 설정에서 다시 로그인해 주세요.', [i['text'] for i in items])
-        for text in [i['text'] for i in items] + [notice.TEXT_OPTIMIZE]:self.assertNotIn('앱', text)
+        for text in [i['text'] for i in items]:self.assertNotIn('앱', text)
         from services.community_gate import BLOCK_MESSAGES, UPDATE_REQUIRED
         self.assertNotIn('앱', BLOCK_MESSAGES[UPDATE_REQUIRED])
 
@@ -607,6 +612,7 @@ class LockWebTests(unittest.TestCase):
         for path in ('/', '/data/all', '/settings/'):
             app.add_api_route(path, page)
         app.add_api_route('/crawl/start', page, methods=['POST'])
+        app.add_api_route('/settings/save', page, methods=['POST'])
 
         async def admin(request, call_next):
             request.session['admin_logged_in'] = True
@@ -615,7 +621,10 @@ class LockWebTests(unittest.TestCase):
         app.middleware('http')(admin)
         app.add_middleware(SessionMiddleware, secret_key='lock-fixture')
         with self.TestClient(app) as client:
-            for path in ('/', '/data/all', '/settings/'):
+            # D3: 설정 화면(카카오 로그인·다시 로그인·로그아웃)은 잠금 중에도 열린다. 설정 저장은 계속 잠금.
+            self.assertEqual(client.get('/settings/').text, 'normal page')
+            self.assertEqual(client.post('/settings/save').status_code, 409)
+            for path in ('/', '/data/all'):
                 r = client.get(path)
                 self.assertEqual(r.status_code, 200);self.assertIn('프로그램을 업데이트해 주세요', r.text);self.assertIn('PC에 있는 신고 자료는 그대로 남아 있습니다.', r.text)
                 self.assertIn('필요한 버전: 3.6.2 이상', r.text);self.assertIn('&lt;b&gt;서버 안내&lt;/b&gt;', r.text)
@@ -639,7 +648,7 @@ class ProgressTriggerTests(_StoreCase):
                                consent_grant_id='g', policy_version='p', consent_text_sha256='h' * 64, source_app='safetyreport', source_mode='server')
         self.backend.identity['local_dataset_id'] = self.store.local_dataset_id()
         self.sent = []
-        patcher = mock.patch('services.community_progress_report.maybe_send', side_effect=lambda **kw: self.sent.append(kw))
+        patcher = mock.patch('services.community_progress_report.maybe_send', side_effect=lambda **kw: self.sent.append(kw) or True)
         patcher.start();self.addCleanup(patcher.stop)
         opt = mock.patch.object(trig, 'optimize_view', return_value={'required': False, 'running': False, 'holds_only': False})
         opt.start();self.addCleanup(opt.stop)

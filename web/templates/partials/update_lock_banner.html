@@ -1,0 +1,11 @@
+{# 필수 버전 잠금 중 복구 화면(검수자 결정 D3): 설정·필수 설정 화면은 카카오 로그인·다시 로그인·로그아웃만 쓸 수 있다.
+   update_lock 은 update_lock_middleware 가 request.state 에 둔 화면용 요약(비밀값 없음, 서버 문구는 자동 이스케이프). #}
+{% set update_lock = request.state.update_lock %}
+{% if update_lock and update_lock.locked %}
+<div class="alert alert-danger" role="alert" id="srUpdateLockBanner" data-locked="true">
+    <div class="fw-bold mb-1">프로그램을 업데이트해 주세요</div>
+    <div class="small mb-2">이 버전은 더 이상 신고를 공유할 수 없습니다. 업데이트하기 전에는 이 화면에서 카카오 로그인·다시 로그인·로그아웃만 할 수 있습니다.
+        {% if update_lock.min_version %}필요한 버전: {{ update_lock.min_version }} 이상.{% endif %}</div>
+    <a class="btn btn-sm btn-primary" href="{{ update_lock.url }}" target="_blank" rel="noopener noreferrer">업데이트</a>
+</div>
+{% endif %}

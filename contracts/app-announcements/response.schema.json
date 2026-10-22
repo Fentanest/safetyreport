@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safemap.worklazy.net/contracts/app-announcements/response.json",
+  "title": "GET /functions/v1/app-announcements?app=&mode=&platform=&version= response (200)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocol",
+    "announcements",
+    "server_time"
+  ],
+  "properties": {
+    "protocol": {
+      "const": 1
+    },
+    "announcements": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "body",
+          "primary_action",
+          "snooze_days",
+          "starts_at",
+          "ends_at",
+          "priority"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{2,63}$",
+            "description": "사람이 읽는 슬러그. 앱의 '보지 않기' 저장 키"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600,
+            "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f\\u007f]+$",
+            "description": "줄바꿈(LF)만 허용하는 평문"
+          },
+          "primary_action": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "label",
+                  "url"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20
+                  },
+                  "url": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "description": "허용 목록만: vectors/links.json"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "label",
+                  "app_action"
+                ],
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20
+                  },
+                  "app_action": {
+                    "enum": [
+                      "open_mode_switch"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          "snooze_days": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 365,
+            "description": "0 이면 '보지 않기' 버튼 없음. 7 이면 '일주일 동안 보지 않기', 그 밖에는 'N일 동안 보지 않기'"
+          },
+          "starts_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ends_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "priority": {
+            "type": "integer"
+          }
+        }
+      }
+    },
+    "server_time": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

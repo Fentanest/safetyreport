@@ -1,0 +1,218 @@
+{
+  "rule": "https 만, 아래 세 가지 형태만 연다. 사용자 정보·포트·공백·제어문자·<>\"\\ 가 있으면 거부. 경계 경우(쿼리·조각 #·특수문자·한글 경로·대문자 호스트·하이픈 호스트·500자)도 포함한다. 서버(SQL private.app_announcement_url_allowed, Edge announcementUrlAllowed)와 앱이 같은 결과를 내야 한다.",
+  "allowed_patterns": [
+    "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport[&...]",
+    "https://github.com/Fentanest/...",
+    "https://worklazy.net/... 또는 https://<하위 도메인>.worklazy.net/..."
+  ],
+  "cases": [
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport",
+      "allowed": true
+    },
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport&hl=ko",
+      "allowed": true
+    },
+    {
+      "url": "https://github.com/Fentanest/safetyreport/releases/latest",
+      "allowed": true
+    },
+    {
+      "url": "https://github.com/Fentanest/safetyreport-mobile/issues",
+      "allowed": true
+    },
+    {
+      "url": "https://safemap.worklazy.net/",
+      "allowed": true
+    },
+    {
+      "url": "https://worklazy.net/notice",
+      "allowed": true
+    },
+    {
+      "url": "https://safeauth.worklazy.net/help.html#faq",
+      "allowed": true
+    },
+    {
+      "url": "http://safemap.worklazy.net/",
+      "allowed": false
+    },
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.other.app",
+      "allowed": false
+    },
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport.evil",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/fentanest/safetyreport",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Other/repo",
+      "allowed": false
+    },
+    {
+      "url": "https://worklazy.net.evil.example/",
+      "allowed": false
+    },
+    {
+      "url": "https://evilworklazy.net/",
+      "allowed": false
+    },
+    {
+      "url": "https://user@safemap.worklazy.net/",
+      "allowed": false
+    },
+    {
+      "url": "https://safemap.worklazy.net:8443/",
+      "allowed": false
+    },
+    {
+      "url": "javascript:alert(1)",
+      "allowed": false
+    },
+    {
+      "url": "https://safemap.worklazy.net/a b",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Fentanest/<script>",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Fentanest/",
+      "allowed": true
+    },
+    {
+      "url": "https://github.com/Fentanest",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Fentanest/safetyreport/releases?q=a%20b&x=1#top",
+      "allowed": true
+    },
+    {
+      "url": "https://github.com/Fentanest/x?q=a'b",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Fentanest/x(y)",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Fentanest/x;y",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Fentanest/a,b",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Fentanest/a|b",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Fentanest/a*b",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Fentanest/a!b",
+      "allowed": false
+    },
+    {
+      "url": "https://github.com/Fentanest/a@b",
+      "allowed": false
+    },
+    {
+      "url": "https://safemap.worklazy.net/path?x=1&y=2#frag",
+      "allowed": true
+    },
+    {
+      "url": "https://safemap.worklazy.net?x=1",
+      "allowed": false
+    },
+    {
+      "url": "https://safemap.worklazy.net#a",
+      "allowed": false
+    },
+    {
+      "url": "https://safemap.worklazy.net",
+      "allowed": true
+    },
+    {
+      "url": "https://safemap.worklazy.net/%ED%95%9C%EA%B8%80",
+      "allowed": true
+    },
+    {
+      "url": "https://safemap.worklazy.net/한글",
+      "allowed": false
+    },
+    {
+      "url": "https://SafeMap.worklazy.net/",
+      "allowed": false
+    },
+    {
+      "url": "https://safemap.worklazy.NET/",
+      "allowed": false
+    },
+    {
+      "url": "https://-a.worklazy.net/",
+      "allowed": false
+    },
+    {
+      "url": "https://a-.worklazy.net/",
+      "allowed": false
+    },
+    {
+      "url": "https://a..worklazy.net/",
+      "allowed": false
+    },
+    {
+      "url": "https://.worklazy.net/",
+      "allowed": false
+    },
+    {
+      "url": "https://a.b.worklazy.net/x",
+      "allowed": true
+    },
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport#x",
+      "allowed": false
+    },
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport&hl=ko&x=a'b",
+      "allowed": false
+    },
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport&hl=ko&utm_source=a%20b",
+      "allowed": true
+    },
+    {
+      "url": "https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport&",
+      "allowed": false
+    },
+    {
+      "url": "https://play.google.com/store/apps/details?hl=ko&id=com.fentanest.mysafetyreport",
+      "allowed": false
+    },
+    {
+      "url": "https://safemap.worklazy.net/ x",
+      "allowed": false
+    },
+    {
+      "url": "https://safemap.worklazy.net/a\tb",
+      "allowed": false
+    },
+    {
+      "url": "https://safemap.worklazy.net/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "allowed": true
+    },
+    {
+      "url": "https://safemap.worklazy.net/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "allowed": false
+    }
+  ]
+}

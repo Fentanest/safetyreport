@@ -54,7 +54,7 @@ def _instant(value) -> str | None:
         if value <= 0:
             return None
         return datetime.fromtimestamp(float(value), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if isinstance(value, str) and _INSTANT.match(value):
+    if isinstance(value, str) and _INSTANT.fullmatch(value):
         return value
     return None
 
@@ -66,7 +66,7 @@ def _count(value) -> int | None:
 
 
 def _code(value) -> str | None:
-    return value if isinstance(value, str) and _CODE.match(value) else None
+    return value if isinstance(value, str) and _CODE.fullmatch(value) else None
 
 
 def build_body(*, connection_id: str, backfill: dict, optimize: dict, official_login: str,
@@ -97,10 +97,10 @@ def validate_body(body) -> bool:
         return v is None or (isinstance(v, int) and not isinstance(v, bool) and 0 <= v <= 10_000_000)
 
     def is_code(v):
-        return v is None or (isinstance(v, str) and bool(_CODE.match(v)))
+        return v is None or (isinstance(v, str) and bool(_CODE.fullmatch(v)))
 
     def is_instant(v):
-        return v is None or (isinstance(v, str) and bool(_INSTANT.match(v)))
+        return v is None or (isinstance(v, str) and bool(_INSTANT.fullmatch(v)))
 
     try:
         if not isinstance(body, dict) or set(body) != {"protocol", "contract", "connection_id", "source_app", "platform",
@@ -109,13 +109,13 @@ def validate_body(body) -> bool:
             return False
         if body["protocol"] != 1 or body["contract"] != "community-progress-v1":
             return False
-        if not (isinstance(body["connection_id"], str) and _UUID.match(body["connection_id"])):
+        if not (isinstance(body["connection_id"], str) and _UUID.fullmatch(body["connection_id"])):
             return False
         if body["source_app"] not in ("safetyreport", "safetyreport-mobile") or body["platform"] not in _PLATFORMS:
             return False
-        if not (isinstance(body["client_version"], str) and _VERSION.match(body["client_version"])):
+        if not (isinstance(body["client_version"], str) and _VERSION.fullmatch(body["client_version"])):
             return False
-        if not (isinstance(body["parser_version"], str) and _PARSER.match(body["parser_version"])):
+        if not (isinstance(body["parser_version"], str) and _PARSER.fullmatch(body["parser_version"])):
             return False
         b = body["backfill"]
         if not isinstance(b, dict) or set(b) != {"state", "phase", "reason", "next_attempt_at", *_COUNTS, "run_started_at", "updated_at"}:
@@ -240,21 +240,23 @@ def _parse_maintenance(raw: bytes, headers: dict, now: float) -> dict:
     return {"resume_at": resume_at, "retry_after": retry_after, "message": message, "seen_at": now}
 
 
-def maybe_send(*, store, trigger: str, backfill: dict, optimize: dict, official_login: str) -> None:
-    """진행 보고를 보낼 조건이면 한 번 보낸다. 어떤 실패도 밖으로 던지지 않는다."""
+def maybe_send(*, store, trigger: str, backfill: dict, optimize: dict, official_login: str) -> bool:
+    """진행 보고를 보낼 조건이면 한 번 보낸다. 보냈으면(전송 시도를 기록했으면 — 응답 실패 포함) True,
+    조건이 안 맞아 보내지 않았으면 False(호출자는 마지막 보낸 상태 키를 갱신하지 않는다, D5). 어떤 실패도 밖으로 던지지 않는다."""
     try:
-        _maybe_send(store, trigger, backfill, optimize, official_login)
+        return bool(_maybe_send(store, trigger, backfill, optimize, official_login))
     except Exception as exc:  # 조용히 넘긴다(다음 주기에 다시)
         _log.info("[community] 진행 보고 건너뜀: %s", type(exc).__name__)
+        return False
 
 
-def _maybe_send(store, trigger, backfill, optimize, official_login) -> None:
+def _maybe_send(store, trigger, backfill, optimize, official_login) -> bool:
     ctx = store.active_context() if hasattr(store, "active_context") else None
     connection_id = (ctx or {}).get("connection_id")
-    if not isinstance(connection_id, str) or not _UUID.match(connection_id):
-        return  # 연결 전 단계는 설정 단계 보고(community_setup_report)가 맡는다
+    if not isinstance(connection_id, str) or not _UUID.fullmatch(connection_id):
+        return False  # 연결 전 단계는 설정 단계 보고(community_setup_report)가 맡는다
     if _blocked(store):
-        return
+        return False
     from services.community_capture import PARSER_VERSION
     from services.community_gate import _platform
     from services.community_ingest_client import _client_version
@@ -262,12 +264,12 @@ def _maybe_send(store, trigger, backfill, optimize, official_login) -> None:
                       platform=_platform(), client_version=_client_version(), parser_version=PARSER_VERSION)
     if not validate_body(body):
         _log.info("[community] 진행 보고 본문이 계약과 다릅니다 — 보내지 않습니다")
-        return
+        return False
     now = _now()
     record = _load(store)
     sig = signature(body)
     if not should_send(record, connection_id=connection_id, trigger=trigger, sig=sig, state=body["backfill"]["state"], now=now):
-        return
+        return False
     # 시도 시각·내용을 먼저 남긴다 → 실패해도 같은 변화를 다시 보내지 않는다(재시도 없음)
     record = {"connection_id": connection_id, "last_attempt_at": now, "last_sig": sig, "last_date": _kst_date(now),
               "last_result": {"http_status": None, "code": "not_sent", "at": now},
@@ -277,7 +279,7 @@ def _maybe_send(store, trigger, backfill, optimize, official_login) -> None:
         url, key, token = _credentials()
     except Exception as exc:
         _log.info("[community] 진행 보고 토큰을 받지 못했습니다: %s", type(exc).__name__)
-        return
+        return True
     payload = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")  # gzip 금지
     headers = {"apikey": key, "Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     try:
@@ -289,7 +291,7 @@ def _maybe_send(store, trigger, backfill, optimize, official_login) -> None:
     except Exception as exc:
         record["last_result"] = {"http_status": None, "code": type(exc).__name__[:40].lower(), "at": now}
         _save(store, record)
-        return
+        return True
     code = None
     if status == 200:
         record.pop("maintenance", None)
@@ -304,3 +306,4 @@ def _maybe_send(store, trigger, backfill, optimize, official_login) -> None:
                 record["maintenance"] = maint
     record["last_result"] = {"http_status": status, "code": code, "at": now}
     _save(store, record)
+    return True

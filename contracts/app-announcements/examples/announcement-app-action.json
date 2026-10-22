@@ -1,0 +1,26 @@
+{
+  "id": "example-mode-switch",
+  "title": "예시 공지 제목",
+  "body": "앱 안 화면을 여는 버튼 예시입니다.",
+  "primary_action": {
+    "label": "지금 바꾸기",
+    "app_action": "open_mode_switch"
+  },
+  "snooze_days": 3,
+  "starts_at": "2026-11-01T00:00:00Z",
+  "ends_at": null,
+  "priority": 0,
+  "audience": {
+    "apps": [
+      "mobile"
+    ],
+    "modes": [
+      "client"
+    ],
+    "platforms": [
+      "android"
+    ],
+    "min_version": "2.5.1",
+    "max_version": null
+  }
+}

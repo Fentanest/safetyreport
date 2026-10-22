@@ -7,6 +7,9 @@
 - 재개 시각이 있으면 그 시각 + 무작위 0~120초(wake_at)에 스케줄러 1회 작업이 status 를 한 번 확인한다.
   재개 시각이 없으면 타이머 없이 평소 60초 status 확인을 기다린다. 점검 때문에 status 를 더 자주 부르지 않는다.
 - status 에 `ingest.paused` 키가 있으면 그 값이 정본이다. 키가 없으면 저장된 판정을 그대로 둔다.
+- 재개 시각(+지터)이 지났는데 아직 풀리지 않았으면(시계 차·status 실패·카카오 세션 끊김) status 를 한 번 부르고(60초에 한 번까지),
+  업로더의 다음 시도는 지금+60초 이상으로 둔다 — 지난 시각을 그대로 두어 1초마다 헛도는 일이 없게(검수자 결정 D4).
+- 일찍 재개(status `paused=false`)되면 503 maintenance 로 미뤄 둔 행의 다음 시도 시각을 즉시로 되돌린다(저장이 이미 없어도).
   (판단: 503 으로만 알게 된 중지는 status 가 끝내 키를 주지 않을 수 있다 — 그때는 재개 시각(없으면 Retry-After)이 지나면
    저장을 지워 한 번만 다시 시도해 본다. 아직 중지면 그 요청이 다시 503 을 받아 새 시각으로 저장된다.)
 """
@@ -21,6 +24,7 @@ from datetime import datetime, timedelta, timezone
 META_KEY = "upload_pause"
 JITTER_MAX_SECONDS = 120
 NO_RESUME_RETRY_SECONDS = 600  # 503 에 재개 시각이 없을 때 서버가 주는 Retry-After 기본값
+OVERDUE_RETRY_SECONDS = 60  # 재개 시각이 지났는데 아직 중지일 때 다음 시도까지 최소 간격(D4)
 RESUME_JOB_ID = "community-upload-resume"
 _SEOUL = timezone(timedelta(hours=9))
 
@@ -28,6 +32,8 @@ _rand = random.random
 _now = time.time
 _cache_lock = threading.Lock()
 _cache: dict[str, dict | None] = {}
+_overdue_lock = threading.Lock()
+_overdue_checked_at = 0.0
 
 
 def _parse_iso(value) -> float | None:
@@ -64,8 +70,11 @@ def _load(store) -> dict | None:
 
 
 def forget_cache() -> None:  # 테스트 전용
+    global _overdue_checked_at
     with _cache_lock:
         _cache.clear()
+    with _overdue_lock:
+        _overdue_checked_at = 0.0
 
 
 def read(store=None) -> dict | None:
@@ -105,20 +114,20 @@ def _save(store, *, resume_at: float | None, message: str | None, source: str, r
 
 
 def clear(store) -> bool:
-    """중지 판정을 지운다. 지운 것이 있으면 True(업로더·1회 전송을 깨운다)."""
+    """중지 판정을 지운다. 지운 것이 있거나 미뤄 둔 행을 되돌렸으면 True(업로더·1회 전송을 깨운다)."""
     had = _load(store) is not None
     with store.transaction() as tx:
         tx.execute("DELETE FROM meta WHERE key=?", (META_KEY,))
-        if had:
-            # 503 maintenance 로 재개 시각까지 미룬 행: 일찍 재개되면 그 시각을 기다리지 않고 바로 보낼 수 있게 한다.
-            now = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-            tx.execute("UPDATE outbox SET next_retry_at=? WHERE state='retry_wait' AND last_error_code='maintenance'"
-                       " AND (next_retry_at IS NULL OR next_retry_at > ?)", (now, now))
+        # 503 maintenance 로 재개 시각까지 미룬 행: 일찍 재개되면 그 시각을 기다리지 않고 바로 보낼 수 있게 한다(D4).
+        # 저장이 이미 없어도(다른 경로가 먼저 지움) 미뤄 둔 행이 남아 있으면 되돌린다.
+        now = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        moved = tx.execute("UPDATE outbox SET next_retry_at=? WHERE state='retry_wait' AND last_error_code='maintenance'"
+                           " AND (next_retry_at IS NULL OR next_retry_at > ?)", (now, now)).rowcount
     with _cache_lock:
         _cache[store.path] = None
-    if had:
+    if had or moved:
         _on_resume()
-    return had
+    return bool(had or moved)
 
 
 def apply_status(store, status) -> str:
@@ -220,6 +229,32 @@ def _schedule_resume(wake_at: float) -> None:
     except Exception as exc:
         from core.utils.fallback import note_fallback
         note_fallback("upload_pause.schedule", exc)
+
+
+def next_attempt(value: dict | None, now: float | None = None) -> float | None:
+    """중지 중 업로더의 다음 시도 시각(epoch). 재개 시각이 없으면 None(status 가 풀면 깨운다).
+    재개 시각(+지터)이 지났는데 아직 중지면 지금+60초 — 지난 시각을 그대로 주면 업로더가 1초마다 헛돈다(D4)."""
+    wake = (value or {}).get("wake_at")
+    if not isinstance(wake, (int, float)) or isinstance(wake, bool):
+        return None
+    now = _now() if now is None else now
+    return float(wake) if wake > now else now + OVERDUE_RETRY_SECONDS
+
+
+def check_overdue(store=None) -> bool:
+    """재개 시각(+지터)이 지났는데 아직 풀리지 않았으면 status 를 한 번 부른다(백그라운드, 60초에 한 번까지). 불렀으면 True.
+    결과가 없거나 실패해도 다음 확인은 60초 뒤다(next_attempt 와 같은 간격)."""
+    global _overdue_checked_at
+    value = read(store)
+    wake = (value or {}).get("wake_at")
+    if not isinstance(wake, (int, float)) or isinstance(wake, bool) or wake > _now():
+        return False
+    with _overdue_lock:
+        if 0 <= _now() - _overdue_checked_at < OVERDUE_RETRY_SECONDS:
+            return False
+        _overdue_checked_at = _now()
+    threading.Thread(target=lambda: check_resume(), name="community-upload-resume-check", daemon=True).start()
+    return True
 
 
 def check_resume() -> None:

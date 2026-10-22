@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safemap.worklazy.net/contracts/app-announcements/announcement.json",
+  "title": "app announcement document (console file announcements/*.json, ops.announcement_save)",
+  "description": "운영자가 쓰는 공지 한 건. 게시 뒤에는 바꿀 수 없다(내용을 바꾸면 새 id 로). 본문은 평문(줄바꿈만 허용, HTML·마크다운 해석 금지).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "title",
+    "body",
+    "primary_action",
+    "snooze_days",
+    "starts_at",
+    "ends_at",
+    "priority",
+    "audience"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{2,63}$",
+      "description": "사람이 읽는 슬러그. 앱의 '보지 않기' 저장 키"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40,
+      "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+    },
+    "body": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600,
+      "pattern": "^[^\\u0000-\\u0009\\u000b-\\u001f\\u007f]+$",
+      "description": "줄바꿈(LF)만 허용하는 평문"
+    },
+    "primary_action": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "label",
+            "url"
+          ],
+          "properties": {
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 20
+            },
+            "url": {
+              "type": "string",
+              "maxLength": 500,
+              "description": "허용 목록만: vectors/links.json"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "label",
+            "app_action"
+          ],
+          "properties": {
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 20
+            },
+            "app_action": {
+              "enum": [
+                "open_mode_switch"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "snooze_days": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 365,
+      "description": "0 이면 '보지 않기' 버튼 없음. 7 이면 '일주일 동안 보지 않기', 그 밖에는 'N일 동안 보지 않기'"
+    },
+    "starts_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "null 이면 게시한 때부터"
+    },
+    "ends_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time",
+      "description": "null 이면 운영자가 종료할 때까지"
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": -1000,
+      "maximum": 1000,
+      "description": "큰 값이 먼저"
+    },
+    "audience": {
+      "type": "object",
+      "description": "D10(2026-10-22.2): min_version·max_version 중 하나라도 문자열이면 apps 는 정확히 하나(PC 와 모바일은 버전 번호가 다르다). 서버 DB·콘솔이 같은 규칙으로 거부한다.",
+      "additionalProperties": false,
+      "required": [
+        "apps",
+        "modes",
+        "platforms",
+        "min_version",
+        "max_version"
+      ],
+      "properties": {
+        "apps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "pc",
+              "mobile"
+            ]
+          }
+        },
+        "modes": {
+          "description": "null = 모든 모드. PC 는 server, 모바일은 standalone·client·demo",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 4,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "server",
+                  "standalone",
+                  "client",
+                  "demo"
+                ]
+              }
+            }
+          ]
+        },
+        "platforms": {
+          "description": "null = 모든 플랫폼",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 7,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "windows",
+                  "linux",
+                  "macos",
+                  "docker",
+                  "android",
+                  "ios",
+                  "other"
+                ]
+              }
+            }
+          ]
+        },
+        "min_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^v?[0-9]{1,6}(\\.[0-9]{1,6}){0,3}(\\+[0-9A-Za-z.-]{1,32})?$"
+        },
+        "max_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^v?[0-9]{1,6}(\\.[0-9]{1,6}){0,3}(\\+[0-9A-Za-z.-]{1,32})?$"
+        }
+      },
+      "if": {
+        "anyOf": [
+          {
+            "properties": {
+              "min_version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "min_version"
+            ]
+          },
+          {
+            "properties": {
+              "max_version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "max_version"
+            ]
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "apps": {
+            "maxItems": 1
+          }
+        }
+      }
+    }
+  }
+}

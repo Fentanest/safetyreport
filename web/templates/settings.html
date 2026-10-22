@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 
 {% block content %}
+{% include "partials/update_lock_banner.html" %}
 {% if binding_message %}<div class="alert alert-warning" role="alert">{{ binding_message }}</div>{% endif %}
 
-<!-- 메인 설정 폼 (전체 행을 감쌈) -->
-<form action="/settings/save" method="post" id="mainSettingsForm">
+<!-- 메인 설정 폼 (전체 행을 감쌈). 필수 버전 잠금 중에는 저장할 수 없으므로 inert 로 둔다(카카오 계정 카드는 폼 밖). -->
+<form action="/settings/save" method="post" id="mainSettingsForm"{% if request.state.update_lock %} inert class="opacity-50" aria-hidden="true"{% endif %}>
 <input type="hidden" name="official_account_confirm" id="officialAccountConfirm" value="">
 <div class="row">
     <!-- Left Column: System Settings -->

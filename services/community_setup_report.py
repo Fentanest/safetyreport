@@ -4,7 +4,9 @@ PC 는 카카오 로그인 뒤 공식 로그인·연결 등록 전 단계를 보
 `official_login_failed`(+reason) / `official_login_ok` → `connection_registered`.
 `source_app='safetyreport'`, `mode='server'`, `client=null`. 공식 사이트 ID·비밀번호·서버 주소·API 키·기기 식별자는 본문에 넣을 칸이 없다.
 
-- 마지막으로 보낸 내용(stage+reason)과 같으면 보내지 않는다. 성공(200)했을 때만 "보낸 내용"으로 기록한다.
+- 마지막으로 보낸 내용(stage+reason)과 같으면 보내지 않는다. 200 이면 "보낸 내용"으로 기록한다.
+- 400·404 등 4xx(429 제외 — 옛 서버가 그 경로·action 을 모름, 또는 고쳐지지 않을 거절)도 "보냄"으로 기록하고 24시간 동안 같은 내용을
+  다시 보내지 않는다(검수자 결정 D6, 예전에는 60초 게이트 갱신마다 다시 보냈다). 429·5xx·네트워크만 다음 변화 때 다시 보낸다.
 - `connection_registered` 를 보낸 뒤에는 보내지 않는다(진행 보고가 이어받는다). 새 카카오 로그인(`kakao_ok`)이 오면 그 표시를 지우고 새로 시작한다.
 - 같은 사용자 60초 1번(서버 429): 마지막 "시도" 뒤 60초 안이면 보내지 않고, 보내지 않은 단계는 기록하지 않아 다음 변화 때 다시 간다.
 - 실패는 조용히 넘기고 재시도하지 않는다. 호출자에게 예외를 던지지 않는다.
@@ -22,6 +24,7 @@ _log = logging.getLogger("safetyreport.community.setup_report")
 PATH = "/functions/v1/community-account/setup-progress"
 META_KEY = "setup_progress"
 MIN_INTERVAL = 60
+REJECTED_QUIET = 24 * 3600  # 4xx(429 제외)를 받은 같은 내용은 이 시간 동안 다시 보내지 않는다(D6)
 TIMEOUT = 15.0
 STAGES = ("kakao_ok", "consent_ok", "official_login_started", "official_login_failed", "official_login_ok",
           "connection_registered")
@@ -36,7 +39,7 @@ def build_body(*, stage: str, reason: str | None, platform: str, client_version:
         return None
     if stage != "official_login_failed":
         reason = None
-    elif reason is not None and not (isinstance(reason, str) and _REASON.match(reason)):
+    elif reason is not None and not (isinstance(reason, str) and _REASON.fullmatch(reason)):
         reason = None  # 형식이 틀린 코드를 보내면 서버가 400 — 단계만 보낸다
     return {"protocol": 1, "client_version": client_version, "source_app": "safetyreport", "platform": platform,
             "mode": "server", "stage": stage, "reason": reason, "client": None}
@@ -95,7 +98,9 @@ def _report(stage, reason) -> None:
         return
     sig = f"{body['stage']}|{body['reason']}"
     if record.get("sig") == sig:
-        return
+        until = record.get("sig_quiet_until")
+        if not isinstance(until, (int, float)) or isinstance(until, bool) or now < until:
+            return  # 200 으로 보낸 내용은 계속, 4xx 로 끝난 내용은 24시간 동안 다시 보내지 않는다
     last = float(record.get("last_attempt_at") or 0)
     if last and 0 <= now - last < MIN_INTERVAL:
         return
@@ -111,6 +116,12 @@ def _report(stage, reason) -> None:
     status, _raw, _headers = _http_post(url.rstrip("/") + PATH, headers, json.dumps(body, separators=(",", ":")).encode())
     if status == 200:
         record["sig"] = sig
+        record.pop("sig_quiet_until", None)
         if stage == "connection_registered":
             record["done"] = True
+        _save(store, record)
+    elif isinstance(status, int) and 400 <= status < 500 and status != 429:
+        # 옛 서버(배포 전 auth 는 모르는 action 에 404)·고쳐지지 않을 거절: 보낸 것으로 보고 24시간 쉰다(D6).
+        record["sig"] = sig
+        record["sig_quiet_until"] = now + REJECTED_QUIET
         _save(store, record)

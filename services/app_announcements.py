@@ -34,7 +34,7 @@ SNOOZE_FILE = "snooze.json"
 MAX_ADMIN_KEYS = 50
 MAX_IDS_PER_ADMIN = 100
 
-_ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,63}$")
+_ID = re.compile(r"[a-z0-9][a-z0-9-]{2,63}")  # fullmatch 로만 쓴다(`$` 는 끝 줄바꿈을 허용한다, R2-S5)
 _TITLE_BAD = re.compile(r"[\x00-\x1f\x7f]")
 _BODY_BAD = re.compile(r"[\x00-\x09\x0b-\x1f\x7f]")
 _URL_BAD = re.compile(r"[\s\x00-\x1f\x7f<>\"\\]")
@@ -48,27 +48,19 @@ _dismissed: dict[str, set] = {}
 
 
 # ── 링크 허용 목록 (vectors/links.json 과 같은 결과) ─────────────────────────────
+# 서버 DB 정규식(private.app_announcement_url_allowed)·Edge(announcementUrlAllowed)와 같은 세 가지 형태(R5-5, 2026-10-22).
+# URL 을 해석해 비교하던 예전 방식은 경계 경우(쿼리·조각·특수문자·한글 경로·하이픈 호스트)에서 서버와 달랐다.
+_LINKS = (
+    re.compile(r"https://play\.google\.com/store/apps/details\?id=com\.fentanest\.mysafetyreport(&[A-Za-z0-9._~=%-]+)*"),
+    re.compile(r"https://github\.com/Fentanest/[A-Za-z0-9._~/%?=&#+-]*"),
+    re.compile(r"https://([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*worklazy\.net(/[A-Za-z0-9._~/%?=&#+-]*)?"),
+)
+
+
 def link_allowed(url) -> bool:
     if not isinstance(url, str) or not url or len(url) > 500 or _URL_BAD.search(url):
         return False
-    try:
-        parts = urlsplit(url)
-        port = parts.port
-    except ValueError:
-        return False
-    if parts.scheme != "https" or port is not None or "@" in parts.netloc or not parts.hostname:
-        return False
-    if parts.netloc != parts.netloc.lower().strip() or parts.netloc != parts.hostname:
-        return False
-    host = parts.hostname
-    if host == "play.google.com":
-        if parts.path != "/store/apps/details":
-            return False
-        first = parts.query.split("&", 1)[0]
-        return first == "id=com.fentanest.mysafetyreport"
-    if host == "github.com":
-        return parts.path.startswith("/Fentanest/") and len(parts.path) > len("/Fentanest/")
-    return host == "worklazy.net" or host.endswith(".worklazy.net")
+    return any(pattern.fullmatch(url) for pattern in _LINKS)
 
 
 # ── 응답 검사 ───────────────────────────────────────────────────────────────────
@@ -98,7 +90,7 @@ def validate_item(item) -> dict | None:
     """항목 하나를 스키마로 검사하고 화면용으로 정리한다. 틀리면 None(그 항목만 버린다)."""
     if not isinstance(item, dict) or set(item) != _ITEM_KEYS:
         return None
-    if not (isinstance(item["id"], str) and _ID.match(item["id"])):
+    if not (isinstance(item["id"], str) and _ID.fullmatch(item["id"])):
         return None
     title, body = item["title"], item["body"]
     if not (isinstance(title, str) and 1 <= len(title) <= 40 and not _TITLE_BAD.search(title)):
@@ -234,7 +226,7 @@ def _read_snooze(now: float) -> dict:
         if not isinstance(admin, str) or not isinstance(entries, dict):
             continue
         kept = {i: e for i, e in entries.items()
-                if isinstance(i, str) and _ID.match(i) and (_instant(e) or datetime.min.replace(tzinfo=timezone.utc)) > moment}
+                if isinstance(i, str) and _ID.fullmatch(i) and (_instant(e) or datetime.min.replace(tzinfo=timezone.utc)) > moment}
         if kept:
             clean[admin] = kept
     return clean
@@ -279,7 +271,7 @@ def pending_for_admin(admin_key: str) -> list[dict]:
 def snooze(admin_key: str, announcement_id: str) -> None:
     """지금 + snooze_days×24시간 까지 이 관리자에게 숨긴다. 일수는 캐시된 공지에서 읽는다(알 수 없는 id 는 7일, 0일 공지는 무시)."""
     try:
-        if not isinstance(announcement_id, str) or not _ID.match(announcement_id):
+        if not isinstance(announcement_id, str) or not _ID.fullmatch(announcement_id):
             return
         days = 7
         with _lock:
@@ -304,7 +296,7 @@ def snooze(admin_key: str, announcement_id: str) -> None:
 
 def dismiss(admin_key: str, announcement_id: str) -> None:
     """이번 로그인 동안만 숨긴다(메모리)."""
-    if isinstance(announcement_id, str) and _ID.match(announcement_id):
+    if isinstance(announcement_id, str) and _ID.fullmatch(announcement_id):
         with _lock:
             _dismissed.setdefault(str(admin_key), set()).add(announcement_id)
 

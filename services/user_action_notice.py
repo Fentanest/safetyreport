@@ -3,6 +3,8 @@
 순수 함수: 상태 값만 받아 화면에 보여 줄 항목을 돌려준다(저장 없음). PC 는 시스템 알림이 없고 웹 화면 안내만 쓰므로,
 "같은 사유는 하루 1번" 규칙은 적용하지 않는다 — 조건이 풀릴 때까지 화면에 계속 보이는 것이 맞다.
 점검(`maintenance`)은 사용자가 할 일이 없으므로 여기에 넣지 않는다(점검 배너가 따로 맡는다).
+`optimize_blocked_background`(모바일 백그라운드 최적화 대기)는 PC 에서 생기지 않으므로 두지 않는다(PC 의 최적화 대기는
+진행 상태 `waiting_optimize` 이고 서버가 켜져 있는 동안 스스로 끝난다, R5-의심3).
 """
 from __future__ import annotations
 
@@ -11,7 +13,6 @@ LOGIN_URL = "/settings/"
 UPLOAD_URL = "/settings/"
 
 TEXT_OFFICIAL_LOGIN = "안전신문고 로그인이 필요합니다. 설정에서 다시 로그인해 주세요."
-TEXT_OPTIMIZE = "프로그램을 켜 두면 신고 정리를 마치고 공유를 이어 갑니다."
 TEXT_STALE = "30일 넘게 올리지 못한 신고가 {n}건 있습니다. 다시 시도를 눌러 주세요."
 TEXT_UPDATE = "프로그램을 업데이트해 주세요. 업데이트하면 신고 공유를 이어 갑니다."
 
@@ -29,8 +30,6 @@ def evaluate(*, backfill_reason: str | None, official_login_manual: bool, stale_
         items.append(_item("update_required", TEXT_UPDATE, "업데이트", UPDATE_URL))
     if backfill_reason == "official_login_required" and official_login_manual:
         items.append(_item("official_login_required", TEXT_OFFICIAL_LOGIN, "로그인", LOGIN_URL))
-    if backfill_reason == "optimize_blocked_background":
-        items.append(_item("optimize_blocked_background", TEXT_OPTIMIZE, None, None))
     try:
         stale = int(stale_holds or 0)
     except (TypeError, ValueError):

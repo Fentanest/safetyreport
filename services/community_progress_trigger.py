@@ -4,6 +4,8 @@
 services/community_progress_report.py(`maybe_send`)가 맡는다.
 - trigger: `start`(서버 기동 뒤 게이트 통과 첫 확인), `state_change`((state, phase, reason, official_login, optimize.*) 가 바뀜,
   개수만 바뀐 것은 아님), `periodic`(진행 중 상태 — 15분 판정은 보고 쪽), `daily`(done·run 없음 — 하루 1번 판정은 보고 쪽).
+- "마지막 보낸 상태 키"는 실제로 보낸 tick 에서만 갱신한다(검수자 결정 D5). 60초 규칙 등으로 보내지 않은 상태 변화는
+  다음 tick 에 다시 state_change 로 나간다(예전에는 키를 먼저 갱신해 15분·다음 날까지 늦어졌다).
 - 업로드 일시 중지(2-9)·필수 버전 잠금(2-10) 중에는 부르지 않는다. 연결(활성 context)이 없으면 부르지 않는다(설정 단계 보고가 맡는다).
 - PC 는 pace 가 없다(모바일만).
 """
@@ -105,20 +107,22 @@ def notice_inputs(store=None) -> dict:
 
 
 def decide_trigger(key: tuple, state: str) -> str:
-    """이번 확인의 trigger. 같은 프로세스에서 처음이면 start."""
-    global _started, _last_key
+    """이번 확인의 trigger(상태는 바꾸지 않는다). 같은 프로세스에서 아직 보낸 적이 없으면 start.
+    key 는 마지막으로 **보낸** 상태 키와 비교한다(D5) — 보낸 뒤 mark_sent 로 기록한다."""
     with _lock:
         if not _started:
-            trigger = "start"
-            _started = True
-        elif key != _last_key:
-            trigger = "state_change"
-        elif state in IN_PROGRESS:
-            trigger = "periodic"
-        else:
-            trigger = "daily"
+            return "start"
+        if key != _last_key:
+            return "state_change"
+        return "periodic" if state in IN_PROGRESS else "daily"
+
+
+def mark_sent(key: tuple) -> None:
+    """이번 tick 에서 실제로 보냈다(전송 시도를 기록했다): 마지막 보낸 상태 키를 갱신한다."""
+    global _started, _last_key
+    with _lock:
+        _started = True
         _last_key = key
-    return trigger
 
 
 def tick(store=None) -> str | None:
@@ -140,8 +144,10 @@ def tick(store=None) -> str | None:
                optimize["required"], optimize["running"], optimize["holds_only"])
         trigger = decide_trigger(key, backfill["state"])
         from services import community_progress_report
-        community_progress_report.maybe_send(store=store, trigger=trigger, backfill=backfill, optimize=optimize,
-                                             official_login=login)
+        sent = community_progress_report.maybe_send(store=store, trigger=trigger, backfill=backfill, optimize=optimize,
+                                                    official_login=login)
+        if sent:
+            mark_sent(key)  # D5: 보내지 않은 tick 에서는 키를 그대로 둔다 → 막힌 상태 변화가 다음 tick 에 나간다
         # 진행 보고가 503 maintenance 를 받았으면 업로드 일시 중지로 옮긴다(1회 전송은 다음 run 에서 paused/maintenance).
         community_upload_pause.note_report_maintenance(store, community_progress_report.last_maintenance(store))
         return trigger

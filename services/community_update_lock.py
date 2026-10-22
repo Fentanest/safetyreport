@@ -133,8 +133,16 @@ def _on_unlock() -> None:
 
 
 def read(store) -> dict | None:
+    """지금 지키는 잠금 판정 또는 None. 읽을 때마다 저장된 min_version 과 지금 버전을 다시 비교한다(검수자 결정 D3):
+    업데이트해서 `cmp(지금, min) >= 0` 이면 status 를 다시 받기 전이라도(카카오 세션 만료·네트워크 장애) 잠금이 아니고 저장값도 지운다.
+    해석할 수 없으면(cmp None) 저장된 판정을 그대로 둔다(새로 잠그지도 풀지도 않음)."""
     value = _load(store)
-    return value if value and value.get("locked") else None
+    if not value or not value.get("locked"):
+        return None
+    if compare(app_version(), value.get("min_version")) in (0, 1):
+        _save(store, {"locked": False, "decided_at": int(time.time()), "cleared_by": "version"})
+        return None
+    return value
 
 
 def locked(store=None) -> bool:

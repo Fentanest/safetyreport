@@ -508,6 +508,13 @@ async def community_gate_middleware(request: Request, call_next):
 # Client API(/api/v1/**)는 게이트 미들웨어가 API 키 확인 뒤 기존 SERVER_UPGRADE_REQUIRED 409 로 거절한다(selfhost_compat).
 _UPDATE_LOCK_ALLOW = frozenset({"/login", "/logout", "/setup", "/health", "/settings/community/gate",
                                 "/settings/community/status", "/version/latest"})
+# 잠금 중에도 여는 복구 경로(검수자 결정 D3): 카카오 로그인·다시 로그인·로그아웃. 세션이 끊긴 채 잠기면 status 를 못 받아
+# 영원히 풀 수 없으므로 설정 화면의 커뮤니티 계정 카드와 그 API 만 연다(설정 저장·크롤·업로드 등은 계속 잠금).
+# 관리자 인증·CSRF·커뮤니티 게이트(세션이 없으면 /onboarding/community 로 보냄)는 그대로 적용된다.
+_UPDATE_LOCK_RECOVERY = frozenset({
+    ("GET", "/settings"), ("GET", "/settings/"), ("GET", "/onboarding/community"), ("GET", "/settings/community/policy"),
+    *(("POST", f"/settings/community/{a}") for a in ("start", "confirm", "cancel", "logout", "reset-session")),
+})
 
 
 async def update_lock_middleware(request: Request, call_next):
@@ -518,6 +525,9 @@ async def update_lock_middleware(request: Request, call_next):
     from services import community_update_lock
     view = await run_in_threadpool(community_update_lock.view)
     if not view.get("locked"):
+        return await call_next(request)
+    if ("GET" if request.method == "HEAD" else request.method, path) in _UPDATE_LOCK_RECOVERY:
+        request.state.update_lock = view  # 화면이 잠금 안내 띠를 보인다(partials/update_lock_banner.html)
         return await call_next(request)
     if request.method in ("GET", "HEAD") and not _is_ajax(request) and not path.startswith("/media/"):
         request.state.app_version = APP_VERSION
