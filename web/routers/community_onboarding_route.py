@@ -19,6 +19,9 @@ from services import community_gate
 
 router = APIRouter()
 templates = Jinja2Templates(directory=resource_path("web/templates"))
+from web.routers.announcement_route import register_template_globals as _register_globals  # noqa: E402
+
+_register_globals(templates.env)
 
 _NO_STORE = {"Cache-Control": "no-store"}
 _BLOCKED_NEXT = ("/onboarding/", "/login", "/logout", "/setup")

@@ -50,6 +50,20 @@ null 로 주거나 키가 없으면 안내와 426 표시를 지운다. 426 을 �
 v1 복귀: 한 번 v2 로 전환한 뒤에도 status.ingest.contracts 에 2 가 없으면 v1 으로 돌아간다. 대기 중인 실시간·수동·재공유
 이벤트는 같은 event_id 의 v1 payload 로 보내고, raw_backfill 이벤트는 v2 가 다시 켜질 때까지 보류한다.
 
+## 2026-10-22 추가 (1회 전송 재개·점검 스위치·필수 버전)
+
+정본: `docs/implementation/backfill-resume-20261022/CLIENT-RULES.md`(앱 동작), `docs/tasks/backfill-resume-20261022.md` 2-1·2-9·2-10.
+
+- `progress.schema.json` — `POST /community-ingest/progress`. 인증은 ingest 와 같고(사용자 세션 + connection_id + 세션 일치),
+  동의 outdated 도 받는다. 저장만 한다(연결 표 `last_progress`·진행 기록 30일/연결당 200건). 4KiB, 연결당 60초 1회. 벡터: `vectors/progress.json`.
+- 업로드 일시 중지: 공유 설정(`community_ingest_config.uploads_paused`·`pause_resume_at`)이 중지면 v1·v2·manifest·progress 가
+  **DB 쓰기 전에** 503 `maintenance`(+`resume_at`, `Retry-After`=남은 초, 재개 시각 없으면 600). 재개 시각이 지나면 서버가 조작 없이 받는다.
+  account status 의 `ingest.paused`·`pause_message`·`resume_at` 이 같은 판정이다.
+- 필수 버전: `client-requirement.schema.json`. 적용 중인 요구보다 envelope `client_version` 이 낮은 v1·v2 는 426 `client_upgrade_required`.
+  버전 규칙은 `version-vectors.json`(해석 못 하면 막지 않음). progress·setup-progress 는 426 없이 받는다.
+  `v1_sunset` 과 같은 일을 하므로 둘 중 하나만 쓴다: 요구 버전을 PC 3.6.0 / 모바일 2.5.0 이상으로 두면 v1 은 전부 막히니 `v1_sunset` 은 null 로 둔다.
+
 재생성: `python3 scripts/raw-ingest/generate_contract.py`.
 사본 검사: `python3 scripts/raw-ingest/check_contract.py --copies ../pc ../mobile`.
+비교 DTO 를 파서로 다시 만들려면 `PARSER_REPO=<safetyreport-community-parser checkout>` 를 준다(없으면 커밋된 wire.json 값을 쓴다).
 합성 바이트 벡터: vectors/wire.json. 공통 게이트 벡터: gate-vectors.json.

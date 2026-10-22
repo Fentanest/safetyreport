@@ -74,6 +74,8 @@ def do_login(
 
     request.session["admin_logged_in"] = True
     request.session["admin_username"] = username.strip()
+    from web.routers import announcement_route
+    announcement_route.on_login(request.session["admin_username"])  # 관리자 로그인 직후: 앱 공지(2-11, 백그라운드로 받기)
     redirect_to = next if (next and next.startswith("/") and not next.startswith("//")) else "/"
     return RedirectResponse(redirect_to, status_code=303)
 

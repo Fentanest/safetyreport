@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safemap.worklazy.net/contracts/community-ingest-v2/client-requirement.json",
+  "title": "client_requirement (account status top-level key, community_ingest_config.client_requirement)",
+  "description": "필수 버전(2026-10-22). status 에는 지금 적용 중일 때만 객체가 오고(enforce_from 전이면 null), 키가 없으면 서버가 판정하지 못한 것(앱은 마지막 판정 유지). 플랫폼 값 null = 그 플랫폼은 요구 없음. 버전 규칙은 version-vectors.json.",
+  "oneOf": [
+    { "type": "null" },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min_version", "url", "message", "enforce_from"],
+      "properties": {
+        "min_version": {
+          "type": "object", "additionalProperties": false, "required": ["pc", "mobile"],
+          "properties": {
+            "pc": { "type": ["string", "null"], "pattern": "^v?[0-9]{1,6}(\\.[0-9]{1,6}){0,3}(\\+[0-9A-Za-z.-]{1,32})?$" },
+            "mobile": { "type": ["string", "null"], "pattern": "^v?[0-9]{1,6}(\\.[0-9]{1,6}){0,3}(\\+[0-9A-Za-z.-]{1,32})?$" }
+          }
+        },
+        "url": {
+          "type": "object", "additionalProperties": false, "required": ["pc", "mobile"],
+          "properties": {
+            "pc": { "type": ["string", "null"], "pattern": "^https://\\S+$" },
+            "mobile": { "type": ["string", "null"], "pattern": "^https://\\S+$" }
+          }
+        },
+        "message": { "type": ["string", "null"], "minLength": 1, "maxLength": 300 },
+        "enforce_from": { "type": ["string", "null"], "format": "date-time" }
+      }
+    }
+  ]
+}

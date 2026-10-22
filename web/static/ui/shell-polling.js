@@ -216,10 +216,26 @@
                 .then(function (ok) { if (ok && url) window.open(url, '_blank', 'noopener'); });
         }
     }
+    // 업로드 일시 중지(서버 점검, 2-9): 서버가 만든 문구와 운영자 안내를 평문으로만 보인다.
+    var pauseBanner = document.getElementById('srUploadPauseBanner');
+    function renderPause(pause) {
+        if (!pauseBanner) return;
+        var on = !!(pause && pause.paused && typeof pause.text === 'string');
+        pauseBanner.hidden = !on;
+        if (!on) return;
+        document.getElementById('srUploadPauseText').textContent = pause.text;
+        var extra = document.getElementById('srUploadPauseMessage');
+        var message = typeof pause.message === 'string' ? pause.message : '';
+        extra.textContent = message;
+        extra.hidden = !message;
+    }
     function refresh() {
         fetch('/settings/community/gate', {credentials: 'same-origin', headers: {'Accept': 'application/json'}})
             .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (d) { render(d && d.data && d.data.client_notice); })
+            .then(function (d) {
+                render(d && d.data && d.data.client_notice);
+                renderPause(d && d.data && d.data.upload_pause);
+            })
             .catch(function () {});
     }
     refresh(); setInterval(refresh, 60000);

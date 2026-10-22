@@ -116,7 +116,10 @@ def _check_crawl_allowed():
     """일반 크롤 시작 전 게이트·초기화 확인(fail-closed: 확인 중 오류도 시작하지 않는다)."""
     from services import community_gate as gate
     from services import community_rebuild as rebuild
+    from services import community_update_lock
 
+    if community_update_lock.locked():  # 필수 버전 잠금(2-10): 예약 크롤도 시작하지 않는다
+        raise RuntimeError(gate.UPDATE_REQUIRED)
     try:
         fresh = gate.require_local()
     except Exception:

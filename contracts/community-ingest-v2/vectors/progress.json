@@ -1,0 +1,421 @@
+{
+  "synthetic": true,
+  "endpoint": "POST /functions/v1/community-ingest/progress",
+  "max_body_bytes": 4096,
+  "http": {
+    "ok": 200,
+    "schema_invalid": 422,
+    "payload_too_large": 413
+  },
+  "cases": [
+    {
+      "name": "pc uploading",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "uploading",
+          "phase": "upload",
+          "reason": null,
+          "next_attempt_at": null,
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": 0,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T03:10:00Z"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": null
+      },
+      "expect": "ok"
+    },
+    {
+      "name": "mobile paused with pace",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport-mobile",
+        "platform": "android",
+        "client_version": "2.5.1",
+        "parser_version": "mobile-parser-13",
+        "backfill": {
+          "state": "paused",
+          "phase": "upload",
+          "reason": "network",
+          "next_attempt_at": "2026-10-22T03:15:00Z",
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": 0,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T03:10:00Z"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": {
+          "foreground_slices_today": 12,
+          "background_runs_today": 3
+        }
+      },
+      "expect": "ok"
+    },
+    {
+      "name": "nothing started yet, login needed (counts unknown = null)",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "none",
+          "phase": null,
+          "reason": null,
+          "next_attempt_at": null,
+          "total": null,
+          "stored": null,
+          "queued": null,
+          "pending": null,
+          "holds": null,
+          "stale_holds": null,
+          "raw_unavailable": null,
+          "not_eligible": null,
+          "run_started_at": null,
+          "updated_at": null
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "manual_required",
+        "pace": null
+      },
+      "expect": "ok"
+    },
+    {
+      "name": "pc must not send pace",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "uploading",
+          "phase": "upload",
+          "reason": null,
+          "next_attempt_at": null,
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": 0,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T03:10:00Z"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": {
+          "foreground_slices_today": 1,
+          "background_runs_today": 0
+        }
+      },
+      "expect": "schema_invalid"
+    },
+    {
+      "name": "report id field is not allowed",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "uploading",
+          "phase": "upload",
+          "reason": null,
+          "next_attempt_at": null,
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": 0,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T03:10:00Z",
+          "source_report_id": "SPP-2610-0000001"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": null
+      },
+      "expect": "schema_invalid"
+    },
+    {
+      "name": "unknown top-level key (device id)",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "uploading",
+          "phase": "upload",
+          "reason": null,
+          "next_attempt_at": null,
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": 0,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T03:10:00Z"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": null,
+        "device_id": "abc"
+      },
+      "expect": "schema_invalid"
+    },
+    {
+      "name": "reason must be a code, not text or a URL",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "uploading",
+          "phase": "upload",
+          "reason": "https://www.safetyreport.go.kr/x",
+          "next_attempt_at": null,
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": 0,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T03:10:00Z"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": null
+      },
+      "expect": "schema_invalid"
+    },
+    {
+      "name": "unknown state",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "stuck",
+          "phase": "upload",
+          "reason": null,
+          "next_attempt_at": null,
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": 0,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T03:10:00Z"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": null
+      },
+      "expect": "schema_invalid"
+    },
+    {
+      "name": "negative count",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "uploading",
+          "phase": "upload",
+          "reason": null,
+          "next_attempt_at": null,
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": -1,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T03:10:00Z"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": null
+      },
+      "expect": "schema_invalid"
+    },
+    {
+      "name": "time must be UTC Z",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "uploading",
+          "phase": "upload",
+          "reason": null,
+          "next_attempt_at": null,
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": 0,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T12:10:00+09:00"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": null
+      },
+      "expect": "schema_invalid"
+    },
+    {
+      "name": "protocol 2 is not this contract",
+      "body": {
+        "protocol": 2,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "uploading",
+          "phase": "upload",
+          "reason": null,
+          "next_attempt_at": null,
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": 0,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T03:10:00Z"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": null
+      },
+      "expect": "schema_invalid"
+    },
+    {
+      "name": "body over 4096 bytes (valid JSON padded with spaces) is refused before parsing",
+      "raw_body": "{\"protocol\": 1, \"contract\": \"community-progress-v1\", \"connection_id\": \"20000000-0000-4000-8000-000000000001\", \"source_app\": \"safetyreport\", \"platform\": \"windows\", \"client_version\": \"3.6.2\", \"parser_version\": \"pc-parser-13\", \"backfill\": {\"state\": \"uploading\", \"phase\": \"upload\", \"reason\": null, \"next_attempt_at\": null, \"total\": 3143, \"stored\": 1200, \"queued\": 40, \"pending\": 1903, \"holds\": 0, \"stale_holds\": 0, \"raw_unavailable\": 2, \"not_eligible\": 0, \"run_started_at\": \"2026-10-22T01:00:00Z\", \"updated_at\": \"2026-10-22T03:10:00Z\"}, \"optimize\": {\"required\": false, \"running\": false, \"holds_only\": false}, \"official_login\": \"ok\", \"pace\": null                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      }",
+      "expect": "payload_too_large"
+    }
+  ]
+}

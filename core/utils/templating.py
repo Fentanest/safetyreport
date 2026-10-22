@@ -16,4 +16,8 @@ _env = jinja2.Environment(
 from services.report_policy import badge_key as _status_badge  # noqa: E402
 
 _env.filters["status_badge"] = _status_badge
+# 관리자 화면 상단 안내(2-8)·앱 공지(2-11): base.html 이 부르는 함수(없으면 base.html 이 건너뛴다)
+from web.routers.announcement_route import register_template_globals as _register_globals  # noqa: E402
+
+_register_globals(_env)
 templates = Jinja2Templates(env=_env)

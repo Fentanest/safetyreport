@@ -177,9 +177,18 @@
             
             <div class="alert alert-warning small" id="srClientNotice" role="status" hidden><span></span> <a href="https://github.com/Fentanest/safetyreport/releases/latest" target="_blank" rel="noopener noreferrer">업데이트 다운로드</a></div>
             <div class="alert alert-warning small" id="srCloudBanner" role="status" hidden><span id="srCloudText"></span></div>
+            <!-- 업로드 일시 중지(서버 점검, 2-9). 문구·서버 안내는 textContent 로만 넣는다(HTML 해석 금지). shell-polling.js -->
+            <div class="alert alert-info small" id="srUploadPauseBanner" role="status" aria-label="서버 점검 안내" hidden>
+                <div id="srUploadPauseText"></div>
+                <div id="srUploadPauseMessage" class="mt-1" style="white-space: pre-line;" hidden></div>
+            </div>
+            {# 사용자 조치 안내(2-8). 목록은 services/user_action_notice.evaluate, 그리기는 partials/notice_banner.html #}
+            {% if sr_notices is defined %}{% with notices = sr_notices(request) %}{% include "partials/notice_banner.html" %}{% endwith %}{% endif %}
             {% block content %}
             {% endblock %}
         </main>
+        {# 앱 공지 팝업(2-11). 목록은 services/app_announcements.pending_for_admin, 그리기는 partials/announcement_popup.html #}
+        {% if sr_announcements is defined %}{% with announcements = sr_announcements(request) %}{% include "partials/announcement_popup.html" %}{% endwith %}{% endif %}
     </div>
 </div>
 

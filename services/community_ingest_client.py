@@ -248,6 +248,9 @@ def post_manifest(*, connection_id: str, after: str | None = None, limit: int = 
     응답 본문은 로그에 남기지 않는다."""
     from services import community_auth_service as cas
     cfg = _config()
+    from services import community_update_lock, community_upload_pause
+    if community_upload_pause.paused() or community_update_lock.locked():
+        return False, {}  # 업로드 일시 중지(2-9)·필수 버전 잠금(2-10) 중에는 manifest 도 부르지 않는다(로컬 자료는 그대로)
     try:
         token = cas.get_access_token()
     except cas.CommunityAuthError:

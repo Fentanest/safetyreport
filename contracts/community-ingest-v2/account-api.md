@@ -16,6 +16,7 @@
 | `connections-rebind` | `connection_id`, `connection_secret` | `connection_id`, `writer_epoch`, `last_accepted_revision` | `not_found`(404, 타인·없음 구분 안 함), `connection_revoked`/`connection_superseded`/`connection_suspended`(409) |
 | `connections-revoke` | `connection_id` | `connection_id`, `status:"revoked"` | `not_found` |
 | `contributions-delete` | `confirm: "DELETE_MY_SHARED_REPORTS"` | `deletion_id`, `deleted_facts`, `revoked_connections`, `deleted_at`, `official_account_released:true` | `kakao_required` |
+| `setup-progress` (2026-10-22) | 아래 "설정 단계 보고" | `stored:true` | `invalid_request`(400, 형식·2KB 초과), `rate_limited`(429, 60초 1회, `Retry-After`), `kakao_required` |
 
 status 응답:
 ```json
@@ -151,3 +152,50 @@ URL은 HTTPS만 연다. v2 ACK도 같은 client_notice를 포함한다. HTTP 426
 브라우저 경계: community-account 는 어떤 action 에도 CORS 허용 헤더를 내지 않는다(이전과 같음). 지도 웹은 이 API 를
 부르지 않는다(지도 레포 PROJECT_RULES 7 — 지도 로그인과 동의·writer·업로드 정책을 섞지 않음). 지도 웹의 업데이트 안내는
 지도 레포 `my-analytics/client-status`(지도 세션 토큰, 지도 origin 허용 목록, 지도 rate limit)가 같은 설정을 읽어 보여 준다.
+
+
+## 2026-10-22 추가: 설정 단계 보고·앱 버전 헤더·업로드 일시 중지·필수 버전
+
+정본 규칙: 지도 레포 `docs/implementation/backfill-resume-20261022/CLIENT-RULES.md`. 이 절은 API 모양만 적는다.
+
+### 앱 버전 헤더 (모든 action)
+새 앱(PC 3.6.2·모바일 2.5.1부터)은 community-account 의 **모든 요청**에 아래 두 헤더를 붙인다.
+
+| 헤더 | 값 | 예 |
+|---|---|---|
+| `X-Client-Version` | 앱 버전, `^[0-9][0-9A-Za-z.+_-]{0,39}$` | `2.5.1`, `3.6.2` |
+| `X-Client-App` | `<app>/<platform>`, app = `pc`·`mobile`, platform = `windows`·`linux`·`macos`·`docker`·`android`·`ios`·`other` | `mobile/android`, `pc/docker` |
+
+서버는 인증·rate limit 을 통과한 요청에서만, 두 값이 형식에 맞을 때만 `private.community_client_seen`(사용자·앱·플랫폼별 1행, 같은 버전은
+10분에 한 번만 다시 씀)에 남긴다. 형식이 틀리거나 없으면 아무것도 남기지 않고 요청은 그대로 처리한다. 지도 웹의 필수 버전 판정과 운영 콘솔만 읽는다.
+
+### `setup-progress` — 설정 단계 보고 (업로드 연결이 생기기 전)
+본문(protocol 외, 모르는 키 거부, 2KB 이하):
+```json
+{"protocol":1,"client_version":"2.5.1","source_app":"safetyreport-mobile","platform":"android","mode":"standalone",
+ "stage":"official_login_failed","reason":"captcha_required","client":null}
+```
+- `source_app`: `safetyreport`(PC, 이때 `mode` 는 반드시 `server`) 또는 `safetyreport-mobile`(`mode` = `standalone`·`client`·`demo`·`unselected`).
+- `stage`: `kakao_ok` → `consent_ok` → `official_login_started` → `official_login_failed` / `official_login_ok` → `connection_registered`.
+  Client 모드는 `consent_ok` 대신 `client_server_checked`(서버 판정 결과를 `client` 에 담는다).
+- `reason`: `null` 또는 `^[a-z0-9_]{1,40}$` 코드(앱이 이미 쓰는 실패 코드 그대로).
+- `client`: Client 모드만, 아니면 `null`. 정확히 6키 `{server_reachable: bool, server_version: 버전|null, server_community_supported: bool|null,
+  server_logged_in: bool|null, server_consent_active: bool|null, account_match: bool|null}`. `account_match` 는 지문 비교 결과만(null = 모름). 지문 자체는 보내지 않는다.
+- 공식 사이트 ID·비밀번호·서버 주소·API 키·기기 식별자를 넣을 칸이 없다. 동의 없이도 받는다(`kakao_ok` 는 동의 전 단계).
+- 사용자당 1행 덮어쓰기, 사용자당 60초에 1번(넘으면 429 `rate_limited` + `Retry-After`). 동의 철회(이 기기·다른 기기·지도 웹·카카오 연결 끊기)와
+  계정 삭제 때 지운다. 동의문 갱신으로 이전 동의가 닫히는 것(`superseded_policy`)은 철회가 아니라 지우지 않는다.
+
+### status 의 업로드 일시 중지·필수 버전
+```json
+{"ingest":{"contracts":[1,2],"raw_policy_version":"2026-10-21.1","paused":true,"pause_message":"서버 저장 공간을 늘리는 중입니다.",
+           "resume_at":"2026-10-22T06:30:00.000Z","last_contract":"community-ingest-v2"},
+ "client_requirement":{"min_version":{"pc":"3.6.2","mobile":"2.5.1"},
+   "url":{"pc":"https://github.com/Fentanest/safetyreport/releases/latest","mobile":"https://play.google.com/store/apps/details?id=com.fentanest.mysafetyreport"},
+   "message":null,"enforce_from":"2026-11-01T00:00:00.000Z"}}
+```
+- `ingest.paused` 는 서버가 이미 "재개 시각 전인가"까지 판정한 값이다(재개 시각이 지나면 조작 없이 `false`). `false` 면 `pause_message`·`resume_at` 은 null.
+- `client_requirement`: 지금 **적용 중인** 필수 버전(적용 시작 전이면 `null`). 모양은 지도 `contracts/community-ingest-v2/client-requirement.schema.json`,
+  버전 비교는 `version-vectors.json`. 플랫폼 값 null = 그 플랫폼 요구 없음.
+- **키가 없으면** 서버가 설정을 읽지 못한 것이다: 앱은 마지막으로 받은 판정을 유지한다(잠그지도 풀지도 않는다). 키가 있고 값이 null 이면 요구 없음(즉시 해제).
+  `ingest.paused` 키가 없을 때도 같다(마지막 판정 유지).
+- 이 값들은 업로드 수신(지도 `community-ingest`)과 같은 설정 RPC(`internal_community_ingest_capabilities`)를 읽는다.

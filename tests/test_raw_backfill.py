@@ -163,3 +163,6 @@ class BackfillRuntimeTests(unittest.TestCase):
         with self.store.transaction() as tx:tx.execute('DELETE FROM raw_backfill_supplements')  # 조회한 신고는 다시 조회하지 않는다 — 만료 판정을 보려고 표시를 지운다
         with mock.patch('services.photo_capture_time.collect',side_effect=AssertionError('expired fetch')):
             self.assertEqual(self.backend.prepare('SYNTHETIC01')['photo_unavailable'],'expired')
+        # 2-6: 보관 기간이 지나 시도하지 않은 사진은 success 가 아니라 expired 로 남긴다
+        row=self.store.connect().execute("SELECT status FROM raw_backfill_supplements WHERE report_id='SYNTHETIC01' AND kind='photo'").fetchone()
+        self.assertEqual(row['status'],'expired')

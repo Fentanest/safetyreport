@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 
 from urllib.parse import urlsplit
 
@@ -19,6 +20,19 @@ from services.community_client_rules import classify_response
 PROTOCOL_VERSION = 1
 FUNCTION = "community-account"
 TIMEOUT_SECONDS = 25
+_HEADER_VERSION = re.compile(r"^[0-9][0-9A-Za-z.+_-]{0,39}$")
+
+
+def version_headers() -> dict:
+    """community-account 의 모든 요청에 붙이는 버전 헤더(2-10, 규칙 문서 6-3). 서버 기록용이다(인증 아님).
+    X-Client-App 은 pc/windows|linux|macos|docker. VERSION 을 읽지 못하거나 형식 밖이면 버전 헤더를 빼고 보낸다."""
+    from services.community_gate import _platform
+    from services.community_notice import app_version
+    headers = {"X-Client-App": f"pc/{_platform()}"}
+    version = (app_version() or "").strip()
+    if _HEADER_VERSION.fullmatch(version):
+        headers["X-Client-Version"] = version
+    return headers
 
 
 def authenticated_call(service, call):
@@ -78,7 +92,8 @@ class CommunityAccountClient:
                 raise AccountApiError("fixture_blocked") from None
         try:
             resp = cloud.run(self.cloud_base, lambda: self.http.post(f"{self.base}/{action}", json=payload, timeout=TIMEOUT_SECONDS, allow_redirects=False,
-                                  headers={"apikey": self.publishable_key, "Authorization": f"Bearer {access_token}"}))
+                                  headers={"apikey": self.publishable_key, "Authorization": f"Bearer {access_token}",
+                                           **version_headers()}))
         except cloud.CloudDeferred as exc:
             raise AccountApiError("network_error", retry_after=exc.retry_after) from None
         except requests.RequestException:
@@ -91,6 +106,11 @@ class CommunityAccountClient:
 
     def status(self, access_token: str, connection_id: str | None = None) -> dict:
         return self._post("status", access_token, {"connection_id": connection_id} if connection_id else {})
+
+    def setup_progress(self, access_token: str, body: dict) -> dict:
+        """설정 단계 보고(2-7, 규칙 문서 4-2) `POST community-account/setup-progress`. 본문은 services/community_setup_report.py 가
+        만든다(protocol 은 여기서 붙인다). 공식 사이트 ID·비밀번호·서버 주소·API 키·기기 식별자는 넣지 않는다."""
+        return self._post("setup-progress", access_token, {k: v for k, v in body.items() if k != "protocol"})
 
     def policy(self, access_token: str) -> dict:
         """지금 필수 동의 정책 {version, consent_text_sha256, consent_text} (2026-09-27, 계약 account-api.md `policy`).

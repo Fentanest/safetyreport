@@ -327,6 +327,15 @@ class _Gate:
         CommunityStore.open().set_meta('ingest_status', __import__('json').dumps(cached_status(status)))
         from services import community_notice
         community_notice.apply_status(CommunityStore.open(), status)
+        if status_wellformed(raw):
+            # 정상 응답에서만: 업로드 일시 중지(2-9)·필수 버전 잠금(2-10). 키가 없으면 각 모듈이 마지막 판정을 유지한다.
+            from services import community_update_lock, community_upload_pause
+            for name, apply in (("upload_pause", community_upload_pause.apply_status),
+                                ("update_lock", community_update_lock.apply_status)):
+                try:
+                    apply(CommunityStore.open(), status)
+                except Exception as exc:  # 판정 저장 실패가 게이트를 멈추지 않는다(잠그지 않음)
+                    note_fallback(f"community_gate.{name}", exc)
         state, _ = decide("ok", "valid", status, 0.0, False)
         consent_state = (status.get("consent") or {}).get("state")
         # 소프트 리셋(G6·G7·G8)은 "이 기기에서 G1 이 있던 같은 회원"에게 한 번만, 형식이 정상인 응답에서만 일어난다.
@@ -510,6 +519,8 @@ class _Gate:
         user_id = current.get("user_id")
         if not dkey or not user_id:
             self._set_writer_note("official_account_required")
+            if user_id:  # 2-7: 카카오 로그인·동의는 끝났는데 안전신문고 계정이 설정되지 않아 연결을 만들 수 없다
+                report_setup("official_login_failed", "official_account_required")
             return
         # Legacy servers omit binding support: preserve their existing writer lifecycle.
         # Explicitly unbound extended responses must register to acquire a binding.
@@ -562,6 +573,7 @@ class _Gate:
         if isinstance(last, int) and last > 0:
             store.raise_revision_floor(last)
         self._writer_note = None
+        report_setup("connection_registered")  # 2-7: 이 뒤로는 진행 보고(2-1)가 이어받는다(같은 단계 반복은 보고 쪽이 거른다)
         if store.meta("manifest_scope") != f"{dkey}:{int(writer['writer_epoch'])}":
             try:
                 from services import community_uploader
@@ -671,7 +683,8 @@ class _Gate:
                 "account": status.get("account"), "projection": status.get("projection"),
                 "client_notice": __import__("services.community_notice",fromlist=["read"]).read(__import__("services.community_store",fromlist=["CommunityStore"]).CommunityStore.open()), "ingest": status.get("ingest"),
                 "writer": self._writer_note or ({"code": "ok"} if result["can_enter"] else None),
-                "upload_pending": _pending_uploads(), "deletion": _deletion_state()}
+                "upload_pending": _pending_uploads(), "deletion": _deletion_state(),
+                "upload_pause": _upload_pause_view(), "update_lock": _update_lock_view()}
 
     def current_grant_id(self) -> str | None:
         with self._lock:
@@ -753,6 +766,34 @@ def _pending_uploads() -> int | None:
         return None
 
 
+def _upload_pause_view() -> dict:
+    try:
+        from services import community_upload_pause
+        return community_upload_pause.view()
+    except Exception as exc:
+        note_fallback("community_gate.upload_pause_view", exc)
+        return {"paused": False}
+
+
+def _update_lock_view() -> dict:
+    try:
+        from services import community_update_lock
+        return community_update_lock.view()
+    except Exception as exc:
+        note_fallback("community_gate.update_lock_view", exc)
+        return {"locked": False}
+
+
+def report_setup(stage: str, reason: str | None = None) -> None:
+    """설정 단계 보고(2-7) 호출 지점. 보내기·중복 거르기·mode='server' 는 services/community_setup_report.py 가 맡는다.
+    실패는 조용히 넘긴다(설정 흐름을 막지 않는다)."""
+    try:
+        from services import community_setup_report
+        community_setup_report.report(stage=stage, reason=reason)
+    except Exception as exc:
+        note_fallback("community_gate.setup_report", exc)
+
+
 def _deletion_state() -> str | None:
     try:
         from services import community_capture
@@ -773,9 +814,11 @@ def clear_after_soft_reset() -> None:
 
 ONBOARDING_REQUIRED = "COMMUNITY_ONBOARDING_REQUIRED"
 REBUILD_REQUIRED = "COMMUNITY_REBUILD_REQUIRED"
+UPDATE_REQUIRED = "COMMUNITY_UPDATE_REQUIRED"
 BLOCK_MESSAGES = {
     ONBOARDING_REQUIRED: "커뮤니티 필수 설정(카카오 인증·공유 동의)을 먼저 마쳐 주세요.",
     REBUILD_REQUIRED: "초기화 크롤링이 필요하거나 진행 중입니다. 설정의 초기화 크롤링 화면에서 확인해 주세요.",
+    UPDATE_REQUIRED: "프로그램을 업데이트해 주세요. 업데이트하기 전에는 신고 수집을 시작할 수 없습니다.",
 }
 
 
@@ -784,7 +827,10 @@ def require_local() -> dict:
 
 
 def crawl_block() -> tuple[int, str] | None:
-    """크롤 시작(수동·예약·큐) 전: 로컬 소유권과 진행 중 초기화 작업을 확인한다."""
+    """크롤 시작(수동·예약·큐) 전: 필수 버전 잠금, 로컬 소유권과 진행 중 초기화 작업을 확인한다."""
+    from services import community_update_lock
+    if community_update_lock.locked():  # 2-10: 잠금 중에는 크롤을 시작하지 않는다(로컬 자료는 그대로)
+        return 409, UPDATE_REQUIRED
     if not require_local()["can_local"]:
         return 403, ONBOARDING_REQUIRED
     from services import community_rebuild

@@ -29,6 +29,7 @@ GATE_POLL_JOB_ID = "community-gate-poll"
 SEOUL = ZoneInfo("Asia/Seoul")
 _KST = timedelta(hours=9)
 MIDNIGHT_OFFSET_MAX_SECONDS = 1800  # 설치별 영속 오프셋 상한(30분)
+_scheduler = None  # register_community_jobs 가 받은 스케줄러(1회 작업 예약용). 없으면 60초 poll 이 대신 이어 받는다.
 _MIDNIGHT_OFFSET_META_KEY = "midnight_offset_seconds"
 
 
@@ -131,9 +132,24 @@ def midnight_offset_seconds(data_dir=None) -> int:
     return value
 
 
+def schedule_once(job_id: str, run_at_epoch: float, func) -> bool:
+    """정해진 시각에 한 번 도는 작업(같은 id 는 바꿔 건다). 스케줄러가 없으면 False(60초 poll 이 이어 받는다).
+    쓰는 곳: 보류만 남은 1회 전송 깨우기(2-2), 업로드 중지의 재개 시각 확인(2-9)."""
+    scheduler = _scheduler
+    if scheduler is None or not getattr(scheduler, "running", True):
+        return False
+    from apscheduler.triggers.date import DateTrigger
+    when = datetime.fromtimestamp(max(float(run_at_epoch), datetime.now(timezone.utc).timestamp() + 1), timezone.utc)
+    scheduler.add_job(func, DateTrigger(run_date=when), id=job_id, replace_existing=True, max_instances=1,
+                      coalesce=True, misfire_grace_time=6 * 3600)
+    return True
+
+
 def register_community_jobs(scheduler, data_dir=None) -> None:
+    global _scheduler
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.triggers.interval import IntervalTrigger
+    _scheduler = scheduler
     for job_id in (MIDNIGHT_JOB_ID, GATE_POLL_JOB_ID):
         try:
             scheduler.remove_job(job_id)
@@ -154,10 +170,13 @@ def register_community_jobs(scheduler, data_dir=None) -> None:
             community_reset.attempt()
             result = _gate.refresh_now()
             if result.get("can_enter"):
-                from services import community_raw_backfill, community_uploader, db_optimize
+                from services import community_raw_backfill, community_uploader, db_optimize, community_update_lock
                 db_optimize.resume_for_account()
-                community_uploader.start_background()
-                community_raw_backfill.start()
+                if not community_update_lock.locked():  # 필수 버전 잠금 중에는 업로드·1회 전송을 시작하지 않는다
+                    community_uploader.start_background()
+                    community_raw_backfill.start()
+                from services import community_progress_trigger
+                community_progress_trigger.tick()
             from services import community_consent_jobs
             community_consent_jobs.tick()
         except ImportError:
@@ -165,6 +184,12 @@ def register_community_jobs(scheduler, data_dir=None) -> None:
 
     scheduler.add_job(_poll, IntervalTrigger(seconds=60),
                       id=GATE_POLL_JOB_ID, replace_existing=True, max_instances=1, coalesce=True)
+    try:  # 저장된 업로드 중지의 재개 시각 1회 작업을 다시 건다(재시작에도 지킨다)
+        from services import community_upload_pause
+        community_upload_pause.reschedule_on_start()
+    except Exception as exc:
+        from core.utils.fallback import note_fallback
+        note_fallback("community_schedule.pause_reschedule", exc)
 
 
 def run_midnight(now_utc: datetime | None = None, data_dir=None) -> dict:

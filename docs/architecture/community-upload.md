@@ -347,3 +347,30 @@ status 의 client_notice 가 정본이다(null 이거나 키가 없으면 저장
 - **v2 꺼짐 비용**: `raw_backfill.start()` 는 v2 준비가 아니면 즉시 반환(스레드·lease 없음). `seed_g1` 은 읽기로 조건을 먼저 확인하고 대상일 때만 잠금·쓰기.
 - **공식 로그인 실패(원본 전송)**: `로그인 거부`·계정 설정 없음은 `official_login_required`(permanent) — 계정 설정/토큰 지문이 바뀔 때(설정 저장·수동 로그인)까지 멈춘다. 그 외 실패(`official_login_retry`, 상세 401/403)는 300초부터 두 배씩 최대 1시간 백오프.
 - **DB 최적화 보류만 남음**: 현행 파서 세대 부분 완료(holds 있음, done=false, 진행 중 아님)는 원본 전송 준비 완료(`db_optimize.only_holds_left`). 그 신고들은 원본 전송이 원본을 다시 받는다.
+
+## 1회 전송 재개 규칙 (미출시, 2026-10-22)
+
+규칙 정본: 지도 레포 `docs/implementation/backfill-resume-20261022/CLIENT-RULES.md` 1~4절. 모바일 `raw_backfill.dart`·`raw_backfill_runtime.dart` 와 1:1.
+위 2026-10-21 절의 "개별 실패 3회는 holds, … 300초 휴지" 는 아래로 바뀌었다.
+
+- **오류 분류** `classify_backfill_error(exc) -> 'transient'|'fixed'`(`services/community_raw_backfill.py`). 일시적: 네트워크·DNS·TLS(requests·urllib3·curl_cffi·
+  `OSError` 네트워크 errno), 시간 초과, 공식 상세 API 5xx·429·`result` 없음(`BackfillTransient`, 이전의 `RuntimeError('detail_retry')`), DB 잠김. 그 밖(파서 예외·저장 실패·
+  분류 못 한 예외)은 고정적. 404/410 은 지금처럼 `raw_unavailable`, `BackfillBlocked` 는 `not_eligible`.
+- **일시적** → 신고 시도 횟수·커서를 그대로 두고 run `paused`(`reason`=사유 코드), 연속 횟수 `transient_failures` 1·2·3·4회 이상 = 60·300·900·3600초.
+  한 건이라도 진행하면 0. 목록 실패·연속 고정적 오류 5회도 같은 간격. 공식 로그인 문제는 예전 규칙 그대로.
+- **고정적** → 신고별 3회면 `hold`. 항목 `detail_json` 에 `hold_count`·`next_attempt_at`·`first_held_at`·`stale`. 간격 15분·1시간·6시간·24시간(이후 24시간).
+  채우기 slice 시작에 시각이 지난 보류를 `pending`(attempts=2)으로 되돌린다. 30일이 지나면 `stale=true` 만 표시하고 하루 1번 계속 시도한다.
+  '다시 시도' 버튼은 시각과 관계없이 모든 보류를 처음부터(attempts·hold_count 0).
+- **업로드 확인** `retry` 3회 → `hold`(`error='upload_retry'`, 같은 자동 재시도). `blocked`(outbox `blocked`·`dead_letter`)만 `not_eligible`+`upload_rejected`.
+- **업로드 확인 단계에 남은 pending**: 확인 단계 끝에 `pending` 항목이 있으면(1회 초기화로 되돌린 항목 등) 채우기(cursor 0)로 돌아간다(모바일과 같음).
+- **보류만 남은 run**(`holds`, 확인 대기 없음): marker `next_attempt_at` = 가장 이른 보류 시각, 스케줄러 1회 작업 `community-raw-backfill-wake` 가 깨운다(60초 poll 도 그대로).
+- **첫 실행 1회 초기화**(`unstick_once`, meta `raw_backfill_unstick="2026-10-22.1"`): 보류 → pending, `upload_rejected` → pending(eligible), `paused`(수동 로그인 필요 제외)의
+  휴지를 0으로, 되돌린 항목이 있는 `done`·`holds` 는 `filling` 으로 다시 연다. 한 트랜잭션, `start()` 에서 끝난 run 검사보다 먼저.
+- **업로더 깨우기**: 채우기 slice 에서 새로 `queued` 된 항목이 있으면 한 번 `community_uploader.wake()`(run 한 번에 최대 1회). 중지·잠금 중에는 깨우지 않는다.
+- **업로드 일시 중지 중**: run 은 `paused`/`maintenance`, `next_attempt_at` = 재개 시각+지터(없으면 null, 타이머 없음). 신고 횟수 안 셈. 중지가 풀리면 바로 이어 간다.
+  업로더는 요청을 보내지 않고(`cooldown`/`maintenance`), 503 `maintenance` 를 받은 행은 attempt 를 되돌리고 `retry_wait`(다음 시도 = 재개 시각), 일찍 재개되면 바로 보낸다.
+- **필수 버전 잠금 중**: `start()`·`run()` 이 아무것도 하지 않는다(marker 그대로). 업로더는 `blocked_gate`/`update_required`.
+- **사진 보조 값**: 6개월 보관 기간이 지나 시도하지 않은 사진은 `raw_backfill_supplements` 에 `expired` 로 남긴다(예전에는 `success`).
+- **진행 보고(2-1)**: `services/community_progress_trigger.tick()` 이 60초 게이트 확인·게이트 통과 때 trigger(`start`·`state_change`·`periodic`·`daily`)와 값
+  (진행 보고 계약 `backfill`·`optimize`·`official_login`, PC 는 `pace` 없음)을 만들어 `community_progress_report.maybe_send` 에 넘긴다. 15분·하루 1번·60초 간격은 보고 쪽 판정.
+  marker 에 `run_started_at`·`updated_at`(epoch 초)을 더했다(이전 run 은 null).

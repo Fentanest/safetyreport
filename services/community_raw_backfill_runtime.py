@@ -5,11 +5,22 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import select,update
 from core.database import models
-from services.community_raw_backfill import BackfillPaused,BackfillCancelled,BackfillBlocked
+from services.community_raw_backfill import BackfillPaused,BackfillCancelled,BackfillBlocked,BackfillTransient
 from services import community_raw_ingest as raw
 
 # 목록(title_pipeline.TITLE_COLUMNS)에서 오는 신고 열. 감시목록은 로컬 값이라 목록으로 덮지 않는다.
 _TITLE_KEYS = ("상태", "신고번호", "신고명", "신고일", "만족도조사여부")
+
+
+def detail_retry_reason(note):
+    """상세 API 일시 실패 메모(db_optimize._fetch_envelope 의 note) → 사유 코드(규칙 문서 1절)."""
+    text=str(note or '')
+    low=text.lower()
+    if low.startswith('network:'):
+        return 'timeout' if ('timeout' in low or 'timed out' in low) else 'network'
+    if 'no result key' in low:return 'no_result'
+    if '429' in low:return 'rate_limited'
+    return 'server_5xx'
 
 
 def _list_fields(row):
@@ -64,14 +75,22 @@ class RuntimeBackend:
         self.check()
         if self.session is None:
             from core.crawler import direct_login
+            from services.community_gate import report_setup
+            report_setup('official_login_started')  # 2-7(연결 등록 뒤면 보고 쪽이 거른다)
             try:self.session=direct_login.make_authorized_session()[0]
             except Exception as exc:
                 # '로그인 거부'(비밀번호 변경 등)·계정 설정 없음은 확정 — 고치기 전에는 반복하지 않는다. 네트워크 등은 백오프로 다시 시도.
                 text=str(exc)
                 if text.startswith('로그인 거부') or 'settings.username' in text:
                     paused=BackfillPaused('official_login_required');paused.permanent=True
-                else:paused=BackfillPaused('official_login_retry')
+                    reason='invalid_credentials' if text.startswith('로그인 거부') else 'official_account_required'
+                else:
+                    paused=BackfillPaused('official_login_retry')
+                    from services.community_raw_backfill import transient_reason
+                    reason=transient_reason(exc) or 'login_failed'
+                report_setup('official_login_failed',reason if reason in ('network','timeout','invalid_credentials','official_account_required') else 'login_failed')
                 raise paused from None
+            report_setup('official_login_ok')
         return self.session
     def login_fingerprint(self):
         """공식 로그인 입력(계정 설정·저장된 토큰)의 지문. 바뀌면 거부로 멈춘 run 을 다시 시작한다. 비밀번호는 해시로만 쓴다."""
@@ -163,11 +182,11 @@ class RuntimeBackend:
         filled=unfilled=0
         photo_unavailable=None
         if row is None or snapshot is None:
-            envelope,outcome,_=db_optimize._fetch_envelope(self.connect(),rid,attempts=1,interval=0)
+            envelope,outcome,note=db_optimize._fetch_envelope(self.connect(),rid,attempts=1,interval=0)
             self.pause()
             if outcome=='auth':raise BackfillPaused('official_login_required')
             if outcome=='permanent':return dict(raw_unavailable=True,filled=0,unfilled=1)
-            if outcome!='ok':raise RuntimeError('detail_retry')
+            if outcome!='ok':raise BackfillTransient(detail_retry_reason(note))  # 5xx·429·result 없음·네트워크: 신고 횟수에 넣지 않는다
             details=db_optimize._parse_result(rid,envelope['result'])
             if details is None:raise RuntimeError('parse_retry')
             rec=db_optimize._build_rec(rid,details)
@@ -212,7 +231,7 @@ class RuntimeBackend:
             try:
                 day=cap._parse_day(row.get('신고일'))
                 expired=day is not None and day<(datetime.now()-relativedelta(months=6)).strftime('%Y-%m-%d')
-                if expired:unfilled+=1;photo_unavailable='expired'
+                if expired:unfilled+=1;photo_unavailable='expired';outcome='expired'  # 시도하지 않았다 — success 로 남기지 않는다(2-6)
                 else:
                     def fetch(url):
                         self.check();answer=photo_capture_time.fetch_capture_time(url);self.pause();return answer
@@ -266,8 +285,16 @@ class RuntimeBackend:
         if box and box['state'] in ('blocked','dead_letter'):return 'blocked'
         if not row or row['ack_status'] is not None:return 'retry'
         return 'pending'
+    def upload_pause(self):
+        """업로드 일시 중지(점검) 저장값 또는 None(규칙 문서 5절)."""
+        from services import community_upload_pause
+        return community_upload_pause.read(self.store)
+    def update_locked(self):
+        from services import community_update_lock
+        return community_update_lock.locked(self.store)
     def wake_upload(self):
         from services import community_uploader
+        if self.upload_pause() or self.update_locked():return  # 중지·잠금 중에는 깨우지 않는다
         community_uploader.wake()
     def release_work(self):
         if self.token:self.manager.release_rating(self.token);self.token=None

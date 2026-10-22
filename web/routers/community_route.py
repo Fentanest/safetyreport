@@ -146,6 +146,7 @@ async def web_confirm(request: Request):
     async def run(body):
         _only(body, {"request_id"})
         dto = await run_in_threadpool(cas.get_service().confirm, _request_id(body, True))
+        await run_in_threadpool(community_gate.report_setup, "kakao_ok")  # 2-7 설정 단계 보고
         gate = await run_in_threadpool(ops.regate, "login")
         return _ok({"data": dto, "gate": gate})
     return await _web_action(request, run)
@@ -340,6 +341,7 @@ async def api_confirm(request: Request, api_key: str = Depends(_require_api_key)
     async def run(body):
         _only(body, {"request_id"})
         dto = await run_in_threadpool(cas.get_service().confirm, _request_id(body, True))
+        await run_in_threadpool(community_gate.report_setup, "kakao_ok")  # 2-7 설정 단계 보고
         await run_in_threadpool(ops.regate, "login")
         return _ok({"data": dto})
     return await _api_action(request, api_key, run)

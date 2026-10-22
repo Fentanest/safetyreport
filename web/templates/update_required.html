@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>프로그램을 업데이트해 주세요 - 나만의 안전신문고</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico?v={{ request.state.app_version }}-icon2">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    {% include "components/theme_head.html" %}
+    <style>
+        body { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .sr-lock-card { width: 100%; max-width: 520px; border: none; border-radius: 1rem; box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.1); }
+        .sr-lock-message { white-space: pre-line; overflow-wrap: anywhere; }
+    </style>
+</head>
+<body class="sr-auth-body">
+{# 필수 버전 잠금(2-10, 규칙 문서 6절). 관리자 웹 전체를 대신하는 화면이다. 로컬 신고 자료는 지우지 않는다.
+   서버 문구(message)는 자동 이스케이프된 평문으로만 보인다. #}
+<main class="container px-3" id="srUpdateLock" data-locked="true">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-10 col-lg-8">
+            <div class="card sr-lock-card p-4">
+                <h1 class="h4 mb-3">프로그램을 업데이트해 주세요</h1>
+                <p class="mb-2">이 버전은 더 이상 신고를 공유할 수 없습니다. 최신 버전으로 업데이트하면 이어서 쓸 수 있습니다. PC에 있는 신고 자료는 그대로 남아 있습니다.</p>
+                {% if lock.min_version %}<p class="fw-bold mb-1" id="srUpdateLockVersion">필요한 버전: {{ lock.min_version }} 이상</p>{% endif %}
+                {% if lock.current_version %}<p class="text-body-secondary small mb-2">지금 버전: {{ lock.current_version }}</p>{% endif %}
+                {% if lock.message %}<p class="sr-lock-message small border-start ps-2 mb-3" id="srUpdateLockMessage">{{ lock.message }}</p>{% endif %}
+                <div class="d-flex flex-wrap gap-2 mt-2">
+                    <a class="btn btn-primary" id="srUpdateLockButton" href="{{ lock.url }}" target="_blank" rel="noopener noreferrer">업데이트</a>
+                    <a class="btn btn-outline-secondary" href="/logout">로그아웃</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+<script>
+// 잠금 해제도 서버 확인(60초 주기)으로만 일어난다. 해제되면 원래 화면으로 돌아간다.
+(function () {
+    function check() {
+        fetch('/settings/community/gate', {credentials: 'same-origin', headers: {'Accept': 'application/json'}, cache: 'no-store'})
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                var lock = d && d.data && d.data.update_lock;
+                if (lock && lock.locked === false) location.reload();
+            })
+            .catch(function () {});
+    }
+    setInterval(check, 60000);
+})();
+</script>
+</body>
+</html>

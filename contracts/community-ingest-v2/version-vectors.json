@@ -1,0 +1,130 @@
+{
+  "rule": "[v]N[.N[.N[.N]]][+build], N = 1..6 digits, missing parts = 0, compare part by part. Anything else is unparseable (cmp = null): servers never block on it, apps never lock on it. Leading/trailing ASCII spaces are trimmed; 40 characters max.",
+  "implementations": [
+    "map server/ingest/version.ts",
+    "map SQL private.community_version_parts / community_version_cmp",
+    "PC·mobile app lock (CLIENT-RULES.md 2-10)"
+  ],
+  "cases": [
+    {
+      "a": "3.6.1",
+      "b": "3.6.1",
+      "cmp": 0
+    },
+    {
+      "a": "3.6.2",
+      "b": "3.6.1",
+      "cmp": 1
+    },
+    {
+      "a": "3.6.1",
+      "b": "3.6.2",
+      "cmp": -1
+    },
+    {
+      "a": "3.6",
+      "b": "3.6.0",
+      "cmp": 0
+    },
+    {
+      "a": "3.6.0",
+      "b": "3.6.0.0",
+      "cmp": 0
+    },
+    {
+      "a": "3.0.0.3",
+      "b": "3.0.0",
+      "cmp": 1
+    },
+    {
+      "a": "3.0.0.3",
+      "b": "3.0.0.4",
+      "cmp": -1
+    },
+    {
+      "a": "3.10.0",
+      "b": "3.9.9",
+      "cmp": 1
+    },
+    {
+      "a": "2.5.1",
+      "b": "2.5.0",
+      "cmp": 1
+    },
+    {
+      "a": "2.5.0+179",
+      "b": "2.5.0",
+      "cmp": 0
+    },
+    {
+      "a": "v3.6.2",
+      "b": "3.6.2",
+      "cmp": 0
+    },
+    {
+      "a": "2.5.1+180",
+      "b": "2.5.1+1",
+      "cmp": 0
+    },
+    {
+      "a": "10.0",
+      "b": "9.99.99",
+      "cmp": 1
+    },
+    {
+      "a": " 2.5.1 ",
+      "b": "2.5.1",
+      "cmp": 0
+    },
+    {
+      "a": "2.5.1-beta",
+      "b": "2.5.0",
+      "cmp": null
+    },
+    {
+      "a": "",
+      "b": "2.5.0",
+      "cmp": null
+    },
+    {
+      "a": "abc",
+      "b": "2.5.0",
+      "cmp": null
+    },
+    {
+      "a": "2.5.1.0.1",
+      "b": "2.5.0",
+      "cmp": null
+    },
+    {
+      "a": "2..5",
+      "b": "2.5.0",
+      "cmp": null
+    },
+    {
+      "a": "1234567.0",
+      "b": "1.0",
+      "cmp": null
+    },
+    {
+      "a": "2.5.1",
+      "b": "",
+      "cmp": null
+    },
+    {
+      "a": null,
+      "b": "2.5.0",
+      "cmp": null
+    },
+    {
+      "a": "2.5.1 beta",
+      "b": "2.5.0",
+      "cmp": null
+    },
+    {
+      "a": "V2.5.1",
+      "b": "2.5.0",
+      "cmp": null
+    }
+  ]
+}

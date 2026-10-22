@@ -489,7 +489,7 @@ def _community_runtime_error(exc: RuntimeError) -> HTTPException | None:
 
     code = community_gate.block_code(exc)
     if code:
-        return HTTPException(status_code=409 if code == community_gate.REBUILD_REQUIRED else 403, detail=code)
+        return HTTPException(status_code=409 if code in (community_gate.REBUILD_REQUIRED, community_gate.UPDATE_REQUIRED) else 403, detail=code)
     return None
 
 

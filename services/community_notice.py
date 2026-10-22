@@ -7,7 +7,7 @@ import json
 import re
 from urllib.parse import urlsplit
 
-GENERIC_MESSAGE = '앱을 최신 버전으로 업데이트해 주세요.'
+GENERIC_MESSAGE = '프로그램을 최신 버전으로 업데이트해 주세요.'
 _VERSION = re.compile(r'^\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?')
 
 

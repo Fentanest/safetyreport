@@ -190,6 +190,7 @@ def run(base, send):
     (절대 줄이지 않음, 2026-10-11 cloud-retry).
     """
     deferred_until = None
+    maintenance = None
     with _state() as state:
         key = _scope(base)
         row = state['cloud'].get(key, {})
@@ -219,6 +220,11 @@ def run(base, send):
             err = body.get('error') if isinstance(body, dict) else None
             transient = status == 429 or status >= 500 or (isinstance(err, dict) and
                 (err.get('retryable') is True or err.get('code') in ('rate_limited', 'busy', 'server_error')))
+            if status == 503 and isinstance(err, dict) and err.get('code') == 'maintenance':
+                # 업로드 일시 중지(2-9): 서버는 정상이다 — Supabase 전체를 멈추는 전역 쿨다운을 걸지 않는다
+                # (status 확인은 계속해야 조기 재개·연장을 본다). 중지 저장·재개 예약은 community_upload_pause 가 맡는다.
+                transient = False
+                maintenance = (body, headers)
             if transient:
                 deferred_until = _now() + max(_consecutive_wait(failures), retry_after(headers, body))
                 state['cloud'][key] = {'next_attempt_at': deferred_until,
@@ -228,6 +234,13 @@ def run(base, send):
                 state['cloud'].pop(key, None)
     if failed:
         raise CloudDeferred(deferred_until)
+    if maintenance is not None:
+        try:
+            from services import community_upload_pause
+            community_upload_pause.note_maintenance(*maintenance)
+        except Exception as exc:
+            from core.utils.fallback import note_fallback
+            note_fallback('community_cloud.maintenance', exc)
     return response
 
 

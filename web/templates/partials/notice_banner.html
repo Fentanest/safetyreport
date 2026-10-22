@@ -1,0 +1,44 @@
+{# 사용자 조치 안내(규칙 문서 8절). 변수: notices = services.user_action_notice.evaluate() 결과 목록.
+   포함 위치는 base.html 의 srClientNotice 근처(C 가 연결). 문구는 서버가 정한 평문이며 textContent 로 넣는 대신 Jinja 자동 이스케이프에 맡긴다.
+   action_url 이 있으면 링크(https 는 새 탭), 없고 code 가 stale_holds 이면 [다시 시도] 버튼이 POST /community/upload/raw-backfill/retry 를 부른다. #}
+{% if notices %}
+<div id="srActionNotices" class="sr-action-notices" aria-live="polite">
+    {% for notice in notices %}
+    <div class="alert alert-warning small d-flex flex-wrap align-items-center gap-2" role="status" data-notice-code="{{ notice.code }}">
+        <span class="sr-notice-text">{{ notice.text }}</span>
+        {% if notice.action_label and notice.action_url %}
+            {% if notice.action_url.startswith('https://') %}
+            <a class="btn btn-sm btn-outline-dark ms-auto" href="{{ notice.action_url }}" target="_blank" rel="noopener noreferrer">{{ notice.action_label }}</a>
+            {% else %}
+            <a class="btn btn-sm btn-outline-dark ms-auto" href="{{ notice.action_url }}">{{ notice.action_label }}</a>
+            {% endif %}
+        {% elif notice.action_label and notice.code == 'stale_holds' %}
+        <button type="button" class="btn btn-sm btn-outline-dark ms-auto" data-notice-retry>{{ notice.action_label }}</button>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+<script>
+(function () {
+    'use strict';
+    var root = document.getElementById('srActionNotices');
+    if (!root) return;
+    root.addEventListener('click', function (event) {
+        var button = event.target.closest('[data-notice-retry]');
+        if (!button || button.disabled) return;
+        button.disabled = true;
+        // session-requests.js 가 같은 출처 POST 에 X-CSRF-Token 을 붙인다. JSON 라우트라 본문과 형식을 맞춘다.
+        fetch('/community/upload/raw-backfill/retry', {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'Accept': 'application/json', 'Content-Type': 'application/json'}, body: '{}'
+        }).then(function (response) {
+            button.textContent = response.ok ? '요청했습니다' : '다시 시도하지 못했습니다';
+            if (!response.ok) button.disabled = false;
+        }).catch(function () {
+            button.textContent = '다시 시도하지 못했습니다';
+            button.disabled = false;
+        });
+    });
+})();
+</script>
+{% endif %}

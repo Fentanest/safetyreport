@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://safemap.worklazy.net/contracts/community-ingest-v2/progress.json",
+  "title": "community-ingest progress report (POST /community-ingest/progress)",
+  "description": "1회 전송 진행 상태(2026-10-22). 개수와 상태 코드만 — 신고 ID·본문·URL·공식 사이트 ID·기기 식별자는 넣을 칸이 없다. 본문 4KiB 이하(identity, gzip 금지). 같은 연결 1분 1회.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "contract", "connection_id", "source_app", "platform", "client_version", "parser_version", "backfill", "optimize", "official_login", "pace"],
+  "properties": {
+    "protocol": { "const": 1 },
+    "contract": { "const": "community-progress-v1" },
+    "connection_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+    "source_app": { "enum": ["safetyreport", "safetyreport-mobile"] },
+    "platform": { "enum": ["windows", "linux", "macos", "docker", "android", "ios", "other"] },
+    "client_version": { "type": "string", "pattern": "^[0-9][0-9A-Za-z.+_-]{0,39}$" },
+    "parser_version": { "type": "string", "pattern": "^[0-9A-Za-z.+_-]{1,40}$" },
+    "backfill": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "phase", "reason", "next_attempt_at", "total", "stored", "queued", "pending", "holds", "stale_holds", "raw_unavailable", "not_eligible", "run_started_at", "updated_at"],
+      "properties": {
+        "state": { "enum": ["waiting_optimize", "listing", "filling", "uploading", "paused", "holds", "done", "none"] },
+        "phase": { "$ref": "#/$defs/code" },
+        "reason": { "$ref": "#/$defs/code" },
+        "next_attempt_at": { "$ref": "#/$defs/instant" },
+        "total": { "$ref": "#/$defs/count" },
+        "stored": { "$ref": "#/$defs/count" },
+        "queued": { "$ref": "#/$defs/count" },
+        "pending": { "$ref": "#/$defs/count" },
+        "holds": { "$ref": "#/$defs/count" },
+        "stale_holds": { "$ref": "#/$defs/count" },
+        "raw_unavailable": { "$ref": "#/$defs/count" },
+        "not_eligible": { "$ref": "#/$defs/count" },
+        "run_started_at": { "$ref": "#/$defs/instant" },
+        "updated_at": { "$ref": "#/$defs/instant" }
+      }
+    },
+    "optimize": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "running", "holds_only"],
+      "properties": { "required": { "type": "boolean" }, "running": { "type": "boolean" }, "holds_only": { "type": "boolean" } }
+    },
+    "official_login": { "enum": ["ok", "retry", "manual_required"] },
+    "pace": {
+      "description": "모바일만(PC 는 null): 오늘(기기 KST 날짜) 포그라운드 채우기 slice 수와 백그라운드(WorkManager) 실행 수.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["foreground_slices_today", "background_runs_today"],
+          "properties": {
+            "foreground_slices_today": { "type": ["integer", "null"], "minimum": 0, "maximum": 100000 },
+            "background_runs_today": { "type": ["integer", "null"], "minimum": 0, "maximum": 100000 }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "code": { "type": ["string", "null"], "pattern": "^[a-z0-9_]{1,40}$" },
+    "instant": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,6})?Z$" },
+    "count": { "type": ["integer", "null"], "minimum": 0, "maximum": 10000000 }
+  }
+}

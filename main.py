@@ -48,7 +48,7 @@ import signal
 from web.routers import dashboard, data, settings_route, crawl, stats, rating_route, watchlist_route, file_browser_route, devices_route
 from web.routers import auth_route, api_route, ws_route, db_editor_route, backup_route, maintenance_route
 from web.routers import duplicate_route, media_route, community_route, community_onboarding_route
-from web.routers import community_upload_route, community_rebuild_route, raw_detail_route
+from web.routers import community_upload_route, community_rebuild_route, raw_detail_route, announcement_route
 import subprocess
 
 from core.utils.path_utils import resource_path, is_frozen
@@ -379,6 +379,9 @@ _GATE_ALLOW = frozenset({
     ("GET", "/api/v1/server/version"),
     *(("POST", f"/api/v1/community-auth/{a}") for a in ("start", "confirm", "cancel")),
     ("GET", "/api/v1/community/gate"), ("GET", "/api/v1/community/rebuild"),
+    # 앱 공지(2-11): 화면 상태일 뿐이라 게이트와 무관하다(관리자 인증·CSRF 는 그대로). 게이트 화면에도 팝업이 뜨므로 닫기·보지 않기가 동작해야 한다.
+    ("GET", "/api/announcements/pending"),
+    *((("POST", f"/api/announcements/{{announcement_id}}/{a}")) for a in ("snooze", "dismiss")),
     *(("POST", f"/api/v1/community/rebuild/{a}") for a in ("start", "resume")),
 })
 
@@ -386,6 +389,8 @@ _GATE_ALLOW = frozenset({
 def _gate_exempt(method: str, path: str) -> bool:
     if path.startswith("/static/"):
         return True
+    if method == "POST" and announcement_route.PATH.fullmatch(path):
+        return True  # _GATE_ALLOW 의 공지 경로(경로 변수 포함)
     if method == "HEAD":
         method = "GET"
     return (method, path) in _GATE_ALLOW
@@ -498,6 +503,32 @@ async def community_gate_middleware(request: Request, call_next):
     return _gate_blocked_response(request, gate)
 
 
+# ── 필수 버전 잠금(2-10) ─────────────────────────────────────────────────────────
+# 관리자 인증 안쪽, 커뮤니티 게이트 바깥에서 돈다. 잠금 중이면 관리자 웹 전체가 잠금 화면이다(로컬 자료는 그대로).
+# Client API(/api/v1/**)는 게이트 미들웨어가 API 키 확인 뒤 기존 SERVER_UPGRADE_REQUIRED 409 로 거절한다(selfhost_compat).
+_UPDATE_LOCK_ALLOW = frozenset({"/login", "/logout", "/setup", "/health", "/settings/community/gate",
+                                "/settings/community/status", "/version/latest"})
+
+
+async def update_lock_middleware(request: Request, call_next):
+    path = request.url.path
+    if path in _UPDATE_LOCK_ALLOW or path.startswith(("/static/", "/api/v1/", "/ws/")) or request.method == "OPTIONS":
+        return await call_next(request)
+    from starlette.concurrency import run_in_threadpool
+    from services import community_update_lock
+    view = await run_in_threadpool(community_update_lock.view)
+    if not view.get("locked"):
+        return await call_next(request)
+    if request.method in ("GET", "HEAD") and not _is_ajax(request) and not path.startswith("/media/"):
+        request.state.app_version = APP_VERSION
+        return templates.TemplateResponse(request, "update_required.html", {"lock": view}, status_code=200,
+                                          headers={"Cache-Control": "no-store"})
+    from fastapi.responses import JSONResponse
+    from services.community_gate import BLOCK_MESSAGES, UPDATE_REQUIRED
+    return JSONResponse({"detail": UPDATE_REQUIRED, "code": UPDATE_REQUIRED, "message": BLOCK_MESSAGES[UPDATE_REQUIRED],
+                         "update_lock": view}, status_code=409, headers={"Cache-Control": "no-store"})
+
+
 async def request_timings(request: Request, call_next):
     started = time.perf_counter()
     response = await call_next(request)
@@ -509,7 +540,7 @@ async def request_timings(request: Request, call_next):
 def _on_community_gate_change(result: dict) -> None:
     """게이트를 잃으면(확인 필요 포함 — Sol M-01) 이벤트 WS 를 4403 으로 닫는다(로그 WS 는 자체 GateWatch)."""
     if result.get("can_enter"):
-        from services import community_raw_backfill, community_uploader, db_optimize
+        from services import community_raw_backfill, community_uploader, db_optimize, community_progress_trigger
         from services.community_reset import resume_work
         resume_work()
         community_uploader.start_background()
@@ -517,6 +548,8 @@ def _on_community_gate_change(result: dict) -> None:
         if scheduler.scheduler.running:
             from services.community_schedule import resume_upload_jobs
             resume_upload_jobs(scheduler.scheduler)
+        # 진행 보고(2-1): 서버 기동 뒤 게이트 통과 1회(trigger=start). 중지·잠금·연결 없음이면 tick 이 부르지 않는다.
+        threading.Thread(target=community_progress_trigger.tick, name="community-progress-start", daemon=True).start()
     if not result.get("can_local", result.get("can_enter")):
         from services.ws_manager import ws_manager
         ws_manager.close_all_from_thread(4403, "COMMUNITY_ONBOARDING_REQUIRED")
@@ -630,14 +663,14 @@ _ROUTERS = (
     community_route.router, community_route.api_router, community_route.gate_api_router,
     community_onboarding_route.router, community_upload_route.router, community_upload_route.api_router,
     community_rebuild_route.router, community_rebuild_route.api_router, api_route.router, ws_route.router,
-    raw_detail_route.router,
+    raw_detail_route.router, announcement_route.router,
 )
 
 
 def create_app() -> FastAPI:
     """웹 앱 조립(EO R-04). 프로세스 준비(로거·폴더) → 앱·정적 파일 → 프록시 → HTTP 미들웨어(아래 순서) → 세션 → 라우터.
 
-    미들웨어는 나중에 넣은 것이 바깥이다: 프록시 → 세션 → 관리자 인증 → 시간 측정 → 커뮤니티 게이트 → 버전·CSRF → 라우트.
+    미들웨어는 나중에 넣은 것이 바깥이다: 프록시 → 세션 → 관리자 인증 → 시간 측정 → 필수 버전 잠금 → 커뮤니티 게이트 → 버전·CSRF → 라우트.
     설정·DB 경로는 프로세스 전역(settings)이라 한 프로세스에 데이터 루트가 다른 앱을 둘 만들 수는 없다.
     """
     _init_runtime()
@@ -655,8 +688,8 @@ def create_app() -> FastAPI:
     app.add_api_route("/health", health_check, methods=["GET"])
 
     from core.utils.taxonomy_compat import taxonomy_compat_middleware
-    for middleware in (taxonomy_compat_middleware, inject_version_middleware, community_gate_middleware, request_timings,
-                       auth_middleware):
+    for middleware in (taxonomy_compat_middleware, inject_version_middleware, community_gate_middleware,
+                       update_lock_middleware, request_timings, auth_middleware):
         app.middleware("http")(middleware)
     session_key = get_or_create_session_key(settings.datapath)
     _ws_auth.configure(session_key)  # 로그 WS 가 관리자 세션 쿠키를 같은 키로 읽는다

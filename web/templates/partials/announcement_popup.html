@@ -1,0 +1,75 @@
+{# 앱 공지 팝업(규칙 문서 9절). 변수: announcements = services.app_announcements.pending_for_admin() 결과 목록.
+   한 번에 하나, 닫으면 다음 것. 본문은 평문이고 textContent 로만 넣는다(줄바꿈은 white-space: pre-line).
+   버튼: primary_action(허용 링크만, 새 탭) / snooze_label("일주일 동안 보지 않기"·"N일 동안 보지 않기", 없으면 숨김) / 닫기.
+   서버 경로(C 와 맞춘다): POST {{ announcement_api_base|default('/api/announcements') }}/<id>/snooze · /dismiss (JSON 본문 {}). #}
+{% if announcements %}
+<div class="modal fade" id="srAnnouncementModal" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="srAnnouncementTitle" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="srAnnouncementTitle"></h5>
+                <button type="button" class="btn-close" data-announcement-close aria-label="닫기"></button>
+            </div>
+            <div class="modal-body" id="srAnnouncementBody" style="white-space: pre-line;"></div>
+            <div class="modal-footer flex-wrap">
+                <a class="btn btn-primary" id="srAnnouncementAction" target="_blank" rel="noopener noreferrer" hidden></a>
+                <button type="button" class="btn btn-outline-secondary" id="srAnnouncementSnooze" hidden></button>
+                <button type="button" class="btn btn-outline-secondary" data-announcement-close>닫기</button>
+            </div>
+        </div>
+    </div>
+</div>
+<script id="srAnnouncementData" type="application/json">{{ announcements|tojson }}</script>
+<script>
+(function () {
+    'use strict';
+    var queue;
+    try { queue = JSON.parse(document.getElementById('srAnnouncementData').textContent); } catch (_) { return; }
+    if (!Array.isArray(queue) || !queue.length) return;
+    var base = {{ (announcement_api_base|default('/api/announcements'))|tojson }};
+    var node = document.getElementById('srAnnouncementModal');
+    var current = null, modal = null, busy = false;
+
+    function post(kind) {
+        // 실패해도 화면은 넘어간다(다음 로그인·다음 확인 때 다시 보일 뿐, 다른 기능에 영향 없음)
+        return fetch(base + '/' + encodeURIComponent(current.id) + '/' + kind, {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'Accept': 'application/json', 'Content-Type': 'application/json'}, body: '{}'
+        }).catch(function () {});
+    }
+    function show() {
+        current = queue.shift();
+        if (!current) return;
+        document.getElementById('srAnnouncementTitle').textContent = current.title;
+        document.getElementById('srAnnouncementBody').textContent = current.body;
+        var action = document.getElementById('srAnnouncementAction');
+        var url = current.primary_action && current.primary_action.url;
+        action.hidden = !(url && /^https:\/\//.test(url));
+        if (!action.hidden) { action.href = url; action.textContent = current.primary_action.label; }
+        var snooze = document.getElementById('srAnnouncementSnooze');
+        snooze.hidden = !current.snooze_label;
+        snooze.textContent = current.snooze_label || '';
+        modal.show();
+    }
+    function next(kind) {
+        if (busy || !current) return;
+        busy = true;
+        post(kind).then(function () {
+            busy = false;
+            modal.hide();
+        });
+    }
+    function init() {
+        if (!window.bootstrap || !window.bootstrap.Modal) return;
+        modal = new window.bootstrap.Modal(node);
+        node.addEventListener('hidden.bs.modal', function () { current = null; show(); });
+        node.querySelectorAll('[data-announcement-close]').forEach(function (b) {
+            b.addEventListener('click', function () { next('dismiss'); });
+        });
+        document.getElementById('srAnnouncementSnooze').addEventListener('click', function () { next('snooze'); });
+        show();
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
+{% endif %}

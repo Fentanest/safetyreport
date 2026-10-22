@@ -71,7 +71,7 @@ def start_crawl(
         if isinstance(exc, PendingUploadError):
             return JSONResponse({"status": "error", "message": str(exc)}, status_code=503)
         if community_gate.block_code(exc):
-            return _community_blocked(409 if community_gate.block_code(exc) == community_gate.REBUILD_REQUIRED else 403,
+            return _community_blocked(409 if community_gate.block_code(exc) in (community_gate.REBUILD_REQUIRED, community_gate.UPDATE_REQUIRED) else 403,
                                       community_gate.block_code(exc))
         return JSONResponse({"status": "error", "message": "크롤링이 이미 실행 중입니다. (수동 또는 스케줄러)."})
     except Exception as exc:

@@ -154,6 +154,7 @@ def consent(policy_version: str, consent_text_sha256: str) -> dict:
     from services.community_reset import pending
     if pending(): raise CommunityAuthError("invalid_state", "철회 처리 중입니다. 완료 뒤 다시 로그인해 주세요.")
     res = account_call(lambda c, t: c.consent(t, policy_version, consent_text_sha256))
+    community_gate.report_setup("consent_ok")  # 2-7 설정 단계 보고(동의 성공 응답 뒤)
     cloud.consent_accepted()
     cloud.observe(cas.get_service(), kind="active", source="consent_accepted")
     return {"result": {k: res.get(k) for k in ("policy_version", "granted_at", "created")}, "gate": regate("consent_saved")}

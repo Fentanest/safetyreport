@@ -749,6 +749,15 @@ def _run_upload(run_id: str, trigger: str, data_dir=None, progress=None) -> dict
     if _cap.deletion_cleanup_pending(data_dir):  # 삭제 뒤 로컬 차단이 끝나기 전에는 아무것도 보내지 않는다(Sol H-03)
         run.error_code = "deletion_cleanup_pending"
         return run.finish("blocked_gate")
+    from services import community_update_lock, community_upload_pause
+    if community_update_lock.locked(store):  # 필수 버전 잠금(2-10): 업데이트 전에는 보내지 않는다
+        run.error_code = "update_required"
+        return run.finish("blocked_gate")
+    pause = community_upload_pause.read(store)
+    if pause:  # 업로드 일시 중지(2-9): 요청을 보내지 않는다. 재개 시각(+지터)의 1회 작업·평소 status 가 푼다.
+        run.error_code = "maintenance"
+        run.next_attempt_at = _iso(datetime.fromtimestamp(pause["wake_at"], timezone.utc)) if pause.get("wake_at") else None
+        return run.finish("cooldown")
     from services import community_cloud as cloud
     wait = cloud.remaining()
     if wait > 0:
@@ -1021,6 +1030,17 @@ def _apply_error(run: UploadRunContext, batch, interp) -> str:
         run.outbox.dead_letter(batch, code if cls == "payload_invalid" else "payload_too_large")
         counts["dead"] += len(batch)
         return "continue"
+    if code == "maintenance":
+        # 503 업로드 일시 중지(2-9): 일시적 오류다. attempt 를 올리지 않고 행은 retry_wait, 다음 시도 = 재개 시각(+지터).
+        # 중지 저장은 전송 경계(community_cloud.run)가 이미 했다. 전송 제어 쿨다운은 걸지 않는다(중지 판정이 막는다).
+        from services import community_upload_pause
+        pause = community_upload_pause.read(run.store) or {}
+        wake = pause.get("wake_at") or pause.get("fallback_at")
+        run.outbox.undo_attempt(batch)
+        run.outbox.retry(batch, code, max(1, int((wake or 0) - _now().timestamp())) if wake else interp.hint, interp.request_id)
+        counts["retry"] += len(batch)
+        run.next_attempt_at = _iso(datetime.fromtimestamp(pause["wake_at"], timezone.utc)) if pause.get("wake_at") else None
+        return "cooldown"
     if cls in policy.RETRYABLE_CLASSES:
         run.outbox.retry(batch, code, interp.hint, interp.request_id)
         counts["retry"] += len(batch)
@@ -1079,6 +1099,10 @@ def _refresh_next_due(data_dir, result: dict | None) -> None:
     다른 실행이 잡고 있으면 5초 뒤, 실패면 60초 뒤 다시 본다."""
     global _next_due
     outcome = (result or {}).get("result")
+    if (result or {}).get("error_code") in ("maintenance", "update_required"):
+        # 중지·잠금: 재개 시각(있으면)에만 깨운다. 없으면 시각으로 깨우지 않는다(status 가 풀면 wake()).
+        _next_due = _parse(result.get("next_attempt_at")) if result.get("next_attempt_at") else None
+        return
     if outcome == "cooldown" and (result or {}).get("next_attempt_at"):
         _next_due = _parse(result["next_attempt_at"])
         return

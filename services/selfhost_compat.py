@@ -43,12 +43,28 @@ def rejection(client_type, client_version, client_protocol, server_version=None)
             "message": messages[code], "compatibility": metadata()}
 
 
+def update_lock_rejection() -> dict | None:
+    """필수 버전 잠금(2-10) 중인 이 서버: Client API 는 기존 SERVER_UPGRADE_REQUIRED 409 형식 그대로 거절한다.
+    휴대폰(Client)은 이 코드로 "서버 프로그램 업데이트가 필요합니다" 안내를 보인다(휴대폰 잠금 아님)."""
+    try:
+        from services import community_update_lock
+        if not community_update_lock.locked():
+            return None
+    except Exception as exc:
+        from core.utils.fallback import note_fallback
+        note_fallback("selfhost_compat.update_lock", exc)
+        return None  # 읽지 못하면 막지 않는다(먹통 방지)
+    from services.community_update_lock import SERVER_UPGRADE_MESSAGE
+    return {"status": "error", "code": "SERVER_UPGRADE_REQUIRED", "detail": SERVER_UPGRADE_MESSAGE,
+            "message": SERVER_UPGRADE_MESSAGE, "compatibility": metadata()}
+
+
 def http_rejection(request):
     return rejection(request.headers.get("x-safetyreport-client"),
                      request.headers.get("x-safetyreport-version"),
-                     request.headers.get("x-safetyreport-protocol"))
+                     request.headers.get("x-safetyreport-protocol")) or update_lock_rejection()
 
 
 def ws_rejection(websocket):
     q = websocket.query_params
-    return rejection(q.get("client_type"), q.get("client_version"), q.get("client_protocol"))
+    return rejection(q.get("client_type"), q.get("client_version"), q.get("client_protocol")) or update_lock_rejection()

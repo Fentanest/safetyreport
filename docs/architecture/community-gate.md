@@ -92,6 +92,9 @@ MANIFEST 해시 확인)이 정하고 서버 `services/community_client_rules.py`
 | `POST /settings/community/db-owner/adopt` | 세션 + CSRF | `db_owner_mismatch` 일 때만 `{"confirm":"DELETE_OTHER_ACCOUNT_REPORTS"}` → 자료를 비우고 지금 계정을 주인으로 적음 |
 | `GET /api/v1/community/gate` | API 키 | 서버 게이트 요약(모바일 Client 표시·fingerprint 비교) |
 
+**Client 휴대폰은 서버와 같은 카카오 계정만 쓴다**(2026-10-22 사용자 결정, 규칙 문서 `backfill-resume-20261022/CLIENT-RULES.md` 7절): 휴대폰이 위 응답의
+`account.fingerprint`(32자리 16진, 형식은 그대로)와 자기 계정 지문을 비교해 다르다고 확인되면 휴대폰이 잠근다. PC 쪽 판정·응답 형식은 바뀌지 않는다.
+
 모바일 Client 의 민감 제어(초기화 시작·수동 업로드)는 `X-Community-User-Token`(폰의 access token)을 `verify_client_user_token` 이 GoTrue `/user` 로 확인해
 이 서버에 연결된 사용자와 같을 때만 허용한다.
 
@@ -225,3 +228,28 @@ active 시각)이 있으면 처음 실행한 시각(지금)으로 한 번만 `la
   철회 호출의 `not_found` 는 `stale_grant` 처럼 grant 를 비우고 status 를 다시 확인한다.
 - **철회 중인 계정이 아닌 다른 계정으로 로그인**: `revoke_account_mismatch`·`revoke_account_name`(begin 이 `display_name` 기록)을 내려 "철회 중인 계정(이름)으로 로그인해야 철회를 마칠 수 있습니다" 안내와 카카오 로그아웃 버튼을 보여 준다. 다른 계정이 철회를 대신 끝내지 않는다.
 - **소프트 리셋·데이터셋 회전**: `source_journal.raw_event_json` 전문은 해시만 남기고(`compact`), `raw_backfill_supplements` 는 지운다(회전은 옛 데이터셋 행만).
+
+## 업로드 일시 중지·필수 버전 잠금 (2-9·2-10, 2026-10-22, 미출시)
+
+규칙 정본: 지도 레포 `docs/implementation/backfill-resume-20261022/CLIENT-RULES.md` 5·6절. 게이트 갱신(`_refresh_locked`)이 **정상 status 응답**
+(`status_wellformed`)에서만 두 판정을 갱신한다. 네트워크·시간 초과·5xx·429·JSON 아님은 이 단계까지 오지 않으므로 판정이 바뀌지 않는다.
+
+| 판정 | 저장(`community.db meta`) | 모듈 | 효과 |
+|---|---|---|---|
+| 업로드 일시 중지 | `upload_pause` | `services/community_upload_pause.py` | 업로더·manifest·1회 전송·진행 보고 요청 0회. 재개 시각 + 0~120초에 스케줄러 1회 작업(`community-upload-resume`)이 status 를 한 번 확인. 관리자 웹 상단 배너 |
+| 필수 버전 잠금 | `client_lock` | `services/community_update_lock.py` | 관리자 웹 전체 잠금 화면(`update_required.html`), 업로드·크롤·1회 전송·진행 보고 정지, Client API·WS 는 기존 `SERVER_UPGRADE_REQUIRED` 409 |
+
+- 503 `maintenance` 는 전송 경계(`community_cloud.run`)에서 알아보고 중지를 저장한다. 이 응답은 Supabase 전체를 멈추는 전역 쿨다운을 걸지 않는다(status 확인은 계속).
+- status 에 `ingest.paused`·`client_requirement` 키가 없으면(서버가 설정을 읽지 못함) 마지막 판정을 유지한다. 예외: 503 으로만 알게 된 중지는
+  재개 시각(없으면 Retry-After)이 지나면 저장을 지워 한 번 다시 시도해 본다(아직 중지면 다시 503 으로 저장).
+- 잠금 비교는 `contracts/community-ingest-v2/version-vectors.json` 규칙(`[v]N[.N[.N[.N]]][+build]`)이고 내 버전은 `VERSION` 파일. 해석 불가면 잠그지 않는다.
+- 잠금 미들웨어(`main.update_lock_middleware`)는 관리자 인증 안쪽·게이트 바깥이다. 로그인·로그아웃·`/settings/community/gate`·`/settings/community/status`·`/health`·정적 파일은 통과한다.
+  화면 GET 은 잠금 화면(200), 그 밖 요청은 409 `COMMUNITY_UPDATE_REQUIRED`. 크롤 시작은 `crawl_block()`·`_check_crawl_allowed()` 가 같은 코드로 막는다(예약 크롤 포함).
+- 진행 보고가 받은 503 `maintenance`(E 의 `community_progress_report.last_maintenance`)는 `community_progress_trigger.tick` 이 같은 기록(seen_at)당 한 번 중지로 옮긴다.
+- 앱 공지(2-11) 경로 `GET /api/announcements/pending`, `POST /api/announcements/{id}/snooze|dismiss` 는 게이트 예외(`_GATE_ALLOW`)다 — 관리자 인증·CSRF 는 그대로.
+  관리자 계정 키는 `session['admin_username']` 그대로, 로그인 직후 `app_announcements.on_login`. 화면 그리기는 공지 캐시가 오래됐으면 빈 목록으로 그리고 백그라운드로 받는다.
+- `community-account` 모든 요청에 `X-Client-Version`(VERSION)·`X-Client-App`(`pc/windows|linux|macos|docker`)을 붙인다(서버 기록용).
+- 설정 단계 보고(2-7) 호출 지점은 `community_gate.report_setup()` 하나로 모았다: 카카오 로그인 확정 뒤 `kakao_ok`, 동의 성공 뒤 `consent_ok`,
+  안전신문고 계정 미설정으로 연결을 못 만들면 `official_login_failed`(reason `official_account_required`), 연결 확보 뒤 `connection_registered`.
+  PC 는 설정 단계에서 공식 사이트에 로그인해 보지 않는다. 1회 전송이 공식 사이트에 로그인할 때(`RuntimeBackend.connect`) `official_login_started`·`official_login_ok`·
+  `official_login_failed`(reason `invalid_credentials`·`official_account_required`·`network`·`timeout`·`login_failed`)를 부른다 — 보통 연결 등록 뒤라 보고 쪽이 거른다.
