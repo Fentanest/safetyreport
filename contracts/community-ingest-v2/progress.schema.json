@@ -12,7 +12,7 @@
     "connection_id": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
     "source_app": { "enum": ["safetyreport", "safetyreport-mobile"] },
     "platform": { "enum": ["windows", "linux", "macos", "docker", "android", "ios", "other"] },
-    "client_version": { "type": "string", "pattern": "^[0-9][0-9A-Za-z.+_-]{0,39}$" },
+    "client_version": { "type": "string", "pattern": "^v?[0-9][0-9A-Za-z.+_-]{0,39}$" },
     "parser_version": { "type": "string", "pattern": "^[0-9A-Za-z.+_-]{1,40}$" },
     "backfill": {
       "type": "object",

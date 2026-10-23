@@ -8,6 +8,19 @@
 sha256와 size는 이 바이트를 대상으로 한다. 숫자 1.0과 1, 키 순서, 공백 차이를 보존한다.
 
 보조 필드와 비교 DTO는 v1 canonical-json 규칙(키 UTF-16 순서, 공백 없음, 안전 정수)을 쓴다.
+v2 `supplement_sha256`·`client_observation_sha256`의 정본은 **서버 정규형**(`canonicalJson`)이다:
+문자열과 키를 `JSON.stringify`처럼 JSON 이스케이프하므로 줄바꿈·탭·CR·U+0001은 각각
+`\n`·`\t`·`\r`·`\u0001`로 쓴다. 비ASCII는 그대로이며 유니코드 정규화는 하지 않는다.
+모바일 **2.5.1 이하**의 호환을 위해 **문자 그대로형**(`canonicalJsonLiteralEscapes`)도 서버가 받는다:
+문자열과 키의 `"`와 `\`만 각각 `\"`와 `\\`로 이스케이프하고, 그 밖의 모든 문자(제어문자 포함)는 그대로 UTF-8로 쓴다.
+이 호환형의 해시 입력은 유효한 JSON 텍스트가 아닐 수 있다. 전송 envelope 자체는 항상 유효한 JSON이다.
+두 형식 모두 중첩 키를 UTF-16 코드 단위 오름차순으로 정렬하고 구분자 공백 없이 object/string/안전 정수/null만 쓴다.
+배열·불리언·실수·`-0`은 허용하지 않는다. 기존 U+0000·짝 없는 surrogate 거절 규칙도 유지한다.
+서버는 각 해시를 두 형식 중 하나와 비교하며, 저장할 때 클라이언트가 보낸 해시를 그대로 보존한다.
+개인정보 없는 진단 필드 `supplement_hash_form: server|literal`만 남기고, 두 형식이 같으면 `server`로 기록한다.
+같은 형식으로 재전송하면 멱등성이 유지된다. 같은 내용도 형식을 바꾸면 해시가 달라질 수 있으나 한 클라이언트는
+항상 같은 형식을 쓰므로 이 차이를 허용한다. `raw.sha256`은 원문 바이트 해시이며 이 호환 규칙의 대상이 아니다.
+줄바꿈·탭·CRLF·U+0001의 두 형식 문자열/UTF-8 hex/SHA-256 벡터는 `vectors/wire.json`의 `supplement_hash_cases`에 있다.
 모르는 보조 값은 null이며 모든 키가 필수다. DTO와 DTO 해시는 둘 다 있거나 둘 다 없다.
 최대 20건, gzip 전 1MiB, 전송 512KiB. v1은 identity·256KiB를 유지한다.
 
@@ -57,8 +70,10 @@ v1 복귀: 한 번 v2 로 전환한 뒤에도 status.ingest.contracts 에 2 가 
 - `progress.schema.json` — `POST /community-ingest/progress`. 인증은 ingest 와 같고(사용자 세션 + connection_id + 세션 일치),
   동의 outdated 도 받는다. 저장만 한다(연결 표 `last_progress`·진행 기록 30일/연결당 200건). 4KiB, 연결당 60초 1회. 벡터: `vectors/progress.json`.
 - 업로드 일시 중지: 공유 설정(`community_ingest_config.uploads_paused`·`pause_resume_at`)이 중지면 v1·v2·manifest·progress 가
-  **DB 쓰기 전에** 503 `maintenance`(+`resume_at`, `Retry-After`=남은 초, 재개 시각 없으면 600). 재개 시각이 지나면 서버가 조작 없이 받는다.
+  **DB 쓰기 전에** 503 `maintenance`(+`resume_at`, `Retry-After`=남은 초·최대 1800, 재개 시각 없으면 600). 재개 시각이 지나면 서버가 조작 없이 받는다.
   account status 의 `ingest.paused`·`pause_message`·`resume_at` 이 같은 판정이다.
+  예외·한계: 운영 콘솔용 거절 카운터 한 줄은 응답을 보낸 뒤 기다리지 않고 쓴다. 서버가 공유 설정을 읽지 못하면 v2 만 503 `service_unavailable` 이고
+  v1·manifest·progress 는 그대로 받는다 — **점검 스위치는 설정을 읽을 수 있을 때만 동작한다**.
 - 필수 버전: `client-requirement.schema.json`. 적용 중인 요구보다 envelope `client_version` 이 낮은 v1·v2 는 426 `client_upgrade_required`.
   버전 규칙은 `version-vectors.json`(해석 못 하면 막지 않음). progress·setup-progress 는 426 없이 받는다.
   `v1_sunset` 과 같은 일을 하므로 둘 중 하나만 쓴다: 요구 버전을 PC 3.6.0 / 모바일 2.5.0 이상으로 두면 v1 은 전부 막히니 `v1_sunset` 은 null 로 둔다.

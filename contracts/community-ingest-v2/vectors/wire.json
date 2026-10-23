@@ -78,6 +78,148 @@
   "supplement_canonical": "{\"list\":{\"entry_value\":null,\"report_date\":null,\"ssnpc_cd\":null,\"ssnpc_type\":null,\"status\":null,\"title\":null},\"photo_count\":null,\"photo_first_at\":null,\"photo_last_at\":null,\"rating\":null,\"rating_cause\":null,\"survey_state\":null}",
   "client_observation_canonical": "{\"address\":null,\"agency_name\":null,\"amount\":{\"confirmed_won\":null,\"kind\":\"unknown\",\"penalty_points\":null},\"category\":\"other\",\"completed_date\":null,\"disposition\":\"unknown\",\"location\":{\"lat\":null,\"lng\":null,\"source\":\"none\"},\"manager_name\":null,\"rating\":null,\"report_date\":\"2026-10-20\",\"source_agency_code\":null,\"status\":\"accepted\",\"status_raw\":\"수용\",\"vehicle_raw\":null,\"violation_law\":null}",
   "request_utf8_sha256": "11fb4f371e6af46d23ef7d6188893fdc8adea40ff105619bfb4e47ec3a45458e",
+  "supplement_hash_cases": [
+    {
+      "name": "newline",
+      "supplement": {
+        "rating": null,
+        "rating_cause": null,
+        "survey_state": null,
+        "photo_first_at": null,
+        "photo_last_at": null,
+        "photo_count": null,
+        "list": {
+          "title": "합성 \"신고\"\\경로\n다음😀",
+          "report_date": null,
+          "status": null,
+          "entry_value": null,
+          "ssnpc_cd": null,
+          "ssnpc_type": null
+        }
+      },
+      "server": {
+        "canonical": "{\"list\":{\"entry_value\":null,\"report_date\":null,\"ssnpc_cd\":null,\"ssnpc_type\":null,\"status\":null,\"title\":\"합성 \\\"신고\\\"\\\\경로\\n다음😀\"},\"photo_count\":null,\"photo_first_at\":null,\"photo_last_at\":null,\"rating\":null,\"rating_cause\":null,\"survey_state\":null}",
+        "utf8_hex": "7b226c697374223a7b22656e7472795f76616c7565223a6e756c6c2c227265706f72745f64617465223a6e756c6c2c2273736e70635f6364223a6e756c6c2c2273736e70635f74797065223a6e756c6c2c22737461747573223a6e756c6c2c227469746c65223a22ed95a9ec84b1205c22ec8ba0eab3a05c225c5ceab2bdeba19c5c6eeb8ba4ec9d8cf09f9880227d2c2270686f746f5f636f756e74223a6e756c6c2c2270686f746f5f66697273745f6174223a6e756c6c2c2270686f746f5f6c6173745f6174223a6e756c6c2c22726174696e67223a6e756c6c2c22726174696e675f6361757365223a6e756c6c2c227375727665795f7374617465223a6e756c6c7d",
+        "sha256": "e3000f2350d3f56e9bddd4055eb0283ef06e66eebbb0750c9fc89c12cc89b889"
+      },
+      "literal": {
+        "canonical": "{\"list\":{\"entry_value\":null,\"report_date\":null,\"ssnpc_cd\":null,\"ssnpc_type\":null,\"status\":null,\"title\":\"합성 \\\"신고\\\"\\\\경로\n다음😀\"},\"photo_count\":null,\"photo_first_at\":null,\"photo_last_at\":null,\"rating\":null,\"rating_cause\":null,\"survey_state\":null}",
+        "utf8_hex": "7b226c697374223a7b22656e7472795f76616c7565223a6e756c6c2c227265706f72745f64617465223a6e756c6c2c2273736e70635f6364223a6e756c6c2c2273736e70635f74797065223a6e756c6c2c22737461747573223a6e756c6c2c227469746c65223a22ed95a9ec84b1205c22ec8ba0eab3a05c225c5ceab2bdeba19c0aeb8ba4ec9d8cf09f9880227d2c2270686f746f5f636f756e74223a6e756c6c2c2270686f746f5f66697273745f6174223a6e756c6c2c2270686f746f5f6c6173745f6174223a6e756c6c2c22726174696e67223a6e756c6c2c22726174696e675f6361757365223a6e756c6c2c227375727665795f7374617465223a6e756c6c7d",
+        "sha256": "dd697bbaa4b733b2da0960208d9997204df9e3c91ed84b4eae286b3dc59d589b"
+      }
+    },
+    {
+      "name": "tab",
+      "supplement": {
+        "rating": null,
+        "rating_cause": null,
+        "survey_state": null,
+        "photo_first_at": null,
+        "photo_last_at": null,
+        "photo_count": null,
+        "list": {
+          "title": "합성 \"신고\"\\경로\t다음😀",
+          "report_date": null,
+          "status": null,
+          "entry_value": null,
+          "ssnpc_cd": null,
+          "ssnpc_type": null
+        }
+      },
+      "server": {
+        "canonical": "{\"list\":{\"entry_value\":null,\"report_date\":null,\"ssnpc_cd\":null,\"ssnpc_type\":null,\"status\":null,\"title\":\"합성 \\\"신고\\\"\\\\경로\\t다음😀\"},\"photo_count\":null,\"photo_first_at\":null,\"photo_last_at\":null,\"rating\":null,\"rating_cause\":null,\"survey_state\":null}",
+        "utf8_hex": "7b226c697374223a7b22656e7472795f76616c7565223a6e756c6c2c227265706f72745f64617465223a6e756c6c2c2273736e70635f6364223a6e756c6c2c2273736e70635f74797065223a6e756c6c2c22737461747573223a6e756c6c2c227469746c65223a22ed95a9ec84b1205c22ec8ba0eab3a05c225c5ceab2bdeba19c5c74eb8ba4ec9d8cf09f9880227d2c2270686f746f5f636f756e74223a6e756c6c2c2270686f746f5f66697273745f6174223a6e756c6c2c2270686f746f5f6c6173745f6174223a6e756c6c2c22726174696e67223a6e756c6c2c22726174696e675f6361757365223a6e756c6c2c227375727665795f7374617465223a6e756c6c7d",
+        "sha256": "24c68efef30dd73cdb63b76dad72f94c4cb272abb5b24ea53389a9870a9d2adf"
+      },
+      "literal": {
+        "canonical": "{\"list\":{\"entry_value\":null,\"report_date\":null,\"ssnpc_cd\":null,\"ssnpc_type\":null,\"status\":null,\"title\":\"합성 \\\"신고\\\"\\\\경로\t다음😀\"},\"photo_count\":null,\"photo_first_at\":null,\"photo_last_at\":null,\"rating\":null,\"rating_cause\":null,\"survey_state\":null}",
+        "utf8_hex": "7b226c697374223a7b22656e7472795f76616c7565223a6e756c6c2c227265706f72745f64617465223a6e756c6c2c2273736e70635f6364223a6e756c6c2c2273736e70635f74797065223a6e756c6c2c22737461747573223a6e756c6c2c227469746c65223a22ed95a9ec84b1205c22ec8ba0eab3a05c225c5ceab2bdeba19c09eb8ba4ec9d8cf09f9880227d2c2270686f746f5f636f756e74223a6e756c6c2c2270686f746f5f66697273745f6174223a6e756c6c2c2270686f746f5f6c6173745f6174223a6e756c6c2c22726174696e67223a6e756c6c2c22726174696e675f6361757365223a6e756c6c2c227375727665795f7374617465223a6e756c6c7d",
+        "sha256": "7001c4444f143406f9d44f13095017ea3361ff79214a81c4d418d1ffc1e1ed63"
+      }
+    },
+    {
+      "name": "crlf",
+      "supplement": {
+        "rating": null,
+        "rating_cause": null,
+        "survey_state": null,
+        "photo_first_at": null,
+        "photo_last_at": null,
+        "photo_count": null,
+        "list": {
+          "title": "합성 \"신고\"\\경로\r\n다음😀",
+          "report_date": null,
+          "status": null,
+          "entry_value": null,
+          "ssnpc_cd": null,
+          "ssnpc_type": null
+        }
+      },
+      "server": {
+        "canonical": "{\"list\":{\"entry_value\":null,\"report_date\":null,\"ssnpc_cd\":null,\"ssnpc_type\":null,\"status\":null,\"title\":\"합성 \\\"신고\\\"\\\\경로\\r\\n다음😀\"},\"photo_count\":null,\"photo_first_at\":null,\"photo_last_at\":null,\"rating\":null,\"rating_cause\":null,\"survey_state\":null}",
+        "utf8_hex": "7b226c697374223a7b22656e7472795f76616c7565223a6e756c6c2c227265706f72745f64617465223a6e756c6c2c2273736e70635f6364223a6e756c6c2c2273736e70635f74797065223a6e756c6c2c22737461747573223a6e756c6c2c227469746c65223a22ed95a9ec84b1205c22ec8ba0eab3a05c225c5ceab2bdeba19c5c725c6eeb8ba4ec9d8cf09f9880227d2c2270686f746f5f636f756e74223a6e756c6c2c2270686f746f5f66697273745f6174223a6e756c6c2c2270686f746f5f6c6173745f6174223a6e756c6c2c22726174696e67223a6e756c6c2c22726174696e675f6361757365223a6e756c6c2c227375727665795f7374617465223a6e756c6c7d",
+        "sha256": "016f748016ac7037c7e67a90e6d35baa5e4349c750984c4bc392cb1eabd21d4c"
+      },
+      "literal": {
+        "canonical": "{\"list\":{\"entry_value\":null,\"report_date\":null,\"ssnpc_cd\":null,\"ssnpc_type\":null,\"status\":null,\"title\":\"합성 \\\"신고\\\"\\\\경로\r\n다음😀\"},\"photo_count\":null,\"photo_first_at\":null,\"photo_last_at\":null,\"rating\":null,\"rating_cause\":null,\"survey_state\":null}",
+        "utf8_hex": "7b226c697374223a7b22656e7472795f76616c7565223a6e756c6c2c227265706f72745f64617465223a6e756c6c2c2273736e70635f6364223a6e756c6c2c2273736e70635f74797065223a6e756c6c2c22737461747573223a6e756c6c2c227469746c65223a22ed95a9ec84b1205c22ec8ba0eab3a05c225c5ceab2bdeba19c0d0aeb8ba4ec9d8cf09f9880227d2c2270686f746f5f636f756e74223a6e756c6c2c2270686f746f5f66697273745f6174223a6e756c6c2c2270686f746f5f6c6173745f6174223a6e756c6c2c22726174696e67223a6e756c6c2c22726174696e675f6361757365223a6e756c6c2c227375727665795f7374617465223a6e756c6c7d",
+        "sha256": "635ed5ebaa872db990c980073cb81a959c2b829fc4760a08bc3772b3133a71a2"
+      }
+    },
+    {
+      "name": "u0001",
+      "supplement": {
+        "rating": null,
+        "rating_cause": null,
+        "survey_state": null,
+        "photo_first_at": null,
+        "photo_last_at": null,
+        "photo_count": null,
+        "list": {
+          "title": "합성 \"신고\"\\경로\u0001다음😀",
+          "report_date": null,
+          "status": null,
+          "entry_value": null,
+          "ssnpc_cd": null,
+          "ssnpc_type": null
+        }
+      },
+      "server": {
+        "canonical": "{\"list\":{\"entry_value\":null,\"report_date\":null,\"ssnpc_cd\":null,\"ssnpc_type\":null,\"status\":null,\"title\":\"합성 \\\"신고\\\"\\\\경로\\u0001다음😀\"},\"photo_count\":null,\"photo_first_at\":null,\"photo_last_at\":null,\"rating\":null,\"rating_cause\":null,\"survey_state\":null}",
+        "utf8_hex": "7b226c697374223a7b22656e7472795f76616c7565223a6e756c6c2c227265706f72745f64617465223a6e756c6c2c2273736e70635f6364223a6e756c6c2c2273736e70635f74797065223a6e756c6c2c22737461747573223a6e756c6c2c227469746c65223a22ed95a9ec84b1205c22ec8ba0eab3a05c225c5ceab2bdeba19c5c7530303031eb8ba4ec9d8cf09f9880227d2c2270686f746f5f636f756e74223a6e756c6c2c2270686f746f5f66697273745f6174223a6e756c6c2c2270686f746f5f6c6173745f6174223a6e756c6c2c22726174696e67223a6e756c6c2c22726174696e675f6361757365223a6e756c6c2c227375727665795f7374617465223a6e756c6c7d",
+        "sha256": "525e39b4acc71b4fa427b0d291e95a84146c9e9913b2d9f20fdeecaf31fb091b"
+      },
+      "literal": {
+        "canonical": "{\"list\":{\"entry_value\":null,\"report_date\":null,\"ssnpc_cd\":null,\"ssnpc_type\":null,\"status\":null,\"title\":\"합성 \\\"신고\\\"\\\\경로\u0001다음😀\"},\"photo_count\":null,\"photo_first_at\":null,\"photo_last_at\":null,\"rating\":null,\"rating_cause\":null,\"survey_state\":null}",
+        "utf8_hex": "7b226c697374223a7b22656e7472795f76616c7565223a6e756c6c2c227265706f72745f64617465223a6e756c6c2c2273736e70635f6364223a6e756c6c2c2273736e70635f74797065223a6e756c6c2c22737461747573223a6e756c6c2c227469746c65223a22ed95a9ec84b1205c22ec8ba0eab3a05c225c5ceab2bdeba19c01eb8ba4ec9d8cf09f9880227d2c2270686f746f5f636f756e74223a6e756c6c2c2270686f746f5f66697273745f6174223a6e756c6c2c2270686f746f5f6c6173745f6174223a6e756c6c2c22726174696e67223a6e756c6c2c22726174696e675f6361757365223a6e756c6c2c227375727665795f7374617465223a6e756c6c7d",
+        "sha256": "0cc836dea60677b7d2897c3ecee443a8af1672a16236f67e0208bb8a0c641da8"
+      }
+    }
+  ],
+  "canonical_hash_cases": [
+    {
+      "name": "utf16_keys_nested_controls_and_integer_limits",
+      "value": {
+        "": null,
+        "😀": {
+          "z": 9007199254740991,
+          "a": -9007199254740991
+        },
+        "key\n\"\\": "\b\f\r\t\u0001/한글😀  ",
+        "zero": 0
+      },
+      "server": {
+        "canonical": "{\"key\\n\\\"\\\\\":\"\\b\\f\\r\\t\\u0001/한글😀  \",\"zero\":0,\"😀\":{\"a\":-9007199254740991,\"z\":9007199254740991},\"\":null}",
+        "utf8_hex": "7b226b65795c6e5c225c5c223a225c625c665c725c745c75303030312fed959ceab880f09f9880e280a8e280a9222c227a65726f223a302c22f09f9880223a7b2261223a2d393030373139393235343734303939312c227a223a393030373139393235343734303939317d2c22ee8080223a6e756c6c7d",
+        "sha256": "9986395e8eeeca798222dc52389b02b99eb9f42260e0321d6ea41fc97b8e54e7"
+      },
+      "literal": {
+        "canonical": "{\"key\n\\\"\\\\\":\"\b\f\r\t\u0001/한글😀  \",\"zero\":0,\"😀\":{\"a\":-9007199254740991,\"z\":9007199254740991},\"\":null}",
+        "utf8_hex": "7b226b65790a5c225c5c223a22080c0d09012fed959ceab880f09f9880e280a8e280a9222c227a65726f223a302c22f09f9880223a7b2261223a2d393030373139393235343734303939312c227a223a393030373139393235343734303939317d2c22ee8080223a6e756c6c7d",
+        "sha256": "d3597bb7026022ee634f716ef133111cc6518129ecf76b130de6cda3d2e184ff"
+      }
+    }
+  ],
   "raw_hash_cases": [
     {
       "body": "{\"result\":{\"a\":1.0,\"b\":2}}",

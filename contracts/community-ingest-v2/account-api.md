@@ -163,7 +163,7 @@ URL은 HTTPS만 연다. v2 ACK도 같은 client_notice를 포함한다. HTTP 426
 
 | 헤더 | 값 | 예 |
 |---|---|---|
-| `X-Client-Version` | 앱 버전, `^[0-9][0-9A-Za-z.+_-]{0,39}$` | `2.5.1`, `3.6.2` |
+| `X-Client-Version` | 앱 버전, `^v?[0-9][0-9A-Za-z.+_-]{0,39}$`(계약 버전 규칙처럼 앞의 `v` 하나 허용, 앱은 붙이지 않는다) | `2.5.1`, `3.6.2` |
 | `X-Client-App` | `<app>/<platform>`, app = `pc`·`mobile`, platform = `windows`·`linux`·`macos`·`docker`·`android`·`ios`·`other` | `mobile/android`, `pc/docker` |
 
 서버는 인증·rate limit 을 통과한 요청에서만, 두 값이 형식에 맞을 때만 `private.community_client_seen`(사용자·앱·플랫폼별 1행, 같은 버전은
@@ -197,5 +197,10 @@ URL은 HTTPS만 연다. v2 ACK도 같은 client_notice를 포함한다. HTTP 426
 - `client_requirement`: 지금 **적용 중인** 필수 버전(적용 시작 전이면 `null`). 모양은 지도 `contracts/community-ingest-v2/client-requirement.schema.json`,
   버전 비교는 `version-vectors.json`. 플랫폼 값 null = 그 플랫폼 요구 없음.
 - **키가 없으면** 서버가 설정을 읽지 못한 것이다: 앱은 마지막으로 받은 판정을 유지한다(잠그지도 풀지도 않는다). 키가 있고 값이 null 이면 요구 없음(즉시 해제).
+- 요구 버전은 계약 규칙(`[v]N…`)대로 앞의 `v` 를 받는다. 운영 콘솔 저장(`ops.set_client_requirement`)은 `v`·`V` 를 떼고 저장한다(2026-10-22.2).
+- **필수 버전이 적용 중이면 최상위 `client_notice` 도 서버가 맞춘다**(구버전 앱의 426 반복 방지): 저장된 notice 가 없거나 요구가 있는 플랫폼의
+  notice `min_version` 이 요구보다 낮으면(비었거나 해석 불가 포함) `{"level":"required","message":<요구 message 또는 기본 문구>,
+  "min_version":<요구 버전, 저장 notice 가 더 높으면 그 값>,"url":<요구 url → 저장 url → 기본 링크>,"deadline":null}` 이다. v2 ACK 의 `client_notice` 도 같다.
+  정본 규칙: CLIENT-RULES 6-4.
   `ingest.paused` 키가 없을 때도 같다(마지막 판정 유지).
 - 이 값들은 업로드 수신(지도 `community-ingest`)과 같은 설정 RPC(`internal_community_ingest_capabilities`)를 읽는다.

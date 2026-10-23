@@ -416,6 +416,78 @@
       "name": "body over 4096 bytes (valid JSON padded with spaces) is refused before parsing",
       "raw_body": "{\"protocol\": 1, \"contract\": \"community-progress-v1\", \"connection_id\": \"20000000-0000-4000-8000-000000000001\", \"source_app\": \"safetyreport\", \"platform\": \"windows\", \"client_version\": \"3.6.2\", \"parser_version\": \"pc-parser-13\", \"backfill\": {\"state\": \"uploading\", \"phase\": \"upload\", \"reason\": null, \"next_attempt_at\": null, \"total\": 3143, \"stored\": 1200, \"queued\": 40, \"pending\": 1903, \"holds\": 0, \"stale_holds\": 0, \"raw_unavailable\": 2, \"not_eligible\": 0, \"run_started_at\": \"2026-10-22T01:00:00Z\", \"updated_at\": \"2026-10-22T03:10:00Z\"}, \"optimize\": {\"required\": false, \"running\": false, \"holds_only\": false}, \"official_login\": \"ok\", \"pace\": null                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      }",
       "expect": "payload_too_large"
+    },
+    {
+      "name": "client version with a leading v (contract [v]N, D9)",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "v3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "uploading",
+          "phase": "upload",
+          "reason": null,
+          "next_attempt_at": null,
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": 0,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T03:10:00Z"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": null
+      },
+      "expect": "ok"
+    },
+    {
+      "name": "client version with an upper-case V is not the contract",
+      "body": {
+        "protocol": 1,
+        "contract": "community-progress-v1",
+        "connection_id": "20000000-0000-4000-8000-000000000001",
+        "source_app": "safetyreport",
+        "platform": "windows",
+        "client_version": "V3.6.2",
+        "parser_version": "pc-parser-13",
+        "backfill": {
+          "state": "uploading",
+          "phase": "upload",
+          "reason": null,
+          "next_attempt_at": null,
+          "total": 3143,
+          "stored": 1200,
+          "queued": 40,
+          "pending": 1903,
+          "holds": 0,
+          "stale_holds": 0,
+          "raw_unavailable": 2,
+          "not_eligible": 0,
+          "run_started_at": "2026-10-22T01:00:00Z",
+          "updated_at": "2026-10-22T03:10:00Z"
+        },
+        "optimize": {
+          "required": false,
+          "running": false,
+          "holds_only": false
+        },
+        "official_login": "ok",
+        "pace": null
+      },
+      "expect": "schema_invalid"
     }
   ]
 }
