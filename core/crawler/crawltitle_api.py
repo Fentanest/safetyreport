@@ -7,6 +7,8 @@ fallback 경로:
 - Selenium driver의 로그인 세션을 이용한 브라우저 컨텍스트($.get) API 호출
 """
 import datetime
+import re
+import threading
 from time import sleep
 import pandas as pd
 import settings.settings as settings
@@ -19,29 +21,147 @@ from core.crawler.title_pipeline import build_title_dataframe
 
 _LIST_URL = "https://www.safetyreport.go.kr/api/v1/portal/mypage/mysafereport"
 
-def _fetch_api_page(session, start_row, end_row):
-    params = {
+# 공식 목록 API 제한(2026-10-24 실측, 응답 `request_limited`): 조회 기간 최대 1년(`list_date_range_too_large`),
+# 한 번에 최대 50건(`list_page_size_too_large`). 아래 함수들은 전체 목록의 행 번호를 받아 연도 구간·50건 단위로
+# 나눠 받은 뒤 예전 한 번 조회와 같은 모양(`result` 최신순, `totalCnt` 전체 건수)으로 이어 붙인다.
+_PAGE_LIMIT = 50
+_START_YEAR = 2014
+_INNER_DELAY = 0.2  # 한 페이지(최대 200건)를 나눠 받는 요청 사이 간격(초)
+
+
+def _list_windows(today: datetime.date | None = None, years=None) -> list[tuple[str, str]]:
+    """2014-01-01 ~ 오늘을 달력 연도 구간으로 나눈다(최신 연도 먼저 — 사이트의 최신순과 같은 이어 붙임 순서).
+
+    years 를 주면 그 연도 구간만 남긴다(DB 에 없는 신고번호를 찾을 때)."""
+    today = today or datetime.date.today()
+    return [
+        (f"{y}-01-01", today.isoformat() if y == today.year else f"{y}-12-31")
+        for y in range(today.year, _START_YEAR - 1, -1)
+        if years is None or y in years
+    ]
+
+
+_REPORT_NUMBER = re.compile(r"^(?:SPP-)?(\d{2})(\d{2})-\d+$")
+
+
+def report_number_years(numbers) -> set[int] | None:
+    """신고번호(`SPP-YYMM-…`, 접두어 없이도)들의 접수 연도. 번호의 YY 는 신고일 연도와 같다(2026-10-24 실측 3,162건 전부).
+
+    12월·1월 번호는 연말·연초 경계를 대비해 이웃 연도도 넣는다. 하나라도 형식이 아니면 None — 호출자는 목록 전체를 받는다."""
+    years: set[int] = set()
+    for number in numbers:
+        m = _REPORT_NUMBER.match(str(number).strip().upper())
+        if not m or not 1 <= int(m.group(2)) <= 12:
+            return None
+        year, month = 2000 + int(m.group(1)), int(m.group(2))
+        years.add(year)
+        if month == 12:
+            years.add(year + 1)
+        if month == 1:
+            years.add(year - 1)
+    return years or None
+
+
+def _payload_problem(payload) -> bool:
+    if not isinstance(payload, dict) or "error" in payload or not isinstance(payload.get("result"), list):
+        return True
+    total = payload.get("totalCnt")
+    return isinstance(total, bool) or not isinstance(total, int) or total < 0
+
+
+class _WindowedList:
+    """구간별 전체 건수를 한 번 읽어 두고, 전체 행 번호를 (구간, 구간 안 행 번호)로 나눠 받는다."""
+
+    def __init__(self, today: datetime.date | None = None, years=None):
+        self.windows = _list_windows(today, years)
+        self.totals: list[int] | None = None
+
+    def page(self, fetch_window, start_row: int, end_row: int):
+        requests = 0
+
+        def fetch(window, a, b):
+            nonlocal requests
+            if requests and _INNER_DELAY:
+                sleep(_INNER_DELAY)
+            requests += 1
+            return fetch_window(window, a, b)
+
+        if self.totals is None:
+            totals = []
+            for window in self.windows:
+                payload = fetch(window, 1, 1)
+                if _payload_problem(payload):
+                    return payload if isinstance(payload, dict) else {"error": "invalid payload"}
+                totals.append(payload["totalCnt"])
+            self.totals = totals
+        rows: list = []
+        offset = 0
+        for i, window in enumerate(self.windows):
+            total = self.totals[i]
+            a, hi = max(start_row, offset + 1), min(end_row, offset + total)
+            while a <= hi:
+                b = min(a + _PAGE_LIMIT - 1, hi)
+                payload = fetch(window, a - offset, b - offset)
+                if _payload_problem(payload):
+                    return payload if isinstance(payload, dict) else {"error": "invalid payload"}
+                if payload["totalCnt"] != total:
+                    # 받는 사이 그 연도의 건수가 바뀌었다 — 바뀐 전체 건수를 돌려줘 호출부의 페이지 검증이 실패로 잡게 한다.
+                    changed = sum(self.totals) - total + payload["totalCnt"]
+                    self.totals = None
+                    return {"result": rows + list(payload["result"]), "totalCnt": changed}
+                rows.extend(payload["result"])
+                a = b + 1
+            offset += total
+        return {"result": rows, "totalCnt": offset}
+
+
+def _window_params(window, start_row, end_row) -> dict:
+    return {
         "startRowNum": start_row,
         "endRowNum": end_row,
-        "C_FRM_DATE": "2014-01-01",
-        "C_TO_DATE": datetime.datetime.now().strftime("%Y-%m-%d"),
+        "C_FRM_DATE": window[0],
+        "C_TO_DATE": window[1],
         "state": "",
         "seachType": "tit",
         "C_RELATION2": 1,
         "searchKeyWord": "",
     }
-    payload, session = get_authorized_json(session, _LIST_URL, params=params, timeout=20)
-    return payload, session
 
 
-def _fetch_api_page_via_browser(driver, start_row, end_row):
-    script = f"""
+# 서버 프로세스 안의 1회 전송 목록 확인(스레드)과 다른 수집이 겹쳐도 구간 건수를 서로 덮어쓰지 않게 스레드마다 둔다.
+_listing_state = threading.local()
+
+
+def _listing(kind: str, start_row: int, years=None) -> _WindowedList:
+    """크롤 한 번은 항상 1행부터 시작한다 — 그때 구간 건수를 새로 읽는다."""
+    listing = getattr(_listing_state, kind, None)
+    if start_row == 1 or listing is None or listing.windows != _list_windows(years=years):
+        listing = _WindowedList(years=years)
+        setattr(_listing_state, kind, listing)
+    return listing
+
+
+def _fetch_api_page(session, start_row, end_row, years=None):
+    holder = {"session": session}
+
+    def fetch_window(window, a, b):
+        payload, holder["session"] = get_authorized_json(
+            holder["session"], _LIST_URL, params=_window_params(window, a, b), timeout=20)
+        return payload
+
+    payload = _listing("direct", start_row, years).page(fetch_window, start_row, end_row)
+    return payload, holder["session"]
+
+
+def _fetch_api_page_via_browser(driver, start_row, end_row, years=None):
+    def fetch_window(window, a, b):
+        script = f"""
     var callback = arguments[arguments.length - 1];
     $.get('/api/v1/portal/mypage/mysafereport', {{
-        startRowNum: {start_row},
-        endRowNum: {end_row},
-        C_FRM_DATE: '2014-01-01',
-        C_TO_DATE: '{datetime.datetime.now().strftime("%Y-%m-%d")}',
+        startRowNum: {a},
+        endRowNum: {b},
+        C_FRM_DATE: '{window[0]}',
+        C_TO_DATE: '{window[1]}',
         state: '',
         seachType: 'tit',
         C_RELATION2: 1,
@@ -52,12 +172,15 @@ def _fetch_api_page_via_browser(driver, start_row, end_row):
         callback({{error: textStatus + ' ' + errorThrown, result: []}});
     }});
     """
-    return driver.execute_async_script(script)
+        return driver.execute_async_script(script)
+
+    return _listing("browser", start_row, years).page(fetch_window, start_row, end_row)
 
 
 def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, progress: dict | None = None,
-                 session_override=None, stopped=None):
+                 session_override=None, stopped=None, years=None):
     """반환은 그대로 ([df...], 마지막 페이지). progress dict 를 주면 수집 경과를 채운다.
+    years 를 주면 그 연도 목록만 받는다(전체·페이지·list_ok 도 그 연도 기준).
 
     progress 키: total(총 건수·첫 페이지 실패면 None), pages_expected(받을 페이지 번호 목록),
     pages_ok(성공 페이지), pages_failed(실패·잘린 페이지), first_error, list_ok(전 페이지 성공).
@@ -70,7 +193,10 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, p
     if browser_fallback:
         logger.LoggerFactory.logbot.info("API 방식으로 목록 데이터를 호출합니다. (Selenium 브라우저 fallback)")
         ensure_browser_context(driver)
-        fetch_page = lambda start_row, end_row: _fetch_api_page_via_browser(driver, start_row, end_row)
+        if years is None:
+            fetch_page = lambda start_row, end_row: _fetch_api_page_via_browser(driver, start_row, end_row)
+        else:
+            fetch_page = lambda start_row, end_row: _fetch_api_page_via_browser(driver, start_row, end_row, years)
     else:
         logger.LoggerFactory.logbot.info("API 방식으로 목록 데이터를 호출합니다. (direct_login 세션)")
         session = session_override
@@ -78,7 +204,10 @@ def crawl_titles(driver=None, page_range=None, browser_fallback: bool = False, p
             session, _ = direct_login.make_authorized_session()
         def fetch_page(start_row, end_row):
             nonlocal session
-            payload, session = _fetch_api_page(session, start_row, end_row)
+            if years is None:
+                payload, session = _fetch_api_page(session, start_row, end_row)
+            else:
+                payload, session = _fetch_api_page(session, start_row, end_row, years)
             return payload
 
     all_title_dfs = []

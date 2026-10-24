@@ -426,12 +426,15 @@ def _resolve_queue_targets(driver, engine, options: CrawlOptions, api_browser_fa
         q_items = f.readlines()
     detaillist, missing_rnums = extract_ids_from_queue(engine, q_items, id_to_items)
 
-    # DB에 없는 신고번호가 있으면 목록 전체를 **한 번** 받아 찾는다(첫 페이지 1회 + 각 페이지 1회, 감사 R7-04).
-    # '없음'·'모호함'은 목록 전 페이지를 성공적으로 받았을 때(list_ok)만 확정한다(R6-01·R7-01) — 호출 실패·잘린 페이지면
+    # DB에 없는 신고번호가 있으면 그 번호들의 접수 연도 목록만 **한 번** 받아 찾는다(번호 `SPP-YYMM-…` 의 YY = 신고일 연도,
+    # 2026-10-24 공식 목록 1년 제한 이후). 연도를 알 수 없는 번호(부분 번호 등)가 하나라도 있으면 목록 전체를 받는다(감사 R7-04).
+    # '없음'·'모호함'은 받은 목록 전 페이지를 성공적으로 받았을 때(list_ok)만 확정한다(R6-01·R7-01) — 호출 실패·잘린 페이지면
     # 확정하지 않고 큐에 남겨 다음에 다시 찾는다.
     if missing_rnums:
+        years = crawltitle_api.report_number_years(missing_rnums)
+        scope = "목록 전체" if years is None else "·".join(str(y) for y in sorted(years)) + "년 목록"
         logger.LoggerFactory.logbot.info(
-            f"미확인 신고번호 {len(missing_rnums)}건을 목록 전체에서 찾습니다."
+            f"미확인 신고번호 {len(missing_rnums)}건을 {scope}에서 찾습니다."
         )
         progress = {}
         try:
@@ -439,6 +442,7 @@ def _resolve_queue_targets(driver, engine, options: CrawlOptions, api_browser_fa
                 driver=driver,
                 browser_fallback=api_browser_fallback,
                 progress=progress,
+                **({} if years is None else {"years": years}),
             )
         except Exception as e:
             logger.LoggerFactory.logbot.warning(f"목록 탐색 실패: {e}")

@@ -210,7 +210,15 @@ main()
 
 <!-- legacy CLAUDE.md 584-594 -->
 ### API 기반 크롤러 (crawltitle_api)
-`page_size=200` 으로 수천 건을 수 초 내 스캔. Selenium DOM 파싱 대비 ~10배 속도 향상.
+
+**2026-10-24 공식 목록 제한**(실측, 응답 `400 {"error":"request_limited","reason":…}`): 조회 기간 최대 1년(`list_date_range_too_large`),
+한 번에 최대 50건(`list_page_size_too_large`). `_fetch_api_page`(브라우저 대체도 같음)는 전체 목록 행 번호를 받아 2014년~올해 달력 연도 구간
+(최신 연도 먼저)·50건 단위로 나눠 받아 이어 붙인다(`_WindowedList`). 크롤은 1행부터 시작할 때 구간 건수를 새로 읽고, 받는 사이 건수가 바뀌면
+바뀐 `totalCnt`를 돌려 페이지 검증이 실패(list_ok=False)로 잡는다. 실측(3,162건): 연도 구간 합 = 전체, DB ID와 정확히 일치.
+큐의 신고번호가 DB에 없으면 번호 `SPP-YYMM-…`의 연도(12월·1월은 이웃 연도 포함)만 `crawl_titles(years=…)`로 받는다. 연도를 모르는 번호가
+하나라도 있으면 목록 전체.
+
+`page_size=200`(호출부 페이지 단위 — 2026-10-24부터 실제 요청은 50건씩)으로 수천 건을 스캔. Selenium DOM 파싱 대비 ~10배 속도 향상.
 
 ### 별점 2단계 API
 1. GET으로 이미 참여 완료 여부 확인 → 완료건 스킵

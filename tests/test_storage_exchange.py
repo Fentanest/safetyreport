@@ -917,8 +917,9 @@ class ExchangeRestoreTests(unittest.TestCase):
         def __init__(self, entries, fail_at=None, error_at=None):
             self.entries, self.fail_at, self.error_at, self.calls = list(entries), fail_at, error_at, 0
 
-        def fetch(self, session, start_row, end_row):
+        def fetch(self, session, start_row, end_row, years=None):
             self.calls += 1
+            self.years = years  # 연도 한정 탐색(번호 YYMM) — 가짜 목록은 모든 항목이 2026년이다
             if self.fail_at == start_row:
                 raise ConnectionError("network down")
             if self.error_at == start_row:
