@@ -83,7 +83,8 @@ def crawl_details(driver=None, report_ids=None, browser_fallback: bool = False, 
             return payload
         satisfaction_client = session
 
-    for link in report_ids:
+    report_ids = list(report_ids)
+    for index, link in enumerate(report_ids):
         logger.LoggerFactory.logbot.debug(f"[API] Fetching details for ID: {link}")
 
         try:
@@ -98,6 +99,15 @@ def crawl_details(driver=None, report_ids=None, browser_fallback: bool = False, 
             logger.LoggerFactory.logbot.error(f"Error fetching JSON API for {link}: {note}")
             if status_sink is not None:
                 status_sink[link] = (classify_fetch_error(note), note)
+            if note.startswith("HTTP 429"):
+                # 기다려도 요청 제한이 풀리지 않았다 — 남은 신고를 계속 두드리지 않고 다음 실행으로 넘긴다.
+                rest = report_ids[index + 1:]
+                logger.LoggerFactory.logbot.warning(
+                    f"[API] 안전신문고 요청 제한이 계속되어 상세 수집을 멈춥니다. 남은 {len(rest)}건은 다음에 다시 받습니다.")
+                if status_sink is not None:
+                    for rid in rest:
+                        status_sink[rid] = ("retryable", "HTTP 429")
+                return
             continue
 
         try:
@@ -115,7 +125,7 @@ def crawl_details(driver=None, report_ids=None, browser_fallback: bool = False, 
             )
             if status_sink is not None:
                 status_sink[link] = ("ok", "")
-            sleep(0.3)
+            # 요청 간격은 api_client 의 공식 요청 관문이 지킨다(429 실측 기반 자동 조절).
 
         except Exception as e:
             logger.LoggerFactory.logbot.error(f"Error processing link {link} via API: {e}")

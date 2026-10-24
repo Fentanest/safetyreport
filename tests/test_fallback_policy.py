@@ -22,7 +22,8 @@ SCAN_ROOTS = ("main.py", "start.py", "core", "services", "web", "settings")
 #       retry(다음 실행에서 다시 시도) / optional(부가 정보 보강) / explicit(오류를 호출자에게 값으로 돌려줌)
 #       logging(진단 경로 자체)
 SILENT_ALLOWED = {
-    "core/crawler/api_client.py::get_authorized_json": ("explicit", 3),
+    "core/crawler/api_client.py::_get_authorized_once": ("explicit", 3),
+    "core/crawler/api_client.py::_limit_reason": ("parse", 1),
     "core/crawler/crawltitle_api.py::crawl_titles": ("cleanup", 1),
     "core/crawler/direct_login.py::load_token": ("retry", 1),
     "core/crawler/driv.py::create_driver": ("cleanup", 1),

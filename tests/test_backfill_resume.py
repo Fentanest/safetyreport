@@ -484,6 +484,11 @@ class UploaderPauseLockTests(unittest.TestCase):
 # ── 2-10 필수 버전 잠금 ─────────────────────────────────────────────────────────
 
 class VersionLockTests(_StoreCase):
+    def setUp(self):
+        super().setUp()
+        # 잠금 판정은 "지금 앱 버전 < 필수 버전"을 본다. 실제 VERSION 파일(출시마다 바뀜)이 아니라 고정 버전으로 본다.
+        p = mock.patch('services.community_update_lock.app_version', return_value='3.6.1'); p.start(); self.addCleanup(p.stop)
+
     def test_version_vectors(self):
         cases = json.loads((ROOT / 'contracts/community-ingest-v2/version-vectors.json').read_text())['cases']
         for case in cases:
@@ -583,6 +588,8 @@ class LockWebTests(unittest.TestCase):
         database.delete_api_key(cls.engine, cls.key)
 
     def setUp(self):
+        # 저장된 필수 버전 3.6.2 보다 낮은 앱으로 본다(실제 VERSION 파일과 무관하게).
+        p = mock.patch('services.community_update_lock.app_version', return_value='3.6.1'); p.start(); self.addCleanup(p.stop)
         self.client = self.TestClient(self.main.app);self.addCleanup(self.client.close)
         self.store = CommunityStore.open()
         lock.forget_cache()
