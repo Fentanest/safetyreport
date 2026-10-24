@@ -40,7 +40,7 @@
 ```
 /
 ├── .github/workflows/
-│   ├── build.yml                  # push(main): Docker dev 태그만 푸시 / workflow_dispatch(main): 정식 릴리즈(4개 OS 빌드+Release)
+│   ├── build.yml                  # workflow_dispatch(main) 전용: 정식 릴리즈(4개 OS 빌드+Release). dev 이미지는 docker-dev.yml(수동)
 │   ├── build-windows-manual.yml   # Windows 수동 테스트 빌드 (artifact only)
 │   ├── build-linux-manual.yml     # Linux 수동 테스트 빌드 (artifact only)
 │   ├── build-macos-x64-manual.yml # macOS x64 수동 테스트 빌드 (artifact only)
@@ -209,10 +209,9 @@
   - 웹 페이지에는 별도 토글을 두지 않고 설정 페이지에서만 바꾼다.
   - 내부적으로 `dedupe=canonical|raw` 쿼리 파라미터가 명시되면 그 값은 여전히 우선 적용된다.
 - 빌드 계층은 `scripts/build/build_exe.py`와 `.github/workflows/*.yml`이 담당한다.
-  - `build.yml` (2026-10-13 재구성 — push/dispatch 경로 분리, job `if:` 로 나눔):
-    - **push(main)**: `build-docker-dev` job만 돈다. Docker 이미지를 두 레지스트리(ghcr, Docker Hub)에
-      `dev`·`dev-<짧은sha>` 태그로만 푸시한다. `latest`·버전 태그는 붙이지 않는다. 실행 파일(Windows/Linux/macOS x64·arm64)은
-      빌드하지 않는다. 태그·GitHub Release 없음.
+  - `build.yml` (2026-10-13 재구성, 2026-10-24 push 트리거 제거):
+    - **push(main)**: 2026-10-24부터 아무것도 돌지 않는다(사용자 결정). 예전 `build-docker-dev` job(dev 이미지 자동 빌드)은 없앴고,
+      dev 이미지는 `docker-dev.yml` 을 수동 실행한다.
     - **workflow_dispatch(main) = 정식 릴리즈**: `prepare-release`(태그 존재 검사 포함)부터 `build-windows`/`build-linux`/
       `build-docker`(`latest`+버전 태그)/`build-macos-x64`/`build-macos-arm64`/`create-release` 까지 이전과 동일하게 돈다.
       계산된 태그의 `docs/releases/v<버전>.md` 내용 그대로 GitHub Release 본문이 된다(`Full Changelog` 포함, 자동 생성
@@ -220,8 +219,7 @@
       노트 파일이 없거나 비어 있으면 `::error::`로 경로를 안내하며 실패한다 — 실행파일·Docker `latest`/버전 이미지를 만들기 전이다
       (예전에는 `create-release` 에서만 확인해 이미지가 이미 푸시된 반쪽 릴리스가 될 수 있었다). `create-release` 는 softprops 에
       `target_commitish: github.sha` 를 넘겨 태그를 빌드한 커밋에 만든다. 기존 태그가
-      있으면 `prepare-release` 이후 전부 건너뛴다(이 태그 존재 검사는 릴리스 경로에만 있다 — push 의 `build-docker-dev` 는
-      매번 실행된다). artifact(실행파일 zip) 보관 1일.
+      있으면 `prepare-release` 이후 전부 건너뛴다. artifact(실행파일 zip) 보관 1일.
   - `build-windows-manual.yml`: 태그 체크 없이 수동으로 Windows 아티팩트 생성
   - `build-linux-manual.yml`: 태그 체크 없이 수동으로 Linux 아티팩트 생성
   - `build-macos-x64-manual.yml`: 태그 체크 없이 수동으로 macOS x64 아티팩트 생성

@@ -1,17 +1,13 @@
 name: Build & Release
 
+# 2026-10-24 사용자 결정: main push 로 dev 이미지를 자동 빌드하지 않는다. dev 이미지는 `docker-dev.yml` 을 수동 실행한다.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
   # ────────────────────────────────────────────────────────────────
   # 0. 릴리즈 메타데이터 준비 — 정식 릴리즈(workflow_dispatch, main 에서만 — 다른 브랜치면 실패)에서만.
   #    릴리스 노트(docs/releases/v<버전>.md) 확인도 여기서 한다(어떤 빌드·이미지 푸시보다 먼저).
-  #    push(main)는 이 job 을 건너뛰므로, 아래로 이어지는 실행파일 빌드·Docker latest/버전 태그·
-  #    태그 존재 검사·GitHub Release 생성(create-release)도 전부 건너뛴다(needs 체인으로 전파).
   # ────────────────────────────────────────────────────────────────
   prepare-release:
     if: github.event_name == 'workflow_dispatch'
@@ -85,74 +81,6 @@ jobs:
           echo "::error::릴리스 노트 파일이 없거나 비어 있습니다: $notes_file"
           exit 1
         fi
-
-  # ────────────────────────────────────────────────────────────────
-  # 0.5. push(main) 전용: Docker 이미지만 `dev`/`dev-<짧은sha>` 태그로 푸시한다.
-  #      실행 파일은 빌드하지 않는다. `latest`·버전 태그는 절대 붙이지 않는다.
-  #      태그·GitHub Release 없음 — 매 main push 마다 실행되는 가벼운 dev 이미지 갱신이다.
-  # ────────────────────────────────────────────────────────────────
-  build-docker-dev:
-    if: github.event_name == 'push'
-    runs-on: [self-hosted, Linux, X64, 234]
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-    - name: Fix workspace permissions
-      run: sudo chown -R $(id -u):$(id -g) . || true
-
-    - name: Checkout repository
-      uses: actions/checkout@v6
-      with:
-        fetch-depth: 0
-
-    - name: Set lowercase image name and short SHA
-      run: |
-        echo "IMAGE_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
-        echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v4
-      with:
-        driver: docker-container
-        use: true
-
-    - name: Log in to GitHub Container Registry (GHCR)
-      uses: docker/login-action@v4
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v4
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-    - name: Build and push Docker image (amd64 + arm64) — dev tag only
-      uses: docker/build-push-action@v7
-      env:
-        DOCKER_BUILD_RECORD_RETENTION_DAYS: '1'
-      with:
-        context: .
-        platforms: linux/amd64,linux/arm64
-        push: true
-        # 공개 커뮤니티 설정(저장소 Variables, 비밀 아님)을 이미지의 /app/community_public.json 으로 굽는다. 없으면 빌드가 멈춘다.
-        build-args: |
-          COMMUNITY_SUPABASE_URL=${{ vars.LOCAL_SUPABASE_URL }}
-          COMMUNITY_SUPABASE_PUBLISHABLE_KEY=${{ vars.LOCAL_SUPABASE_PUBLISHABLE_KEY }}
-          COMMUNITY_SITE_URL=${{ vars.COMMUNITY_SITE_URL }}
-          COMMUNITY_CONFIG_REQUIRED=1
-        tags: |
-          ghcr.io/${{ env.IMAGE_REPO }}:dev
-          ghcr.io/${{ env.IMAGE_REPO }}:dev-${{ env.SHORT_SHA }}
-          fentanest/safetyreport:dev
-          fentanest/safetyreport:dev-${{ env.SHORT_SHA }}
-        labels: |
-          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          org.opencontainers.image.revision=${{ github.sha }}
 
   # ────────────────────────────────────────────────────────────────
   # 1. Windows 실행 파일 빌드 (Git-Windows 셀프호스트 러너) — 정식 릴리즈(workflow_dispatch)에서만
@@ -322,7 +250,7 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────
   # 3. Docker 멀티아키 이미지 빌드 — 정식 릴리즈(workflow_dispatch)에서만. `latest`+버전 태그.
-  #    push(main) 용 `dev` 태그 푸시는 위 build-docker-dev 가 별도로 맡는다(이 job 과 섞지 않음).
+  #    `dev` 태그 이미지는 `docker-dev.yml`(수동)이 맡는다(이 job 과 섞지 않음).
   # ────────────────────────────────────────────────────────────────
   build-docker:
     needs: prepare-release
@@ -654,8 +582,7 @@ jobs:
         retention-days: 1
 
   # ────────────────────────────────────────────────────────────────
-  # 5. 공통 릴리즈 생성 — 정식 릴리즈(workflow_dispatch)에서만. 태그 존재 검사(prepare-release)는
-  #    이 릴리스 경로에만 적용되고, push(main)의 build-docker-dev 는 매번 실행된다.
+  # 5. 공통 릴리즈 생성 — 정식 릴리즈(workflow_dispatch)에서만. 태그가 이미 있으면 건너뛴다(prepare-release).
   # ────────────────────────────────────────────────────────────────
   create-release:
     needs: [prepare-release, build-windows, build-linux, build-macos-x64, build-macos-arm64]
